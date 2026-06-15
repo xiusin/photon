@@ -28,8 +28,7 @@ fn test_pool_stats_empty() {
 	assert stats.total == 0
 	assert stats.active == 0
 	assert stats.idle == 0
-	assert stats.max_size == 10
-	assert stats.min_size == 2
+	assert stats.max == 10
 }
 
 // ============================================================
@@ -195,17 +194,13 @@ fn test_pool_stats_struct() {
 		total: 10
 		active: 3
 		idle: 7
-		max_size: 20
-		min_size: 2
-		wait_count: 0
+		max: 20
 	}
 	assert ps.name == 'db-pool'
 	assert ps.total == 10
 	assert ps.active == 3
 	assert ps.idle == 7
-	assert ps.max_size == 20
-	assert ps.min_size == 2
-	assert ps.wait_count == 0
+	assert ps.max == 20
 }
 
 // ============================================================

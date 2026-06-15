@@ -35,15 +35,18 @@ fn test_bcrypt_needs_rehash() {
 
 	// Different rounds should need rehash
 	h2 := BcryptHasher{rounds: 14}
-	assert h2.needs_rehash(hash)
+	assert h2.needs_rehash(hash) == true
 }
 
 fn test_bcrypt_different_salts() {
 	h := BcryptHasher{rounds: 10}
 	h1 := h.make('password')
 	h2 := h.make('password')
-	// Same password should produce same hash (stub is deterministic)
-	assert h1 == h2
+	// Same password produces different hashes with random salt
+	assert h1 != h2
+	// Both verify correctly
+	assert h.check('password', h1)
+	assert h.check('password', h2)
 }
 
 fn test_bcrypt_consistent_check() {
@@ -86,7 +89,12 @@ fn test_argon2_check_invalid() {
 fn test_argon2_needs_rehash() {
 	h := Argon2Hasher{time: 4, memory: 65536}
 	hash := h.make('test')
-	assert h.needs_rehash(hash) // always true in stub
+	// Same params → no rehash needed
+	assert h.needs_rehash(hash) == false
+
+	// Different params → rehash needed
+	h2 := Argon2Hasher{time: 6, memory: 131072}
+	assert h2.needs_rehash(hash) == true
 }
 
 fn test_hasher_interface_compatible() {

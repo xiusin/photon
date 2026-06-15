@@ -3,13 +3,21 @@ module queue
 // dispatcher.v - Job Dispatcher (Laravel Queue Dispatcher inspired)
 
 import time
+import sync
 
-// get_dispatcher returns the global queue singleton
+// dispatcher_mu protects singleton initialization
+const dispatcher_mu = sync.Mutex{}
+
+// get_dispatcher returns the global queue singleton (thread-safe)
 fn get_dispatcher() &QueueDispatcher {
-	if global_dispatcher == unsafe { nil } {
-		global_dispatcher = new_dispatcher(new_memory_driver())
+	unsafe {
+		dispatcher_mu.@lock()
+		defer { dispatcher_mu.unlock() }
+		if global_dispatcher == nil {
+			global_dispatcher = new_dispatcher(new_memory_driver())
+		}
+		return global_dispatcher
 	}
-	return global_dispatcher
 }
 
 __global (

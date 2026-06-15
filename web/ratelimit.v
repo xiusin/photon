@@ -3,12 +3,15 @@ module web
 // ratelimit.v - Rate Limiting (Laravel RateLimiter inspired)
 
 import time
+import sync
 
-// RateLimiter implements rate limiting with attempt tracking
+// RateLimiter implements rate limiting with attempt tracking (thread-safe)
 @[heap]
 pub struct RateLimiter {
 pub mut:
 	attempts map[string][]i64
+mut:
+	mu sync.Mutex
 }
 
 // new_rate_limiter creates a new RateLimiter
@@ -18,12 +21,16 @@ pub fn new_rate_limiter() &RateLimiter {
 
 // too_many_attempts checks if the key has exceeded the max attempts
 pub fn (mut r RateLimiter) too_many_attempts(key string, max_attempts int) bool {
+	r.mu.@lock()
+	defer { r.mu.unlock() }
 	attempts := r.attempts[key] or { return false }
 	return attempts.len >= max_attempts
 }
 
 // hit records an attempt for the given key
 pub fn (mut r RateLimiter) hit(key string) {
+	r.mu.@lock()
+	defer { r.mu.unlock() }
 	now := time.now().unix()
 	mut attempts := r.attempts[key] or { []i64{} }
 	attempts << now
@@ -57,11 +64,15 @@ pub fn (r &RateLimiter) retry_after(key string, decay_seconds i64) i64 {
 
 // clear removes rate limit data for a key
 pub fn (mut r RateLimiter) clear(key string) {
+	r.mu.@lock()
+	defer { r.mu.unlock() }
 	r.attempts.delete(key)
 }
 
 // clear_expired removes expired attempts from all keys
 pub fn (mut r RateLimiter) clear_expired(decay_seconds i64) {
+	r.mu.@lock()
+	defer { r.mu.unlock() }
 	now := time.now().unix()
 	mut keys_to_delete := []string{}
 	for key, attempts in r.attempts {

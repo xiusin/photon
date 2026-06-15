@@ -3,9 +3,10 @@ module pool
 // pool.v - Photon Connection/Object Pool Module
 //
 // Provides a generic object pool with configurable min/max size,
-// health checking, connection validation, and idle timeout.
+// health checking, connection validation, idle timeout, and thread safety.
 
 import time
+import sync
 
 // PooledObject is the trait for objects managed by the pool
 pub interface PooledObject {
@@ -13,7 +14,7 @@ pub interface PooledObject {
 	is_valid() bool
 }
 
-// Pool manages a pool of reusable objects
+// Pool manages a pool of reusable objects (thread-safe)
 pub struct Pool {
 pub mut:
 	min_size    int = 2
@@ -22,6 +23,7 @@ pub mut:
 pub:
 	name        string
 mut:
+	mu          sync.Mutex
 	objects     []PoolEntry
 	active_count int
 	wait_count  int
@@ -33,12 +35,12 @@ mut:
 struct PoolEntry {
 pub mut:
 	object      voidptr
+	in_use      bool
 	created_at  i64
 	last_used_at i64
-	in_use      bool
 }
 
-// new_pool creates a new Pool with a factory function
+// new_pool creates a new Pool
 pub fn new_pool(name string, factory fn () !voidptr) &Pool {
 	return &Pool{
 		name: name
@@ -46,7 +48,7 @@ pub fn new_pool(name string, factory fn () !voidptr) &Pool {
 	}
 }
 
-// new_pool_with_config creates a new Pool with full configuration
+// new_pool_with_config creates a Pool with custom sizes
 pub fn new_pool_with_config(name string, factory fn () !voidptr, min_size int, max_size int) &Pool {
 	return &Pool{
 		name: name
@@ -56,8 +58,10 @@ pub fn new_pool_with_config(name string, factory fn () !voidptr, min_size int, m
 	}
 }
 
-// initialize pre-creates the minimum number of connections
+// initialize pre-creates min_size objects
 pub fn (mut p Pool) initialize() ! {
+	p.mu.@lock()
+	defer { p.mu.unlock() }
 	for _ in 0 .. p.min_size {
 		obj := p.factory()!
 		p.objects << PoolEntry{
@@ -71,6 +75,9 @@ pub fn (mut p Pool) initialize() ! {
 
 // acquire gets an object from the pool
 pub fn (mut p Pool) acquire() !voidptr {
+	p.mu.@lock()
+	defer { p.mu.unlock() }
+
 	if p.closed {
 		return error('pool "${p.name}" is closed')
 	}
@@ -102,6 +109,8 @@ pub fn (mut p Pool) acquire() !voidptr {
 
 // release returns an object to the pool
 pub fn (mut p Pool) release(obj voidptr) {
+	p.mu.@lock()
+	defer { p.mu.unlock() }
 	for mut entry in p.objects {
 		if entry.object == obj {
 			entry.in_use = false
@@ -111,44 +120,41 @@ pub fn (mut p Pool) release(obj voidptr) {
 	}
 }
 
-// close closes the pool and releases all objects
+// close drains and closes all pooled objects
 pub fn (mut p Pool) close() ! {
+	p.mu.@lock()
+	defer { p.mu.unlock() }
 	p.closed = true
+	for mut entry in p.objects {
+		entry.in_use = false
+	}
 	p.objects.clear()
 	p.active_count = 0
 }
 
-// stats returns pool statistics
+// stats returns current pool statistics (snapshot)
 pub fn (p &Pool) stats() PoolStats {
-	mut idle := 0
-	mut active_count := 0
+	mut in_use_count := 0
 	for entry in p.objects {
 		if entry.in_use {
-			active_count++
-		} else {
-			idle++
+			in_use_count++
 		}
 	}
-
 	return PoolStats{
 		name: p.name
 		total: p.objects.len
-		active: active_count
-		idle: idle
-		max_size: p.max_size
-		min_size: p.min_size
-		wait_count: p.wait_count
+		active: in_use_count
+		idle: p.objects.len - in_use_count
+		max: p.max_size
 	}
 }
 
 // PoolStats holds pool statistics
 pub struct PoolStats {
 pub:
-	name       string
-	total      int
-	active     int
-	idle       int
-	max_size   int
-	min_size   int
-	wait_count int
+	name   string
+	total  int
+	active int
+	idle   int
+	max    int
 }
