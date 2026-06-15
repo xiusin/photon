@@ -295,15 +295,11 @@ pub fn (c &Collection[T]) to_json() string {
 	if c.items.len == 0 {
 		return '[]'
 	}
-	mut result := '['
-	for i, item in c.items {
-		if i > 0 {
-			result += ','
-		}
-		result += '${item}'
+	mut parts := []string{cap: c.items.len}
+	for item in c.items {
+		parts << '${item}'
 	}
-	result += ']'
-	return result
+	return '[' + parts.join(',') + ']'
 }
 
 // join joins items with a separator

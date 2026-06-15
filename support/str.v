@@ -144,16 +144,19 @@ pub fn words(s string, n int) string {
 }
 
 // contains checks if haystack contains needle (case-sensitive)
+@[inline]
 pub fn contains(haystack string, needle string) bool {
 	return haystack.contains(needle)
 }
 
 // starts_with checks if s starts with prefix
+@[inline]
 pub fn starts_with(s string, prefix string) bool {
 	return s.starts_with(prefix)
 }
 
 // ends_with checks if s ends with suffix
+@[inline]
 pub fn ends_with(s string, suffix string) bool {
 	return s.ends_with(suffix)
 }
@@ -247,11 +250,13 @@ pub fn is_json(s string) bool {
 }
 
 // lower converts to lowercase
+@[inline]
 pub fn lower(s string) string {
 	return s.to_lower()
 }
 
 // upper converts to uppercase
+@[inline]
 pub fn upper(s string) string {
 	return s.to_upper()
 }
