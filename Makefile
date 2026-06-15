@@ -40,7 +40,10 @@ help:
 	@echo "  make test      - Run ORM test files (fast smoke test)"
 	@echo "  make test-all  - Run all module tests"
 	@echo "  make check     - Typecheck all modules + example"
-	@echo "  make clean     - Remove build artifacts"
+	@echo "  make service       - Build production binary for systemd deployment"
+	@echo "  make install-service - Build and install as systemd service (sudo)"
+	@echo "  make uninstall-service - Remove from systemd"
+	@echo "  make clean         - Remove build artifacts"
 
 build:
 	@mkdir -p $(ROOT_PREFIX)bin
@@ -83,3 +86,39 @@ check:
 clean:
 	rm -rf $(ROOT_PREFIX)bin/
 	@echo "Cleaned build artifacts."
+
+# ── Linux Service Deployment ──
+
+SERVICE_NAME := photon
+SERVICE_FILE := $(ROOT_PREFIX)systemd/$(SERVICE_NAME).service
+INSTALL_DIR  := /opt/photon
+SYSTEMD_DIR  := /etc/systemd/system
+
+# Build a production binary suitable for systemd deployment
+service:
+	@echo "Building production binary..."
+	v $(VFLAGS) -prod -o $(ROOT_PREFIX)bin/$(SERVICE_NAME) $(EXAMPLE)
+	@echo "Binary: $(ROOT_PREFIX)bin/$(SERVICE_NAME)"
+
+# Install as a systemd service (requires root)
+install-service: service
+	@echo "Installing Photon service..."
+	@mkdir -p $(INSTALL_DIR)/data $(INSTALL_DIR)/logs
+	cp $(ROOT_PREFIX)bin/$(SERVICE_NAME) $(INSTALL_DIR)/app
+	cp $(SERVICE_FILE) $(SYSTEMD_DIR)/$(SERVICE_NAME).service
+	chmod +x $(INSTALL_DIR)/app
+	systemctl daemon-reload
+	@echo ""
+	@echo "Service installed. Commands:"
+	@echo "  sudo systemctl enable $(SERVICE_NAME)   # auto-start on boot"
+	@echo "  sudo systemctl start $(SERVICE_NAME)    # start now"
+	@echo "  sudo systemctl status $(SERVICE_NAME)   # check status"
+	@echo "  sudo journalctl -u $(SERVICE_NAME) -f   # tail logs"
+
+# Uninstall the service (requires root)
+uninstall-service:
+	-systemctl stop $(SERVICE_NAME)
+	-systemctl disable $(SERVICE_NAME)
+	rm -f $(SYSTEMD_DIR)/$(SERVICE_NAME).service
+	systemctl daemon-reload
+	@echo "Service uninstalled."
