@@ -1,0 +1,27 @@
+# Docker — ignore everything except what's needed for build
+
+# Build artifacts
+bin/
+*.exe
+*.out
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Dependencies
+node_modules/
+
+# V artifacts
+.vmodules/
+*.c
+*.h
+*.o
+
+# Tests & docs
+*_test.v
+README.md

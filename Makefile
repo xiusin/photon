@@ -43,6 +43,9 @@ help:
 	@echo "  make service       - Build production binary for systemd deployment"
 	@echo "  make install-service - Build and install as systemd service (sudo)"
 	@echo "  make uninstall-service - Remove from systemd"
+	@echo "  make docker       - Build Docker image"
+	@echo "  make docker-run   - Build and run Docker container"
+	@echo "  make docker-push  - Push to container registry"
 	@echo "  make clean         - Remove build artifacts"
 
 build:
@@ -122,3 +125,24 @@ uninstall-service:
 	rm -f $(SYSTEMD_DIR)/$(SERVICE_NAME).service
 	systemctl daemon-reload
 	@echo "Service uninstalled."
+
+# ── Docker / Container ──
+
+DOCKER_IMAGE := photon-app
+DOCKER_REGISTRY ?= ghcr.io/xiusin
+
+# Build the Docker image locally
+docker:
+	@echo "Building Docker image..."
+	docker build -t $(DOCKER_IMAGE):latest -f $(ROOT_PREFIX)Dockerfile $(ROOT_PREFIX)..
+
+# Run the Docker image locally on port 8080
+docker-run: docker
+	@echo "Running Docker container on http://localhost:8080"
+	docker run --rm -p 8080:8080 $(DOCKER_IMAGE):latest
+
+# Push the Docker image to a registry
+docker-push: docker
+	@echo "Tagging and pushing Docker image..."
+	docker tag $(DOCKER_IMAGE):latest $(DOCKER_REGISTRY)/$(DOCKER_IMAGE):latest
+	docker push $(DOCKER_REGISTRY)/$(DOCKER_IMAGE):latest
