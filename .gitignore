@@ -1,0 +1,297 @@
+# ──────────────────────────────────────────────
+# V Language
+# ──────────────────────────────────────────────
+
+# Compiled binaries — V compiles to a single executable
+# (the name defaults to the parent directory's name)
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.out
+*.o
+*.obj
+*.lib
+
+# V compiler bootstrap / generated C sources
+v.c
+v.js
+v_linux/
+v_darwin/
+v_windows/
+v.exe
+
+# V REPL history
+.v_history
+
+# V module cache (local project copy)
+.vmodules/
+
+# V test artifacts
+/vtest*
+*.vtest
+*.test
+
+# Generated C source from `v -o` or `v -prod`
+*.c
+*.h
+*.wasm
+
+# ──────────────────────────────────────────────
+# Build output
+# ──────────────────────────────────────────────
+
+# Binary output directories
+/bin/
+/build/
+/dist/
+/target/
+/output/
+/release/
+/debug/
+
+# Example / demo compiled binaries
+/example/example
+/example/photon
+/photon
+/photon.exe
+
+# V's temporary output when compiling
+/tmp/
+/_output/
+
+# ──────────────────────────────────────────────
+# IDE & Editor
+# ──────────────────────────────────────────────
+
+# VS Code
+.vscode/*.log
+.vscode/settings.json
+.vscode/tasks.json
+.vscode/launch.json
+.vscode/extensions.json
+!.vscode/
+
+# JetBrains IDEs (GoLand, IntelliJ, WebStorm, etc.)
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+.idea_modules/
+
+# Vim / Neovim
+*.swp
+*.swo
+*.swn
+*.bak
+*.un~
+Session.vim
+.nvimrc
+netrwhist
+.autosave
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+.elc
+auto-save-list/
+tramp
+.\#*
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+*.sublime.sublime-*
+
+# Atom / Pulsar
+.atom/
+.pulsar/
+.local-chromium/
+
+# Kate / KDevelop
+*.kate-swp
+.kdev4/
+
+# ──────────────────────────────────────────────
+# OS files
+# ──────────────────────────────────────────────
+
+# macOS
+.DS_Store
+.DS_Store?
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+.directory
+.dontcreate
+.fuse_hidden*
+
+# ──────────────────────────────────────────────
+# Dependencies & Package Manager
+# ──────────────────────────────────────────────
+
+# V module dependencies (user-global cache is ~/.vmodules)
+# Only include if you vendor dependencies
+vendor/
+v.mod.lock
+
+# Generic dependency directories
+node_modules/
+.venv/
+env/
+venv/
+
+# ──────────────────────────────────────────────
+# Logs, Cache & Temp
+# ──────────────────────────────────────────────
+
+# Logs
+*.log
+*.log.*
+/logs/
+/access.log
+/error.log
+
+# Runtime caches
+.cache/
+*.cache
+.tmp/
+*.tmp
+*.temp
+
+# PID files
+*.pid
+*.pid.lock
+
+# ──────────────────────────────────────────────
+# Environment & Secrets
+# ──────────────────────────────────────────────
+
+# Environment files (may contain secrets)
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+.env.test
+.env.staging
+
+# Secrets, keys, certificates
+*.key
+*.pem
+*.p12
+*.pfx
+*.cert
+*.crt
+*.keystore
+secrets/
+!test.*.key
+
+# Config files with secrets
+config/*.local.*
+config/local.*
+*.secret.*
+credentials.*
+
+# ──────────────────────────────────────────────
+# Testing & Coverage
+# ──────────────────────────────────────────────
+
+# Coverage reports
+coverage/
+coverage.*
+*.lcov
+*.gcov
+*.gcda
+*.gcno
+*.profraw
+*.profdata
+*.prof
+
+# Test fixtures (if large)
+test/fixtures/output/
+test/output/
+
+# ──────────────────────────────────────────────
+# Docker & Container
+# ──────────────────────────────────────────────
+
+# Docker outputs
+.docker/
+docker-compose.override.yml
+docker-compose.override.yaml
+*.dockerfile.bak
+
+# ──────────────────────────────────────────────
+# CI / CD
+# ──────────────────────────────────────────────
+
+# GitHub Actions (keep the workflow files, ignore local artifacts)
+.github/artifacts/
+.github/outputs/
+
+# ──────────────────────────────────────────────
+# Miscellaneous
+# ──────────────────────────────────────────────
+
+# Documentation build
+site/
+_book/
+docs/_build/
+docs/build/
+
+# Python (for any build scripts)
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+*.egg
+
+# Tags / CTags
+tags
+TAGS
+.tags
+.ctags
+
+# Grafana / Prometheus (if used as config source)
+*.rrd
+*.rrdp
+
+# V language memory profiling
+*.vprof
+*.mprof
+
+# Large binary test fixtures (keep small files only)
+test/fixtures/**/*.bin
+test/fixtures/**/*.tar.gz
+test/fixtures/**/*.zip
+test/fixtures/**/*.mp4
+test/fixtures/**/*.jpg
+!test/fixtures/**/*.min.jpg
+
+# Grunt / Gulp / Make artifacts
+.grunt/
+.gulp/
+Makefile.local
+
+# Just in case: ignore any file named "core" dump
+core
+core.*

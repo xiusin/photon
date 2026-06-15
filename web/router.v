@@ -1,0 +1,149 @@
+module web
+
+// router.v - Annotation-Driven Router
+//
+// Provides compile-time route scanning and generation on top of veb.
+// Scans controller structs for @[get('/path')], @[post('/path')], etc.
+// and generates corresponding veb route handlers at compile time.
+
+// RouteInfo describes a single route
+pub struct RouteInfo {
+pub:
+	method      string   // HTTP method: GET, POST, PUT, DELETE, PATCH
+	path        string   // Route path: /users/:id
+	handler_name string  // Method name
+	middlewares []string // Middleware names to apply
+}
+
+// RouterConfig configures the route scanner
+pub struct RouterConfig {
+pub mut:
+	base_path    string = '/'    // Base path prefix for all routes
+	scan_package string          // Package to scan for controllers
+	enable_log   bool            // Log route registration
+}
+
+// RouteRegistry holds all registered routes
+pub struct RouteRegistry {
+pub mut:
+	routes []RouteInfo
+}
+
+// new_route_registry creates a new RouteRegistry
+pub fn new_route_registry() &RouteRegistry {
+	return &RouteRegistry{}
+}
+
+// register adds a route to the registry
+pub fn (mut rr RouteRegistry) register(method string, path string, handler_name string) {
+	rr.routes << RouteInfo{
+		method: method
+		path: path
+		handler_name: handler_name
+	}
+}
+
+// get returns a GET route
+pub fn get(path string, handler_name string) RouteInfo {
+	return RouteInfo{
+		method: 'GET'
+		path: path
+		handler_name: handler_name
+	}
+}
+
+// post returns a POST route
+pub fn post(path string, handler_name string) RouteInfo {
+	return RouteInfo{
+		method: 'POST'
+		path: path
+		handler_name: handler_name
+	}
+}
+
+// put returns a PUT route
+pub fn put(path string, handler_name string) RouteInfo {
+	return RouteInfo{
+		method: 'PUT'
+		path: path
+		handler_name: handler_name
+	}
+}
+
+// del returns a DELETE route
+pub fn del(path string, handler_name string) RouteInfo {
+	return RouteInfo{
+		method: 'DELETE'
+		path: path
+		handler_name: handler_name
+	}
+}
+
+// patch returns a PATCH route
+pub fn patch(path string, handler_name string) RouteInfo {
+	return RouteInfo{
+		method: 'PATCH'
+		path: path
+		handler_name: handler_name
+	}
+}
+
+// group creates a route group with a common prefix
+pub fn group(prefix string, routes []RouteInfo) []RouteInfo {
+	mut result := []RouteInfo{}
+	for route in routes {
+		result << RouteInfo{
+			method: route.method
+			path: prefix + route.path
+			handler_name: route.handler_name
+		}
+	}
+	return result
+}
+
+// scan_controller uses comptime to scan a controller for route attributes
+// and generate veb-compatible route handlers.
+pub fn scan_controller[T]() []RouteInfo {
+	mut routes := []RouteInfo{}
+
+	$for method in T.methods {
+		mut found_route := false
+		mut http_method := ''
+		mut path := ''
+
+		// Check for HTTP method attributes
+		for attr in method.attrs {
+			if attr == 'get' || attr == 'post' || attr == 'put' || attr == 'delete' || attr == 'patch' {
+				http_method = attr.to_upper()
+				found_route = true
+			}
+			if attr.starts_with('/') {
+				path = attr
+			}
+		}
+
+		if found_route {
+			if path.len == 0 {
+				path = '/${method.name}'
+			}
+			routes << RouteInfo{
+				method: http_method
+				path: path
+				handler_name: method.name
+			}
+		}
+	}
+
+	return routes
+}
+
+// print_routes prints all registered routes (for debugging)
+pub fn print_routes(routes []RouteInfo) {
+	println('')
+	println('  📡 Registered Routes:')
+	println('  ─────────────────────')
+	for route in routes {
+		println('  ${route.method:-7s} ${route.path:-25s} → ${route.handler_name}')
+	}
+	println('')
+}

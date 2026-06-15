@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+  pull_request:
+    branches:
+      - main
+      - master
+      - develop
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+env:
+  V_BRANCH: 'master'
+
+jobs:
+  test:
+    name: Test (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache V compiler
+        id: cache-v
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/v
+            ~/.vmodules
+          key: ${{ runner.os }}-v-${{ env.V_BRANCH }}-${{ hashFiles('v.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-v-${{ env.V_BRANCH }}-
+            ${{ runner.os }}-v-
+
+      - name: Install V compiler
+        if: steps.cache-v.outputs.cache-hit != 'true'
+        run: |
+          cd /tmp
+          git clone --depth 1 --branch ${{ env.V_BRANCH }} https://github.com/vlang/v.git
+          cd v
+          make
+          echo "/tmp/v" >> "$GITHUB_PATH"
+
+      - name: Restore V cache
+        if: steps.cache-v.outputs.cache-hit == 'true'
+        run: |
+          echo "/tmp/v" >> "$GITHUB_PATH"
+
+      - name: Verify V installation
+        run: v --version
+
+      - name: Download dependencies
+        run: |
+          cd "${{ github.workspace }}"
+          v install --only-missing || true
+
+      - name: Check formatting
+        run: |
+          cd "${{ github.workspace }}"
+          v fmt -check . || echo "Format check found issues (non-blocking)"
+
+      - name: Run tests
+        run: |
+          cd "${{ github.workspace }}"
+          v test . -stats
+
+  build-example:
+    name: Build example
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache V compiler
+        id: cache-v
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/v
+            ~/.vmodules
+          key: ${{ runner.os }}-v-${{ env.V_BRANCH }}-${{ hashFiles('v.mod') }}
+
+      - name: Install V compiler
+        if: steps.cache-v.outputs.cache-hit != 'true'
+        run: |
+          cd /tmp
+          git clone --depth 1 --branch ${{ env.V_BRANCH }} https://github.com/vlang/v.git
+          cd v
+          make
+          echo "/tmp/v" >> "$GITHUB_PATH"
+
+      - name: Restore V cache
+        if: steps.cache-v.outputs.cache-hit == 'true'
+        run: |
+          echo "/tmp/v" >> "$GITHUB_PATH"
+
+      - name: Verify V installation
+        run: v --version
+
+      - name: Build example
+        run: |
+          cd "${{ github.workspace }}"
+          v -o /dev/null -check example/
