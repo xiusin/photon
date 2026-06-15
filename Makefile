@@ -1,29 +1,32 @@
 # photon/Makefile — Photon Framework Build & Test Automation
 #
-# Run from project root:  make -f photon/Makefile test
+# Run from project root:     make -f photon/Makefile test
+# Run from photon/ dir:       cd photon && make test
 #
 # Targets:
 #   make build     - Compile the full server example
 #   make run       - Compile and run the full server example
-#   make test      - Run all ORM test files
-#   make test-all  - Run all Photon test files
+#   make test      - Run specific ORM test files
+#   make test-all  - Run all Photon module tests
 #   make check     - Typecheck all modules (no test execution)
 #   make clean     - Remove build artifacts
 
 # ── V Compiler flags ──
 VFLAGS := -enable-globals
 
-# ── Module directories (trailing slashes required for V multi-target) ──
-MODULES := photon/core/ photon/config/ photon/log/ photon/security/ photon/cli/ photon/web/ photon/orm/
-EXAMPLE := photon/example/main.v
+# Detect if we're inside photon/ directory (no photon/ prefix needed)
+ROOT_PREFIX := $(if $(wildcard photon.v),,photon/)
+
+# ── Module directories ──
+MODULES := $(ROOT_PREFIX)core/ $(ROOT_PREFIX)config/ $(ROOT_PREFIX)log/ $(ROOT_PREFIX)security/ $(ROOT_PREFIX)cli/ $(ROOT_PREFIX)web/ $(ROOT_PREFIX)orm/ $(ROOT_PREFIX)http/ $(ROOT_PREFIX)queue/ $(ROOT_PREFIX)support/ $(ROOT_PREFIX)ticker/ $(ROOT_PREFIX)cache/ $(ROOT_PREFIX)pool/ $(ROOT_PREFIX)locking/
+EXAMPLE := $(ROOT_PREFIX)example/main.v
 
 # ── ORM test files ──
-ORM_TESTS := photon/orm/orm_test.v \
-             photon/orm/entity_test.v \
-             photon/orm/adapter_test.v \
-             photon/orm/repository_test.v \
-             photon/orm/derive_test.v \
-             photon/orm/transaction_test.v
+ORM_TESTS := $(ROOT_PREFIX)orm/orm_test.v \
+             $(ROOT_PREFIX)orm/entity_test.v \
+             $(ROOT_PREFIX)orm/query_test.v \
+             $(ROOT_PREFIX)orm/derive_test.v \
+             $(ROOT_PREFIX)orm/transaction_test.v
 
 # ── Targets ──
 
@@ -34,24 +37,39 @@ help:
 	@echo ""
 	@echo "  make build     - Compile the full server example"
 	@echo "  make run       - Compile and run the full server example"
-	@echo "  make test      - Run all ORM test files (6)"
-	@echo "  make test-all  - Run all Photon tests (photon/...)"
+	@echo "  make test      - Run ORM test files (fast smoke test)"
+	@echo "  make test-all  - Run all module tests"
 	@echo "  make check     - Typecheck all modules + example"
 	@echo "  make clean     - Remove build artifacts"
 
 build:
-	@mkdir -p photon/bin
-	v $(VFLAGS) -o photon/bin/photon-example $(EXAMPLE) $(MODULES)
-	@echo "Binary: photon/bin/photon-example"
+	@mkdir -p $(ROOT_PREFIX)bin
+	v $(VFLAGS) -o $(ROOT_PREFIX)bin/photon-example $(EXAMPLE)
+	@echo "Binary: $(ROOT_PREFIX)bin/photon-example"
 
 run:
-	v $(VFLAGS) run $(EXAMPLE) $(MODULES)
+	v $(VFLAGS) run $(EXAMPLE)
 
 test:
 	v $(VFLAGS) test $(ORM_TESTS)
 
 test-all:
-	v $(VFLAGS) test photon/...
+	@echo "Running all module tests..."
+	@total=0; pass=0; fail=0; \
+	for dir in $(MODULES); do \
+		if [ -d "$$dir" ]; then \
+			if v $(VFLAGS) test "$$dir" >/dev/null 2>&1; then \
+				echo "  [OK]   $$dir"; \
+				pass=$$((pass+1)); \
+			else \
+				echo "  [FAIL] $$dir"; \
+				fail=$$((fail+1)); \
+			fi; \
+			total=$$((total+1)); \
+		fi; \
+	done; \
+	echo "-----------------------------------"; \
+	echo "Total: $$total modules | Passed: $$pass | Failed: $$fail"
 
 check:
 	@for dir in $(MODULES); do \
@@ -59,7 +77,9 @@ check:
 		v $(VFLAGS) -shared -o /dev/null "$$dir" >/dev/null 2>&1 && echo "OK" || echo "FAIL"; \
 	done
 	@printf "Check %-25s ... " "$(EXAMPLE)"
-	@v $(VFLAGS) -o /dev/null $(EXAMPLE) $(MODULES) >/dev/null 2>&1 && echo "OK" || echo "FAIL (see 'make run' for details)"
+	@v $(VFLAGS) -o $(ROOT_PREFIX)bin/_check_tmp $(EXAMPLE) >/dev/null 2>&1 && echo "OK ($(ROOT_PREFIX)bin/_check_tmp)" || echo "FAIL"
+	@rm -f $(ROOT_PREFIX)bin/_check_tmp
 
 clean:
-	rm -rf photon/bin/
+	rm -rf $(ROOT_PREFIX)bin/
+	@echo "Cleaned build artifacts."

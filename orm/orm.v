@@ -532,7 +532,7 @@ pub enum DriverType {
 }
 
 // driver_name returns a human-readable driver name.
-fn (d DriverType) str() string {
+pub fn (d DriverType) str() string {
 	return match d {
 		.sqlite { 'sqlite' }
 		.pg { 'postgresql' }
