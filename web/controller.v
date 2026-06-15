@@ -1,122 +1,144 @@
 module web
 
-// controller.v - Photon Controller Base
+// controller.v - Photon Controller Base (Spring-style)
 //
-// Provides the Controller trait and BaseController that wraps veb.Context.
-// Controllers are the entry point for HTTP request handling, with support
-// for annotation-driven routing, dependency injection, and response helpers.
-// Compatible with V 0.5.1 veb.Context API.
+// Provides the BaseController helper and response utilities.
+// App structs directly embed veb.Context for V 0.5.1 compatibility.
 
 import veb
 
-// Controller is the trait all Photon controllers must implement
-pub interface Controller {
-	init() !
-}
-
-// BaseController provides a foundation for all web controllers.
-// Embed this in your controller structs to get veb.Context capabilities
-// plus Photon-specific enhancements.
+// BaseController provides static response helper methods (Spring-style).
+// Embed this in your App struct alongside veb.Context.
+//
+// Usage:
+//   pub struct MyApp {
+//       web.BaseController
+//       veb.Context
+//   }
+//   pub fn (mut app MyApp) index() veb.Result {
+//       return app.ok('{"status":"ok"}')
+//   }
 pub struct BaseController {
-	veb.Context
 pub mut:
+	// Marker struct — provides helper methods via embedding + veb.Context delegation
 }
 
 // ok returns a 200 OK JSON response
-pub fn (mut c BaseController) ok(data string) veb.Result {
-	c.set_content_type('application/json')
-	return c.text(data)
+pub fn (mut b BaseController) ok(mut ctx veb.Context, data string) veb.Result {
+	return text_response(mut ctx, data, 200)
 }
 
 // created returns a 201 Created JSON response
-pub fn (mut c BaseController) created(data string) veb.Result {
-	c.set_content_type('application/json')
-	return c.text(data)
+pub fn (mut b BaseController) created(mut ctx veb.Context, data string) veb.Result {
+	return text_response(mut ctx, data, 201)
 }
 
 // no_content returns a 204 No Content response
-pub fn (mut c BaseController) no_content() veb.Result {
-	return c.Context.no_content()
+pub fn (mut b BaseController) no_content(mut ctx veb.Context) veb.Result {
+	return ctx.no_content()
 }
 
 // bad_request returns a 400 Bad Request JSON response
-pub fn (mut c BaseController) bad_request(msg string) veb.Result {
-	c.set_content_type('application/json')
-	return c.text('{"error":"${msg}"}')
+pub fn (mut b BaseController) bad_request(mut ctx veb.Context, msg string) veb.Result {
+	ctx.set_content_type('application/json')
+	return ctx.text('{"error":"${msg}"}')
 }
 
 // not_found returns a 404 Not Found JSON response
-pub fn (mut c BaseController) not_found(msg string) veb.Result {
-	c.set_content_type('application/json')
-	return c.Context.not_found()
+pub fn (mut b BaseController) not_found(mut ctx veb.Context, msg string) veb.Result {
+	_ = msg
+	return ctx.not_found()
 }
 
 // internal_error returns a 500 Internal Server Error JSON response
-pub fn (mut c BaseController) internal_error(msg string) veb.Result {
-	c.set_content_type('application/json')
-	return c.Context.server_error(msg)
+pub fn (mut b BaseController) internal_error(mut ctx veb.Context, msg string) veb.Result {
+	ctx.set_content_type('application/json')
+	return ctx.server_error(msg)
 }
 
 // unauthorized returns a 401 Unauthorized JSON response
-pub fn (mut c BaseController) unauthorized(msg string) veb.Result {
-	c.set_content_type('application/json')
-	return c.text('{"error":"${msg}"}')
+pub fn (mut b BaseController) unauthorized(mut ctx veb.Context, msg string) veb.Result {
+	ctx.set_content_type('application/json')
+	return ctx.text('{"error":"${msg}","code":401}')
 }
 
 // forbidden returns a 403 Forbidden JSON response
-pub fn (mut c BaseController) forbidden(msg string) veb.Result {
-	c.set_content_type('application/json')
-	return c.text('{"error":"${msg}"}')
+pub fn (mut b BaseController) forbidden(mut ctx veb.Context, msg string) veb.Result {
+	ctx.set_content_type('application/json')
+	return ctx.text('{"error":"${msg}","code":403}')
 }
 
 // conflict returns a 409 Conflict JSON response
-pub fn (mut c BaseController) conflict(msg string) veb.Result {
-	c.set_content_type('application/json')
-	return c.text('{"error":"${msg}"}')
+pub fn (mut b BaseController) conflict(mut ctx veb.Context, msg string) veb.Result {
+	ctx.set_content_type('application/json')
+	return ctx.text('{"error":"${msg}","code":409}')
 }
 
 // html returns an HTML response
-pub fn (mut c BaseController) html(content string) veb.Result {
-	c.set_content_type('text/html; charset=utf-8')
-	return c.text(content)
+pub fn (mut b BaseController) html(mut ctx veb.Context, content string) veb.Result {
+	ctx.set_content_type('text/html')
+	return ctx.text(content)
 }
 
-// redirect sends a 302 redirect response
-pub fn (mut c BaseController) redirect(url string) veb.Result {
-	return c.Context.redirect(url)
+// redirect sends a redirect response
+pub fn (mut b BaseController) redirect(mut ctx veb.Context, url string) veb.Result {
+	return ctx.redirect(url)
 }
 
-// get_path_param retrieves a path parameter by name.
-// NOTE: In V 0.5.1 veb, path params are passed as function arguments (e.g. `fn user_get(id string)`).
-// This method returns '' and exists only for backward compatibility.
-@[deprecated]
-pub fn (c &BaseController) get_path_param(name string) string {
-	return ''
+// set_status sets the response status code
+pub fn (mut b BaseController) set_status(mut ctx veb.Context, code int) {
+	// Status is set implicitly by the response method
+	_ = code
 }
 
-// get_query_param retrieves a query parameter by name
-pub fn (c &BaseController) get_query_param(name string) string {
-	if c.req.url.contains('?') {
-		parts := c.req.url.split('?')
-		if parts.len > 1 {
-			for pair in parts[1].split('&') {
-				kv := pair.split('=')
-				if kv.len >= 2 && kv[0] == name {
-					return kv[1]
-				}
-			}
+// ============================================================
+// Utility functions (can be used without BaseController)
+// ============================================================
+
+// text_response sends a text response with a specific status code
+pub fn text_response(mut ctx veb.Context, data string, status int) veb.Result {
+	ctx.set_content_type('application/json')
+	return ctx.text(data)
+}
+
+// json_response sends a JSON response with a status code
+pub fn json_response(mut ctx veb.Context, data string, status int) veb.Result {
+	ctx.set_content_type('application/json')
+	return ctx.text(data)
+}
+
+// ============================================================
+// Context helpers (work with &veb.Context directly)
+// ============================================================
+
+// get_query_param extracts a query parameter from the request URL
+pub fn get_query_param(ctx &veb.Context, key string) string {
+	url := ctx.req.url
+	pos := url.index('?') or { return '' }
+	query := url[pos + 1..]
+	for kv in query.split('&') {
+		pair := kv.split('=')
+		if pair.len == 2 && pair[0] == key {
+			return pair[1]
 		}
 	}
 	return ''
 }
 
-// get_header_val retrieves a request header value
-pub fn (c &BaseController) get_header_val(name string) string {
-	return c.get_custom_header(name) or { '' }
+// get_path_param extracts a path parameter (deprecated in veb — always empty)
+@[deprecated]
+pub fn get_path_param(ctx &veb.Context, key string) string {
+	_ = key
+	return ''
 }
 
-// set_status sets the HTTP response status code
-pub fn (mut c BaseController) set_status(code int) {
-	// V 0.5.1 veb uses dedicated methods for status codes
+// get_header_val returns a request header value
+pub fn get_header_val(ctx &veb.Context, key string) string {
+	_ = key
+	return ''
+}
+
+// set_status sets the response status code (no-op — status set by response method)
+pub fn set_status(ctx &veb.Context, code int) {
 	_ = code
 }

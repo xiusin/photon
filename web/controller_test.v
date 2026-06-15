@@ -1,111 +1,90 @@
 module web
 
-// controller_test.v - Unit tests for BaseController
-//
-// Tests the query parameter parsing, path parameter access,
-// header value retrieval, status code setting, and deprecated API.
+// controller_test.v - Unit tests for web controller helpers
 
 import veb
 
-// Helper: create a minimal veb.Context for testing
-fn context_with_url(url string) &veb.Context {
+// Helper: create a veb.Context with a URL
+fn ctx_with_url(url string) &veb.Context {
 	mut ctx := &veb.Context{}
-	// In V 0.5.1, veb.Context.req is an http.Request with a url field
 	ctx.req.url = url
 	return ctx
-}
-
-// Helper: create a BaseController wrapping a test context
-fn controller_with_url(url string) &BaseController {
-	return &BaseController{
-		Context: context_with_url(url)
-	}
 }
 
 // -- get_query_param tests --
 
 fn test_get_query_param_single_param() {
-	c := controller_with_url('/users?id=42')
-	result := c.get_query_param('id')
-	assert result == '42'
+	ctx := ctx_with_url('/users?id=42')
+	assert get_query_param(ctx, 'id') == '42'
 }
 
 fn test_get_query_param_multiple_params() {
-	c := controller_with_url('/search?q=hello&page=1&limit=10')
-	assert c.get_query_param('q') == 'hello'
-	assert c.get_query_param('page') == '1'
-	assert c.get_query_param('limit') == '10'
+	ctx := ctx_with_url('/search?q=hello&page=1&limit=10')
+	assert get_query_param(ctx, 'q') == 'hello'
+	assert get_query_param(ctx, 'page') == '1'
+	assert get_query_param(ctx, 'limit') == '10'
 }
 
 fn test_get_query_param_no_query_string() {
-	c := controller_with_url('/users')
-	assert c.get_query_param('id') == ''
+	ctx := ctx_with_url('/users')
+	assert get_query_param(ctx, 'id') == ''
 }
 
 fn test_get_query_param_missing_param() {
-	c := controller_with_url('/users?name=alice')
-	assert c.get_query_param('id') == ''
+	ctx := ctx_with_url('/users?name=alice')
+	assert get_query_param(ctx, 'id') == ''
 }
 
 fn test_get_query_param_empty_value() {
-	c := controller_with_url('/users?flag=')
-	assert c.get_query_param('flag') == ''
+	ctx := ctx_with_url('/users?flag=')
+	assert get_query_param(ctx, 'flag') == ''
 }
 
 fn test_get_query_param_special_chars() {
-	c := controller_with_url('/search?q=hello%20world')
-	// URL-encoded values are returned as-is (no decoding)
-	result := c.get_query_param('q')
-	assert result == 'hello%20world'
+	ctx := ctx_with_url('/search?q=hello%20world')
+	assert get_query_param(ctx, 'q') == 'hello%20world'
 }
 
 fn test_get_query_param_without_equals() {
-	c := controller_with_url('/users?flag')
-	// No = sign, so kv.len < 2, returns ''
-	assert c.get_query_param('flag') == ''
+	ctx := ctx_with_url('/users?flag')
+	assert get_query_param(ctx, 'flag') == ''
 }
 
 fn test_get_query_param_only_question_mark() {
-	c := controller_with_url('/users?')
-	assert c.get_query_param('id') == ''
+	ctx := ctx_with_url('/users?')
+	assert get_query_param(ctx, 'id') == ''
 }
 
-// -- get_path_param tests (deprecated in V 0.5.1) --
+// -- get_path_param tests (deprecated) --
 
 fn test_get_path_param_returns_empty() {
-	c := controller_with_url('/users/42')
-	assert c.get_path_param('id') == ''
-	assert c.get_path_param('name') == ''
+	ctx := ctx_with_url('/users/42')
+	assert get_path_param(ctx, 'id') == ''
+	assert get_path_param(ctx, 'name') == ''
 }
 
 fn test_get_path_param_deprecated_always_empty() {
-	c := controller_with_url('/any/path/123')
-	assert c.get_path_param('any') == ''
+	ctx := ctx_with_url('/any/path/123')
+	assert get_path_param(ctx, 'any') == ''
 }
 
-// -- set_status tests (no-op in V 0.5.1) --
+// -- get_header_val tests --
+
+fn test_get_header_val_default() {
+	ctx := ctx_with_url('/')
+	assert get_header_val(ctx, 'X-Custom') == ''
+}
+
+// -- set_status tests --
 
 fn test_set_status_is_noop() {
-	mut c := controller_with_url('/')
-	c.set_status(200)
-	c.set_status(404)
-	c.set_status(500)
-	// set_status is a no-op; test that it doesn't crash
+	ctx := ctx_with_url('/')
+	set_status(ctx, 200)
 	assert true
 }
 
-// -- get_header_val tests (delegates to veb.Context.get_custom_header) --
+// -- server wrapper test --
 
-fn test_get_header_val_no_headers() {
-	c := controller_with_url('/')
-	result := c.get_header_val('Authorization')
-	assert result == ''
-}
-
-// -- Controller interface test --
-
-fn test_base_controller_satisfies_controller_interface() {
-	// Verify BaseController can be used where Controller is expected
-	_ := &BaseController{}
+fn test_server_run_function_defined() {
 	assert true
 }

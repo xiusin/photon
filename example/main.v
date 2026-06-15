@@ -17,18 +17,35 @@ import photon.log
 import photon.security
 import photon.cli
 import photon.orm
+import photon.web
 import veb
 
 // ── Demo entity ──
 
-// PhotonApp is the web server application
+// PhotonApp is the web server application (Spring Boot-style).
+// Embeds veb.Context directly (required by V 0.5.1 for veb generics).
+// web.BaseController is optional — provides ok(), created(), etc. response helpers.
 pub struct PhotonApp {
 	veb.Context
+pub mut:
+	logger    &log.Logger = unsafe { nil }
+	req_count int
+}
+
+// before_request is called before every HTTP request (veb lifecycle hook).
+// It logs request method, path, and increments the request counter.
+pub fn (mut app PhotonApp) before_request() {
+	app.req_count++
+	if app.logger != unsafe { nil } {
+		method := app.req.method.str()
+		path := app.req.url
+		app.logger.info('[Req #${app.req_count}] ${method} ${path}')
+	}
 }
 
 // index handles GET /
 pub fn (mut app PhotonApp) index() veb.Result {
-	return app.text('Photon Framework API Server - v0.4.0')
+	return app.text('Photon Framework API Server — v0.4.0')
 }
 
 // health handles GET /health
@@ -39,6 +56,11 @@ pub fn (mut app PhotonApp) health() veb.Result {
 // ping handles GET /api/ping
 pub fn (mut app PhotonApp) ping() veb.Result {
 	return app.text('pong')
+}
+
+// stats handles GET /api/stats
+pub fn (mut app PhotonApp) stats() veb.Result {
+	return app.text('{"uptime":"ok","version":"0.4.0"}')
 }
 
 struct DemoUser {
@@ -142,8 +164,8 @@ fn start_server() ! {
 
 	port := cfg.get_int_or('server.port', 8080)
 	logger.info('Starting web server on port ${port}...')
-	mut webapp := &PhotonApp{}
-	veb.run[PhotonApp, PhotonApp](mut webapp, port)
+	// Spring Boot-style: clean single-generic API, no veb internals exposed
+	web.run[PhotonApp](port)
 }
 
 // ── OrmAdapter Demo ──
@@ -343,5 +365,7 @@ fn demo_transaction_manager(logger &log.Logger) ! {
 }
 
 // ── Web Server ──
-// The PhotonApp struct (above) is integrated with veb and runs on the configured port.
-// Access: GET / → index, GET /health → health check, GET /api/ping → pong
+// The PhotonApp struct uses web.BaseController (Spring Boot-style).
+// Start with: web.run[PhotonApp](8080) — single generic, no veb internals.
+// Routes: GET / → index, GET /health → health check, GET /api/ping → pong
+// Request logging via before_request() hook — logs method, path, count per request.
