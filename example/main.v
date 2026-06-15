@@ -17,8 +17,29 @@ import photon.log
 import photon.security
 import photon.cli
 import photon.orm
+import veb
 
 // ── Demo entity ──
+
+// PhotonApp is the web server application
+pub struct PhotonApp {
+	veb.Context
+}
+
+// index handles GET /
+pub fn (mut app PhotonApp) index() veb.Result {
+	return app.text('Photon Framework API Server - v0.4.0')
+}
+
+// health handles GET /health
+pub fn (mut app PhotonApp) health() veb.Result {
+	return app.text('OK')
+}
+
+// ping handles GET /api/ping
+pub fn (mut app PhotonApp) ping() veb.Result {
+	return app.text('pong')
+}
 
 struct DemoUser {
 	orm.BaseEntity
@@ -121,8 +142,8 @@ fn start_server() ! {
 
 	port := cfg.get_int_or('server.port', 8080)
 	logger.info('Starting web server on port ${port}...')
-	// veb.run[App](port) — disabled: veb library incompatible with V 0.5.1 generics
-	logger.info('(Web server startup skipped — veb requires V > 0.5.1)')
+	mut webapp := &PhotonApp{}
+	veb.run[PhotonApp, PhotonApp](mut webapp, port)
 }
 
 // ── OrmAdapter Demo ──
@@ -322,6 +343,5 @@ fn demo_transaction_manager(logger &log.Logger) ! {
 }
 
 // ── Web Server ──
-// NOTE: veb is incompatible with V 0.5.1 generics (requires V > 0.5.1).
-// The App struct and route handlers are omitted from this build.
-// To enable: upgrade V, add `import veb`, uncomment below, and restore veb.run[App](port).
+// The PhotonApp struct (above) is integrated with veb and runs on the configured port.
+// Access: GET / → index, GET /health → health check, GET /api/ping → pong
