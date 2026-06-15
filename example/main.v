@@ -24,22 +24,25 @@ import veb
 
 // PhotonApp is the web server application (Spring Boot-style).
 // Embeds veb.Context directly (required by V 0.5.1 for veb generics).
-// web.BaseController is optional — provides ok(), created(), etc. response helpers.
 pub struct PhotonApp {
 	veb.Context
 pub mut:
 	logger    &log.Logger = unsafe { nil }
 	req_count int
+	req_info  web.RequestInfo // stored by before_request for end logging
 }
 
 // before_request is called before every HTTP request (veb lifecycle hook).
-// It logs request method, path, and increments the request counter.
+// Logs method, path, client IP, and User-Agent — Spring Boot-style.
 pub fn (mut app PhotonApp) before_request() {
 	app.req_count++
+	app.req_info = web.new_request_info(mut app.Context)
+
 	if app.logger != unsafe { nil } {
-		method := app.req.method.str()
-		path := app.req.url
-		app.logger.info('[Req #${app.req_count}] ${method} ${path}')
+		// Pass a closure that captures the logger reference
+		logger := app.logger
+		info := app.req_info
+		logger.info('${info.method} ${info.path} | IP: ${info.ip} | UA: ${info.user_agent}')
 	}
 }
 
@@ -365,7 +368,6 @@ fn demo_transaction_manager(logger &log.Logger) ! {
 }
 
 // ── Web Server ──
-// The PhotonApp struct uses web.BaseController (Spring Boot-style).
-// Start with: web.run[PhotonApp](8080) — single generic, no veb internals.
-// Routes: GET / → index, GET /health → health check, GET /api/ping → pong
-// Request logging via before_request() hook — logs method, path, count per request.
+// Spring Boot-style: web.run[PhotonApp](8080) — single generic, no veb internals.
+// Routes: GET / → index, GET /health → health, GET /api/ping → pong, GET /api/stats → stats
+// Request logging: before_request() logs method, path, IP, User-Agent per request.
