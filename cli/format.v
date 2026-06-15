@@ -25,64 +25,79 @@ const bg_green = '\x1b[42m'
 const bg_yellow = '\x1b[43m'
 
 // Text styling functions
+@[inline]
 pub fn bold_text(s string) string {
 	return '${bold}${s}${reset}'
 }
 
+@[inline]
 pub fn dim_text(s string) string {
 	return '${dim}${s}${reset}'
 }
 
+@[inline]
 pub fn red_text(s string) string {
 	return '${red}${s}${reset}'
 }
 
+@[inline]
 pub fn green_text(s string) string {
 	return '${green}${s}${reset}'
 }
 
+@[inline]
 pub fn yellow_text(s string) string {
 	return '${yellow}${s}${reset}'
 }
 
+@[inline]
 pub fn blue_text(s string) string {
 	return '${blue}${s}${reset}'
 }
 
+@[inline]
 pub fn cyan_text(s string) string {
 	return '${cyan}${s}${reset}'
 }
 
+@[inline]
 pub fn magenta_text(s string) string {
 	return '${magenta}${s}${reset}'
 }
 
+@[inline]
 pub fn gray_text(s string) string {
 	return '${gray}${s}${reset}'
 }
 
+@[inline]
 pub fn white_text(s string) string {
 	return '${white}${s}${reset}'
 }
 
 // Status text helpers
+@[inline]
 pub fn success_text(s string) string {
 	return '${green}${bold}${s}${reset}'
 }
 
+@[inline]
 pub fn error_text(s string) string {
 	return '${red}${bold}${s}${reset}'
 }
 
+@[inline]
 pub fn warning_text(s string) string {
 	return '${yellow}${s}${reset}'
 }
 
+@[inline]
 pub fn info_text(s string) string {
 	return '${cyan}${s}${reset}'
 }
 
 // Padding helper
+@[inline]
 pub fn pad_right(s string, width int) string {
 	if s.len >= width {
 		return s
