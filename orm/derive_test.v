@@ -51,8 +51,7 @@ fn test_query_parts_to_order() {
 		]
 	}
 	assert parts.to_order_field() == 'created_at'
-	ot := parts.to_order_type() or { panic('expected order type') }
-	assert ot == .desc
+	assert parts.to_order_direction() == 'desc'
 }
 
 fn test_query_parts_to_limit() {

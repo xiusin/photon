@@ -83,13 +83,13 @@ pub type OrmExecExists = fn (conn voidptr, id int) bool
 pub struct BaseRepository[T] {
 pub mut:
 	adapter       &OrmAdapter[T]
-	exec_find     OrmExecFind[T]
-	exec_find_all OrmExecFindAll[T]
-	exec_insert   OrmExecInsert[T]
-	exec_update   OrmExecUpdate[T]
-	exec_delete   OrmExecDelete
-	exec_count    OrmExecCount
-	exec_exists   OrmExecExists
+	exec_find     OrmExecFind[T]    = unsafe { nil }
+	exec_find_all OrmExecFindAll[T] = unsafe { nil }
+	exec_insert   OrmExecInsert[T]  = unsafe { nil }
+	exec_update   OrmExecUpdate[T]  = unsafe { nil }
+	exec_delete   OrmExecDelete     = unsafe { nil }
+	exec_count    OrmExecCount      = unsafe { nil }
+	exec_exists   OrmExecExists     = unsafe { nil }
 }
 
 // new_repository creates a BaseRepository backed by the named
@@ -198,4 +198,170 @@ pub fn (r &BaseRepository[T]) count() !int {
 pub fn (r &BaseRepository[T]) exists_by_id(id int) bool {
 	conn := r.adapter.get_conn() or { return false }
 	return r.exec_exists(conn, id)
+}
+
+// ── Derived Query Executor callbacks (user provides these) ──
+//
+// Each callback receives the raw connection, parsed QueryParts,
+// and an opaque parameter list ([]voidptr — cast each element to
+// orm.Primitive in your implementation).
+//
+// photon/orm cannot import V's orm.Primitive, so []voidptr is
+// used for maximum flexibility.
+
+// OrmExecDerivedFind executes a derived SELECT and returns entities.
+// Map QueryParts to V's QueryBuilder: where, order, limit, query.
+pub type OrmExecDerivedFind[T] = fn (conn voidptr, parts QueryParts, params []voidptr) ![]T
+
+// OrmExecDerivedCount executes a derived SELECT COUNT(*).
+pub type OrmExecDerivedCount = fn (conn voidptr, parts QueryParts, params []voidptr) !int
+
+// OrmExecDerivedExists executes a derived existence check.
+pub type OrmExecDerivedExists = fn (conn voidptr, parts QueryParts, params []voidptr) bool
+
+// OrmExecDerivedDelete executes a derived DELETE.
+pub type OrmExecDerivedDelete = fn (conn voidptr, parts QueryParts, params []voidptr) !
+
+// ── DerivedRepository ──
+
+// DerivedRepository wraps BaseRepository with Spring Data-style
+// derived query support.  It parses method names via
+// parse_method_name() and delegates to user-provided executor
+// callbacks that build and run V's QueryBuilder.
+//
+// The adapter's lifecycle hooks (after_find, after_find_all) are
+// applied automatically to query results.
+//
+// Usage:
+//   import orm
+//   import photon.orm
+//
+//   mut dr := orm.new_derived_repository[User](om, 'default',
+//       exec_find, exec_find_all, exec_insert, exec_update,
+//       exec_delete, exec_count, exec_exists,
+//       exec_derived_find, exec_derived_count,
+//       exec_derived_exists, exec_derived_delete)!
+//
+//   // Spring Data-style queries:
+//   users := dr.find('findByNameAndAge',
+//       orm.Primitive('Alice'), orm.Primitive(30))!
+//   n := dr.count('countByStatus', orm.Primitive('active'))!
+//   dr.delete_by('deleteByStatus', orm.Primitive('expired'))!
+@[heap]
+pub struct DerivedRepository[T] {
+pub mut:
+	repo               &BaseRepository[T]
+	exec_derived_find  OrmExecDerivedFind[T]  = unsafe { nil }
+	exec_derived_count OrmExecDerivedCount   = unsafe { nil }
+	exec_derived_exists OrmExecDerivedExists = unsafe { nil }
+	exec_derived_delete OrmExecDerivedDelete = unsafe { nil }
+}
+
+// new_derived_repository creates a DerivedRepository backed by the
+// named connection.  Requires all BaseRepository callbacks plus
+// four derived-query executor callbacks.
+pub fn new_derived_repository[T](
+	manager &OrmManager
+	db_name string
+	exec_find OrmExecFind[T]
+	exec_find_all OrmExecFindAll[T]
+	exec_insert OrmExecInsert[T]
+	exec_update OrmExecUpdate[T]
+	exec_delete OrmExecDelete
+	exec_count OrmExecCount
+	exec_exists OrmExecExists
+	exec_derived_find OrmExecDerivedFind[T]
+	exec_derived_count OrmExecDerivedCount
+	exec_derived_exists OrmExecDerivedExists
+	exec_derived_delete OrmExecDerivedDelete
+) !&DerivedRepository[T] {
+	mut repo := new_repository[T](manager, db_name, exec_find,
+		exec_find_all, exec_insert, exec_update, exec_delete,
+		exec_count, exec_exists)!
+	return &DerivedRepository[T]{
+		repo: repo
+		exec_derived_find: exec_derived_find
+		exec_derived_count: exec_derived_count
+		exec_derived_exists: exec_derived_exists
+		exec_derived_delete: exec_derived_delete
+	}
+}
+
+// ── Derived query methods ──
+
+// find parses a Spring Data-style method name and executes the
+// derived query.  Params should match the number of WHERE
+// conditions extracted by parse_method_name().
+//
+// Lifecycle hooks (after_find, after_find_all) are applied
+// automatically via the adapter.
+//
+// Example:
+//   users := dr.find('findByNameAndAge',
+//       orm.Primitive('Alice'), orm.Primitive(30))!
+pub fn (mut dr DerivedRepository[T]) find(method string, params ...voidptr) ![]T {
+	parts := parse_method_name(method)!
+	if parts.operation != .find {
+		return error('find() requires a find* method, got: ${method}')
+	}
+	expected := parts.to_where_param_count()
+	if params.len != expected {
+		return error('${method}: expected ${expected} params, got ${params.len}')
+	}
+	conn := dr.repo.adapter.get_conn()!
+	mut results := dr.exec_derived_find(conn, parts, params)!
+	dr.repo.adapter.after_find_all(mut results)!
+	return results
+}
+
+// count parses a count*-style method name and executes it.
+//
+// Example:
+//   n := dr.count('countByStatus', orm.Primitive('active'))!
+pub fn (r &DerivedRepository[T]) count(method string, params ...voidptr) !int {
+	parts := parse_method_name(method)!
+	if parts.operation != .count {
+		return error('count() requires a count* method, got: ${method}')
+	}
+	expected := parts.to_where_param_count()
+	if params.len != expected {
+		return error('${method}: expected ${expected} params, got ${params.len}')
+	}
+	conn := r.repo.adapter.get_conn()!
+	return r.exec_derived_count(conn, parts, params)
+}
+
+// exists parses an exists*-style method name and executes it.
+//
+// Example:
+//   has := dr.exists('existsByEmail', orm.Primitive('a@b.com'))!
+pub fn (r &DerivedRepository[T]) exists(method string, params ...voidptr) bool {
+	parts := parse_method_name(method) or { return false }
+	if parts.operation != .exists {
+		return false
+	}
+	expected := parts.to_where_param_count()
+	if params.len != expected {
+		return false
+	}
+
+	conn := r.repo.adapter.get_conn() or { return false }
+	return r.exec_derived_exists(conn, parts, params)
+}
+
+// delete_by parses a delete*-style method name and executes it.
+//
+// Example:
+//   dr.delete_by('deleteByStatus', orm.Primitive('expired'))!
+pub fn (r &DerivedRepository[T]) delete_by(method string, params ...voidptr) ! {
+	parts := parse_method_name(method)!
+	if parts.operation != .delete_all {
+		return error('delete_by() requires a delete* method, got: ${method}')
+	}
+	expected := parts.to_where_param_count()
+	if params.len != expected {
+		return error('${method}: expected ${expected} params, got ${params.len}')
+	}
+	conn := r.repo.adapter.get_conn()!
+	r.exec_derived_delete(conn, parts, params)!
 }

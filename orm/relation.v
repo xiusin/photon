@@ -86,7 +86,7 @@ pub fn (rl &RelationLoader) load_has_many[T, R](entity T, mut relation HasMany[R
 
 	table_name := get_table_name[R]()
 	query := 'SELECT * FROM ${table_name} WHERE ${foreign_key} = ${entity.id()}'
-	result := db_conn.exec(query)!
+	_ := db_conn.exec(query)!
 
 	mut items := []R{}
 	// Map results to items
@@ -100,7 +100,7 @@ pub fn (rl &RelationLoader) load_belongs_to[T, R](entity T, mut relation Belongs
 
 	table_name := get_table_name[R]()
 	query := 'SELECT * FROM ${table_name} WHERE id = ${foreign_key}'
-	result := db_conn.exec(query)!
+	_ := db_conn.exec(query)!
 
 	mut item := R{}
 	// Map result to item
@@ -114,7 +114,7 @@ pub fn (rl &RelationLoader) load_many_to_many[T, R](entity T, mut relation ManyT
 
 	target_table := get_table_name[R]()
 	query := 'SELECT t.* FROM ${target_table} t INNER JOIN ${pivot_table} p ON t.id = p.${foreign_key} WHERE p.${local_key} = ${entity.id()}'
-	result := db_conn.exec(query)!
+	_ := db_conn.exec(query)!
 
 	mut items := []R{}
 	// Map results to items
@@ -124,7 +124,7 @@ pub fn (rl &RelationLoader) load_many_to_many[T, R](entity T, mut relation ManyT
 
 // get_table_name extracts table name from type
 fn get_table_name[T]() string {
-	$for field in T.fields {
+	$for _ in T.fields {
 		// Check for [table: 'name'] attribute on the struct
 	}
 	// Default: derive from type name

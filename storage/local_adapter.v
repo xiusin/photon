@@ -7,7 +7,6 @@ module storage
 // directory traversal, and all common file operations.
 
 import os
-import time
 
 // LocalAdapter provides filesystem access scoped to a root directory
 pub struct LocalAdapter {
@@ -206,8 +205,8 @@ pub fn (la &LocalAdapter) list_contents(directory string) ![]&FileMetadata {
 		} else {
 			sz := os.file_size(full_entry)
 			mime := detect_mime_type(entry_path)
-			lm := os.file_last_mod_unix(full_entry)
-			result << new_file_metadata(entry_path, sz, mime)
+		_ = os.file_last_mod_unix(full_entry)
+		result << new_file_metadata(entry_path, sz, mime)
 		}
 	}
 

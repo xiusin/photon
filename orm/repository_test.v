@@ -227,3 +227,125 @@ fn test_parse_exists_by() {
 	parts := parse_method_name('existsByName')!
 	assert parts.operation == .exists
 }
+
+// ── DerivedRepository tests ──
+
+fn stub_derived_find(conn voidptr, parts QueryParts, params []voidptr) ![]RepoTestEntity {
+	mut results := []RepoTestEntity{}
+	for _ in 0 .. params.len {
+		results << RepoTestEntity{name: 'found'}
+	}
+	return results
+}
+
+fn stub_derived_count(conn voidptr, parts QueryParts, params []voidptr) !int {
+	return params.len * 10
+}
+
+fn stub_derived_exists(conn voidptr, parts QueryParts, params []voidptr) bool {
+	return params.len > 0
+}
+
+fn stub_derived_delete(conn voidptr, parts QueryParts, params []voidptr) ! {
+}
+
+fn setup_derived_repo[T]() !(&OrmManager, &DerivedRepository[T]) {
+	mut om := new_orm_manager()
+	om.register_connection('default', .sqlite, voidptr(99))!
+	mut dr := new_derived_repository[T](om, 'default',
+		stub_find[T], stub_find_all[T], stub_insert[T],
+		stub_update[T], stub_delete, stub_count, stub_exists,
+		stub_derived_find, stub_derived_count,
+		stub_derived_exists, stub_derived_delete)!
+	return om, dr
+}
+
+fn test_derived_repository_new() {
+	_, _ := setup_derived_repo[RepoTestEntity]()!
+	assert true
+}
+
+fn test_derived_repo_find() {
+	_, mut dr := setup_derived_repo[RepoTestEntity]()!
+	results := dr.find('findByName', voidptr('Alice'.str))!
+	assert results.len == 1
+	assert results[0].name == 'found'
+}
+
+fn test_derived_repo_find_multi_params() {
+	_, mut dr := setup_derived_repo[RepoTestEntity]()!
+	results := dr.find('findByNameAndAge', voidptr('Alice'.str), voidptr(30))!
+	assert results.len == 2
+}
+
+fn test_derived_repo_find_wrong_operation() {
+	_, mut dr := setup_derived_repo[RepoTestEntity]()!
+	mut failed := false
+	dr.find('countByStatus', voidptr('active'.str)) or { failed = true }
+	assert failed
+}
+
+fn test_derived_repo_count() {
+	_, dr := setup_derived_repo[RepoTestEntity]()!
+	n := dr.count('countByStatus', voidptr('active'.str))!
+	assert n == 10
+}
+
+fn test_derived_repo_count_wrong_operation() {
+	_, dr := setup_derived_repo[RepoTestEntity]()!
+	mut failed := false
+	dr.count('findByName', voidptr('Alice'.str)) or { failed = true }
+	assert failed
+}
+
+fn test_derived_repo_exists() {
+	_, dr := setup_derived_repo[RepoTestEntity]()!
+	assert dr.exists('existsByEmail', voidptr('a@b.com'.str)) == true
+}
+
+fn test_derived_repo_exists_no_params() {
+	_, dr := setup_derived_repo[RepoTestEntity]()!
+	assert dr.exists('existsByEmail') == false
+}
+
+fn test_derived_repo_exists_invalid_method() {
+	_, dr := setup_derived_repo[RepoTestEntity]()!
+	assert dr.exists('invalidMethod') == false
+}
+
+fn test_derived_repo_delete_by() {
+	_, dr := setup_derived_repo[RepoTestEntity]()!
+	dr.delete_by('deleteByStatus', voidptr('expired'.str))!
+	assert true
+}
+
+fn test_derived_repo_delete_by_wrong_operation() {
+	_, dr := setup_derived_repo[RepoTestEntity]()!
+	mut failed := false
+	dr.delete_by('findByName', voidptr('Alice'.str)) or { failed = true }
+	assert failed
+}
+
+fn test_derived_repo_find_param_count_mismatch() {
+	_, mut dr := setup_derived_repo[RepoTestEntity]()!
+	// findByNameAndAge expects 2 params, pass only 1
+	mut failed := false
+	dr.find('findByNameAndAge', voidptr('Alice'.str)) or { failed = true }
+	assert failed
+}
+
+fn test_derived_repo_count_param_count_mismatch() {
+	_, dr := setup_derived_repo[RepoTestEntity]()!
+	// countByStatus expects 1 param, pass 0
+	mut failed := false
+	dr.count('countByStatus') or { failed = true }
+	assert failed
+}
+
+fn test_derived_repo_wraps_base_repository() {
+	_, mut dr := setup_derived_repo[RepoTestEntity]()!
+	mut e := RepoTestEntity{}
+	result := dr.repo.save(mut e)!
+	assert result.created_at == 100
+	assert result.updated_at == 200
+}

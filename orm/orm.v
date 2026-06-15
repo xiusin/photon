@@ -165,15 +165,53 @@ module orm
 //   REQUIRES_NEW, NESTED, etc.) on top of V's ORM transactions.
 //
 //      mut tm := orm.new_transaction_manager()
-//      mut conn := unsafe { &orm.Connection(om.get_conn('default')!) }
 //
-//      tm.execute(.required, fn [mut conn, mut a] () ! {
+//      // conn, a from Pattern A above.
+//      // .required creates a new tx, commits on success,
+//      // rolls back on error.  The outermost caller owns
+//      // the tx — nested .required calls join silently.
+//      tm.execute(.required, fn [mut conn, a] () ! {
 //          mut order := Order{status: 'pending', total: 99.99}
 //
-//          a_p.before_insert(mut order)!
+//          a.before_insert(mut order)!
 //          sql conn { insert order into Order }!
-//          a_p.after_insert(mut order)!
+//          a.after_insert(mut order)!
 //      })!
+//
+//      // Nested .required joins the existing tx (conn, a from above):
+//      tm.execute(.required, fn [mut conn, a] () ! {
+//          // Outer tx is already active — this just runs f()
+//          // without begin/commit/rollback.
+//      })!
+//
+//      // .requires_new suspends the outer tx, creates a new one (conn, a from above):
+//      tm.execute(.requires_new, fn [mut conn, a] () ! {
+//          // Runs in its own independent tx.
+//      })!
+//
+//      // .nested uses a savepoint within the active tx:
+//      tm.execute(.nested, fn () ! {
+//          // If this fails, only the savepoint rolls back.
+//      })!
+//
+//   ── Propagation Behavior ──
+//
+//     Propagation   Existing TX?  Behavior
+//     ───────────   ────────────  ────────────────────────────
+//     .required     yes           join (skip begin/commit)
+//     .required     no            create tx → commit or rollback
+//     .requires_new yes           suspend, create new tx
+//     .requires_new no            create tx
+//     .nested       yes           savepoint (rollback on error)
+//     .nested       no            error
+//     .supports     yes           join
+//     .supports     no            run without tx
+//     .not_supported yes          suspend, run without tx
+//     .not_supported no           run without tx
+//     .mandatory    yes           join
+//     .mandatory    no            error
+//     .never        yes           error
+//     .never        no            run without tx
 //
 //   Pattern C: transactional() convenience (single-shot)
 //   ──────────────────────────────────────────────────────
@@ -391,38 +429,71 @@ module orm
 //       users := find_by[User](mut repo, 'findByNameAndAge',
 //           orm.Primitive('Alice'), orm.Primitive(30))!
 //
-//   ── Pattern 3: Full DerivedRepository Wrapper ──
+//   ── Pattern 3: DerivedRepository (built into photon/orm) ──
 //
-//     Wrap BaseRepository in a DerivedRepository that translates
-//     method names to ORM calls automatically:
+//     DerivedRepository wraps BaseRepository + parse_method_name()
+//     with user-provided OrmExecDerived* callbacks.  Each callback
+//     receives (conn, QueryParts, params []voidptr) — cast params
+//     to orm.Primitive inside your callback.
 //
-//       // Conceptual wrapper (you build this in your module):
-//       pub struct DerivedRepository[T] {
-//       pub mut:
-//           repo &BaseRepository[T]
+//       import orm
+//       import photon.orm
+//
+//       // Implement the four derived-query callbacks:
+//       exec_df := fn (conn voidptr, parts QueryParts, params []voidptr) ![]User {
+//           c := unsafe { &orm.Connection(conn) }
+//           mut qb := orm.new_query[User](c)
+//           if parts.to_where_cond().len > 0 {
+//               qb.where(parts.to_where_cond(),
+//                   ...params.map(orm.Primitive(it)))!
+//           }
+//           if parts.to_limit() > 0 { qb.limit(parts.to_limit()) }
+//           if parts.to_order_field().len > 0 {
+//               qb.order(parts.to_order_field(),
+//                   parts.to_order_direction())!
+//           }
+//           return qb.query()!
 //       }
 //
-//       pub fn (mut dr DerivedRepository[T]) find(method string, params ...orm.Primitive) ![]T {
-//           return find_by[T](mut dr.repo, method, ...params)
+//       exec_dc := fn (conn voidptr, parts QueryParts, params []voidptr) !int {
+//           c := unsafe { &orm.Connection(conn) }
+//           mut qb := orm.new_query[User](c)
+//           qb.where(parts.to_where_cond(),
+//               ...params.map(orm.Primitive(it)))!
+//           return qb.count()!
 //       }
 //
-//       pub fn (dr &DerivedRepository[T]) count(method string, params ...orm.Primitive) !int {
-//           parts := orm.parse_method_name(method)!
-//           assert parts.is_count()
-//           conn := unsafe { &orm.Connection(dr.repo.adapter.get_conn()!) }
-//           mut qb := orm.new_query[T](conn)
-//           qb.where(parts.to_where_cond(), ...params)!
-//           return qb.count()
+//       exec_de := fn (conn voidptr, parts QueryParts, params []voidptr) bool {
+//           c := unsafe { &orm.Connection(conn) }
+//           mut qb := orm.new_query[User](c)
+//           qb.where(parts.to_where_cond(),
+//               ...params.map(orm.Primitive(it)))!
+//           return qb.exists()!
 //       }
 //
-//       pub fn (dr &DerivedRepository[T]) delete_by(method string, params ...orm.Primitive) ! {
-//           parts := orm.parse_method_name(method)!
-//           assert parts.is_delete()
-//           conn := unsafe { &orm.Connection(dr.repo.adapter.get_conn()!) }
-//           mut qb := orm.new_query[T](conn)
-//           qb.where(parts.to_where_cond(), ...params)!
+//       exec_dd := fn (conn voidptr, parts QueryParts, params []voidptr) ! {
+//           c := unsafe { &orm.Connection(conn) }
+//           mut qb := orm.new_query[User](c)
+//           qb.where(parts.to_where_cond(),
+//               ...params.map(orm.Primitive(it)))!
 //           qb.delete()!
 //       }
+//
+//       mut dr := orm.new_derived_repository[User](om, 'default',
+//           exec_find, exec_find_all, exec_insert, exec_update,
+//           exec_delete, exec_count, exec_exists,
+//           exec_df, exec_dc, exec_de, exec_dd)!
+//
+//       // Spring Data-style queries with automatic lifecycle hooks:
+//       users := dr.find('findByNameAndAge',
+//           orm.Primitive('Alice'), orm.Primitive(30))!
+//       n     := dr.count('countByStatus', orm.Primitive('active'))!
+//       has   := dr.exists('existsByEmail', orm.Primitive('a@b.com'))!
+//       dr.delete_by('deleteByStatus', orm.Primitive('expired'))!
+//
+//       // BaseRepository CRUD still accessible via dr.repo:
+//       mut u := User{name: 'Bob'}
+//       dr.repo.save(mut u)!  // hooks + insert
 //
 //   ── QueryParts Output Reference ──
 //

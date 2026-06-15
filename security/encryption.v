@@ -5,7 +5,7 @@ module security
 // Encrypter provides symmetric encryption and decryption
 pub struct Encrypter {
 pub mut:
-	key    string = ''
+	key    string
 	cipher string = 'aes-256-cbc'
 }
 

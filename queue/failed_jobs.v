@@ -86,6 +86,7 @@ pub fn (r &MemoryFailedJobRepository) count() int {
 }
 
 // FailedJobHandler processes failed jobs during queue worker execution
+@[heap]
 pub struct FailedJobHandler {
 pub mut:
 	repository       &FailedJobRepository
@@ -131,7 +132,7 @@ pub fn (mut h FailedJobHandler) retry_all() ! {
 }
 
 // dispatch_later_by_type re-dispatches a job by type name
-fn dispatch_later_by_type(job_type string, delay_secs i64) ! {
+fn dispatch_later_by_type(job_type string, _delay_secs i64) ! {
 	// Reconstruct and push
 	payload := serialize_job(job_type, '{}')
 	mut d := get_dispatcher()

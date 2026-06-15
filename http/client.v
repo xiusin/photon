@@ -124,7 +124,7 @@ pub fn (c &HttpClient) put(path string, body string) !&HttpResponse {
 
 // delete sends a DELETE request
 pub fn (c &HttpClient) delete(path string) !&HttpResponse {
-	url := c.build_url(path)
+	_ = c.build_url(path)
 	return new_response(204, '')
 }
 

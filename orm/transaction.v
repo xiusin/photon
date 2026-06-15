@@ -94,12 +94,19 @@ pub fn (tm &TransactionManager) is_active() bool {
 pub fn (mut tm TransactionManager) execute(propagation Propagation, f fn () !) ! {
 	match propagation {
 		.required {
-			if !tm.active {
+			was_inactive := !tm.active
+			if was_inactive {
 				tm.begin()!
-				defer { tm.rollback() or {} }
 			}
-			f()!
-			if !tm.active { tm.commit()! }
+			f() or {
+				if was_inactive {
+					tm.rollback() or {}
+				}
+				return err
+			}
+			if was_inactive {
+				tm.commit()!
+			}
 		}
 		.requires_new {
 			was_active := tm.active

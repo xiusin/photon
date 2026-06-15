@@ -3,20 +3,20 @@ module photon
 // photon.v - Photon Framework Main Module
 // A commercial-grade Spring-like application framework for V language
 
-import photon.core
-import photon.config
-import photon.log
-import photon.cache
-import photon.security
-import photon.cli
-import photon.ticker
-import photon.support
-import photon.http
-import photon.queue
-import photon.locking
-import photon.orm
-import photon.web
-import photon.storage
+import core
+import config
+import log
+import cache
+import security
+import cli
+import ticker
+import support
+import http
+import queue
+import locking
+import orm
+import web
+import storage
 
 // Re-export core types
 pub type ApplicationContext = core.ApplicationContext
@@ -56,10 +56,10 @@ pub type CommandOutput = cli.CommandOutput
 pub type Timer = ticker.Timer
 pub type Ticker = ticker.Ticker
 
-// Re-export support types
-pub type Collection = support.Collection
-pub type LengthAwarePaginator = support.LengthAwarePaginator
-pub type SimplePaginator = support.SimplePaginator
+// Re-export support types (generic — use with type param, e.g. Collection[int])
+// pub type Collection = support.Collection
+// pub type LengthAwarePaginator = support.LengthAwarePaginator
+// pub type SimplePaginator = support.SimplePaginator
 
 // Re-export http types
 pub type HttpClient = http.HttpClient
@@ -89,8 +89,8 @@ pub type Propagation = orm.Propagation
 pub type QueryParts = orm.QueryParts
 pub type Repository = orm.Repository
 
-// Re-export orm adapter types
-pub type OrmAdapter = orm.OrmAdapter
+// Re-export orm adapter types (generic — use with type param)
+// pub type OrmAdapter = orm.OrmAdapter
 
 // Re-export config environment types
 pub type Environment = config.Environment
