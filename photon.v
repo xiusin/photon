@@ -2,8 +2,6 @@ module photon
 
 // photon.v - Photon Framework Main Module
 // A commercial-grade Spring-like application framework for V language
-
-import core
 import config
 import log
 import cache
@@ -17,13 +15,6 @@ import locking
 import orm
 import web
 import storage
-
-// Re-export core types
-pub type ApplicationContext = core.ApplicationContext
-pub type BeanFactory = core.BeanFactory
-pub type BeanDefinition = core.BeanDefinition
-pub type CompilerPass = core.CompilerPass
-pub type CompilerPassRegistry = core.CompilerPassRegistry
 
 // Re-export config types
 pub type Config = config.Config
@@ -70,13 +61,6 @@ pub type Job = queue.Job
 pub type QueueDispatcher = queue.QueueDispatcher
 pub type MemoryDriver = queue.MemoryDriver
 
-// Re-export scheduler types
-pub type Schedule = core.Schedule
-pub type ScheduledTask = core.ScheduledTask
-pub type RetryTemplate = core.RetryTemplate
-pub type RetryConfig = core.RetryConfig
-pub type ConditionalRegistry = core.ConditionalRegistry
-
 // Re-export sort types
 pub type Sort = support.Sort
 pub type PageRequest = support.PageRequest
@@ -114,9 +98,6 @@ pub type CacheLock = cache.CacheLock
 
 // Re-export log channels
 pub type ChannelLogger = log.ChannelLogger
-
-// Re-export transactional events
-pub type TransactionalEventBus = core.TransactionalEventBus
 
 // Re-export storage types
 pub type StorageManager = storage.StorageManager

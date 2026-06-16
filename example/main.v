@@ -10,8 +10,6 @@ module main
 //
 // Compile from photon/ directory:
 //   v -enable-globals example/main.v
-
-import photon.core
 import photon.config
 import photon.log
 import photon.security
@@ -90,12 +88,6 @@ fn start_server() ! {
 	println('║   Photon Framework — Secured App     ║')
 	println('╚══════════════════════════════════════╝')
 
-	mut ctx := core.new_context('PhotonSecuredApp')
-	ctx.run() or {
-		eprintln('Failed to start: ${err}')
-		return
-	}
-
 	mut cfg := config.new()
 	cfg.set_profile(['dev'])
 	cfg.add_source(config.MapConfigSource{
@@ -118,7 +110,7 @@ fn start_server() ! {
 	logger.put('app', cfg.get('app.name'))
 
 	jwt_config := security.JwtConfig{
-		secret: cfg.get_or('jwt.secret', 'default-secret-change-me-in-production!!')
+		secret:             cfg.get_or('jwt.secret', 'default-secret-change-me-in-production!!')
 		expiration_minutes: cfg.get_int_or('jwt.expiration', 60)
 	}
 	jwt_mgr := security.new_jwt_manager(jwt_config)
@@ -129,10 +121,14 @@ fn start_server() ! {
 	user_service.add_user(security.new_user('user', 'user123', ['USER']))
 
 	mut auth_mgr := security.new_auth_manager()
-	jwt_provider := &security.JwtAuthenticationProvider{jwt_manager: jwt_mgr}
+	jwt_provider := &security.JwtAuthenticationProvider{
+		jwt_manager: jwt_mgr
+	}
 	auth_mgr.add_provider(jwt_provider)
 
-	csrf_config := security.CsrfConfig{enabled: true}
+	csrf_config := security.CsrfConfig{
+		enabled: true
+	}
 	csrf_mgr := security.new_csrf_manager(csrf_config)
 
 	mut security_chain := security.new_security_filter_chain(auth_mgr, jwt_mgr, csrf_mgr)
@@ -179,7 +175,10 @@ fn demo_orm_adapter(logger &log.Logger, om &orm.OrmManager) ! {
 	conn_ptr := a.get_conn()!
 	logger.info('  Connection routing: ${typeof(conn_ptr).name}')
 
-	mut user := DemoUser{name: 'Alice', email: 'alice@demo.com'}
+	mut user := DemoUser{
+		name:  'Alice'
+		email: 'alice@demo.com'
+	}
 	a.before_insert(mut user)!
 	logger.info('  Touchable.touch(): created_at=${user.created_at} updated_at=${user.updated_at} version=${user.version}')
 	assert user.created_at > 0
@@ -190,11 +189,15 @@ fn demo_orm_adapter(logger &log.Logger, om &orm.OrmManager) ! {
 	mut cb_flag := &callback_ran
 	a.wrap_insert(mut user, fn [cb_flag] (mut u DemoUser) ! {
 		_ = cb_flag
-		unsafe { *cb_flag = true }
+		unsafe {
+			*cb_flag = true
+		}
 	})!
 	assert callback_ran
 
-	a.with_connection(fn (conn_ptr voidptr) ! { _ = conn_ptr })!
+	a.with_connection(fn (conn_ptr voidptr) ! {
+		_ = conn_ptr
+	})!
 	logger.info('  with_connection convenience method — OK')
 
 	parts := orm.parse_method_name('findByNameAndEmail')!
@@ -209,11 +212,16 @@ fn demo_orm_adapter(logger &log.Logger, om &orm.OrmManager) ! {
 fn demo_transactional_hooks(logger &log.Logger, om &orm.OrmManager) ! {
 	mut a := orm.new_orm_adapter[DemoUser](om, 'default')!
 
-	mut order_a := DemoUser{name: 'Order42', email: 'order@shop.com'}
+	mut order_a := DemoUser{
+		name:  'Order42'
+		email: 'order@shop.com'
+	}
 	mut tx_called := false
 	tx_flag := &tx_called
 	a.before_insert(mut order_a)!
-	unsafe { *tx_flag = true }
+	unsafe {
+		*tx_flag = true
+	}
 	a.after_insert(mut order_a)!
 	assert tx_called
 	_ = tx_flag
@@ -224,7 +232,9 @@ fn demo_transactional_hooks(logger &log.Logger, om &orm.OrmManager) ! {
 	mut exec_flag := &execute_called
 	tm.execute(.required, fn [exec_flag] () ! {
 		_ = exec_flag
-		unsafe { *exec_flag = true }
+		unsafe {
+			*exec_flag = true
+		}
 	})!
 	assert execute_called
 	logger.info('  Pattern B: TransactionManager with .required — OK')
@@ -238,7 +248,9 @@ fn demo_transactional_hooks(logger &log.Logger, om &orm.OrmManager) ! {
 	mut txc_flag := &txc_called
 	orm.transactional(fn [txc_flag] () ! {
 		_ = txc_flag
-		unsafe { *txc_flag = true }
+		unsafe {
+			*txc_flag = true
+		}
 	})!
 	assert txc_called
 	logger.info('  Pattern C: transactional() convenience — OK')
@@ -249,10 +261,12 @@ fn demo_transactional_hooks(logger &log.Logger, om &orm.OrmManager) ! {
 // ── DerivedRepository Demo ──
 
 fn demo_derived_repository(logger &log.Logger, om &orm.OrmManager) ! {
-
 	demo_derived_find := fn (conn voidptr, parts orm.QueryParts, params []voidptr) ![]DemoUser {
 		_ = conn
-		return [DemoUser{name: 'derived_alice', email: 'alice@derived.com'}]
+		return [DemoUser{
+			name:  'derived_alice'
+			email: 'alice@derived.com'
+		}]
 	}
 	demo_derived_count := fn (conn voidptr, parts orm.QueryParts, params []voidptr) !int {
 		_ = conn
@@ -266,33 +280,36 @@ fn demo_derived_repository(logger &log.Logger, om &orm.OrmManager) ! {
 		_ = conn
 	}
 
-	mut dr := orm.new_derived_repository[DemoUser](om, 'default',
-		fn (conn voidptr, id int) !DemoUser { return DemoUser{} },
-		fn (conn voidptr) ![]DemoUser { return []DemoUser{} },
-		fn (conn voidptr, e DemoUser) ! {},
-		fn (conn voidptr, e DemoUser) ! {},
-		fn (conn voidptr, id int) ! {},
-		fn (conn voidptr) !int { return 0 },
-		fn (conn voidptr, id int) bool { return false },
-		demo_derived_find, demo_derived_count,
-		demo_derived_exists, demo_derived_delete)!
+	mut dr := orm.new_derived_repository[DemoUser](om, 'default', fn (conn voidptr, id int) !DemoUser {
+		return DemoUser{}
+	}, fn (conn voidptr) ![]DemoUser {
+		return []DemoUser{}
+	}, fn (conn voidptr, e DemoUser) ! {}, fn (conn voidptr, e DemoUser) ! {}, fn (conn voidptr, id int) ! {},
+		fn (conn voidptr) !int {
+		return 0
+	}, fn (conn voidptr, id int) bool {
+		return false
+	}, demo_derived_find, demo_derived_count, demo_derived_exists, demo_derived_delete)!
 
-	users := dr.find('findByNameAndEmail', voidptr('Alice'.str), voidptr('a@b.com'.str))!
+	users := dr.find('findByNameAndEmail', voidptr(c'Alice'), voidptr(c'a@b.com'))!
 	logger.info('  dr.find(findByNameAndEmail): ${users.len} results, first=${users[0].name}')
 	assert users.len == 1
 
-	count := dr.count('countByStatus', voidptr('active'.str))!
+	count := dr.count('countByStatus', voidptr(c'active'))!
 	logger.info('  dr.count(countByStatus): ${count}')
 	assert count == 42
 
-	has := dr.exists('existsByEmail', voidptr('a@b.com'.str))
+	has := dr.exists('existsByEmail', voidptr(c'a@b.com'))
 	logger.info('  dr.exists(existsByEmail): ${has}')
 	assert has
 
-	dr.delete_by('deleteByStatus', voidptr('expired'.str))!
+	dr.delete_by('deleteByStatus', voidptr(c'expired'))!
 	logger.info('  dr.delete_by(deleteByStatus): OK')
 
-	mut demo_e := DemoUser{name: 'repo_user', email: 'repo@demo.com'}
+	mut demo_e := DemoUser{
+		name:  'repo_user'
+		email: 'repo@demo.com'
+	}
 	dr.repo.save(mut demo_e)!
 	logger.info('  dr.repo.save(): created_at=${demo_e.created_at} version=${demo_e.version}')
 
@@ -306,9 +323,11 @@ fn demo_transaction_manager(logger &log.Logger) ! {
 
 	mut d1_called := false
 	mut d1_flag := &d1_called
-	tm.execute(.required, fn [d1_flag]() ! {
+	tm.execute(.required, fn [d1_flag] () ! {
 		_ = d1_flag
-		unsafe { *d1_flag = true }
+		unsafe {
+			*d1_flag = true
+		}
 	})!
 	assert d1_called
 	assert !tm.is_active()
@@ -318,13 +337,17 @@ fn demo_transaction_manager(logger &log.Logger) ! {
 	mut d2_inner := false
 	mut d2o := &d2_outer
 	mut d2i := &d2_inner
-	tm.execute(.required, fn [mut tm, d2o, d2i]() ! {
+	tm.execute(.required, fn [mut tm, d2o, d2i] () ! {
 		_ = d2o
 		_ = d2i
-		unsafe { *d2o = true }
-		tm.execute(.required, fn [d2i]() ! {
+		unsafe {
+			*d2o = true
+		}
+		tm.execute(.required, fn [d2i] () ! {
 			_ = d2i
-			unsafe { *d2i = true }
+			unsafe {
+				*d2i = true
+			}
 		})!
 	})!
 	assert d2_outer && d2_inner
@@ -335,13 +358,17 @@ fn demo_transaction_manager(logger &log.Logger) ! {
 	mut d3_inner := false
 	mut d3o := &d3_outer
 	mut d3i := &d3_inner
-	tm.execute(.required, fn [mut tm, d3o, d3i]() ! {
+	tm.execute(.required, fn [mut tm, d3o, d3i] () ! {
 		_ = d3o
 		_ = d3i
-		unsafe { *d3o = true }
-		tm.execute(.requires_new, fn [d3i]() ! {
+		unsafe {
+			*d3o = true
+		}
+		tm.execute(.requires_new, fn [d3i] () ! {
 			_ = d3i
-			unsafe { *d3i = true }
+			unsafe {
+				*d3i = true
+			}
 		})!
 		tm.execute(.mandatory, fn () ! {})!
 	})!
@@ -357,9 +384,11 @@ fn demo_transaction_manager(logger &log.Logger) ! {
 
 	mut d5_called := false
 	mut d5_flag := &d5_called
-	orm.transactional(fn [d5_flag]() ! {
+	orm.transactional(fn [d5_flag] () ! {
 		_ = d5_flag
-		unsafe { *d5_flag = true }
+		unsafe {
+			*d5_flag = true
+		}
 	})!
 	assert d5_called
 	logger.info('  5. transactional() convenience — OK')

@@ -99,14 +99,14 @@ pub mut:
 pub fn new_repository[T](manager &OrmManager, db_name string, exec_find OrmExecFind[T], exec_find_all OrmExecFindAll[T], exec_insert OrmExecInsert[T], exec_update OrmExecUpdate[T], exec_delete OrmExecDelete, exec_count OrmExecCount, exec_exists OrmExecExists) !&BaseRepository[T] {
 	mut adapter := new_orm_adapter[T](manager, db_name)!
 	return &BaseRepository[T]{
-		adapter: adapter
-		exec_find: exec_find
+		adapter:       adapter
+		exec_find:     exec_find
 		exec_find_all: exec_find_all
-		exec_insert: exec_insert
-		exec_update: exec_update
-		exec_delete: exec_delete
-		exec_count: exec_count
-		exec_exists: exec_exists
+		exec_insert:   exec_insert
+		exec_update:   exec_update
+		exec_delete:   exec_delete
+		exec_count:    exec_count
+		exec_exists:   exec_exists
 	}
 }
 
@@ -247,41 +247,37 @@ pub type OrmExecDerivedDelete = fn (conn voidptr, parts QueryParts, params []voi
 //       orm.Primitive('Alice'), orm.Primitive(30))!
 //   n := dr.count('countByStatus', orm.Primitive('active'))!
 //   dr.delete_by('deleteByStatus', orm.Primitive('expired'))!
-@[heap]
 pub struct DerivedRepository[T] {
 pub mut:
-	repo               &BaseRepository[T]
-	exec_derived_find  OrmExecDerivedFind[T]  = unsafe { nil }
-	exec_derived_count OrmExecDerivedCount   = unsafe { nil }
-	exec_derived_exists OrmExecDerivedExists = unsafe { nil }
-	exec_derived_delete OrmExecDerivedDelete = unsafe { nil }
+	repo                &BaseRepository[T]
+	exec_derived_find   OrmExecDerivedFind[T] = unsafe { nil }
+	exec_derived_count  OrmExecDerivedCount   = unsafe { nil }
+	exec_derived_exists OrmExecDerivedExists  = unsafe { nil }
+	exec_derived_delete OrmExecDerivedDelete  = unsafe { nil }
 }
 
 // new_derived_repository creates a DerivedRepository backed by the
 // named connection.  Requires all BaseRepository callbacks plus
 // four derived-query executor callbacks.
-pub fn new_derived_repository[T](
-	manager &OrmManager
-	db_name string
-	exec_find OrmExecFind[T]
-	exec_find_all OrmExecFindAll[T]
-	exec_insert OrmExecInsert[T]
-	exec_update OrmExecUpdate[T]
-	exec_delete OrmExecDelete
-	exec_count OrmExecCount
-	exec_exists OrmExecExists
-	exec_derived_find OrmExecDerivedFind[T]
-	exec_derived_count OrmExecDerivedCount
-	exec_derived_exists OrmExecDerivedExists
-	exec_derived_delete OrmExecDerivedDelete
-) !&DerivedRepository[T] {
-	mut repo := new_repository[T](manager, db_name, exec_find,
-		exec_find_all, exec_insert, exec_update, exec_delete,
-		exec_count, exec_exists)!
+pub fn new_derived_repository[T](manager &OrmManager,
+	db_name string,
+	exec_find OrmExecFind[T],
+	exec_find_all OrmExecFindAll[T],
+	exec_insert OrmExecInsert[T],
+	exec_update OrmExecUpdate[T],
+	exec_delete OrmExecDelete,
+	exec_count OrmExecCount,
+	exec_exists OrmExecExists,
+	exec_derived_find OrmExecDerivedFind[T],
+	exec_derived_count OrmExecDerivedCount,
+	exec_derived_exists OrmExecDerivedExists,
+	exec_derived_delete OrmExecDerivedDelete) !&DerivedRepository[T] {
+	mut repo := new_repository[T](manager, db_name, exec_find, exec_find_all, exec_insert,
+		exec_update, exec_delete, exec_count, exec_exists)!
 	return &DerivedRepository[T]{
-		repo: repo
-		exec_derived_find: exec_derived_find
-		exec_derived_count: exec_derived_count
+		repo:                repo
+		exec_derived_find:   exec_derived_find
+		exec_derived_count:  exec_derived_count
 		exec_derived_exists: exec_derived_exists
 		exec_derived_delete: exec_derived_delete
 	}
@@ -364,4 +360,28 @@ pub fn (r &DerivedRepository[T]) delete_by(method string, params ...voidptr) ! {
 	}
 	conn := r.repo.adapter.get_conn()!
 	r.exec_derived_delete(conn, parts, params)!
+}
+
+// ── Non-generic wrappers for test compatibility ──
+// V compiler has trouble resolving generic methods with variadic parameters
+// in test files. These wrapper functions provide a workaround.
+
+// derived_find is a non-generic wrapper for DerivedRepository.find
+pub fn derived_find[T](mut dr DerivedRepository[T], method string, params ...voidptr) ![]T {
+	return dr.find(method, ...params)
+}
+
+// derived_count is a non-generic wrapper for DerivedRepository.count
+pub fn derived_count[T](dr &DerivedRepository[T], method string, params ...voidptr) !int {
+	return dr.count(method, ...params)
+}
+
+// derived_exists is a non-generic wrapper for DerivedRepository.exists
+pub fn derived_exists[T](dr &DerivedRepository[T], method string, params ...voidptr) bool {
+	return dr.exists(method, ...params)
+}
+
+// derived_delete_by is a non-generic wrapper for DerivedRepository.delete_by
+pub fn derived_delete_by[T](dr &DerivedRepository[T], method string, params ...voidptr) ! {
+	dr.delete_by(method, ...params)!
 }

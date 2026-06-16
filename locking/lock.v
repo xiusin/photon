@@ -5,7 +5,6 @@ module locking
 // Provides synchronization primitives using V's sync primitives.
 // Supports local mutex locks and a distributed lock interface
 // with pluggable backends (Redis, etc.).
-
 import time
 import sync
 
@@ -22,7 +21,8 @@ pub interface DistributedLock {
 // futex-based blocking for true mutual exclusion.
 pub struct LocalMutex {
 mut:
-	mu sync.Mutex
+	mu     sync.Mutex
+	locked bool
 }
 
 // new_mutex creates a new LocalMutex
@@ -33,26 +33,40 @@ pub fn new_mutex() &LocalMutex {
 // lock acquires the mutex (blocking)
 pub fn (mut m LocalMutex) lock() {
 	m.mu.@lock()
+	m.locked = true
 }
 
 // unlock releases the mutex
 pub fn (mut m LocalMutex) unlock() {
+	m.locked = false
 	m.mu.unlock()
 }
 
 // try_lock attempts to acquire without blocking
 pub fn (mut m LocalMutex) try_lock() bool {
-	return m.mu.try_lock()
+	// V's sync.Mutex.try_lock() doesn't work correctly, so we use a workaround:
+	// Use the mutex to protect access to the locked flag
+	m.mu.@lock()
+	if m.locked {
+		// Already locked, release the mutex and return false
+		m.mu.unlock()
+		return false
+	}
+	// Not locked, acquire it
+	m.locked = true
+	// Keep the mutex locked to prevent others from checking
+	return true
 }
 
 // LockManager provides unified lock operations (local + distributed)
 // Uses a sharded approach with sync.RwMutex for the map itself to prevent
 // races when multiple goroutines create/access locks concurrently.
 pub struct LockManager {
-	map_mu        sync.RwMutex
+mut:
+	map_mu sync.RwMutex
 pub mut:
-	local_locks    map[string]&LocalMutex
-	distributed    &DistributedLock = unsafe { nil }
+	local_locks map[string]&LocalMutex
+	distributed &DistributedLock = unsafe { nil }
 }
 
 // new_lock_manager creates a new LockManager
@@ -164,9 +178,9 @@ mut:
 pub fn new_lock_guard(mut manager LockManager, key string) &LockGuard {
 	manager.lock(key)
 	return &LockGuard{
-		key: key
+		key:     key
 		manager: manager
-		locked: true
+		locked:  true
 	}
 }
 

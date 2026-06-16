@@ -1,6 +1,6 @@
 module pool
 
-import photon.orm
+import orm
 
 // db_pool.v - Database Connection Pool
 //
@@ -19,7 +19,8 @@ pub mut:
 // The factory function should return a vorm.Connection.
 pub fn new_db_pool(driver orm.DriverType, min_size int, max_size int) &DbPool {
 	return &DbPool{
-		inner: new_pool_with_config('db-${driver.str()}', db_pool_factory, min_size, max_size)
+		inner:  new_pool_with_config('db-${driver.str()}', db_pool_factory, min_size,
+			max_size)
 		driver: driver
 	}
 }
@@ -28,7 +29,7 @@ pub fn new_db_pool(driver orm.DriverType, min_size int, max_size int) &DbPool {
 // Stub: returns voidptr — actual implementation per driver.
 // Real implementations would call sqlite.connect(), pg.connect(), etc.
 fn db_pool_factory() !voidptr {
-	return voidptr(0)
+	return unsafe { nil }
 }
 
 // initialize prepares the connection pool.

@@ -4,7 +4,6 @@ module pool
 //
 // Provides a generic object pool with configurable min/max size,
 // health checking, connection validation, idle timeout, and thread safety.
-
 import time
 import sync
 
@@ -17,33 +16,33 @@ pub interface PooledObject {
 // Pool manages a pool of reusable objects (thread-safe)
 pub struct Pool {
 pub mut:
-	min_size    int = 2
-	max_size    int = 10
+	min_size             int = 2
+	max_size             int = 10
 	idle_timeout_seconds int = 300
 pub:
-	name        string
+	name string
 mut:
-	mu          sync.Mutex
-	objects     []PoolEntry
+	mu           sync.Mutex
+	objects      []PoolEntry
 	active_count int
-	wait_count  int
-	closed      bool
-	factory     fn () !voidptr
+	wait_count   int
+	closed       bool
+	factory      fn () !voidptr = unsafe { nil }
 }
 
 // PoolEntry wraps a pooled object with metadata
 struct PoolEntry {
 pub mut:
-	object      voidptr
-	in_use      bool
-	created_at  i64
+	object       voidptr
+	in_use       bool
+	created_at   i64
 	last_used_at i64
 }
 
 // new_pool creates a new Pool
 pub fn new_pool(name string, factory fn () !voidptr) &Pool {
 	return &Pool{
-		name: name
+		name:    name
 		factory: factory
 	}
 }
@@ -51,8 +50,8 @@ pub fn new_pool(name string, factory fn () !voidptr) &Pool {
 // new_pool_with_config creates a Pool with custom sizes
 pub fn new_pool_with_config(name string, factory fn () !voidptr, min_size int, max_size int) &Pool {
 	return &Pool{
-		name: name
-		factory: factory
+		name:     name
+		factory:  factory
 		min_size: min_size
 		max_size: max_size
 	}
@@ -65,8 +64,8 @@ pub fn (mut p Pool) initialize() ! {
 	for _ in 0 .. p.min_size {
 		obj := p.factory()!
 		p.objects << PoolEntry{
-			object: obj
-			created_at: time.now().unix()
+			object:       obj
+			created_at:   time.now().unix()
 			last_used_at: time.now().unix()
 		}
 		p.active_count++
@@ -95,10 +94,10 @@ pub fn (mut p Pool) acquire() !voidptr {
 	if p.active_count < p.max_size {
 		obj := p.factory()!
 		p.objects << PoolEntry{
-			object: obj
-			created_at: time.now().unix()
+			object:       obj
+			created_at:   time.now().unix()
 			last_used_at: time.now().unix()
-			in_use: true
+			in_use:       true
 		}
 		p.active_count++
 		return obj
@@ -141,11 +140,11 @@ pub fn (p &Pool) stats() PoolStats {
 		}
 	}
 	return PoolStats{
-		name: p.name
-		total: p.objects.len
+		name:   p.name
+		total:  p.objects.len
 		active: in_use_count
-		idle: p.objects.len - in_use_count
-		max: p.max_size
+		idle:   p.objects.len - in_use_count
+		max:    p.max_size
 	}
 }
 

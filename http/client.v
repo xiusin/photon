@@ -17,7 +17,7 @@ pub:
 pub fn new_response(status int, body string) &HttpResponse {
 	return &HttpResponse{
 		status_code: status
-		body: body
+		body:        body
 	}
 }
 
@@ -166,7 +166,7 @@ fn base64_encode(input string) string {
 	}
 
 	if bits > 0 {
-		buffer <<= (6 - bits)
+		buffer <<= u64(6 - bits)
 		idx := int(buffer & 0x3F)
 		result += chars[idx].ascii_str()
 	}

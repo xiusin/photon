@@ -2,6 +2,7 @@ module queue
 
 // queue_test.v - Tests for the Queue module
 
+@[heap]
 struct TestJob {
 pub:
 	name string
@@ -82,7 +83,9 @@ fn test_serialize_deserialize() {
 fn test_dispatch_job() {
 	mut d := new_dispatcher(new_memory_driver())
 
-	job := TestJob{name: 'test'}
+	job := TestJob{
+		name: 'test'
+	}
 	payload := serialize_job(job.job_type(), '{}')
 	d.driver.push(d.default_queue, payload) or {}
 
@@ -92,7 +95,13 @@ fn test_dispatch_job() {
 fn test_dispatch_chain() {
 	mut d := new_dispatcher(new_memory_driver())
 
-	jobs := [TestJob{name: 'a'}, TestJob{name: 'b'}, TestJob{name: 'c'}]
+	jobs := [TestJob{
+		name: 'a'
+	}, TestJob{
+		name: 'b'
+	}, TestJob{
+		name: 'c'
+	}]
 	for job in jobs {
 		payload := serialize_job(job.job_type(), '{}')
 		d.driver.push(d.default_queue, payload) or {}
@@ -103,7 +112,15 @@ fn test_dispatch_chain() {
 
 fn test_dispatch_batch() {
 	// dispatch_batch uses global dispatcher, so count from it
-	jobs := [TestJob{name: '1'}, TestJob{name: '2'}]
+	mut test_jobs := [TestJob{
+		name: '1'
+	}, TestJob{
+		name: '2'
+	}]
+	mut jobs := []Job{}
+	for mut j in test_jobs {
+		jobs << &j
+	}
 	batch_id := dispatch_batch(jobs) or { '' }
 	assert batch_id.len > 0
 
@@ -138,7 +155,9 @@ fn test_worker_new() {
 }
 
 fn test_execute_job() {
-	job := TestJob{name: 'worker_test'}
+	job := TestJob{
+		name: 'worker_test'
+	}
 	payload := serialize_job(job.job_type(), '{}')
 
 	mut d := new_dispatcher(new_memory_driver())
@@ -149,7 +168,9 @@ fn test_execute_job() {
 }
 
 fn test_job_lifecycle() {
-	job := TestJob{name: 'test'}
+	job := TestJob{
+		name: 'test'
+	}
 	assert job.job_type() == 'test_job'
 	assert job.tries() == 3
 	assert job.backoff().len == 3
@@ -193,15 +214,17 @@ fn test_worker_custom_queue() {
 }
 
 fn test_dispatch_later() {
-	job := TestJob{name: 'delayed'}
-	// dispatch_later creates a delayed job without panicking
-	dispatch_later(job, 5) or {
-		assert false
+	job := TestJob{
+		name: 'delayed'
 	}
+	// dispatch_later creates a delayed job without panicking
+	dispatch_later(job, 5) or { assert false }
 }
 
 fn test_dispatch_and_clear() {
-	job := TestJob{name: 'test'}
+	job := TestJob{
+		name: 'test'
+	}
 	dispatch(job) or { assert false }
 	assert count() > 0
 
@@ -211,9 +234,9 @@ fn test_dispatch_and_clear() {
 
 fn test_job_payload_creation() {
 	payload := JobPayload{
-		id: 'job_1'
+		id:       'job_1'
 		job_type: 'email'
-		data: '{}'
+		data:     '{}'
 		attempts: 0
 	}
 	assert payload.id == 'job_1'

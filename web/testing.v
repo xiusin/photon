@@ -24,7 +24,6 @@ module web
 //   web.response_with_headers(302, '', {'Location': '/login'})
 //       .assert_redirect('/login')
 //       .dump()
-
 import json
 
 // TestResponse wraps an HTTP response for fluent assertions.
@@ -41,7 +40,7 @@ pub mut:
 pub fn response_from_result(result Result) &TestResponse {
 	return &TestResponse{
 		status: result.code
-		body: result.data
+		body:   result.data
 	}
 }
 
@@ -49,15 +48,15 @@ pub fn response_from_result(result Result) &TestResponse {
 pub fn response_from_raw(status int, body string) &TestResponse {
 	return &TestResponse{
 		status: status
-		body: body
+		body:   body
 	}
 }
 
 // response_with_headers creates a TestResponse with custom headers
 pub fn response_with_headers(status int, body string, headers map[string]string) &TestResponse {
 	return &TestResponse{
-		status: status
-		body: body
+		status:  status
+		body:    body
 		headers: headers
 	}
 }
@@ -80,8 +79,8 @@ pub fn (mut tr TestResponse) assert_status(expected int) &TestResponse {
 
 // assert_successful asserts the status is in the 2xx range
 pub fn (mut tr TestResponse) assert_successful() &TestResponse {
-	assert tr.status >= 200 && tr.status < 300,
-		'Expected successful status (2xx) but got ${tr.status}'
+	assert tr.status >= 200 && tr.status < 300, 'Expected successful status (2xx) but got ${tr.status}'
+
 	return tr
 }
 
@@ -108,12 +107,11 @@ pub fn (mut tr TestResponse) assert_no_content() &TestResponse {
 // assert_redirect asserts the status is in the 3xx range and optionally
 // checks the Location header
 pub fn (mut tr TestResponse) assert_redirect(location string) &TestResponse {
-	assert tr.status >= 300 && tr.status < 400,
-		'Expected redirect status (3xx) but got ${tr.status}'
+	assert tr.status >= 300 && tr.status < 400, 'Expected redirect status (3xx) but got ${tr.status}'
+
 	if location.len > 0 {
 		loc := tr.headers['Location'] or { '' }
-		assert loc == location,
-			'Expected redirect to "${location}" but got "${loc}"'
+		assert loc == location, 'Expected redirect to "${location}" but got "${loc}"'
 	}
 	return tr
 }
@@ -175,22 +173,22 @@ pub fn (mut tr TestResponse) assert_service_unavailable() &TestResponse {
 
 // assert_failed asserts the status is in the 4xx or 5xx range
 pub fn (mut tr TestResponse) assert_failed() &TestResponse {
-	assert tr.status >= 400,
-		'Expected failed status (4xx/5xx) but got ${tr.status}'
+	assert tr.status >= 400, 'Expected failed status (4xx/5xx) but got ${tr.status}'
+
 	return tr
 }
 
 // assert_client_error asserts the status is in the 4xx range
 pub fn (mut tr TestResponse) assert_client_error() &TestResponse {
-	assert tr.status >= 400 && tr.status < 500,
-		'Expected client error (4xx) but got ${tr.status}'
+	assert tr.status >= 400 && tr.status < 500, 'Expected client error (4xx) but got ${tr.status}'
+
 	return tr
 }
 
 // assert_server_error asserts the status is in the 5xx range
 pub fn (mut tr TestResponse) assert_server_error() &TestResponse {
-	assert tr.status >= 500,
-		'Expected server error (5xx) but got ${tr.status}'
+	assert tr.status >= 500, 'Expected server error (5xx) but got ${tr.status}'
+
 	return tr
 }
 
@@ -200,22 +198,22 @@ pub fn (mut tr TestResponse) assert_server_error() &TestResponse {
 
 // assert_body asserts the body equals the expected string exactly
 pub fn (mut tr TestResponse) assert_body(expected string) &TestResponse {
-	assert tr.body == expected,
-		'Body mismatch.\nExpected: ${expected}\nActual:   ${tr.body}'
+	assert tr.body == expected, 'Body mismatch.\nExpected: ${expected}\nActual:   ${tr.body}'
+
 	return tr
 }
 
 // assert_body_contains asserts the body contains the expected substring
 pub fn (mut tr TestResponse) assert_body_contains(expected string) &TestResponse {
-	assert tr.body.contains(expected),
-		'Expected body to contain "${expected}" but body is:\n${tr.body}'
+	assert tr.body.contains(expected), 'Expected body to contain "${expected}" but body is:\n${tr.body}'
+
 	return tr
 }
 
 // assert_body_missing asserts the body does NOT contain the given substring
 pub fn (mut tr TestResponse) assert_body_missing(needle string) &TestResponse {
-	assert !tr.body.contains(needle),
-		'Expected body to NOT contain "${needle}" but it does'
+	assert !tr.body.contains(needle), 'Expected body to NOT contain "${needle}" but it does'
+
 	return tr
 }
 
@@ -236,16 +234,14 @@ pub fn (mut tr TestResponse) assert_json(expected string) &TestResponse {
 		return tr
 	}
 
-	assert expected_parsed.len == actual_parsed.len,
-		'JSON mismatch: expected ${expected_parsed.len} keys but got ${actual_parsed.len}.\nExpected: ${expected}\nActual:   ${tr.body}'
+	assert expected_parsed.len == actual_parsed.len, 'JSON mismatch: expected ${expected_parsed.len} keys but got ${actual_parsed.len}.\nExpected: ${expected}\nActual:   ${tr.body}'
 
 	for key, val in expected_parsed {
 		actual_val := actual_parsed[key] or {
 			assert false, 'JSON mismatch: missing key "${key}".\nExpected: ${expected}\nActual:   ${tr.body}'
 			return tr
 		}
-		assert val == actual_val,
-			'JSON mismatch at key "${key}": expected "${val}" but got "${actual_val}".\nExpected: ${expected}\nActual:   ${tr.body}'
+		assert val == actual_val, 'JSON mismatch at key "${key}": expected "${val}" but got "${actual_val}".\nExpected: ${expected}\nActual:   ${tr.body}'
 	}
 	return tr
 }
@@ -260,16 +256,16 @@ pub fn (mut tr TestResponse) assert_json(expected string) &TestResponse {
 // Values are compared as strings. For exact type matching, use assert_json.
 pub fn (mut tr TestResponse) assert_json_path(path string, expected string) &TestResponse {
 	value := json_path_get(tr.body, path)
-	assert value == expected,
-		'assert_json_path("${path}"): expected "${expected}" but got "${value}"'
+	assert value == expected, 'assert_json_path("${path}"): expected "${expected}" but got "${value}"'
+
 	return tr
 }
 
 // assert_json_missing asserts a dot-notation path does NOT exist in the JSON
 pub fn (mut tr TestResponse) assert_json_missing(path string) &TestResponse {
 	value := json_path_get(tr.body, path)
-	assert value == '',
-		'assert_json_missing("${path}"): path exists with value "${value}"'
+	assert value == '', 'assert_json_missing("${path}"): path exists with value "${value}"'
+
 	return tr
 }
 
@@ -282,8 +278,7 @@ pub fn (mut tr TestResponse) assert_json_structure(keys []string) &TestResponse 
 
 	for key in keys {
 		exists := key in parsed
-		assert exists,
-			'assert_json_structure: expected key "${key}" in JSON. Keys present: ${parsed.keys()}'
+		assert exists, 'assert_json_structure: expected key "${key}" in JSON. Keys present: ${parsed.keys()}'
 	}
 	return tr
 }
@@ -302,19 +297,19 @@ pub fn (mut tr TestResponse) assert_json_count(path string, expected int) &TestR
 				assert false, 'assert_json_count: failed to parse JSON: ${err}'
 				return tr
 			}
-			assert root_arr.len == expected,
-				'assert_json_count(""): expected ${expected} items but got ${root_arr.len}'
+			assert root_arr.len == expected, 'assert_json_count(""): expected ${expected} items but got ${root_arr.len}'
+
 			return tr
 		}
-		assert root_obj.len == expected,
-			'assert_json_count(""): expected ${expected} keys but got ${root_obj.len}'
+		assert root_obj.len == expected, 'assert_json_count(""): expected ${expected} keys but got ${root_obj.len}'
+
 		return tr
 	}
 
 	// Nested path: navigate using raw JSON body
 	count := json_path_count(tr.body, path)
-	assert count == expected,
-		'assert_json_count("${path}"): expected ${expected} items but got ${count}'
+	assert count == expected, 'assert_json_count("${path}"): expected ${expected} items but got ${count}'
+
 	return tr
 }
 
@@ -325,16 +320,16 @@ pub fn (mut tr TestResponse) assert_json_count(path string, expected int) &TestR
 // assert_header asserts a response header value
 pub fn (mut tr TestResponse) assert_header(key string, expected string) &TestResponse {
 	value := tr.headers[key] or { '' }
-	assert value == expected,
-		'Expected header "${key}" to be "${expected}" but got "${value}"'
+	assert value == expected, 'Expected header "${key}" to be "${expected}" but got "${value}"'
+
 	return tr
 }
 
 // assert_header_missing asserts a response header is NOT present
 pub fn (mut tr TestResponse) assert_header_missing(key string) &TestResponse {
 	has := key in tr.headers
-	assert !has,
-		'Expected header "${key}" to be missing but it is present'
+	assert !has, 'Expected header "${key}" to be missing but it is present'
+
 	return tr
 }
 
@@ -344,8 +339,8 @@ pub fn (mut tr TestResponse) assert_content_type(expected string) &TestResponse 
 	if 'Content-Type' in tr.headers {
 		ct = tr.headers['Content-Type']
 	}
-	assert ct.contains(expected),
-		'Expected Content-Type to contain "${expected}" but got "${ct}"'
+	assert ct.contains(expected), 'Expected Content-Type to contain "${expected}" but got "${ct}"'
+
 	return tr
 }
 
@@ -446,9 +441,7 @@ fn json_path_get(body string, path string) string {
 		obj := json.decode(map[string]string, current_body) or {
 			// Not an object — try array if part is numeric
 			if is_numeric_part(part) {
-				arr := json.decode([]string, current_body) or {
-					return ''
-				}
+				arr := json.decode([]string, current_body) or { return '' }
 				idx := part.int()
 				if idx >= 0 && idx < arr.len {
 					current_body = arr[idx]
@@ -461,9 +454,7 @@ fn json_path_get(body string, path string) string {
 			return ''
 		}
 		// Get the key's value
-		mut val := obj[part] or {
-			return ''
-		}
+		mut val := obj[part] or { return '' }
 		// If value is empty, it's a non-string type — extract from raw
 		if val.len == 0 {
 			val = json_extract_key_raw(current_body, part)
@@ -557,8 +548,8 @@ fn json_extract_value(s string) string {
 
 	// Unquoted value: number, true, false, null
 	mut end := 0
-	for end < s.len && s[end] != `,` && s[end] != `}` && s[end] != `]`
-		&& s[end] != ` ` && s[end] != `\t` && s[end] != `\n` && s[end] != `\r` {
+	for end < s.len && s[end] != `,` && s[end] != `}` && s[end] != `]` && s[end] != ` `
+		&& s[end] != `\t` && s[end] != `\n` && s[end] != `\r` {
 		end++
 	}
 	return s[0..end]
@@ -571,32 +562,149 @@ fn json_path_count(body string, path string) int {
 	mut current_body := body.trim_space()
 
 	for part in parts {
-		obj := json.decode(map[string]string, current_body) or {
-			// Try array
-			if is_numeric_part(part) {
-				arr := json.decode([]string, current_body) or {
-					return 0
-				}
-				idx := part.int()
-				if idx >= 0 && idx < arr.len {
-					current_body = arr[idx]
-					continue
-				}
-			}
-			return 0
-		}
-		val := obj[part] or {
-			return 0
-		}
-		current_body = val
+		current_body = extract_json_value(current_body, part) or { return 0 }
 	}
 
 	// Now count: try object, then array
 	obj := json.decode(map[string]string, current_body) or {
 		arr := json.decode([]string, current_body) or {
-			return 0
+			// Try counting array elements manually for nested arrays
+			return count_json_array_elements(current_body)
 		}
 		return arr.len
 	}
 	return obj.len
+}
+
+// extract_json_value extracts the raw JSON value for a given key from a JSON object string.
+// Returns the raw JSON representation as a string.
+fn extract_json_value(json_str string, key string) !string {
+	trimmed := json_str.trim_space()
+	if !trimmed.starts_with('{') {
+		return error('not an object')
+	}
+
+	// Find the key in the JSON string
+	search_key := '"${key}"'
+	key_idx := trimmed.index(search_key) or { return error('key not found') }
+
+	// Move past the key and colon
+	after_key := trimmed[key_idx + search_key.len..].trim_space()
+	if !after_key.starts_with(':') {
+		return error('invalid JSON')
+	}
+	value_start := after_key[1..].trim_space()
+
+	// Extract the value based on its type
+	if value_start.starts_with('{') {
+		// Object - find matching closing brace
+		return extract_json_block(value_start, `{`, `}`)
+	} else if value_start.starts_with('[') {
+		// Array - find matching closing bracket
+		return extract_json_block(value_start, `[`, `]`)
+	} else if value_start.starts_with('"') {
+		// String - find closing quote
+		end_idx := value_start[1..].index('"') or { return error('unclosed string') }
+		return value_start[..end_idx + 2]
+	} else {
+		// Number, boolean, or null - find end
+		mut end := 0
+		for i, ch in value_start {
+			if ch == `,` || ch == `}` || ch == `]` {
+				end = i
+				break
+			}
+			end = i + 1
+		}
+		return value_start[..end].trim_space()
+	}
+}
+
+// extract_json_block extracts a JSON block (object or array) with proper nesting.
+fn extract_json_block(s string, open u8, close u8) !string {
+	mut depth := 0
+	mut in_string := false
+	mut escape := false
+
+	for i, ch in s {
+		if escape {
+			escape = false
+			continue
+		}
+		if ch == `\\` {
+			escape = true
+			continue
+		}
+		if ch == `"` {
+			in_string = !in_string
+			continue
+		}
+		if !in_string {
+			if ch == open {
+				depth++
+			} else if ch == close {
+				depth--
+				if depth == 0 {
+					return s[..i + 1]
+				}
+			}
+		}
+	}
+	return error('unclosed block')
+}
+
+// count_json_array_elements counts elements in a JSON array string.
+fn count_json_array_elements(s string) int {
+	trimmed := s.trim_space()
+	if !trimmed.starts_with('[') {
+		return 0
+	}
+
+	// Empty array
+	if trimmed.starts_with('[]') {
+		return 0
+	}
+
+	mut count := 0
+	mut depth := 0
+	mut in_string := false
+	mut escape := false
+	mut has_content := false
+
+	for ch in trimmed[1..] {
+		if escape {
+			escape = false
+			continue
+		}
+		if ch == `\\` {
+			escape = true
+			continue
+		}
+		if ch == `"` {
+			in_string = !in_string
+			has_content = true
+			continue
+		}
+		if !in_string {
+			if ch == `{` || ch == `[` {
+				depth++
+				has_content = true
+			} else if ch == `}` || ch == `]` {
+				if depth == 0 {
+					// End of array
+					if has_content {
+						count++
+					}
+					return count
+				}
+				depth--
+			} else if ch == `,` && depth == 0 {
+				count++
+				has_content = false
+			} else if ch != ` ` && ch != `\t` && ch != `\n` && ch != `\r` {
+				has_content = true
+			}
+		}
+	}
+	return count
 }

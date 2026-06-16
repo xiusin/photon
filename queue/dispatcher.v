@@ -1,12 +1,8 @@
 module queue
 
 // dispatcher.v - Job Dispatcher (Laravel Queue Dispatcher inspired)
-
 import time
 import sync
-
-// dispatcher_mu protects singleton initialization
-const dispatcher_mu = sync.Mutex{}
 
 // get_dispatcher returns the global queue singleton (thread-safe)
 fn get_dispatcher() &QueueDispatcher {
@@ -21,6 +17,7 @@ fn get_dispatcher() &QueueDispatcher {
 }
 
 __global (
+	dispatcher_mu     sync.Mutex
 	global_dispatcher &QueueDispatcher
 )
 
