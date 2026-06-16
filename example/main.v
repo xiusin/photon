@@ -31,6 +31,7 @@ import veb
 import time
 import web
 import logger
+import apidoc
 
 // ═══════════════════════════════════════════════════════════
 // App — 全局应用上下文（Spring Boot ApplicationContext 等价）
@@ -45,6 +46,8 @@ pub mut:
 	middleware  &MiddlewareManager = unsafe { nil }
 	app_config &AppConfig = unsafe { nil }
 	log_       &logger.Logger = unsafe { nil }
+	doc_store  &apidoc.ApiDocStore = unsafe { nil }
+	api_doc    &apidoc.Collector = unsafe { nil }
 }
 
 // Context — 请求级上下文（Spring Boot HttpServletRequest 等价）
@@ -59,10 +62,11 @@ pub struct Context {
 pub fn (mut app App) before_request(mut ctx Context) {
 	app.req_count++
 	app.middleware.apply_global(mut ctx.Context) or {}
+	app.api_doc.collect(mut ctx.Context)
 }
 
 pub fn (mut app App) after_request(mut ctx Context) {
-	_ = ctx
+	app.api_doc.collect_response(mut ctx.Context)
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -83,6 +87,12 @@ pub fn main() {
 	}
 	boot.print_banner()
 
+	// ── 初始化 API 文档模块 ──
+	doc_store, api_doc_collector := boot.init_api_doc() or {
+		eprintln('API Doc init failed: ${err}')
+		panic(err)
+	}
+
 	// ── 装配 App 实例 ──
 	mut web_app := &App{
 		start_time: time.ticks()
@@ -90,6 +100,8 @@ pub fn main() {
 		services: boot.services
 		middleware: boot.middleware
 		app_config: &boot.app_cfg
+		doc_store: doc_store
+		api_doc: api_doc_collector
 	}
 
 	// ── CLI 命令调度 ──

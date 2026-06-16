@@ -15,6 +15,8 @@ module main
 
 import veb
 import time
+import apidoc
+import os
 
 // ═══════════════════════════════════════════════════════════
 // HomeController — 首页 & 系统信息
@@ -342,5 +344,267 @@ fn json_data[T](items []T) string {
 		result += '${item}'
 	}
 	result += ']'
+	return result
+}
+
+// ═══════════════════════════════════════════════════════════
+// DocController — API 文档自动生成路由
+// ═══════════════════════════════════════════════════════════
+
+@[get]
+@['/__docs']
+pub fn (mut app App) api_docs_index(mut ctx Context) veb.Result {
+	html_path := 'apidoc/static/index.html'
+	html := os.read_file(html_path) or {
+		return ctx.text('API Documentation UI not found (expected at ${html_path})')
+	}
+	ctx.set_content_type('text/html; charset=utf-8')
+	return ctx.text(html)
+}
+
+@[get]
+@['/__docs/static/:file']
+pub fn (mut app App) api_docs_static(mut ctx Context) veb.Result {
+	filename := ctx.query['file'] or { '' }
+	if filename.len == 0 {
+		return ctx.json_error(400, 'missing filename')
+	}
+	// sanitize: 只允许字母数字 . / _
+	safe_chars := 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-'
+	for ch in filename {
+		if ch !in safe_chars.bytes() {
+			return ctx.json_error(400, 'invalid filename')
+		}
+	}
+	file_path := 'apidoc/static/${filename}'
+	content := os.read_file(file_path) or {
+		return ctx.json_error(404, 'static file not found')
+	}
+	// 根据扩展名设置 Content-Type
+	if filename.ends_with('.css') {
+		ctx.set_content_type('text/css; charset=utf-8')
+	} else if filename.ends_with('.js') {
+		ctx.set_content_type('application/javascript; charset=utf-8')
+	} else if filename.ends_with('.html') {
+		ctx.set_content_type('text/html; charset=utf-8')
+	} else if filename.ends_with('.json') {
+		ctx.set_content_type('application/json; charset=utf-8')
+	} else if filename.ends_with('.png') {
+		ctx.set_content_type('image/png')
+	} else if filename.ends_with('.svg') {
+		ctx.set_content_type('image/svg+xml')
+	} else if filename.ends_with('.ico') {
+		ctx.set_content_type('image/x-icon')
+	} else {
+		ctx.set_content_type('text/plain; charset=utf-8')
+	}
+	return ctx.text(content)
+}
+
+// get_entries 获取所有文档条目
+@[get]
+@['/__docs/api/entries']
+pub fn (mut app App) api_docs_get_entries(mut ctx Context) veb.Result {
+	entries := app.doc_store.get_entries()
+	// 手动构建 JSON 响应（避免 V 泛型与 &ApiDocEntry 的 C 代码生成 bug）
+	mut items_str := '['
+	for i, e in entries {
+		if i > 0 { items_str += ',' }
+		items_str += e.to_json()
+	}
+	items_str += ']'
+	return ctx.text(apidoc.encode_response(0, 'OK', items_str))
+}
+
+// get_entry 获取单条文档
+@[get]
+@['/__docs/api/entries/:id']
+pub fn (mut app App) api_docs_get_entry(mut ctx Context) veb.Result {
+	id := ctx.query['id'] or { return ctx.text(apidoc.api_error(400, 'missing id')) }
+	entry := app.doc_store.get_entry(id) or {
+		return ctx.text(apidoc.api_error(404, err.msg()))
+	}
+	return ctx.text(apidoc.encode_response(0, 'OK', entry.to_json()))
+}
+
+// update_entry 更新文档条目（编辑/锁定）
+@[put]
+@['/__docs/api/entries/:id']
+pub fn (mut app App) api_docs_update_entry(mut ctx Context) veb.Result {
+	id := ctx.query['id'] or { return ctx.text(apidoc.api_error(400, 'missing id')) }
+	body := ctx.req.data
+	if body.len == 0 {
+		return ctx.text(apidoc.api_error(400, 'empty request body'))
+	}
+
+	entry := app.doc_store.get_entry(id) or {
+		return ctx.text(apidoc.api_error(404, err.msg()))
+	}
+
+	// 解析变更
+	mut changes := parse_update_body(body)
+	// 简单字段更新 — 全部在 unsafe 中完成（entry 是 &ApiDocEntry 经过 map 取得）
+	unsafe {
+		if changes['summary'] != '' {
+			entry.summary = changes['summary']
+		}
+		if changes['group'] != '' {
+			entry.group = changes['group']
+		}
+		if changes['locked'] == 'true' || changes['locked'] == 'false' {
+			entry.locked = changes['locked'] == 'true'
+		}
+		if changes['is_hidden'] == 'true' || changes['is_hidden'] == 'false' {
+			entry.is_hidden = changes['is_hidden'] == 'true'
+		}
+	}
+	// 参数编辑
+	if changes['editParam.location'] != '' {
+		loc := changes['editParam.location']
+		name := changes['editParam.name']
+		field := changes['editParam.field']
+		value := changes['editParam.value']
+		for i := 0; i < entry.parameters.len; i++ {
+			if entry.parameters[i].name == name && entry.parameters[i].location == loc {
+				unsafe {
+					if field == 'description' {
+						entry.parameters[i].description = value
+					}
+				}
+				break
+			}
+		}
+	}
+	if changes['toggleParamLock.location'] != '' {
+		loc := changes['toggleParamLock.location']
+		name := changes['toggleParamLock.name']
+		for i := 0; i < entry.parameters.len; i++ {
+			if entry.parameters[i].name == name && entry.parameters[i].location == loc {
+				unsafe { entry.parameters[i].locked = !entry.parameters[i].locked }
+				break
+			}
+		}
+	}
+	// 请求头锁定切换
+	if changes['toggleHeaderLock.name'] != '' {
+		name := changes['toggleHeaderLock.name']
+		for i := 0; i < entry.headers.len; i++ {
+			if entry.headers[i].name == name {
+				unsafe { entry.headers[i].locked = !entry.headers[i].locked }
+				break
+			}
+		}
+	}
+	// 响应属性编辑
+	if changes['editRespProp.path'] != '' {
+		prop_path := changes['editRespProp.path']
+		field := changes['editRespProp.field']
+		value := changes['editRespProp.value']
+		for i := 0; i < entry.response.properties.len; i++ {
+			if entry.response.properties[i].path == prop_path {
+				unsafe {
+					if field == 'description' {
+						entry.response.properties[i].description = value
+					}
+				}
+				break
+			}
+		}
+	}
+	if changes['toggleRespPropLock.path'] != '' {
+		prop_path := changes['toggleRespPropLock.path']
+		for i := 0; i < entry.response.properties.len; i++ {
+			if entry.response.properties[i].path == prop_path {
+				unsafe { entry.response.properties[i].locked = !entry.response.properties[i].locked }
+				break
+			}
+		}
+	}
+
+	app.doc_store.update_entry(id, entry) or {
+		return ctx.text(apidoc.api_error(500, err.msg()))
+	}
+	return ctx.text(apidoc.encode_response(0, 'OK', '{}'))
+}
+
+// delete_entry 删除文档条目
+@[delete]
+@['/__docs/api/entries/:id']
+pub fn (mut app App) api_docs_delete_entry(mut ctx Context) veb.Result {
+	id := ctx.query['id'] or { return ctx.text(apidoc.api_error(400, 'missing id')) }
+	app.doc_store.delete_entry(id) or {
+		return ctx.text(apidoc.api_error(500, err.msg()))
+	}
+	return ctx.text(apidoc.encode_response(0, 'deleted', '{}'))
+}
+
+// parse_update_body 简化版 JSON 解析（从请求体提取字段）
+fn parse_update_body(body string) map[string]string {
+	mut result := map[string]string{}
+	// 简单 key-value 解析，仅用于已知字段
+	mut pos := 0
+	for pos < body.len {
+		// 跳空白
+		for pos < body.len && (body[pos] == ` ` || body[pos] == `\n` || body[pos] == `\t` || body[pos] == `\r` || body[pos] == `{` || body[pos] == `}` || body[pos] == `"`) {
+			if body[pos] == `"` || body[pos] == `{` || body[pos] == `}` {
+				pos++
+				continue
+			}
+			pos++
+		}
+		if pos >= body.len {
+			break
+		}
+		// 找 key
+		key_start := pos
+		for pos < body.len && body[pos] != `:` && body[pos] != `\n` && body[pos] != `,` && body[pos] != ` ` && body[pos] != `\t` {
+			pos++
+		}
+		if pos >= body.len {
+			break
+		}
+		key := body[key_start..pos]
+		// 跳 :
+		for pos < body.len && (body[pos] == `:` || body[pos] == ` ` || body[pos] == `\t`) {
+			pos++
+		}
+		if pos >= body.len {
+			break
+		}
+		// 找 value（简单字符串或字面值）
+		if body[pos] == `"` {
+			pos++ // 跳过起始引号
+			val_start := pos
+			for pos < body.len && body[pos] != `"` {
+				if body[pos] == `\\` {
+					pos += 2
+				} else {
+					pos++
+				}
+			}
+			result[key.trim_space()] = body[val_start..pos]
+			pos++ // 跳过结束引号
+		} else if body[pos] == `{` || body[pos] == `[` {
+			// 嵌套对象 — 跳过，只记录标记
+			mut depth := 1
+			pos++
+			for pos < body.len && depth > 0 {
+				if body[pos] == `{` || body[pos] == `[` {
+					depth++
+				} else if body[pos] == `}` || body[pos] == `]` {
+					depth--
+				}
+				pos++
+			}
+			result[key.trim_space()] = 'nested'
+		} else {
+			// 字面值
+			val_start := pos
+			for pos < body.len && body[pos] != `,` && body[pos] != `\n` && body[pos] != `\r` && body[pos] != `}` {
+				pos++
+			}
+			result[key.trim_space()] = body[val_start..pos].trim_space()
+		}
+	}
 	return result
 }

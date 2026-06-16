@@ -8,6 +8,7 @@ module main
 import config
 import logger
 import cache
+import apidoc
 
 // ═══════════════════════════════════════════════════════════
 // 应用配置结构
@@ -163,4 +164,12 @@ pub fn (b &Bootstrap) print_routes() {
 	println('  ${'PUT':-8s}  ${'/api/v1/users/:id':-40s} ${'ADMIN':-12s} 更新用户')
 	println('  ${'DELETE':-8s} ${'/api/v1/users/:id':-40s} ${'ADMIN':-12s} 删除用户')
 	println('  ───────────────────────────────────────────────────────────')
+}
+
+// init_api_doc 初始化 API 文档自动生成模块
+pub fn (b &Bootstrap) init_api_doc() !(&apidoc.ApiDocStore, &apidoc.Collector) {
+	b.log_.info('Initializing API Documentation module...')
+	store, coll := apidoc.init('data/apidoc')!
+	b.log_.info('API Documentation ready — /__docs')
+	return store, coll
 }

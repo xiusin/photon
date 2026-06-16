@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Photon API 文档</title>
+  <link rel="stylesheet" href="/__docs/static/app.css">
+</head>
+<body>
+  <div class="app-layout" id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <h1>📋 API 文档</h1>
+        <p>实时自动生成 · 可编辑锁定</p>
+      </div>
+      <div class="sidebar-search">
+        <input type="text" id="searchInput" placeholder="搜索路由..." />
+      </div>
+      <div class="sidebar-groups" id="sidebarGroups">
+        <div class="spinner"></div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content" id="mainContent">
+      <div class="main-header">
+        <span class="header-title" id="headerTitle">API 文档管理器</span>
+        <div class="header-actions">
+          <button class="btn btn-outline btn-sm" id="refreshBtn" onclick="loadEntries()">⟳ 刷新</button>
+          <button class="btn btn-outline btn-sm" onclick="toggleTheme()">🌓 主题</button>
+        </div>
+      </div>
+
+      <div id="contentArea">
+        <!-- Empty State -->
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon">📭</div>
+          <h2>暂无 API 文档</h2>
+          <p>发送 HTTP 请求到您的应用，文档将自动生成。<br />数据会持久化保存，支持编辑和锁定。</p>
+          <br />
+          <button class="btn btn-primary" onclick="loadEntries()">⟳ 检查数据</button>
+        </div>
+
+        <!-- Detail View -->
+        <div class="detail-view" id="detailView" style="display:none"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/__docs/static/app.js"></script>
+</body>
+</html>
