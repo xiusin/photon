@@ -39,10 +39,10 @@ pub struct Context {
 // Holds shared state and services that persist across requests.
 pub struct App {
 pub mut:
-	logger       &log.Logger = unsafe { nil }
-	cache_mgr    &cache.CacheManager = unsafe { nil }
-	req_count    int
-	start_time   i64
+	logger     &log.Logger         = unsafe { nil }
+	cache_mgr  &cache.CacheManager = unsafe { nil }
+	req_count  int
+	start_time i64
 }
 
 // before_request is called before every HTTP request (veb lifecycle hook).
