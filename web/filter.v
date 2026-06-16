@@ -58,13 +58,25 @@ pub fn (fc &FilterChain) apply_response(ctx &veb.Context, body string) !string {
 
 // -- Built-in Filters --
 
-// security_headers_filter adds security-related HTTP headers
+// security_headers_filter adds OWASP-recommended security HTTP headers.
+// These are static per-request — each response requires its own headers.
+// Headers added:
+//   X-Content-Type-Options: nosniff
+//   X-Frame-Options: DENY
+//   X-XSS-Protection: 1; mode=block
+//   Referrer-Policy: strict-origin-when-cross-origin
+//   Permissions-Policy: geolocation=(), microphone=(), camera=()
+//   Strict-Transport-Security: max-age=31536000; includeSubDomains
 pub fn security_headers_filter(mut ctx &veb.Context, body string) !string {
-	ctx.set_custom_header('X-Content-Type-Options', 'nosniff') or {}
+	// Set headers best-effort — veb may not support all header operations
+	ctx.set_custom_header('X-Content-Type-Options', 'nosniff') or {
+		eprintln('[SecurityFilter] Failed to set X-Content-Type-Options')
+	}
 	ctx.set_custom_header('X-Frame-Options', 'DENY') or {}
 	ctx.set_custom_header('X-XSS-Protection', '1; mode=block') or {}
 	ctx.set_custom_header('Referrer-Policy', 'strict-origin-when-cross-origin') or {}
 	ctx.set_custom_header('Permissions-Policy', 'geolocation=(), microphone=(), camera=()') or {}
+	ctx.set_custom_header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains') or {}
 	return body
 }
 

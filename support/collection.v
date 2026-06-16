@@ -192,20 +192,69 @@ pub fn (c &Collection[T]) slice(start int, end int) Collection[T] {
 // Ordering
 // ============================================================
 
-// sort_by sorts the collection using a key extractor (ascending)
+// sort_by sorts the collection using a key extractor (ascending).
+// Uses Schwartzian transform: extract keys once, sort indices, reorder.
+// Complexity: O(n log n) via quicksort, with O(n) key extraction.
 pub fn (c &Collection[T]) sort_by[R](f fn (T) R) Collection[T] {
 	if c.items.len <= 1 {
 		return Collection[T]{items: c.items.clone()}
 	}
-	mut sorted := c.items.clone()
-	for i in 0 .. sorted.len {
-		for j in i + 1 .. sorted.len {
-			if f(sorted[i]) > f(sorted[j]) {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
-		}
+
+	n := c.items.len
+
+	// Step 1: Extract keys once (Schwartzian transform)
+	mut keys := []R{cap: n}
+	mut indices := []int{cap: n}
+	for i in 0 .. n {
+		keys << f(c.items[i])
+		indices << i
 	}
-	return Collection[T]{items: sorted}
+
+	// Step 2: Quicksort indices by their corresponding keys
+	quicksort_indices[R](mut keys, mut indices, 0, n - 1)
+
+	// Step 3: Reorder items by sorted indices
+	mut result := []T{cap: n}
+	for idx in indices {
+		result << c.items[idx]
+	}
+
+	return Collection[T]{items: result}
+}
+
+// quicksort_indices sorts indices in-place using keys (ascending)
+fn quicksort_indices[R](mut keys []R, mut indices []int, lo int, hi int) {
+	if lo >= hi {
+		return
+	}
+
+	// Median-of-three pivot selection
+	mid := lo + (hi - lo) / 2
+	if keys[indices[lo]] > keys[indices[mid]] {
+		indices[lo], indices[mid] = indices[mid], indices[lo]
+	}
+	if keys[indices[lo]] > keys[indices[hi]] {
+		indices[lo], indices[hi] = indices[hi], indices[lo]
+	}
+	if keys[indices[mid]] > keys[indices[hi]] {
+		indices[mid], indices[hi] = indices[hi], indices[mid]
+	}
+	pivot_val := keys[indices[mid]]
+
+	// Hoare partition
+	mut i := lo
+	mut j := hi
+	for {
+		for keys[indices[i]] < pivot_val { i++ }
+		for keys[indices[j]] > pivot_val { j-- }
+		if i >= j { break }
+		indices[i], indices[j] = indices[j], indices[i]
+		i++
+		j--
+	}
+
+	quicksort_indices[R](mut keys, mut indices, lo, j)
+	quicksort_indices[R](mut keys, mut indices, j + 1, hi)
 }
 
 // reverse reverses the order

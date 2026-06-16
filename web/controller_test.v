@@ -78,8 +78,8 @@ fn test_get_header_val_default() {
 // -- set_status tests --
 
 fn test_set_status_is_noop() {
-	ctx := ctx_with_url('/')
-	set_status(ctx, 200)
+	mut ctx := ctx_with_url('/')
+	set_status(mut ctx, 200)
 	assert true
 }
 

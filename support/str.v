@@ -9,22 +9,33 @@ fn is_upper_char(ch u8) bool {
 	return ch >= `A` && ch <= `Z`
 }
 
-// slug converts a string to a URL-friendly slug
+// slug converts a string to a URL-friendly slug.
+// Uses a []u8 buffer to avoid O(n²) string concatenation.
 pub fn slug(s string) string {
-	mut result := ''
+	mut buf := []u8{cap: s.len}
 	mut last_was_sep := false
-	for ch in s.to_lower() {
-		if ch.is_letter() || ch.is_digit() {
-			result += ch.ascii_str()
+	for ch in s {
+		mut c := ch
+		// Convert to lowercase on-the-fly (avoid pre-allocating full lowercase string)
+		if c >= `A` && c <= `Z` {
+			c += 32
+		}
+		if c.is_letter() || c.is_digit() {
+			buf << c
 			last_was_sep = false
-		} else if ch == ` ` || ch == `-` || ch == `_` || ch == `.` {
-			if !last_was_sep && result.len > 0 {
-				result += '-'
+		} else if c == ` ` || c == `-` || c == `_` || c == `.` {
+			if !last_was_sep && buf.len > 0 {
+				buf << `-`
 				last_was_sep = true
 			}
 		}
 	}
-	return result.trim_right('-')
+	// Trim trailing hyphens
+	mut end := buf.len
+	for end > 0 && buf[end - 1] == `-` {
+		end--
+	}
+	return buf[..end].bytestr()
 }
 
 // snake converts PascalCase or camelCase to snake_case
@@ -208,15 +219,18 @@ pub fn replace_last(s string, search string, replace string) string {
 	return s[..idx] + replace + s[idx + search.len..]
 }
 
+// random_charset is the character set used by random() for alphanumeric generation
+const random_charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+
 // random generates a random alphanumeric string
 pub fn random(length int) string {
-	chars := 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-	mut result := ''
+	mut buf := []u8{cap: length}
+	chars_len := random_charset.len
 	for _ in 0 .. length {
-		idx := rand.intn(chars.len) or { 0 }
-		result += chars[idx].ascii_str()
+		idx := rand.intn(chars_len) or { 0 }
+		buf << u8(random_charset[idx])
 	}
-	return result
+	return buf.bytestr()
 }
 
 // mask masks a portion of the string with the given character

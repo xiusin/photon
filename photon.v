@@ -3,7 +3,7 @@ module photon
 // photon.v - Photon Framework Main Module
 // A commercial-grade Spring-like application framework for V language
 import config
-import log
+import logger
 import cache
 import security
 import cli
@@ -19,8 +19,9 @@ import storage
 // Re-export config types
 pub type Config = config.Config
 
-// Re-export log types
-pub type Logger = log.Logger
+// Re-export logger types
+pub type Logger = logger.Logger
+pub type ChannelLogger = logger.ChannelLogger
 
 // Re-export cache types
 pub type CacheManager = cache.CacheManager
@@ -95,9 +96,6 @@ pub type ModelBindingRegistry = web.ModelBindingRegistry
 // Re-export cache tags & locks
 pub type TaggedCache = cache.TaggedCache
 pub type CacheLock = cache.CacheLock
-
-// Re-export log channels
-pub type ChannelLogger = log.ChannelLogger
 
 // Re-export storage types
 pub type StorageManager = storage.StorageManager

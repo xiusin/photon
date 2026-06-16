@@ -20,11 +20,30 @@ pub fn new_rate_limiter() &RateLimiter {
 }
 
 // too_many_attempts checks if the key has exceeded the max attempts
-pub fn (mut r RateLimiter) too_many_attempts(key string, max_attempts int) bool {
+// within the decay window (in seconds). Expired attempts are automatically
+// cleaned from the attempt list.
+pub fn (mut r RateLimiter) too_many_attempts(key string, max_attempts int, decay_seconds i64) bool {
 	r.mu.@lock()
 	defer { r.mu.unlock() }
-	attempts := r.attempts[key] or { return false }
-	return attempts.len >= max_attempts
+
+	mut attempts := r.attempts[key] or { return false }
+	now := time.now().unix()
+
+	// Filter out expired attempts (outside the decay window)
+	mut valid := []i64{cap: attempts.len}
+	for ts in attempts {
+		if now - ts < decay_seconds {
+			valid << ts
+		}
+	}
+
+	if valid.len == 0 {
+		r.attempts.delete(key)
+		return false
+	}
+
+	r.attempts[key] = valid
+	return valid.len >= max_attempts
 }
 
 // hit records an attempt for the given key

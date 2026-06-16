@@ -18,7 +18,7 @@ module main
 // Compile from photon/ directory:
 //   v -enable-globals example/main.v
 import config
-import log
+import logger
 import security
 import cli
 import orm
@@ -39,7 +39,7 @@ pub struct Context {
 // Holds shared state and services that persist across requests.
 pub struct App {
 pub mut:
-	logger     &log.Logger         = unsafe { nil }
+	log_     &logger.Logger         = unsafe { nil }
 	cache_mgr  &cache.CacheManager = unsafe { nil }
 	req_count  int
 	start_time i64
@@ -50,9 +50,9 @@ pub fn (mut app App) before_request(mut ctx Context) {
 	app.req_count++
 	info := web.new_request_info(mut ctx.Context)
 
-	if app.logger != unsafe { nil } {
-		logger := app.logger
-		logger.info('${info.method} ${info.path} | IP: ${info.ip} | UA: ${info.user_agent}')
+	if app.log_ != unsafe { nil } {
+		log_ := app.log_
+		log_.info('${info.method} ${info.path} | IP: ${info.ip} | UA: ${info.user_agent}')
 	}
 }
 
@@ -188,14 +188,14 @@ fn start_server() ! {
 	}
 
 	// ── Logger ──
-	mut logger := log.new()
-	logger.set_level(.debug)
-	logger.set_colored(true)
-	logger.put('app', cfg.get('app.name'))
-	logger.info('Configuration loaded successfully')
+	mut log_ := logger.new()
+	log_.set_level(.debug)
+	log_.set_colored(true)
+	log_.put('app', cfg.get('app.name'))
+	log_.info('Configuration loaded successfully')
 
 	// ── Security Module ──
-	logger.info('--- Initializing Security Module ---')
+	log_.info('--- Initializing Security Module ---')
 	jwt_config := security.JwtConfig{
 		secret:             cfg.get_or('jwt.secret', 'default-secret-change-me-in-production!!')
 		expiration_minutes: cfg.get_int_or('jwt.expiration', 60)
@@ -230,50 +230,50 @@ fn start_server() ! {
 	security_chain.with_secured('/api/users')
 	security_chain.with_roles('/api/admin', ['ADMIN'])
 	security_chain.with_roles('/api/mod', ['ADMIN', 'MODERATOR'])
-	logger.info('Security module initialized with JWT + CSRF + RBAC')
+	log_.info('Security module initialized with JWT + CSRF + RBAC')
 
 	// ── Cache Module ──
-	logger.info('--- Initializing Cache Module ---')
+	log_.info('--- Initializing Cache Module ---')
 	mut cache_mgr := cache.new_cache_manager()
 	unsafe {
 		cache_mgr.register('default', cache.new_memory_cache('default'))
 	}
 	cache_mgr.set('app:name', cfg.get('app.name'), 0)!
 	cache_mgr.set('app:version', cfg.get('app.version'), 0)!
-	logger.info('Cache initialized with memory driver')
+	log_.info('Cache initialized with memory driver')
 
 	// ── ORM Module ──
-	logger.info('--- Initializing ORM Module ---')
+	log_.info('--- Initializing ORM Module ---')
 	mut demo_om := orm.new_orm_manager()
 	demo_om.register_connection('default', .sqlite, voidptr(99))!
-	logger.info('ORM manager initialized with SQLite connection')
+	log_.info('ORM manager initialized with SQLite connection')
 
 	// ── Run Demos ──
-	demo_orm_adapter(logger, demo_om)!
-	demo_transactional_hooks(logger, demo_om)!
-	demo_derived_repository(logger, demo_om)!
-	demo_transaction_manager(logger)!
-	demo_concurrency(logger)!
-	demo_cache_operations(logger, mut cache_mgr)!
+	demo_orm_adapter(log_, demo_om)!
+	demo_transactional_hooks(log_, demo_om)!
+	demo_derived_repository(log_, demo_om)!
+	demo_transaction_manager(log_)!
+	demo_concurrency(log_)!
+	demo_cache_operations(log_, mut cache_mgr)!
 
 	// ── Start Web Server ──
 	port := cfg.get_int_or('server.port', 8080)
-	logger.info('Starting web server on port ${port}...')
+	log_.info('Starting web server on port ${port}...')
 
 	// Create App instance with shared services
 	_ = &App{
-		logger:     logger
+		log_:     log_
 		cache_mgr:  cache_mgr
 		start_time: time.ticks()
 	}
 
-	logger.info('Available endpoints:')
-	logger.info('  GET /           - API info with uptime')
-	logger.info('  GET /health     - Health check')
-	logger.info('  GET /ping       - Ping/pong')
-	logger.info('  GET /stats      - Request statistics')
-	logger.info('  GET /cache      - Cache demo (?key=xxx)')
-	logger.info('  GET /concurrent - Parallel processing demo')
+	log_.info('Available endpoints:')
+	log_.info('  GET /           - API info with uptime')
+	log_.info('  GET /health     - Health check')
+	log_.info('  GET /ping       - Ping/pong')
+	log_.info('  GET /stats      - Request statistics')
+	log_.info('  GET /cache      - Cache demo (?key=xxx)')
+	log_.info('  GET /concurrent - Parallel processing demo')
 
 	// Spring Boot-style: two-type pattern [App, Context]
 	web.run_with_routes[App, Context](port)
@@ -281,18 +281,18 @@ fn start_server() ! {
 
 // ── OrmAdapter Demo ──
 
-fn demo_orm_adapter(logger &log.Logger, om &orm.OrmManager) ! {
+fn demo_orm_adapter(log_ &logger.Logger, om &orm.OrmManager) ! {
 	mut a := orm.new_orm_adapter[DemoUser](om, 'default')!
 
 	conn_ptr := a.get_conn()!
-	logger.info('  Connection routing: ${typeof(conn_ptr).name}')
+	log_.info('  Connection routing: ${typeof(conn_ptr).name}')
 
 	mut user := DemoUser{
 		name:  'Alice'
 		email: 'alice@demo.com'
 	}
 	a.before_insert(mut user)!
-	logger.info('  Touchable.touch(): created_at=${user.created_at} updated_at=${user.updated_at} version=${user.version}')
+	log_.info('  Touchable.touch(): created_at=${user.created_at} updated_at=${user.updated_at} version=${user.version}')
 	assert user.created_at > 0
 	assert user.updated_at > 0
 	assert user.version == 1
@@ -310,18 +310,18 @@ fn demo_orm_adapter(logger &log.Logger, om &orm.OrmManager) ! {
 	a.with_connection(fn (conn_ptr voidptr) ! {
 		_ = conn_ptr
 	})!
-	logger.info('  with_connection convenience method — OK')
+	log_.info('  with_connection convenience method — OK')
 
 	parts := orm.parse_method_name('findByNameAndEmail')!
-	logger.info('  Derived query: ${parts.to_where_cond()}')
+	log_.info('  Derived query: ${parts.to_where_cond()}')
 	assert parts.to_where_param_count() == 2
 
-	logger.info('  OrmAdapter demo: PASSED')
+	log_.info('  OrmAdapter demo: PASSED')
 }
 
 // ── Transactional Lifecycle Hooks Demo ──
 
-fn demo_transactional_hooks(logger &log.Logger, om &orm.OrmManager) ! {
+fn demo_transactional_hooks(log_ &logger.Logger, om &orm.OrmManager) ! {
 	mut a := orm.new_orm_adapter[DemoUser](om, 'default')!
 
 	mut order_a := DemoUser{
@@ -337,7 +337,7 @@ fn demo_transactional_hooks(logger &log.Logger, om &orm.OrmManager) ! {
 	a.after_insert(mut order_a)!
 	assert tx_called
 	_ = tx_flag
-	logger.info('  Pattern A: hooks inside transaction — BEFORE + AFTER fired atomically')
+	log_.info('  Pattern A: hooks inside transaction — BEFORE + AFTER fired atomically')
 
 	mut tm := orm.new_transaction_manager()
 	mut execute_called := false
@@ -349,12 +349,12 @@ fn demo_transactional_hooks(logger &log.Logger, om &orm.OrmManager) ! {
 		}
 	})!
 	assert execute_called
-	logger.info('  Pattern B: TransactionManager with .required — OK')
+	log_.info('  Pattern B: TransactionManager with .required — OK')
 
 	tm.execute(.required, fn [mut tm] () ! {
 		tm.execute(.nested, fn () ! {})!
 	})!
-	logger.info('  Pattern B: .required + .nested propagation — OK')
+	log_.info('  Pattern B: .required + .nested propagation — OK')
 
 	mut txc_called := false
 	mut txc_flag := &txc_called
@@ -365,14 +365,14 @@ fn demo_transactional_hooks(logger &log.Logger, om &orm.OrmManager) ! {
 		}
 	})!
 	assert txc_called
-	logger.info('  Pattern C: transactional() convenience — OK')
+	log_.info('  Pattern C: transactional() convenience — OK')
 
-	logger.info('  Transactional hooks demo: PASSED')
+	log_.info('  Transactional hooks demo: PASSED')
 }
 
 // ── DerivedRepository Demo ──
 
-fn demo_derived_repository(logger &log.Logger, om &orm.OrmManager) ! {
+fn demo_derived_repository(log_ &logger.Logger, om &orm.OrmManager) ! {
 	demo_derived_find := fn (conn voidptr, parts orm.QueryParts, params []voidptr) ![]DemoUser {
 		_ = conn
 		return [DemoUser{
@@ -404,33 +404,33 @@ fn demo_derived_repository(logger &log.Logger, om &orm.OrmManager) ! {
 	}, demo_derived_find, demo_derived_count, demo_derived_exists, demo_derived_delete)!
 
 	users := dr.find('findByNameAndEmail', voidptr(c'Alice'), voidptr(c'a@b.com'))!
-	logger.info('  dr.find(findByNameAndEmail): ${users.len} results, first=${users[0].name}')
+	log_.info('  dr.find(findByNameAndEmail): ${users.len} results, first=${users[0].name}')
 	assert users.len == 1
 
 	count := dr.count('countByStatus', voidptr(c'active'))!
-	logger.info('  dr.count(countByStatus): ${count}')
+	log_.info('  dr.count(countByStatus): ${count}')
 	assert count == 42
 
 	has := dr.exists('existsByEmail', voidptr(c'a@b.com'))
-	logger.info('  dr.exists(existsByEmail): ${has}')
+	log_.info('  dr.exists(existsByEmail): ${has}')
 	assert has
 
 	dr.delete_by('deleteByStatus', voidptr(c'expired'))!
-	logger.info('  dr.delete_by(deleteByStatus): OK')
+	log_.info('  dr.delete_by(deleteByStatus): OK')
 
 	mut demo_e := DemoUser{
 		name:  'repo_user'
 		email: 'repo@demo.com'
 	}
 	dr.repo.save(mut demo_e)!
-	logger.info('  dr.repo.save(): created_at=${demo_e.created_at} version=${demo_e.version}')
+	log_.info('  dr.repo.save(): created_at=${demo_e.created_at} version=${demo_e.version}')
 
-	logger.info('  DerivedRepository demo: PASSED')
+	log_.info('  DerivedRepository demo: PASSED')
 }
 
 // ── TransactionManager Propagation Demo ──
 
-fn demo_transaction_manager(logger &log.Logger) ! {
+fn demo_transaction_manager(log_ &logger.Logger) ! {
 	mut tm := orm.new_transaction_manager()
 
 	mut d1_called := false
@@ -443,7 +443,7 @@ fn demo_transaction_manager(logger &log.Logger) ! {
 	})!
 	assert d1_called
 	assert !tm.is_active()
-	logger.info('  1. .required: created → committed → inactive — OK')
+	log_.info('  1. .required: created → committed → inactive — OK')
 
 	mut d2_outer := false
 	mut d2_inner := false
@@ -464,7 +464,7 @@ fn demo_transaction_manager(logger &log.Logger) ! {
 	})!
 	assert d2_outer && d2_inner
 	assert !tm.is_active()
-	logger.info('  2. .required + nested .required: outer+inner ran, single commit — OK')
+	log_.info('  2. .required + nested .required: outer+inner ran, single commit — OK')
 
 	mut d3_outer := false
 	mut d3_inner := false
@@ -485,14 +485,14 @@ fn demo_transaction_manager(logger &log.Logger) ! {
 		tm.execute(.mandatory, fn () ! {})!
 	})!
 	assert d3_outer && d3_inner
-	logger.info('  3. .required + .requires_new: inner independent tx, outer restored — OK')
+	log_.info('  3. .required + .requires_new: inner independent tx, outer restored — OK')
 
 	mut d4_failed := false
 	tm.execute(.required, fn () ! {
 		return error('simulated business error')
 	}) or { d4_failed = true }
 	assert d4_failed && !tm.is_active()
-	logger.info('  4. .required + error: rolled back → inactive — OK')
+	log_.info('  4. .required + error: rolled back → inactive — OK')
 
 	mut d5_called := false
 	mut d5_flag := &d5_called
@@ -503,24 +503,28 @@ fn demo_transaction_manager(logger &log.Logger) ! {
 		}
 	})!
 	assert d5_called
-	logger.info('  5. transactional() convenience — OK')
+	log_.info('  5. transactional() convenience — OK')
 
-	logger.info('  TransactionManager demo: PASSED')
+	log_.info('  TransactionManager demo: PASSED')
 }
 
 // ── Concurrency Demo ──
 
-fn demo_concurrency(logger &log.Logger) ! {
-	logger.info('--- Concurrency & Parallel Processing Demo ---')
+fn demo_concurrency(log_ &logger.Logger) ! {
+	log_.info('--- Concurrency & Parallel Processing Demo ---')
 
 	// 1. Goroutine with mutex-protected counter (using shared references)
 	mut counter := 0
 	mut mu := sync.Mutex{}
+	mut wg := sync.WaitGroup{}
 	mut counter_ptr := &counter
 	mut mu_ptr := &mu
+	mut wg_ptr := &wg
 
 	for _ in 0 .. 5 {
-		spawn fn [mut counter_ptr, mut mu_ptr] () {
+		wg.add(1)
+		spawn fn [mut counter_ptr, mut mu_ptr, mut wg_ptr] () {
+			defer { wg_ptr.done() }
 			time.sleep(50 * time.millisecond) // Simulate work
 			mu_ptr.@lock()
 			unsafe {
@@ -530,63 +534,69 @@ fn demo_concurrency(logger &log.Logger) ! {
 		}()
 	}
 
-	time.sleep(200 * time.millisecond) // Wait for goroutines
+	wg.wait()
 	mu.@lock()
 	final_count := counter
 	mu.unlock()
 	assert final_count == 5
-	logger.info('  1. Goroutines: 5 parallel tasks completed, counter=${final_count}')
+	log_.info('  1. Goroutines: 5 parallel tasks completed, counter=${final_count}')
 
 	// 2. Parallel map-reduce pattern (using array indices)
 	data := [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 	mut squares := []int{len: data.len}
 	mut squares_ptr := &squares
+	mut wg2 := sync.WaitGroup{}
+	mut wg2_ptr := &wg2
 
 	for i, val in data {
-		spawn fn [i, val, mut squares_ptr] () {
-			squares_ptr[i] = val * val
+		wg2.add(1)
+		spawn fn [i, val, mut squares_ptr, mut wg2_ptr] () {
+			defer { wg2_ptr.done() }
+			unsafe {
+				squares_ptr[i] = val * val
+			}
 		}()
 	}
 
-	time.sleep(100 * time.millisecond) // Wait for goroutines
+	wg2.wait()
 
 	mut sum := 0
 	for s in squares {
 		sum += s
 	}
 	assert sum == 385 // 1² + 2² + ... + 10²
-	logger.info('  2. Parallel map-reduce: computed ${data.len} squares, sum=${sum}')
+	log_.info('  2. Parallel map-reduce: computed ${data.len} squares, sum=${sum}')
 
-	logger.info('  Concurrency demo: PASSED')
+	log_.info('  Concurrency demo: PASSED')
 }
 
 // ── Cache Operations Demo ──
 
-fn demo_cache_operations(logger &log.Logger, mut cache_mgr cache.CacheManager) ! {
-	logger.info('--- Cache Operations Demo ---')
+fn demo_cache_operations(log_ &logger.Logger, mut cache_mgr cache.CacheManager) ! {
+	log_.info('--- Cache Operations Demo ---')
 
 	// 1. Basic set/get
 	cache_mgr.set('user:1:name', 'Alice', int(60 * time.second))!
 	name := cache_mgr.get('user:1:name') or { 'not found' }
 	assert name == 'Alice'
-	logger.info('  1. Basic set/get: user:1:name = ${name}')
+	log_.info('  1. Basic set/get: user:1:name = ${name}')
 
 	// 2. Cache miss
 	missing := cache_mgr.get('nonexistent') or { 'cache miss' }
 	assert missing == 'cache miss'
-	logger.info('  2. Cache miss handling: ${missing}')
+	log_.info('  2. Cache miss handling: ${missing}')
 
 	// 3. Batch operations
 	cache_mgr.set('batch:1', 'value1', int(30 * time.second))!
 	cache_mgr.set('batch:2', 'value2', int(30 * time.second))!
 	cache_mgr.set('batch:3', 'value3', int(30 * time.second))!
-	logger.info('  3. Batch operations: stored 3 keys')
+	log_.info('  3. Batch operations: stored 3 keys')
 
 	// 4. Delete operation
 	cache_mgr.delete('batch:2')!
 	deleted := cache_mgr.get('batch:2') or { 'deleted' }
 	assert deleted == 'deleted'
-	logger.info('  4. Delete operation: batch:2 removed')
+	log_.info('  4. Delete operation: batch:2 removed')
 
 	// 5. TTL expiration (short TTL for demo)
 	cache_mgr.set('temp', 'expires_soon', 1)!
@@ -595,9 +605,9 @@ fn demo_cache_operations(logger &log.Logger, mut cache_mgr cache.CacheManager) !
 	time.sleep(1500 * time.millisecond)
 	temp2 := cache_mgr.get('temp') or { 'expired' }
 	assert temp2 == 'expired'
-	logger.info('  5. TTL expiration: temp key expired after 1s')
+	log_.info('  5. TTL expiration: temp key expired after 1s')
 
-	logger.info('  Cache operations demo: PASSED')
+	log_.info('  Cache operations demo: PASSED')
 }
 
 // ── Web Server ──

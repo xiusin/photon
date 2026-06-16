@@ -87,17 +87,22 @@ pub fn parse_middleware_params(spec string) ParameterizedMiddleware {
 
 // -- Parameterized Middleware Implementations --
 
-// throttle_middleware creates a parameterized rate-limiting middleware
+// throttle_middleware creates a parameterized rate-limiting middleware.
+// The RateLimiter is created once and shared across all requests.
+// Automatically cleans expired attempts to prevent permanent blocking.
+//
 // Usage: throttle_middleware(max_attempts: 60, decay_minutes: 1)
+//   → Allows 60 requests per minute per key (IP or user).
 pub fn throttle_middleware(max_attempts int, decay_minutes int) fn (mut &MiddlewareContext) !bool {
-	return fn [max_attempts, decay_minutes] (mut ctx &MiddlewareContext) !bool {
-		// Build a rate limiter key from client IP or user ID
+	// Create limiter ONCE — shared across all requests handled by this middleware
+	mut limiter := new_rate_limiter()
+	decay_seconds := i64(decay_minutes) * 60
+	return fn [max_attempts, decay_seconds, mut limiter] (mut ctx &MiddlewareContext) !bool {
 		mut key := ctx.data['user_id'] or { 'anonymous' }
 		key = 'throttle_${key}'
 
-		mut limiter := new_rate_limiter()
-		if limiter.too_many_attempts(key, max_attempts) {
-			return error('rate limit exceeded: ${max_attempts} requests per ${decay_minutes} minutes')
+		if limiter.too_many_attempts(key, max_attempts, decay_seconds) {
+			return error('rate limit exceeded: ${max_attempts} requests per ${decay_seconds / 60} minutes')
 		}
 
 		limiter.hit(key)

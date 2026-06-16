@@ -8,14 +8,14 @@ module web
 //
 // Inspired by Illuminate\Pipeline\Pipeline.
 
-// Pipe is a single middleware step in the pipeline
+// PipeFunc is a single middleware step: takes passable + next handler
 pub type PipeFunc = fn (passable voidptr, next fn (voidptr) voidptr) voidptr
 
 // Pipeline executes middleware in an onion-like pattern
 pub struct Pipeline {
 mut:
-	pipes      []PipeFunc
-	passable   voidptr
+	pipes    []PipeFunc
+	passable voidptr
 }
 
 // new_pipeline creates a new Pipeline
@@ -35,16 +35,19 @@ pub fn (mut p Pipeline) through(pipes []PipeFunc) &Pipeline {
 	return p
 }
 
-// then executes the pipeline with the final destination callback
+// then executes the pipeline with the final destination callback.
+// Builds the onion closure chain — each middleware wraps the next.
+// The chain is built once per then() call; closures are lightweight
+// in V (capture-by-value) and the overhead is negligible for typical
+// middleware counts (5-10).
 pub fn (p &Pipeline) then(destination fn (voidptr) voidptr) voidptr {
-	// Build the onion from last to first
 	mut carry := destination
 
-	for i := p.pipes.len - 1; i >= 0; i-- {
-		pipe := p.pipes[i]
-		prev_carry := carry
-		carry = fn [pipe, prev_carry](passable voidptr) voidptr {
-			return pipe(passable, prev_carry)
+	for i := p.pipes.len; i > 0; i-- {
+		pipe := p.pipes[i - 1]
+		prev := carry
+		carry = fn [pipe, prev](passable voidptr) voidptr {
+			return pipe(passable, prev)
 		}
 	}
 

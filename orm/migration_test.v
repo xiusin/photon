@@ -149,8 +149,122 @@ fn test_migration_manager_custom_table() {
 
 // --- Mock Migration independence ---
 
-fn test_migration_manager_empty_has_no_migrations() {
+fn test_migration_manager_in_memory_mode_migrate() {
 	om := new_orm_manager()
-	mm := new_migration_manager(om)
-	assert mm.migrations.len == 0
+	mut mm := new_migration_manager(om)
+	mm.set_in_memory_mode()
+
+	mut m1 := new_mock_migration(1, 'create_users')
+	mut m2 := new_mock_migration(2, 'add_email')
+	mm.add(m1)
+	mm.add(m2)
+
+	mm.migrate()!
+
+	assert m1.up_called == true
+	assert m2.up_called == true
+}
+
+fn test_migration_manager_in_memory_skips_applied() {
+	om := new_orm_manager()
+	mut mm := new_migration_manager(om)
+	mm.set_in_memory_mode()
+
+	mut m1 := new_mock_migration(1, 'first')
+	mut m2 := new_mock_migration(2, 'second')
+	mm.add(m1)
+	mm.add(m2)
+
+	mm.migrate()!
+	assert m1.up_called == true
+	assert m2.up_called == true
+
+	unsafe {
+		m1.up_called = false
+		m2.up_called = false
+	}
+
+	mm.migrate()!
+	assert m1.up_called == false // skipped
+	assert m2.up_called == false // skipped
+}
+
+fn test_migration_manager_in_memory_rollback() {
+	om := new_orm_manager()
+	mut mm := new_migration_manager(om)
+	mm.set_in_memory_mode()
+
+	mut m1 := new_mock_migration(1, 'first')
+	mut m2 := new_mock_migration(2, 'second')
+	mm.add(m1)
+	mm.add(m2)
+
+	mm.migrate()!
+	assert m1.up_called == true
+	assert m2.up_called == true
+
+	mm.rollback()!
+	assert m1.down_called == true
+	assert m2.down_called == true
+}
+
+fn test_migration_manager_in_memory_sorted_execution() {
+	om := new_orm_manager()
+	mut mm := new_migration_manager(om)
+	mm.set_in_memory_mode()
+
+	mut m3 := new_mock_migration(3, 'third')
+	mut m1 := new_mock_migration(1, 'first')
+	mut m2 := new_mock_migration(2, 'second')
+	mm.add(m3)
+	mm.add(m1)
+	mm.add(m2)
+
+	mm.migrate()!
+
+	assert m1.up_called == true
+	assert m2.up_called == true
+	assert m3.up_called == true
+}
+
+fn test_migration_manager_in_memory_reset() {
+	om := new_orm_manager()
+	mut mm := new_migration_manager(om)
+	mm.set_in_memory_mode()
+
+	mut m1 := new_mock_migration(1, 'first')
+	mm.add(m1)
+
+	mm.migrate()!
+	assert m1.up_called == true
+
+	mm.reset()!
+	assert m1.down_called == true
+}
+
+fn test_migration_manager_in_memory_status() {
+	om := new_orm_manager()
+	mut mm := new_migration_manager(om)
+	mm.set_in_memory_mode()
+
+	mm.add(new_mock_migration(1, 'first'))
+	mm.add(new_mock_migration(2, 'second'))
+
+	mm.migrate()!
+	mm.status() or {
+		// stdout output test — just ensure no crash
+		assert true
+	}
+}
+
+fn test_migration_manager_without_in_memory_errors() {
+	om := new_orm_manager()
+	mut mm := new_migration_manager(om)
+	mm.add(new_mock_migration(1, 'test'))
+
+	if _ := mm.migrate() {
+		assert false, 'expected error when not in memory mode'
+	} else {
+		assert true
+	}
 }

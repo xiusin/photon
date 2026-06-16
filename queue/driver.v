@@ -15,9 +15,10 @@ fn serialize_job(job_type string, data string) string {
 	return '${job_type}||${data}'
 }
 
-// deserialize_job extracts job_type and data from serialized payload
+// deserialize_job extracts job_type and data from serialized payload.
+// Uses split_n to prevent data truncation when job data contains '||'.
 fn deserialize_job(payload string) !(string, string) {
-	parts := payload.split('||')
+	parts := payload.split_n('||', 2)
 	if parts.len < 2 {
 		return error('invalid job payload format')
 	}

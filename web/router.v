@@ -89,7 +89,8 @@ pub fn patch(path string, handler_name string) RouteInfo {
 	}
 }
 
-// group creates a route group with a common prefix
+// group creates a route group with a common prefix and optional shared middleware.
+// Middleware specified on the group is inherited by all routes in the group.
 pub fn group(prefix string, routes []RouteInfo) []RouteInfo {
 	mut result := []RouteInfo{}
 	for route in routes {
@@ -97,6 +98,23 @@ pub fn group(prefix string, routes []RouteInfo) []RouteInfo {
 			method:       route.method
 			path:         prefix + route.path
 			handler_name: route.handler_name
+			middlewares:  route.middlewares.clone()
+		}
+	}
+	return result
+}
+
+// group_with_middleware creates a route group with shared middleware
+pub fn group_with_middleware(prefix string, routes []RouteInfo, middlewares []string) []RouteInfo {
+	mut result := []RouteInfo{}
+	for route in routes {
+		mut mw := middlewares.clone()
+		mw << route.middlewares
+		result << RouteInfo{
+			method:       route.method
+			path:         prefix + route.path
+			handler_name: route.handler_name
+			middlewares:  mw
 		}
 	}
 	return result
@@ -145,10 +163,30 @@ pub fn scan_controller[T]() []RouteInfo {
 						path = '/${name}'
 					}
 				}
+				// Collect middleware declarations from @[middleware('name')] attributes.
+				// V stores attributes as strings; middleware names follow the 'middleware' keyword.
+				mut middlewares := []string{}
+				mut collecting := false
+				for attr in method.attrs {
+					if attr == 'middleware' {
+						collecting = true
+						continue
+					}
+					if collecting {
+						// Eat individual middleware name arguments
+						trimmed := attr.trim_space().trim('\'').trim('"')
+						if trimmed.len > 0 && trimmed[0] != `/` {
+							middlewares << trimmed
+							continue
+						}
+						collecting = false
+					}
+				}
 				routes << RouteInfo{
 					method:       http_method
 					path:         path
 					handler_name: name
+					middlewares:  middlewares
 				}
 			}
 		}

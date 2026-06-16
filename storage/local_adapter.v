@@ -52,9 +52,13 @@ pub fn (la &LocalAdapter) read(path string) !string {
 pub fn (mut la LocalAdapter) write(path string, contents string, options StorageWriteOptions) ! {
 	full := la.resolve_path(path)
 
-	// Ensure parent directory exists
+	// Ensure parent directory exists — non-fatal if it already exists
 	parent := dirname(full)
-	os.mkdir_all(parent) or {}
+	if !os.exists(parent) {
+		os.mkdir_all(parent) or {
+			return error('failed to create parent directory "${parent}": ${err}')
+		}
+	}
 
 	// Write the file
 	os.write_file(full, contents)!
@@ -86,7 +90,11 @@ pub fn (la &LocalAdapter) copy(source string, dest string) ! {
 
 	// Ensure destination directory exists
 	parent := dirname(dst)
-	os.mkdir_all(parent) or {}
+	if !os.exists(parent) {
+		os.mkdir_all(parent) or {
+			return error('failed to create parent directory "${parent}": ${err}')
+		}
+	}
 
 	// Read source and write to destination
 	data := os.read_file(src)!
@@ -100,7 +108,11 @@ pub fn (la &LocalAdapter) move(source string, dest string) ! {
 
 	// Ensure destination directory exists
 	parent := dirname(dst)
-	os.mkdir_all(parent) or {}
+	if !os.exists(parent) {
+		os.mkdir_all(parent) or {
+			return error('failed to create parent directory "${parent}": ${err}')
+		}
+	}
 
 	os.mv(src, dst)!
 }
@@ -142,7 +154,9 @@ pub fn (la &LocalAdapter) metadata(path string) !&FileMetadata {
 	return meta
 }
 
-// set_visibility changes file visibility
+// set_visibility changes file visibility.
+// On Unix: sets file permissions for public (644) or private (600).
+// This is best-effort — full permission control requires platform-specific code.
 pub fn (mut la LocalAdapter) set_visibility(path string, visibility Visibility) ! {
 	full := la.resolve_path(path)
 	if !os.exists(full) {
@@ -151,12 +165,15 @@ pub fn (mut la LocalAdapter) set_visibility(path string, visibility Visibility) 
 
 	la.permissions[path] = visibility.str()
 
-	// On Unix: set read permissions for public files
-	// This is a best-effort; full permission control requires platform-specific code
+	// chmod is best-effort on Unix — errors are logged but not fatal
 	if visibility == .public_ {
-		os.chmod(full, 0o644) or {}
+		os.chmod(full, 0o644) or {
+			eprintln('[LocalAdapter] chmod 644 failed for "${full}": ${err}')
+		}
 	} else {
-		os.chmod(full, 0o600) or {}
+		os.chmod(full, 0o600) or {
+			eprintln('[LocalAdapter] chmod 600 failed for "${full}": ${err}')
+		}
 	}
 }
 
@@ -205,8 +222,10 @@ pub fn (la &LocalAdapter) list_contents(directory string) ![]&FileMetadata {
 		} else {
 			sz := os.file_size(full_entry)
 			mime := detect_mime_type(entry_path)
-		_ = os.file_last_mod_unix(full_entry)
-		result << new_file_metadata(entry_path, sz, mime)
+			lm := os.file_last_mod_unix(full_entry)
+			mut meta := new_file_metadata(entry_path, sz, mime)
+			meta.last_modified = lm
+			result << meta
 		}
 	}
 

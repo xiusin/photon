@@ -93,11 +93,11 @@ fn test_ratelimiter_new() {
 
 fn test_ratelimiter_hit_and_check() {
 	mut r := new_rate_limiter()
-	assert r.too_many_attempts('key1', 3) == false
+	assert r.too_many_attempts('key1', 3, 60) == false
 	r.hit('key1')
 	r.hit('key1')
 	r.hit('key1')
-	assert r.too_many_attempts('key1', 3) == true
+	assert r.too_many_attempts('key1', 3, 60) == true
 }
 
 fn test_ratelimiter_remaining() {
@@ -117,9 +117,9 @@ fn test_ratelimiter_remaining_capped() {
 fn test_ratelimiter_clear() {
 	mut r := new_rate_limiter()
 	r.hit('key1')
-	assert r.too_many_attempts('key1', 1)
+	assert r.too_many_attempts('key1', 1, 60) == true
 	r.clear('key1')
-	assert r.too_many_attempts('key1', 1) == false
+	assert r.too_many_attempts('key1', 1, 60) == false
 }
 
 fn test_ratelimiter_multiple_keys() {
@@ -127,8 +127,8 @@ fn test_ratelimiter_multiple_keys() {
 	r.hit('user1')
 	r.hit('user1')
 	r.hit('user2')
-	assert r.too_many_attempts('user1', 2)
-	assert r.too_many_attempts('user2', 2) == false
+	assert r.too_many_attempts('user1', 2, 60) == true
+	assert r.too_many_attempts('user2', 2, 60) == false
 }
 
 fn test_ratelimiter_retry_without_hits() {

@@ -4,6 +4,8 @@ module support
 //
 // Provides dot-notation access to maps and common array manipulation utilities.
 
+import time
+
 // get retrieves a value from a nested map using dot notation
 pub fn get[T](m map[string]T, key string, default_val T) T {
 	keys := key.split('.')
@@ -149,14 +151,14 @@ pub fn chunk[T](items []T, size int) [][]T {
 // shuffle randomly reorders items
 pub fn shuffle[T](items []T) []T {
 	mut result := items.clone()
-	// Fisher-Yates shuffle
+	// Fisher-Yates shuffle with time-based PRNG
+	mut seed := i64(time.now().unix_nano())
 	mut n := result.len
 	for n > 1 {
 		n--
-		k := unsafe { n } // simplified
-		if n > 0 {
-			k = 0 // FIXME: use rand.intn
-		}
+		// Simple LCG: X_{n+1} = (a * X_n + c) mod m
+		seed = seed * i64(1103515245) + i64(12345)
+		k := int(seed.abs() % i64(n + 1))
 		result[n], result[k] = result[k], result[n]
 	}
 	return result

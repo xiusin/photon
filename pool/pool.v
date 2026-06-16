@@ -131,7 +131,8 @@ pub fn (mut p Pool) close() ! {
 	p.active_count = 0
 }
 
-// stats returns current pool statistics (snapshot)
+// stats returns current pool statistics as an eventually-consistent snapshot.
+// For precise mutex-protected stats, call this while holding an external lock.
 pub fn (p &Pool) stats() PoolStats {
 	mut in_use_count := 0
 	for entry in p.objects {

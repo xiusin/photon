@@ -114,6 +114,9 @@ pub fn new_repository[T](manager &OrmManager, db_name string, exec_find OrmExecF
 
 // find_by_id finds an entity by primary key and runs AfterFind hook.
 pub fn (mut r BaseRepository[T]) find_by_id(id int) !T {
+	if isnil(r.exec_find) {
+		return error('find_by_id: exec_find callback not configured')
+	}
 	conn := r.adapter.get_conn()!
 	mut entity := r.exec_find(conn, id)!
 	r.adapter.after_find(mut entity)!
@@ -122,6 +125,9 @@ pub fn (mut r BaseRepository[T]) find_by_id(id int) !T {
 
 // find_all returns all entities and runs AfterFind hooks.
 pub fn (mut r BaseRepository[T]) find_all() ![]T {
+	if isnil(r.exec_find_all) {
+		return error('find_all: exec_find_all callback not configured')
+	}
 	conn := r.adapter.get_conn()!
 	mut entities := r.exec_find_all(conn)!
 	r.adapter.after_find_all(mut entities)!
@@ -139,17 +145,26 @@ pub fn (mut r BaseRepository[T]) save(mut entity T) !T {
 		if entity.is_new() {
 			r.adapter.before_insert(mut entity)!
 			conn := r.adapter.get_conn()!
+			if isnil(r.exec_insert) {
+				return error('save: exec_insert callback not configured')
+			}
 			r.exec_insert(conn, entity)!
 			r.adapter.after_insert(mut entity)!
 		} else {
 			r.adapter.before_update(mut entity)!
 			conn := r.adapter.get_conn()!
+			if isnil(r.exec_update) {
+				return error('save: exec_update callback not configured')
+			}
 			r.exec_update(conn, entity)!
 			r.adapter.after_update(mut entity)!
 		}
 	} $else {
 		r.adapter.before_insert(mut entity)!
 		conn := r.adapter.get_conn()!
+		if isnil(r.exec_insert) {
+			return error('save: exec_insert callback not configured')
+		}
 		r.exec_insert(conn, entity)!
 		r.adapter.after_insert(mut entity)!
 	}
@@ -163,6 +178,9 @@ pub fn (mut r BaseRepository[T]) update(mut entity T) !T {
 			return error('update requires an existing entity (id != 0)')
 		}
 	}
+	if isnil(r.exec_update) {
+		return error('update: exec_update callback not configured')
+	}
 	r.adapter.before_update(mut entity)!
 	conn := r.adapter.get_conn()!
 	r.exec_update(conn, entity)!
@@ -172,12 +190,18 @@ pub fn (mut r BaseRepository[T]) update(mut entity T) !T {
 
 // delete_by_id deletes an entity by primary key.
 pub fn (r &BaseRepository[T]) delete_by_id(id int) ! {
+	if isnil(r.exec_delete) {
+		return error('delete_by_id: exec_delete callback not configured')
+	}
 	conn := r.adapter.get_conn()!
 	r.exec_delete(conn, id)!
 }
 
 // delete deletes an entity instance with lifecycle hooks.
 pub fn (mut r BaseRepository[T]) delete(entity T) ! {
+	if isnil(r.exec_delete) {
+		return error('delete: exec_delete callback not configured')
+	}
 	$if T is Identifiable {
 		r.adapter.before_delete(entity)!
 		conn := r.adapter.get_conn()!
@@ -190,12 +214,18 @@ pub fn (mut r BaseRepository[T]) delete(entity T) ! {
 
 // count returns the total number of entities.
 pub fn (r &BaseRepository[T]) count() !int {
+	if isnil(r.exec_count) {
+		return error('count: exec_count callback not configured')
+	}
 	conn := r.adapter.get_conn()!
 	return r.exec_count(conn)
 }
 
 // exists_by_id checks if an entity exists by primary key.
 pub fn (r &BaseRepository[T]) exists_by_id(id int) bool {
+	if isnil(r.exec_exists) {
+		return false
+	}
 	conn := r.adapter.get_conn() or { return false }
 	return r.exec_exists(conn, id)
 }
@@ -296,6 +326,9 @@ pub fn new_derived_repository[T](manager &OrmManager,
 //   users := dr.find('findByNameAndAge',
 //       orm.Primitive('Alice'), orm.Primitive(30))!
 pub fn (mut dr DerivedRepository[T]) find(method string, params ...voidptr) ![]T {
+	if isnil(dr.exec_derived_find) {
+		return error('find: exec_derived_find callback not configured')
+	}
 	parts := parse_method_name(method)!
 	if parts.operation != .find {
 		return error('find() requires a find* method, got: ${method}')
@@ -315,6 +348,9 @@ pub fn (mut dr DerivedRepository[T]) find(method string, params ...voidptr) ![]T
 // Example:
 //   n := dr.count('countByStatus', orm.Primitive('active'))!
 pub fn (r &DerivedRepository[T]) count(method string, params ...voidptr) !int {
+	if isnil(r.exec_derived_count) {
+		return error('count: exec_derived_count callback not configured')
+	}
 	parts := parse_method_name(method)!
 	if parts.operation != .count {
 		return error('count() requires a count* method, got: ${method}')
@@ -332,6 +368,9 @@ pub fn (r &DerivedRepository[T]) count(method string, params ...voidptr) !int {
 // Example:
 //   has := dr.exists('existsByEmail', orm.Primitive('a@b.com'))!
 pub fn (r &DerivedRepository[T]) exists(method string, params ...voidptr) bool {
+	if isnil(r.exec_derived_exists) {
+		return false
+	}
 	parts := parse_method_name(method) or { return false }
 	if parts.operation != .exists {
 		return false
@@ -350,6 +389,9 @@ pub fn (r &DerivedRepository[T]) exists(method string, params ...voidptr) bool {
 // Example:
 //   dr.delete_by('deleteByStatus', orm.Primitive('expired'))!
 pub fn (r &DerivedRepository[T]) delete_by(method string, params ...voidptr) ! {
+	if isnil(r.exec_derived_delete) {
+		return error('delete_by: exec_derived_delete callback not configured')
+	}
 	parts := parse_method_name(method)!
 	if parts.operation != .delete_all {
 		return error('delete_by() requires a delete* method, got: ${method}')

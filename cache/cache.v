@@ -46,12 +46,11 @@ pub fn (cm &CacheManager) get_cache(name string) &Cache {
 	return cm.caches[name] or { cm.default_cache }
 }
 
-// has_immutable checks if a key exists in the default cache (immutable)
+// has_immutable checks if a key exists in the default cache (thread-safe via cache internals)
 pub fn (cm &CacheManager) has_immutable(key string) bool {
 	unsafe {
 		return cm.default_cache.has(key)
 	}
-	return false
 }
 
 // get retrieves a value from the default cache

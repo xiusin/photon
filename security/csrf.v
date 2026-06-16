@@ -98,6 +98,9 @@ pub fn new_csrf_manager(config CsrfConfig) &CsrfManager {
 
 // generate generates a new CSRF token
 pub fn (cm &CsrfManager) generate() string {
+	if isnil(cm.repository) {
+		return ''
+	}
 	return cm.repository.generate_token()
 }
 

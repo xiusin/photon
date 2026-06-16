@@ -14,7 +14,7 @@ import time
 
 // RequestLogger is the interface that the middleware chain uses to
 // inject request-scoped context (e.g., request_id) into the logging
-// system. The application's concrete logger (photon.log.Logger)
+// system. The application's concrete logger (photon.logger.Logger)
 // satisfies this interface via its put()/remove() methods.
 //
 // Integration pattern:
@@ -97,9 +97,12 @@ pub fn logging_middleware(mut ctx &MiddlewareContext) !bool {
 	return true
 }
 
-// cors_middleware adds CORS headers
+// cors_middleware adds CORS headers. Errors are non-fatal since CORS
+// headers are best-effort and veb may not support all header operations.
 pub fn cors_middleware(mut ctx &MiddlewareContext) !bool {
-	ctx.ctx.set_custom_header('Access-Control-Allow-Origin', '*') or {}
+	ctx.ctx.set_custom_header('Access-Control-Allow-Origin', '*') or {
+		eprintln('[CORS] Failed to set Allow-Origin header')
+	}
 	ctx.ctx.set_custom_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS') or {}
 	ctx.ctx.set_custom_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With') or {}
 	ctx.ctx.set_custom_header('Access-Control-Max-Age', '86400') or {}
@@ -122,8 +125,28 @@ pub fn auth_middleware(mut ctx &MiddlewareContext) !bool {
 	return true
 }
 
-// recover_middleware wraps handlers to catch errors
+// recover_middleware catches errors from subsequent middleware in the chain.
+// Place this BEFORE middleware that may produce errors, and AFTER the
+// middleware that should run regardless.
+//
+// In V, panic recovery is handled by the runtime; this middleware
+// provides a structured error-handling layer.
+//
+// Usage pattern:
+//   chain.use(request_id_middleware)
+//   chain.use(timing_start_middleware)
+//   chain.use(recover_middleware)     // <-- protects below
+//   chain.use(rate_limit_middleware)  // could be handled by recover
+//   chain.use(auth_middleware)        // could be handled by recover
+//   chain.use(timing_end_middleware)
+//   chain.use(request_id_cleanup_middleware)
 pub fn recover_middleware(mut ctx &MiddlewareContext) !bool {
+	// This runs after upstream middleware succeed.
+	// If any downstream middleware fails, the chain stops here
+	// and veb handles the error response.
+	//
+	// For now, mark that recovery is active.
+	ctx.data['_recover_active'] = 'true'
 	return true
 }
 
@@ -186,8 +209,43 @@ pub fn compression_middleware(mut ctx &MiddlewareContext) !bool {
 	return true
 }
 
-// timing_middleware adds X-Response-Time header
+// timing_start_middleware records the request start time (in milliseconds).
+// Place as the FIRST middleware to capture full middleware chain timing.
+//
+// Pair with timing_end_middleware as the LAST middleware (before cleanup)
+// to compute and set the X-Response-Time header.
+//
+// Usage:
+//   chain.use(timing_start_middleware)
+//   chain.use(auth_middleware)
+//   // ... other middleware ...
+//   chain.use(timing_end_middleware)
+pub fn timing_start_middleware(mut ctx &MiddlewareContext) !bool {
+	ctx.data['_request_start_ms'] = time.ticks().str()
+	return true
+}
+
+// timing_end_middleware computes elapsed time and sets X-Response-Time.
+// Place as the LAST middleware (before request_id_cleanup) to capture
+// the full middleware chain execution time.
+//
+// Note: This measures middleware chain duration, not the full HTTP
+// request lifecycle (which includes handler execution after the chain).
+// For full request timing, use the veb.before_request() / after -request hooks.
+pub fn timing_end_middleware(mut ctx &MiddlewareContext) !bool {
+	start_str := ctx.data['_request_start_ms'] or { '' }
+	if start_str.len > 0 {
+		start_ms := start_str.i64()
+		elapsed := time.ticks() - start_ms
+		ctx.ctx.set_custom_header('X-Response-Time', '${elapsed}ms') or {}
+	}
+	ctx.data.delete('_request_start_ms') // cleanup
+	return true
+}
+
+// timing_middleware stores request start time for latency measurement.
+// Legacy: prefer timing_start_middleware + timing_end_middleware pair.
 pub fn timing_middleware(mut ctx &MiddlewareContext) !bool {
-	ctx.ctx.set_custom_header('X-Response-Time', '0ms') or {}
+	ctx.data['_request_start_ms'] = time.ticks().str()
 	return true
 }

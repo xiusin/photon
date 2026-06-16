@@ -30,8 +30,12 @@ pub fn new_mutex() &LocalMutex {
 	return &LocalMutex{}
 }
 
-// lock acquires the mutex (blocking, spin-waits with backoff)
+// lock acquires the mutex (blocking, with exponential backoff).
+// Starts at 100us backoff and doubles each iteration up to 50ms cap,
+// balancing low latency for short waits with reduced CPU waste for long waits.
 pub fn (mut m LocalMutex) lock() {
+	mut backoff_us := i64(100)
+
 	for {
 		m.guard.@lock()
 		if !m.locked {
@@ -40,7 +44,12 @@ pub fn (mut m LocalMutex) lock() {
 			return
 		}
 		m.guard.unlock()
-		time.sleep(100 * time.microsecond)
+
+		// Exponential backoff: 100us → 200us → 400us → ... → cap 50ms
+		time.sleep(backoff_us * time.microsecond)
+		if backoff_us < 50_000 {
+			backoff_us *= 2
+		}
 	}
 }
 
@@ -111,12 +120,15 @@ pub fn (mut lm LockManager) try_lock(key string) bool {
 	return mu.try_lock()
 }
 
-// lock_with_timeout acquires a lock with a timeout (blocking)
+// lock_with_timeout acquires a lock with a timeout (blocking).
+// Uses sub-millisecond polling with exponential backoff for
+// responsive acquisition on short timeouts.
 pub fn (mut lm LockManager) lock_with_timeout(key string, timeout_ms int) !bool {
-	// Get or create the mutex first
 	mut mu := lm.get_or_create_mutex(key)
 
 	start := time.now().unix_milli()
+	mut poll_us := i64(100) // start at 100us
+
 	for {
 		if mu.try_lock() {
 			return true
@@ -124,7 +136,12 @@ pub fn (mut lm LockManager) lock_with_timeout(key string, timeout_ms int) !bool 
 		if time.now().unix_milli() - start > timeout_ms {
 			return false
 		}
-		time.sleep(1 * time.millisecond)
+
+		// Exponential backoff poll: 100us → 200us → 400us → ... → cap 1ms
+		time.sleep(poll_us * time.microsecond)
+		if poll_us < 1000 {
+			poll_us *= 2
+		}
 	}
 
 	return false

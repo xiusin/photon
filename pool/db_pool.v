@@ -15,21 +15,35 @@ pub mut:
 	driver orm.DriverType
 }
 
-// new_db_pool creates a new database connection pool.
-// The factory function should return a vorm.Connection.
-pub fn new_db_pool(driver orm.DriverType, min_size int, max_size int) &DbPool {
+// new_db_pool creates a new database connection pool with a custom factory.
+// The factory function should return a database connection (voidptr).
+// For testing, use new_test_db_pool() which creates connections with unique IDs.
+pub fn new_db_pool(driver orm.DriverType, min_size int, max_size int, factory fn () !voidptr) &DbPool {
 	return &DbPool{
-		inner:  new_pool_with_config('db-${driver.str()}', db_pool_factory, min_size,
-			max_size)
+		inner:  new_pool_with_config('db-${driver.str()}', factory, min_size, max_size)
 		driver: driver
 	}
 }
 
+// db_pool_id_counter is used by the test factory to generate unique connection IDs
+__global db_pool_id_counter i64
+
+// new_test_db_pool creates a DbPool with a test factory.
+// Each connection is a unique voidptr (just a counter value).
+// This is suitable for unit testing pool operations without a real database.
+pub fn new_test_db_pool(driver orm.DriverType, min_size int, max_size int) &DbPool {
+	return new_db_pool(driver, min_size, max_size, fn () !voidptr {
+		unsafe {
+			db_pool_id_counter++
+			return voidptr(db_pool_id_counter)
+		}
+	})
+}
+
 // db_pool_factory creates database connection objects.
-// Stub: returns voidptr — actual implementation per driver.
-// Real implementations would call sqlite.connect(), pg.connect(), etc.
+// Default factory — returns error instructing to use a real driver factory.
 fn db_pool_factory() !voidptr {
-	return unsafe { nil }
+	return error('no database driver configured — use new_db_pool(driver, min, max, custom_factory) or new_test_db_pool()')
 }
 
 // initialize prepares the connection pool.

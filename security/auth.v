@@ -94,9 +94,16 @@ pub:
 	jwt_manager &JwtManager
 }
 
-// supports checks if the auth has a Bearer token
+// supports checks if the auth has a Bearer token or a JWT-like token.
+// Bearer-prefixed tokens are always accepted; raw tokens are accepted
+// if they have the JWT three-segment pattern or sufficient length.
 pub fn (jp &JwtAuthenticationProvider) supports(auth &Authentication) bool {
-	return auth.credentials.starts_with('Bearer ') || auth.credentials.len > 20
+	if auth.credentials.starts_with('Bearer ') {
+		return true
+	}
+	// JWT-like check: three base64 segments separated by dots, or
+	// long enough to be a raw JWT (min header+payload+sig)
+	return auth.credentials.count('.') == 2 || auth.credentials.len > 20
 }
 
 // authenticate validates the JWT token

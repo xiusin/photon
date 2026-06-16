@@ -6,6 +6,7 @@ module web
 // App structs directly embed veb.Context for V 0.5.1 compatibility.
 
 import veb
+import net.http
 
 // BaseController provides static response helper methods (Spring-style).
 // Embed this in your App struct alongside veb.Context.
@@ -44,10 +45,9 @@ pub fn (mut b BaseController) bad_request(mut ctx veb.Context, msg string) veb.R
 	return ctx.text('{"error":"${msg}"}')
 }
 
-// not_found returns a 404 Not Found JSON response
+// not_found returns a 404 Not Found JSON response with the given message
 pub fn (mut b BaseController) not_found(mut ctx veb.Context, msg string) veb.Result {
-	_ = msg
-	return ctx.not_found()
+	return text_response(mut ctx, '{"error":"${msg}","code":404}', 404)
 }
 
 // internal_error returns a 500 Internal Server Error JSON response
@@ -87,22 +87,25 @@ pub fn (mut b BaseController) redirect(mut ctx veb.Context, url string) veb.Resu
 
 // set_status sets the response status code
 pub fn (mut b BaseController) set_status(mut ctx veb.Context, code int) {
-	// Status is set implicitly by the response method
-	_ = code
+	ctx.res.set_status(unsafe { http.Status(code) })
 }
 
 // ============================================================
 // Utility functions (can be used without BaseController)
 // ============================================================
 
-// text_response sends a text response with a specific status code
+// text_response sends a text response with a specific status code.
+// Sets the status on the response before sending.
 pub fn text_response(mut ctx veb.Context, data string, status int) veb.Result {
+	ctx.res.set_status(unsafe { http.Status(status) })
 	ctx.set_content_type('application/json')
 	return ctx.text(data)
 }
 
-// json_response sends a JSON response with a status code
+// json_response sends a JSON response with a status code.
+// Sets the status on the response before sending.
 pub fn json_response(mut ctx veb.Context, data string, status int) veb.Result {
+	ctx.res.set_status(unsafe { http.Status(status) })
 	ctx.set_content_type('application/json')
 	return ctx.text(data)
 }
@@ -132,13 +135,12 @@ pub fn get_path_param(ctx &veb.Context, key string) string {
 	return ''
 }
 
-// get_header_val returns a request header value
+// get_header_val returns a request header value from the veb.Context
 pub fn get_header_val(ctx &veb.Context, key string) string {
-	_ = key
-	return ''
+	return ctx.get_custom_header(key) or { '' }
 }
 
-// set_status sets the response status code (no-op — status set by response method)
-pub fn set_status(ctx &veb.Context, code int) {
-	_ = code
+// set_status sets the response status code on the veb Result
+pub fn set_status(mut ctx veb.Context, code int) {
+	ctx.res.set_status(unsafe { http.Status(code) })
 }

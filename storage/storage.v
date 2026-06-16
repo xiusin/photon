@@ -104,41 +104,34 @@ pub fn public_options() StorageWriteOptions {
 
 // Storage is the unified filesystem trait.
 // All storage adapters (local, S3, GCS, etc.) implement this interface.
+// Methods are split: read operations (immutable) and write operations (mut).
 pub interface Storage {
-mut:
-	// Basic CRUD
+	// — Read operations (immutable) —
 	read(path string) !string
-	write(path string, contents string, options StorageWriteOptions) !
-	delete(path string) !
 	exists(path string) bool
-
-	// File operations
-	copy(source string, dest string) !
-	move(source string, dest string) !
 	size(path string) !i64
 	mime_type(path string) !string
 	last_modified(path string) !i64
 	metadata(path string) !&FileMetadata
-	set_visibility(path string, visibility Visibility) !
 	visibility(path string) !Visibility
-
-	// Directory operations
 	list_contents(directory string) ![]&FileMetadata
-	create_directory(path string) !
-	delete_directory(path string) !
-
-	// URL generation
 	url(path string) string
 	temporary_url(path string, expiration_sec i64) !string
+	read_stream(path string) !string
+	adapter_name() string
 
-	// Convenience
-	read_stream(path string) !string // string-based streaming for V compat
+mut:
+	// — Write operations (mutable) —
+	write(path string, contents string, options StorageWriteOptions) !
+	delete(path string) !
+	copy(source string, dest string) !
+	move(source string, dest string) !
+	set_visibility(path string, visibility Visibility) !
+	create_directory(path string) !
+	delete_directory(path string) !
 	write_stream(path string, contents string, options StorageWriteOptions) !
 	put(path string, options StorageWriteOptions) !
 	put_file(source_path string, dest_path string, options StorageWriteOptions) !
-
-	// Lifecycle
-	adapter_name() string
 }
 
 // ============================================================

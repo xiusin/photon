@@ -185,7 +185,10 @@ pub fn (cl &CacheLock) get_owner() string {
 
 // force_release forcibly releases the lock regardless of owner
 pub fn (mut cl CacheLock) force_release() ! {
-	cl.store.delete(cl.name) or {}
+	cl.store.delete(cl.name) or {
+		// Log the error but don't block force release
+		eprintln('[CacheLock] force_release: failed to delete "${cl.name}": ${err}')
+	}
 	cl.acquired = false
 }
 
@@ -234,10 +237,17 @@ pub fn get_many(mut cm CacheManager, keys []string) map[string]string {
 	return result
 }
 
-// delete_many deletes multiple keys at once
+// delete_many deletes multiple keys at once.
+// Returns an aggregated error if any single deletion fails.
 pub fn delete_many(mut cm CacheManager, keys []string) ! {
+	mut errors := []string{}
 	for key in keys {
-		cm.delete(key) or {}
+		cm.delete(key) or {
+			errors << '${key}: ${err}'
+		}
+	}
+	if errors.len > 0 {
+		return error('delete_many: ${errors.len}/${keys.len} keys failed: ${errors.join('; ')}')
 	}
 }
 

@@ -1,4 +1,4 @@
-module log
+module logger
 
 // channels.v - Log Channels & Sensitive Data Masking (Laravel/Monolog inspired)
 //
@@ -31,7 +31,9 @@ pub fn (c &StderrChannel) write(level Level, msg string, context map[string]stri
 	eprintln(line)
 }
 
-// FileChannel writes log entries to a file
+// FileChannel writes log entries to a file.
+// For high-throughput scenarios, consider using a buffered writer
+// or an external log aggregation pipeline.
 pub struct FileChannel {
 pub:
 	name_str string = 'file'
@@ -44,12 +46,13 @@ pub fn (c &FileChannel) write(level Level, msg string, context map[string]string
 	mut line := format_log_line(level, msg, context)
 	line = mask_sensitive_data(line)
 
-	// Append to file
 	mut f := os.open_append(c.filepath) or {
 		eprintln('[LOG ERROR] Failed to open log file: ${c.filepath}')
 		return
 	}
-	f.writeln(line) or {}
+	f.writeln(line) or {
+		eprintln('[LOG ERROR] Failed to write to log file: ${c.filepath}')
+	}
 	f.close()
 }
 
@@ -172,25 +175,21 @@ const sensitive_patterns = [
 ]
 
 // mask_sensitive_data redacts passwords, tokens, and other sensitive info
-// from log messages using regex-like pattern matching.
 pub fn mask_sensitive_data(msg string) string {
 	mut result := msg
 
-	// Pattern: key=value → key=*** (for known sensitive keys)
 	for pattern in sensitive_patterns {
 		lower := result.to_lower()
 		mut pos := 0
 		for {
 			idx := lower.index_after(pattern, pos) or { break }
 			pos = idx + 1
-			// Look for '=' or ':' after the key
 			after_key := result[idx + pattern.len..]
 			eq_idx := after_key.index('=') or {
 				colon_idx := after_key.index(':') or { continue }
 				colon_idx
 			}
 			if eq_idx >= 0 && eq_idx < 50 {
-				// Find end of value (space, comma, newline, or end of string)
 				value_start := idx + pattern.len + eq_idx + 1
 				value_rest := result[value_start..]
 				mut end_idx := value_rest.index(' ') or { value_rest.len }
@@ -199,15 +198,12 @@ pub fn mask_sensitive_data(msg string) string {
 				if comma_idx < end_idx { end_idx = comma_idx }
 				if nl_idx < end_idx { end_idx = nl_idx }
 
-				// Mask the value
 				masked := result[..value_start] + '***' + result[value_start + end_idx..]
 				result = masked
 			}
 		}
 	}
 
-	// Pattern: "password":"xxx" → "password":"***" (JSON style)
-	// Pattern: Bearer xxx → Bearer *** (JWT in headers)
 	if result.to_lower().contains('bearer ') {
 		mut masked := ''
 		mut i := 0

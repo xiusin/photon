@@ -5,16 +5,12 @@ module cache
 // Provides call deduplication: multiple concurrent requests for the same key
 // are coalesced into a single execution. Equivalent to Go's singleflight.
 // Prevents cache stampede / thundering herd under high concurrency.
-//
-// V has no official singleflight or rate-limiting library; this implements
-// the pattern using sync.Mutex and spin-polling for V 0.5.1 compatibility.
 
 import sync
 import time
 
 // Call represents an in-flight or completed singleflight call
 struct Call {
-pub:
 	key  string
 mut:
 	val  string
@@ -25,10 +21,14 @@ mut:
 // Singleflight deduplicates concurrent function calls for the same key.
 // When multiple goroutines call do() with the same key, only the first
 // actually executes fn(); all others wait and share the result.
+//
+// Thread-safety: all accesses to Call.done/val/err are protected by
+// sf.mu to ensure correct memory ordering on all architectures
+// (including ARM/Apple Silicon, which have relaxed memory ordering).
 pub struct Singleflight {
 mut:
-	mu       sync.Mutex
-	calls    map[string]&Call
+	mu    sync.Mutex
+	calls map[string]&Call
 }
 
 // new_singleflight creates a new Singleflight instance
@@ -46,14 +46,13 @@ pub fn (mut sf Singleflight) do(key string, f fn () !string) !string {
 	sf.mu.@lock()
 	existing := sf.calls[key] or { unsafe { nil } }
 	if isnil(existing) {
-		// We are the leader — no in-flight call exists, create one
+		// Leader — create in-flight Call and execute fn
 		mut c := &Call{ key: key }
 		sf.calls[key] = c
 		sf.mu.unlock()
 
-		// Execute the function
+		// Execute the function; on error, store it for followers
 		result := f() or {
-			// Store the error and notify waiters
 			sf.mu.@lock()
 			c.err = err.msg()
 			c.done = true
@@ -62,7 +61,7 @@ pub fn (mut sf Singleflight) do(key string, f fn () !string) !string {
 			return err
 		}
 
-		// Store the result and notify waiters
+		// Store result and notify followers under lock
 		sf.mu.@lock()
 		c.val = result
 		c.done = true
@@ -72,23 +71,31 @@ pub fn (mut sf Singleflight) do(key string, f fn () !string) !string {
 		return result
 	}
 
-	// A call is already in-flight — wait for the result
-	c := existing
+	// Follower — leader is already executing for this key
 	sf.mu.unlock()
 
-	// Spin-poll until the leader completes.
-	// NOTE: c.done is read without a mutex (relaxed memory ordering).
-	// On x86 this is safe; on weakly-ordered architectures, wrap in sf.mu.@lock()/unlock().
-	for !c.done {
+	// Wait for leader with lock-protected polling to ensure
+	// memory ordering on all architectures
+	for {
+		sf.mu.@lock()
+		done := existing.done
+		sf.mu.unlock()
+		if done {
+			break
+		}
 		time.sleep(1 * time.millisecond)
 	}
 
-	// Return shared result or error (written by leader before c.done = true,
-	// so values are visible to us via the happens-before relationship).
-	if c.err.len > 0 {
-		return error(c.err)
+	// Read final result under lock for memory ordering
+	sf.mu.@lock()
+	get_val := existing.val
+	get_err := existing.err
+	sf.mu.unlock()
+
+	if get_err.len > 0 {
+		return error(get_err)
 	}
-	return c.val
+	return get_val
 }
 
 // has_inflight checks if a call is currently in-flight for the given key
