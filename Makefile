@@ -19,7 +19,7 @@ ROOT_PREFIX := $(if $(wildcard photon.v),,photon/)
 
 # ── Module directories ──
 MODULES := $(ROOT_PREFIX)config/ $(ROOT_PREFIX)logger/ $(ROOT_PREFIX)security/ $(ROOT_PREFIX)cli/ $(ROOT_PREFIX)web/ $(ROOT_PREFIX)orm/ $(ROOT_PREFIX)http/ $(ROOT_PREFIX)queue/ $(ROOT_PREFIX)support/ $(ROOT_PREFIX)ticker/ $(ROOT_PREFIX)cache/ $(ROOT_PREFIX)pool/ $(ROOT_PREFIX)locking/
-EXAMPLE := $(ROOT_PREFIX)example/main.v
+EXAMPLE := $(ROOT_PREFIX)example/
 
 # ── ORM test files ──
 ORM_TESTS := $(ROOT_PREFIX)orm/orm_test.v \
