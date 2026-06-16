@@ -117,17 +117,20 @@ pub fn (mut app App) concurrent_demo(mut ctx Context) veb.Result {
 	mut results := []string{}
 	mut mu := sync.Mutex{}
 	mut wg := sync.WaitGroup{}
+	mut results_ptr := &results
+	mut mu_ptr := &mu
+	mut wg_ptr := &wg
 
 	// Spawn 5 parallel tasks
 	for i in 0 .. 5 {
 		wg.add(1)
-		spawn fn [i, mut results, mut mu, mut wg] () {
-			defer { wg.done() }
+		spawn fn [i, mut results_ptr, mut mu_ptr, mut wg_ptr] () {
+			defer { wg_ptr.done() }
 			time.sleep(100 * time.millisecond) // Simulate work
 			result := 'task_${i}_done'
-			mu.@lock()
-			results << result
-			mu.unlock()
+			mu_ptr.@lock()
+			results_ptr << result
+			mu_ptr.unlock()
 		}()
 	}
 
@@ -510,16 +513,20 @@ fn demo_transaction_manager(logger &log.Logger) ! {
 fn demo_concurrency(logger &log.Logger) ! {
 	logger.info('--- Concurrency & Parallel Processing Demo ---')
 
-	// 1. Goroutine with mutex-protected counter
+	// 1. Goroutine with mutex-protected counter (using shared references)
 	mut counter := 0
 	mut mu := sync.Mutex{}
+	mut counter_ptr := &counter
+	mut mu_ptr := &mu
 
 	for _ in 0 .. 5 {
-		spawn fn [mut counter, mut mu] () {
+		spawn fn [mut counter_ptr, mut mu_ptr] () {
 			time.sleep(50 * time.millisecond) // Simulate work
-			mu.@lock()
-			counter++
-			mu.unlock()
+			mu_ptr.@lock()
+			unsafe {
+				*counter_ptr += 1
+			}
+			mu_ptr.unlock()
 		}()
 	}
 
@@ -530,13 +537,14 @@ fn demo_concurrency(logger &log.Logger) ! {
 	assert final_count == 5
 	logger.info('  1. Goroutines: 5 parallel tasks completed, counter=${final_count}')
 
-	// 2. Parallel map-reduce pattern
+	// 2. Parallel map-reduce pattern (using array indices)
 	data := [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 	mut squares := []int{len: data.len}
+	mut squares_ptr := &squares
 
 	for i, val in data {
-		spawn fn [i, val, mut squares] () {
-			squares[i] = val * val
+		spawn fn [i, val, mut squares_ptr] () {
+			squares_ptr[i] = val * val
 		}()
 	}
 
