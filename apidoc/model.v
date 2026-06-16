@@ -1,108 +1,133 @@
 module apidoc
 
-// model.v — API 文档数据模型
+// model.v — API Documentation Data Model
 //
-// 定义文档条目的完整数据结构，支持"锁定"语义
-// 使得用户编辑的字段不会被自动发现覆盖。
+// Types: ApiDocEntry, ApiDocParam, ApiDocHeader, ApiDocResponseProp
 
-import json
-
-// ============================================================
-// ApiDocEntry — 单条 API 文档条目（唯一键: method:path）
-// ============================================================
-
-pub struct ApiDocEntry {
+// ApiDocParam represents a request parameter
+pub struct ApiDocParam {
 pub mut:
-	id           string           // "{method}:{path}" 唯一键
-	method       string           // GET / POST / PUT / DELETE / PATCH
-	path         string           // /api/v1/users
-	group        string           // 分组标签（可编辑）
-	summary      string           // 摘要描述（可编辑锁定）
-	description  string           // 详细说明（可编辑锁定）
-	locked       bool             // 整条锁定标志
-	is_hidden    bool             // 用户手动隐藏
-	parameters   []ApiParameter   // 查询 + 路径参数
-	headers      []ApiHeader      // 非标准请求头
-	request_body ApiBodySchema    // 请求体 schema
-	response     ApiResponse      // 响应分析
-	first_seen   i64              // 首次发现时间戳(ms)
-	last_seen    i64              // 最近访问时间戳(ms)
-	hit_count    int              // 请求次数
-}
-
-// ============================================================
-// ApiParameter — 单个请求参数
-// ============================================================
-
-pub struct ApiParameter {
-pub mut:
-	name        string // 参数名
-	location    string // query / path / header
-	type_       string // string / integer / boolean / number / array
+	name        string
+	location    string // "query", "path", "header", "body"
 	required    bool
-	description string // 可编辑描述
-	example     string // 最近观测示例值
-	locked      bool   // 参数级锁定
+	description string
+	locked      bool
+	type_       string
+	examples    []string
 }
 
-// ============================================================
-// ApiHeader — 请求头记录
-// ============================================================
-
-pub struct ApiHeader {
+// ApiDocHeader represents a captured request header
+pub struct ApiDocHeader {
 pub mut:
-	name    string
-	value   string // 示例值（自动脱敏）
-	locked  bool
+	name         string
+	description  string
+	locked       bool
+	value_sample string
 }
 
-// ============================================================
-// ApiBodySchema — 请求/响应体 schema
-// ============================================================
-
-pub struct ApiBodySchema {
+// ApiDocResponseProp represents a property in the response schema
+pub struct ApiDocResponseProp {
 pub mut:
-	content_type string                    // application/json
-	properties   map[string]BodyProperty   // key = 点号路径
-	example      string                    // 原始 JSON 文本
+	path        string // e.g., "data.users[].name"
+	description string
+	locked      bool
+	type_       string
 }
 
-// ============================================================
-// BodyProperty — JSON 体中的单个属性
-// ============================================================
-
-pub struct BodyProperty {
+// ApiDocResponse wraps response metadata
+pub struct ApiDocResponse {
 pub mut:
-	path          string // data.id
-	type_         string // string / integer / boolean / array / object
-	original_type string // 自动推断的类型（锁定后仍可见）
-	description   string // 可编辑描述
-	example       string // 示例值
-	locked        bool   // 属性级锁定
-	nullable      bool
+	properties []ApiDocResponseProp
+	body_sample string
+	content_type string
+	status_code int
 }
 
-// ============================================================
-// ApiResponse — 响应汇总
-// ============================================================
-
-pub struct ApiResponse {
+// ApiDocRequest wraps request body schema
+pub struct ApiDocRequest {
 pub mut:
-	status_code int              // 最后一次观测的状态码
-	properties  []BodyProperty   // 响应属性列表
-	raw_body    string           // 最近一次原始响应
+	properties []ApiDocParam
 }
 
-// ============================================================
-// 序列化 / 反序列化
-// ============================================================
+// ApiDocEntry represents a fully documented API endpoint
+pub struct ApiDocEntry {
+pub:
+	id        string // "GET::/api/users"
+pub mut:
+	method    string
+	path      string
+	summary    string
+	group      string
+	locked     bool
+	is_hidden  bool
+	parameters []ApiDocParam
+	headers    []ApiDocHeader
+	response   ApiDocResponse
+	request    ApiDocRequest
+	hit_count  int
+}
 
-// to_json 将条目序列化为 JSON
+// to_json serializes the entry as a JSON string
 pub fn (e &ApiDocEntry) to_json() string {
-	return json.encode(e)
-}
+	mut parts := []string{}
+	parts << '"id":"${e.id}"'
+	parts << '"method":"${e.method}"'
+	parts << '"path":"${e.path}"'
+	parts << '"summary":"${e.summary}"'
+	parts << '"group":"${e.group}"'
+	parts << '"locked":${e.locked}'
+	parts << '"is_hidden":${e.is_hidden}'
+	parts << '"hit_count":${e.hit_count}'
 
-// entry_from_json 从 JSON 反序列化条目
-pub fn entry_from_json(data string) !ApiDocEntry {
-	return json.decode(ApiDocEntry, data)
+	// Parameters
+	mut pstrs := []string{}
+	for p in e.parameters {
+		mut pp := []string{}
+		pp << '"name":"${p.name}"'
+		pp << '"location":"${p.location}"'
+		pp << '"required":${p.required}'
+		pp << '"description":"${p.description}"'
+		pp << '"locked":${p.locked}'
+		pp << '"type":"${p.type_}"'
+		mut ex := []string{}
+		for ex_val in p.examples {
+			ex << '"${ex_val}"'
+		}
+		pp << '"examples":[${ex.join(',')}]'
+		pstrs << '{${pp.join(',')}}'
+	}
+	parts << '"parameters":[${pstrs.join(',')}]'
+
+	// Headers
+	mut hstrs := []string{}
+	for h in e.headers {
+		mut hp := []string{}
+		hp << '"name":"${h.name}"'
+		hp << '"description":"${h.description}"'
+		hp << '"locked":${h.locked}'
+		hp << '"value_sample":"${h.value_sample}"'
+		hstrs << '{${hp.join(',')}}'
+	}
+	parts << '"headers":[${hstrs.join(',')}]'
+
+	// Response properties
+	mut rpstrs := []string{}
+	for rp in e.response.properties {
+		mut rpj := []string{}
+		rpj << '"path":"${rp.path}"'
+		rpj << '"description":"${rp.description}"'
+		rpj << '"locked":${rp.locked}'
+		rpj << '"type":"${rp.type_}"'
+		rpstrs << '{${rpj.join(',')}}'
+	}
+	parts << '"response":{"properties":[${rpstrs.join(',')}]'
+
+// Response body sample and content type
+	if e.response.body_sample.len > 0 {
+		parts << ',"body_sample":"${e.response.body_sample}"'
+	}
+	parts << ',"content_type":"${e.response.content_type}"'
+	parts << ',"status_code":${e.response.status_code}}'
+
+	return '{${parts.join(',')}}'
 }
