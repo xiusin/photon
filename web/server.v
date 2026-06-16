@@ -12,32 +12,39 @@ import time
 
 // ── Server — clean single-generic wrapper ──
 
-// run starts the Photon web server on the given port.
+// run starts the Photon web server on the given port, binding to 0.0.0.0 (all interfaces).
 //
 // Usage:
-//   web.run[MyController](8080)
+//   web.run[MyApp, MyContext](8080)
 //
-// Requirements: MyController must embed veb.Context directly.
+// Requirements:
+//   - MyApp: global application struct (can be empty or hold shared state)
+//   - MyContext: per-request context struct that embeds veb.Context
+//   - Route handlers: fn (mut app MyApp) handler(mut ctx MyContext) veb.Result
 //
-// This is equivalent to Spring Boot's @SpringBootApplication → run().
-pub fn run[T](port int) {
-	mut app := &T{}
-	veb.run[T, T](mut app, port)
+// Example:
+//   pub struct Context { veb.Context }
+//   pub struct App {}
+//   pub fn (mut app App) index(mut ctx Context) veb.Result {
+//       return ctx.text('Hello')
+//   }
+//   web.run[App, Context](8080)
+pub fn run[A, X](port int) {
+	mut app := &A{}
+	veb.run_at[A, X](mut app, host: '0.0.0.0', port: port, family: .ip) or { panic(err) }
 }
 
 // run_with_routes starts the Photon web server and prints all registered routes.
 //
 // Usage:
-//   web.run_with_routes[MyController](8080)
-//
-// This is useful for development to see all available endpoints at startup.
-pub fn run_with_routes[T](port int) {
-	routes := scan_controller[T]()
+//   web.run_with_routes[MyApp, MyContext](8080)
+pub fn run_with_routes[A, X](port int) {
+	mut app := &A{}
+	routes := scan_controller[A]()
 	println('')
 	println('  Photon Web Server starting on port ${port}...')
 	print_routes(routes)
-	mut app := &T{}
-	veb.run[T, T](mut app, port)
+	veb.run_at[A, X](mut app, host: '0.0.0.0', port: port, family: .ip) or { panic(err) }
 }
 
 // ── Request Logging — Spring Boot-style structured format ──

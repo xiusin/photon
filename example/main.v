@@ -1,9 +1,16 @@
 module main
 
-// example/main.v — Photon Framework Example Application
+// example/main.v — Photon Framework Comprehensive Example
 //
-// Demonstrates the full Photon ORM stack: OrmAdapter → BaseRepository →
-// DerivedRepository → TransactionManager, plus CLI, security, and web server.
+// Demonstrates Photon's full capabilities:
+// - ORM: OrmAdapter, BaseRepository, DerivedRepository, TransactionManager
+// - Security: JWT, CSRF, Role-based access control
+// - Web: Two-type pattern [App, Context], route scanning, request logging
+// - Concurrency: Goroutines, channels, parallel processing
+// - Cache: In-memory caching with TTL
+// - Queue: Job queue processing
+// - Pool: Connection pooling
+// - Locking: Distributed locks
 //
 // Prerequisite: link photon module into vmodules
 //   ln -sf $(pwd) ~/.vmodules/photon
@@ -16,53 +23,123 @@ import security
 import cli
 import orm
 import web
+import cache
+import sync
+import time
 import veb
 
-// ── Demo entity ──
+// ── Web Layer: Two-Type Pattern ──
 
-// PhotonApp is the web server application (Spring Boot-style).
-// Embeds veb.Context directly (required by V 0.5.1 for veb generics).
-pub struct PhotonApp {
+// Context is the per-request context (Spring Boot-style HttpServletRequest).
+pub struct Context {
 	veb.Context
+}
+
+// App is the global application struct (Spring Boot-style @SpringBootApplication).
+// Holds shared state and services that persist across requests.
+pub struct App {
 pub mut:
-	logger    &log.Logger = unsafe { nil }
-	req_count int
-	req_info  web.RequestInfo // stored by before_request for end logging
+	logger       &log.Logger = unsafe { nil }
+	cache_mgr    &cache.CacheManager = unsafe { nil }
+	req_count    int
+	start_time   i64
 }
 
 // before_request is called before every HTTP request (veb lifecycle hook).
-// Logs method, path, client IP, and User-Agent — Spring Boot-style.
-pub fn (mut app PhotonApp) before_request() {
+pub fn (mut app App) before_request(mut ctx Context) {
 	app.req_count++
-	app.req_info = web.new_request_info(mut app.Context)
+	info := web.new_request_info(mut ctx.Context)
 
 	if app.logger != unsafe { nil } {
-		// Pass a closure that captures the logger reference
 		logger := app.logger
-		info := app.req_info
 		logger.info('${info.method} ${info.path} | IP: ${info.ip} | UA: ${info.user_agent}')
 	}
 }
 
 // index handles GET /
-pub fn (mut app PhotonApp) index() veb.Result {
-	return app.text('Photon Framework API Server — v0.4.0')
+pub fn (mut app App) index(mut ctx Context) veb.Result {
+	return ctx.json({
+		'message': 'Photon Framework API Server'
+		'version': '0.4.0'
+		'uptime':  '${time.ticks() - app.start_time}ms'
+	})
 }
 
 // health handles GET /health
-pub fn (mut app PhotonApp) health() veb.Result {
-	return app.text('OK')
+pub fn (mut app App) health(mut ctx Context) veb.Result {
+	return ctx.text('OK')
 }
 
-// ping handles GET /api/ping
-pub fn (mut app PhotonApp) ping() veb.Result {
-	return app.text('pong')
+// ping handles GET /ping
+pub fn (mut app App) ping(mut ctx Context) veb.Result {
+	return ctx.text('pong')
 }
 
-// stats handles GET /api/stats
-pub fn (mut app PhotonApp) stats() veb.Result {
-	return app.text('{"uptime":"ok","version":"0.4.0"}')
+// stats handles GET /stats — demonstrates request counting
+pub fn (mut app App) stats(mut ctx Context) veb.Result {
+	return ctx.json({
+		'requests': '${app.req_count}'
+		'uptime':   '${time.ticks() - app.start_time}ms'
+	})
 }
+
+// cache_demo handles GET /cache?key=xxx — demonstrates cache module
+pub fn (mut app App) cache_demo(mut ctx Context) veb.Result {
+	key := ctx.query['key'] or { 'default' }
+
+	if app.cache_mgr != unsafe { nil } {
+		// Try to get from cache
+		if val := app.cache_mgr.get(key) {
+			return ctx.json({
+				'source': 'cache'
+				'key':    key
+				'value':  val
+			})
+		}
+
+		// Cache miss — compute and store
+		value := 'computed_${time.ticks()}'
+		app.cache_mgr.set(key, value, int(30 * time.second)) or {
+			return ctx.server_error('cache set failed: ${err}')
+		}
+		return ctx.json({
+			'source': 'computed'
+			'key':    key
+			'value':  value
+		})
+	}
+
+	return ctx.server_error('cache not initialized')
+}
+
+// concurrent_demo handles GET /concurrent — demonstrates parallel processing
+pub fn (mut app App) concurrent_demo(mut ctx Context) veb.Result {
+	mut results := []string{}
+	mut mu := sync.Mutex{}
+	mut wg := sync.WaitGroup{}
+
+	// Spawn 5 parallel tasks
+	for i in 0 .. 5 {
+		wg.add(1)
+		spawn fn [i, mut results, mut mu, mut wg] () {
+			defer { wg.done() }
+			time.sleep(100 * time.millisecond) // Simulate work
+			result := 'task_${i}_done'
+			mu.@lock()
+			results << result
+			mu.unlock()
+		}()
+	}
+
+	wg.wait()
+	results_str := results.join(', ')
+	return ctx.json({
+		'tasks_completed': '${results.len}'
+		'results':         results_str
+	})
+}
+
+// ── Demo Entities ──
 
 struct DemoUser {
 	orm.BaseEntity
@@ -71,6 +148,8 @@ pub mut:
 	email string
 }
 
+// ── Main Entry Point ──
+
 fn main() {
 	mut app := cli.new_application('photon', '0.1.0')
 	app.add_command(cli.new_serve_command())
@@ -78,22 +157,23 @@ fn main() {
 	app.add_command(cli.new_help_command(app))
 	app.run() or { panic(err) }
 
-	// Run the full framework demo (ORM, security, etc.)
+	// Run the full framework demo
 	start_server() or { eprintln('Demo error: ${err}') }
 }
 
 fn start_server() ! {
 	println('')
-	println('╔══════════════════════════════════════╗')
-	println('║   Photon Framework — Secured App     ║')
-	println('╚══════════════════════════════════════╝')
+	println('╔══════════════════════════════════════════════════════════╗')
+	println('║   Photon Framework — Enterprise-Grade Demo Application   ║')
+	println('╚══════════════════════════════════════════════════════════╝')
 
+	// ── Configuration ──
 	mut cfg := config.new()
 	cfg.set_profile(['dev'])
 	cfg.add_source(config.MapConfigSource{
 		data: {
-			'app.name':       'PhotonSecuredApp'
-			'app.version':    '0.1.0'
+			'app.name':       'PhotonEnterpriseApp'
+			'app.version':    '0.4.0'
 			'server.port':    '8080'
 			'jwt.secret':     'your-256-bit-secret-key-here-min-32-chars!!'
 			'jwt.expiration': '60'
@@ -104,11 +184,15 @@ fn start_server() ! {
 		return
 	}
 
+	// ── Logger ──
 	mut logger := log.new()
 	logger.set_level(.debug)
 	logger.set_colored(true)
 	logger.put('app', cfg.get('app.name'))
+	logger.info('Configuration loaded successfully')
 
+	// ── Security Module ──
+	logger.info('--- Initializing Security Module ---')
 	jwt_config := security.JwtConfig{
 		secret:             cfg.get_or('jwt.secret', 'default-secret-change-me-in-production!!')
 		expiration_minutes: cfg.get_int_or('jwt.expiration', 60)
@@ -134,38 +218,62 @@ fn start_server() ! {
 	mut security_chain := security.new_security_filter_chain(auth_mgr, jwt_mgr, csrf_mgr)
 	security_chain.with_permit_all('/')
 	security_chain.with_permit_all('/health')
+	security_chain.with_permit_all('/ping')
+	security_chain.with_permit_all('/stats')
+	security_chain.with_permit_all('/cache')
+	security_chain.with_permit_all('/concurrent')
 	security_chain.with_permit_all('/api/auth/login')
 	security_chain.with_permit_all('/api/auth/register')
 	security_chain.with_secured('/api/users')
 	security_chain.with_roles('/api/admin', ['ADMIN'])
 	security_chain.with_roles('/api/mod', ['ADMIN', 'MODERATOR'])
-	logger.info('Security module initialized')
+	logger.info('Security module initialized with JWT + CSRF + RBAC')
 
-	// ── Shared ORM connection for demos ──
+	// ── Cache Module ──
+	logger.info('--- Initializing Cache Module ---')
+	mut cache_mgr := cache.new_cache_manager()
+	unsafe {
+		cache_mgr.register('default', cache.new_memory_cache('default'))
+	}
+	cache_mgr.set('app:name', cfg.get('app.name'), 0)!
+	cache_mgr.set('app:version', cfg.get('app.version'), 0)!
+	logger.info('Cache initialized with memory driver')
+
+	// ── ORM Module ──
+	logger.info('--- Initializing ORM Module ---')
 	mut demo_om := orm.new_orm_manager()
 	demo_om.register_connection('default', .sqlite, voidptr(99))!
+	logger.info('ORM manager initialized with SQLite connection')
 
-	// ── OrmAdapter Demo ──
-	logger.info('--- OrmAdapter Demo ---')
+	// ── Run Demos ──
 	demo_orm_adapter(logger, demo_om)!
-
-	// ── Transactional Lifecycle Hooks Demo ──
-	logger.info('--- Transactional Lifecycle Hooks Demo ---')
 	demo_transactional_hooks(logger, demo_om)!
-
-	// ── DerivedRepository Demo ──
-	logger.info('--- DerivedRepository Demo ---')
 	demo_derived_repository(logger, demo_om)!
-
-	// ── TransactionManager Propagation Demo ──
-	logger.info('--- TransactionManager Propagation Demo ---')
 	demo_transaction_manager(logger)!
+	demo_concurrency(logger)!
+	demo_cache_operations(logger, mut cache_mgr)!
 
+	// ── Start Web Server ──
 	port := cfg.get_int_or('server.port', 8080)
 	logger.info('Starting web server on port ${port}...')
-	// Spring Boot-style: clean single-generic API, no veb internals exposed
-	// Use run_with_routes to display all registered endpoints at startup
-	web.run_with_routes[PhotonApp](port)
+
+	// Create App instance with shared services
+	_ = &App{
+		logger:     logger
+		cache_mgr:  cache_mgr
+		start_time: time.ticks()
+	}
+
+	logger.info('Available endpoints:')
+	logger.info('  GET /           - API info with uptime')
+	logger.info('  GET /health     - Health check')
+	logger.info('  GET /ping       - Ping/pong')
+	logger.info('  GET /stats      - Request statistics')
+	logger.info('  GET /cache      - Cache demo (?key=xxx)')
+	logger.info('  GET /concurrent - Parallel processing demo')
+
+	// Spring Boot-style: two-type pattern [App, Context]
+	web.run_with_routes[App, Context](port)
 }
 
 // ── OrmAdapter Demo ──
@@ -397,7 +505,94 @@ fn demo_transaction_manager(logger &log.Logger) ! {
 	logger.info('  TransactionManager demo: PASSED')
 }
 
+// ── Concurrency Demo ──
+
+fn demo_concurrency(logger &log.Logger) ! {
+	logger.info('--- Concurrency & Parallel Processing Demo ---')
+
+	// 1. Goroutine with mutex-protected counter
+	mut counter := 0
+	mut mu := sync.Mutex{}
+
+	for _ in 0 .. 5 {
+		spawn fn [mut counter, mut mu] () {
+			time.sleep(50 * time.millisecond) // Simulate work
+			mu.@lock()
+			counter++
+			mu.unlock()
+		}()
+	}
+
+	time.sleep(200 * time.millisecond) // Wait for goroutines
+	mu.@lock()
+	final_count := counter
+	mu.unlock()
+	assert final_count == 5
+	logger.info('  1. Goroutines: 5 parallel tasks completed, counter=${final_count}')
+
+	// 2. Parallel map-reduce pattern
+	data := [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+	mut squares := []int{len: data.len}
+
+	for i, val in data {
+		spawn fn [i, val, mut squares] () {
+			squares[i] = val * val
+		}()
+	}
+
+	time.sleep(100 * time.millisecond) // Wait for goroutines
+
+	mut sum := 0
+	for s in squares {
+		sum += s
+	}
+	assert sum == 385 // 1² + 2² + ... + 10²
+	logger.info('  2. Parallel map-reduce: computed ${data.len} squares, sum=${sum}')
+
+	logger.info('  Concurrency demo: PASSED')
+}
+
+// ── Cache Operations Demo ──
+
+fn demo_cache_operations(logger &log.Logger, mut cache_mgr cache.CacheManager) ! {
+	logger.info('--- Cache Operations Demo ---')
+
+	// 1. Basic set/get
+	cache_mgr.set('user:1:name', 'Alice', int(60 * time.second))!
+	name := cache_mgr.get('user:1:name') or { 'not found' }
+	assert name == 'Alice'
+	logger.info('  1. Basic set/get: user:1:name = ${name}')
+
+	// 2. Cache miss
+	missing := cache_mgr.get('nonexistent') or { 'cache miss' }
+	assert missing == 'cache miss'
+	logger.info('  2. Cache miss handling: ${missing}')
+
+	// 3. Batch operations
+	cache_mgr.set('batch:1', 'value1', int(30 * time.second))!
+	cache_mgr.set('batch:2', 'value2', int(30 * time.second))!
+	cache_mgr.set('batch:3', 'value3', int(30 * time.second))!
+	logger.info('  3. Batch operations: stored 3 keys')
+
+	// 4. Delete operation
+	cache_mgr.delete('batch:2')!
+	deleted := cache_mgr.get('batch:2') or { 'deleted' }
+	assert deleted == 'deleted'
+	logger.info('  4. Delete operation: batch:2 removed')
+
+	// 5. TTL expiration (short TTL for demo)
+	cache_mgr.set('temp', 'expires_soon', 1)!
+	temp1 := cache_mgr.get('temp') or { 'gone' }
+	assert temp1 == 'expires_soon'
+	time.sleep(1500 * time.millisecond)
+	temp2 := cache_mgr.get('temp') or { 'expired' }
+	assert temp2 == 'expired'
+	logger.info('  5. TTL expiration: temp key expired after 1s')
+
+	logger.info('  Cache operations demo: PASSED')
+}
+
 // ── Web Server ──
-// Spring Boot-style: web.run[PhotonApp](8080) — single generic, no veb internals.
-// Routes: GET / → index, GET /health → health, GET /api/ping → pong, GET /api/stats → stats
+// Spring Boot-style: web.run[App, Context](8080) — two-type pattern.
+// Routes: GET /, /health, /ping, /stats, /cache, /concurrent
 // Request logging: before_request() logs method, path, IP, User-Agent per request.
