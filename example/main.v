@@ -27,20 +27,18 @@ pub struct Context {
 	veb.Context
 }
 
-// before_request — 应用级预处理钩子
-pub fn (mut app App) before_request(mut ctx Context) {
+// before_request — 应用级预处理钩子（veb 签名：无参数）
+pub fn (mut app App) before_request() {
 	// apidoc: capture request metadata
-	mut ve := unsafe { &ctx.Context }
-	app.ApidocHandler.capture_request(mut ve)
+	app.ApidocHandler.capture_request(mut app.Context)
 
 	app.req_count++
-	app.middleware.apply_global(mut ctx.Context) or {}
+	app.middleware.apply_global(mut app.Context) or {}
 }
 
-// after_request — 应用级后处理钩子
-pub fn (mut app App) after_request(mut ctx Context) {
-	mut ve := unsafe { &ctx.Context }
-	app.ApidocHandler.capture_response(mut ve)
+// after_request — 应用级后处理钩子（veb 签名：无参数）
+pub fn (mut app App) after_request() {
+	app.ApidocHandler.capture_response(mut app.Context)
 }
 
 // main 入口

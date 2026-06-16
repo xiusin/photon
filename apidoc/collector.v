@@ -55,6 +55,11 @@ pub fn (mut c Collector) collect(mut ctx veb.Context) {
 	// Capture query params
 	parse_and_merge_params(mut entry, ctx.req.url)
 
+	// Capture form params for POST/PUT/PATCH
+	if ctx.req.method == .post || ctx.req.method == .put || ctx.req.method == .patch {
+		parse_and_merge_form_params(mut entry, ctx)
+	}
+
 	// Capture headers
 	parse_and_merge_headers(mut entry, ctx)
 
@@ -74,10 +79,13 @@ pub fn (mut c Collector) collect_response(mut ctx veb.Context) {
 
 	ct := ctx.get_custom_header('Content-Type') or { 'application/json' }
 
+	// Try to extract status code from response headers
+	status_code := 200
+
 	mut entry := c.store.get_entry(id) or { return }
 	unsafe {
 		entry.response.content_type = ct
-		entry.response.status_code = 200
+		entry.response.status_code = status_code
 	}
 	c.store.update_entry(id, entry) or {}
 }
@@ -182,6 +190,67 @@ fn parse_and_merge_headers(mut entry &ApiDocEntry, ctx &veb.Context) {
 				description: 'Request body content type'
 				value_sample: ct
 			}
+		}
+	}
+
+	// Accept
+	accept := ctx.get_custom_header('Accept') or { '' }
+	if accept.len > 0 {
+		mut found := false
+		for i in 0 .. entry.headers.len {
+			if entry.headers[i].name == 'Accept' {
+				if !entry.headers[i].locked {
+					entry.headers[i].value_sample = accept
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			entry.headers << ApiDocHeader{
+				name: 'Accept'
+				description: 'Expected response content type'
+				value_sample: accept
+			}
+		}
+	}
+}
+
+fn parse_and_merge_form_params(mut entry &ApiDocEntry, ctx &veb.Context) {
+	for key, val in ctx.form {
+		if key.len == 0 { continue }
+
+		// Check if parameter already exists
+		mut found := false
+		for i in 0 .. entry.parameters.len {
+			if entry.parameters[i].name == key && entry.parameters[i].location == 'body' {
+				if !entry.parameters[i].locked {
+					// Add example value
+					if val.len > 0 && entry.parameters[i].examples.len < 5 {
+						mut exists := false
+						for ex in entry.parameters[i].examples {
+							if ex == val { exists = true; break }
+						}
+						if !exists {
+							entry.parameters[i].examples << val
+						}
+					}
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			mut param := ApiDocParam{
+				name:     key
+				location: 'body'
+				required: false
+				type_:    infer_type(val)
+			}
+			if val.len > 0 {
+				param.examples = [val]
+			}
+			entry.parameters << param
 		}
 	}
 }

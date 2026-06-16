@@ -42,7 +42,8 @@ pub fn (mut h ApidocHandler) capture_response(mut ctx veb.Context) {
 // serve_index serves the dashboard HTML page
 pub fn (mut h ApidocHandler) serve_index(mut ctx veb.Context) veb.Result {
 	content := os.read_file('apidoc/static/index.html') or {
-		return ctx.text('API Documentation UI not found')
+		ctx.set_content_type('application/json')
+		return ctx.text('{"code":404,"msg":"API Documentation UI not found"}')
 	}
 	ctx.set_content_type('text/html; charset=utf-8')
 	return ctx.text(content)
@@ -50,21 +51,38 @@ pub fn (mut h ApidocHandler) serve_index(mut ctx veb.Context) veb.Result {
 
 // serve_static_file serves static assets (CSS, JS, etc.)
 pub fn (mut h ApidocHandler) serve_static_file(mut ctx veb.Context, file string) veb.Result {
+	// Security: prevent path traversal
+	if file.contains('..') || file.contains('/') || file.contains('\\') {
+		ctx.set_content_type('application/json')
+		return ctx.text('{"code":403,"msg":"invalid file name"}')
+	}
+
 	safe := file.ends_with('.css') || file.ends_with('.js') || file.ends_with('.html')
 		|| file.ends_with('.json') || file.ends_with('.png') || file.ends_with('.svg')
+		|| file.ends_with('.ico') || file.ends_with('.woff') || file.ends_with('.woff2')
+		|| file.ends_with('.ttf') || file.ends_with('.eot') || file.ends_with('.map')
 	if !safe {
-		return ctx.text('unsupported file type')
+		ctx.set_content_type('application/json')
+		return ctx.text('{"code":403,"msg":"unsupported file type"}')
 	}
 
 	content := os.read_file('apidoc/static/' + file) or {
-		return ctx.text('file not found')
+		ctx.set_content_type('application/json')
+		return ctx.text('{"code":404,"msg":"file not found"}')
 	}
 
 	if file.ends_with('.css') { ctx.set_content_type('text/css; charset=utf-8') }
 	else if file.ends_with('.js') { ctx.set_content_type('application/javascript; charset=utf-8') }
+	else if file.ends_with('.html') { ctx.set_content_type('text/html; charset=utf-8') }
 	else if file.ends_with('.json') { ctx.set_content_type('application/json; charset=utf-8') }
 	else if file.ends_with('.png') { ctx.set_content_type('image/png') }
 	else if file.ends_with('.svg') { ctx.set_content_type('image/svg+xml') }
+	else if file.ends_with('.ico') { ctx.set_content_type('image/x-icon') }
+	else if file.ends_with('.woff') { ctx.set_content_type('font/woff') }
+	else if file.ends_with('.woff2') { ctx.set_content_type('font/woff2') }
+	else if file.ends_with('.ttf') { ctx.set_content_type('font/ttf') }
+	else if file.ends_with('.eot') { ctx.set_content_type('application/vnd.ms-fontobject') }
+	else if file.ends_with('.map') { ctx.set_content_type('application/json') }
 
 	return ctx.text(content)
 }

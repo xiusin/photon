@@ -21,20 +21,24 @@ pub fn new_store() &ApiDocStore {
 	}
 }
 
+// thread-safe singleton holder
+struct DocStoreSingleton {
+mut:
+	mu sync.Mutex
+	store &ApiDocStore = unsafe { nil }
+}
+
 __global (
-	doc_store    &ApiDocStore
-	doc_store_mu sync.Mutex
+	g_singleton DocStoreSingleton
 )
 
 pub fn get_store() &ApiDocStore {
-	unsafe {
-		doc_store_mu.@lock()
-		defer { doc_store_mu.unlock() }
-		if isnil(doc_store) {
-			doc_store = new_store()
-		}
-		return doc_store
+	g_singleton.mu.@lock()
+	defer { g_singleton.mu.unlock() }
+	if isnil(g_singleton.store) {
+		g_singleton.store = new_store()
 	}
+	return g_singleton.store
 }
 
 // get_entries returns all entries as copies
@@ -99,11 +103,11 @@ pub fn (mut s ApiDocStore) delete_entry(id string) ! {
 	s.mu.unlock()
 }
 
-// lock_endpoint locks or unlocks an endpoint
+// lock_endpoint locks an endpoint
 pub fn (mut s ApiDocStore) lock_endpoint(id string) {
 	s.mu.@lock()
 	if mut ep := s.entries[id] {
-		ep.locked = !ep.locked
+		ep.locked = true
 	}
 	s.mu.unlock()
 }
@@ -124,28 +128,77 @@ pub fn (mut s ApiDocStore) reset() {
 	s.mu.unlock()
 }
 
-// export_openapi generates a simplified OpenAPI 3.0 JSON
+// export_openapi generates a more complete OpenAPI 3.0 JSON
 pub fn (mut s ApiDocStore) export_openapi() string {
 	s.mu.@lock()
 	mut paths := ''
+	mut tag_set := map[string]bool{}
 
 	for _, ep in s.entries {
 		path_key := ep.path
 		if path_key.len == 0 { continue }
-		mut op := '"${ep.method.to_lower()}":{"summary":"${ep.summary}","operationId":"${ep.id}"'
+
+		// Collect tags from group
+		group := ep.group
+		if group.len > 0 {
+			tag_set[group] = true
+		}
+
+		mut op := '"${ep.method.to_lower()}":{"summary":"${json_escape(ep.summary)}","operationId":"${json_escape(ep.id)}"'
+		if group.len > 0 {
+			op += ',"tags":["${json_escape(group)}"]'
+		}
 		if ep.parameters.len > 0 {
 			mut plist := []string{}
 			for p in ep.parameters {
-				plist << '{"name":"${p.name}","in":"${p.location}","required":${p.required},"schema":{"type":"${p.type_}"}}'
+				mut schema_type := p.type_
+				// Map inferred types to OpenAPI types
+				if schema_type == 'int' { schema_type = 'integer' }
+				else if schema_type == 'float' { schema_type = 'number' }
+				else if schema_type == 'bool' { schema_type = 'boolean' }
+				else { schema_type = 'string' }
+				plist << '{"name":"${json_escape(p.name)}","in":"${json_escape(p.location)}","required":${p.required},"schema":{"type":"${schema_type}"}}'
 			}
 			op += ',"parameters":[${plist.join(',')}]'
 		}
-		op += ',"responses":{"200":{"description":"OK"}}'
+		if ep.headers.len > 0 {
+			mut hlist := []string{}
+			for h in ep.headers {
+				hlist << '{"name":"${json_escape(h.name)}","in":"header","required":false,"description":"${json_escape(h.description)}","schema":{"type":"string"}}'
+			}
+			op += ',"parameters":[${hlist.join(',')}]'
+		}
+
+		// Build response schema
+		mut resp_schema := ''
+		if ep.response.properties.len > 0 {
+			mut props := []string{}
+			for rp in ep.response.properties {
+				mut rp_type := rp.type_
+				if rp_type == 'int' { rp_type = 'integer' }
+				else if rp_type == 'float' { rp_type = 'number' }
+				else if rp_type == 'bool' { rp_type = 'boolean' }
+				else { rp_type = 'string' }
+				props << '"${json_escape(rp.path)}":{"type":"${rp_type}","description":"${json_escape(rp.description)}"}'
+			}
+			resp_schema = '{"type":"object","properties":{${props.join(',')}}}'
+		} else {
+			resp_schema = '{"type":"object"}'
+		}
+
+		op += ',"responses":{"${ep.response.status_code}":{"description":"OK","content":{"${json_escape(ep.response.content_type)}":{"schema":${resp_schema}}}}}'
 		op += '}'
-		paths += '"${path_key}":{${op}},'
+		paths += '"${json_escape(path_key)}":{${op}},'
 	}
 	paths = paths.trim_right(',')
 
+	// Build tags array
+	mut tags_arr := []string{}
+	for tag_name, _ in tag_set {
+		tags_arr << '{"name":"${json_escape(tag_name)}"}'
+	}
+	tags_str := tags_arr.join(',')
+
 	s.mu.unlock()
-	return '{"openapi":"3.0.0","info":{"title":"API Documentation","version":"1.0.0"},"paths":{${paths}}}'
+	return '{"openapi":"3.0.0","info":{"title":"API Documentation","version":"1.0.0","description":"Auto-generated API documentation from Photon Framework"},"servers":[{"url":"http://localhost:8080","description":"Development server"}],"tags":[${tags_str}],"paths":{${paths}}}'
 }
