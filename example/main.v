@@ -10,12 +10,12 @@ module main
 //
 // Compile from photon/ directory:
 //   v -enable-globals example/main.v
-import photon.config
-import photon.log
-import photon.security
-import photon.cli
-import photon.orm
-import photon.web
+import config
+import log
+import security
+import cli
+import orm
+import web
 import veb
 
 // ── Demo entity ──

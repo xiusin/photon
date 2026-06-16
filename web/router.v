@@ -5,6 +5,7 @@ module web
 // Provides compile-time route scanning and generation on top of veb.
 // Scans controller structs for @[get('/path')], @[post('/path')], etc.
 // and generates corresponding veb route handlers at compile time.
+import veb
 
 // RouteInfo describes a single route
 pub struct RouteInfo {
@@ -103,6 +104,8 @@ pub fn group(prefix string, routes []RouteInfo) []RouteInfo {
 
 // scan_controller uses comptime to scan a controller for route attributes
 // and generate veb-compatible route handlers.
+// Supports both annotation-based routes (@[get('/path')]) and convention-based
+// routes (methods returning veb.Result with automatic path mapping).
 pub fn scan_controller[T]() []RouteInfo {
 	mut routes := []RouteInfo{}
 
@@ -111,7 +114,7 @@ pub fn scan_controller[T]() []RouteInfo {
 		mut http_method := ''
 		mut path := ''
 
-		// Check for HTTP method attributes
+		// Check for HTTP method attributes (annotation-based)
 		for attr in method.attrs {
 			if attr == 'get' || attr == 'post' || attr == 'put' || attr == 'delete'
 				|| attr == 'patch' {
@@ -123,14 +126,30 @@ pub fn scan_controller[T]() []RouteInfo {
 			}
 		}
 
-		if found_route {
-			if path.len == 0 {
-				path = '/${method.name}'
+		// Convention-based: methods returning veb.Result are routes
+		$if method.return_type is veb.Result {
+			if !found_route {
+				http_method = 'GET'
+				found_route = true
 			}
-			routes << RouteInfo{
-				method:       http_method
-				path:         path
-				handler_name: method.name
+		}
+
+		if found_route {
+			name := method.name
+			// Skip lifecycle hooks
+			if name != 'before_request' && name != 'after_request' {
+				if path.len == 0 {
+					if name == 'index' {
+						path = '/'
+					} else {
+						path = '/${name}'
+					}
+				}
+				routes << RouteInfo{
+					method:       http_method
+					path:         path
+					handler_name: name
+				}
 			}
 		}
 	}

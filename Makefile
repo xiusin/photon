@@ -18,7 +18,7 @@ VFLAGS := -enable-globals
 ROOT_PREFIX := $(if $(wildcard photon.v),,photon/)
 
 # ── Module directories ──
-MODULES := $(ROOT_PREFIX)core/ $(ROOT_PREFIX)config/ $(ROOT_PREFIX)log/ $(ROOT_PREFIX)security/ $(ROOT_PREFIX)cli/ $(ROOT_PREFIX)web/ $(ROOT_PREFIX)orm/ $(ROOT_PREFIX)http/ $(ROOT_PREFIX)queue/ $(ROOT_PREFIX)support/ $(ROOT_PREFIX)ticker/ $(ROOT_PREFIX)cache/ $(ROOT_PREFIX)pool/ $(ROOT_PREFIX)locking/
+MODULES := $(ROOT_PREFIX)config/ $(ROOT_PREFIX)log/ $(ROOT_PREFIX)security/ $(ROOT_PREFIX)cli/ $(ROOT_PREFIX)web/ $(ROOT_PREFIX)orm/ $(ROOT_PREFIX)http/ $(ROOT_PREFIX)queue/ $(ROOT_PREFIX)support/ $(ROOT_PREFIX)ticker/ $(ROOT_PREFIX)cache/ $(ROOT_PREFIX)pool/ $(ROOT_PREFIX)locking/
 EXAMPLE := $(ROOT_PREFIX)example/main.v
 
 # ── ORM test files ──

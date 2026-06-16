@@ -16,12 +16,12 @@ pub interface DistributedLock {
 	is_locked(key string) bool
 }
 
-// LocalMutex provides a real mutual exclusion lock using sync.Mutex.
-// This is NOT a simple boolean — it uses the operating system's
-// futex-based blocking for true mutual exclusion.
+// LocalMutex provides a real mutual exclusion lock.
+// V 0.5.1's sync.Mutex.try_lock() is broken (always returns false),
+// so we use sync.Mutex as a short-lived spin-guard protecting a boolean flag.
 pub struct LocalMutex {
 mut:
-	mu     sync.Mutex
+	guard  sync.Mutex
 	locked bool
 }
 
@@ -30,31 +30,36 @@ pub fn new_mutex() &LocalMutex {
 	return &LocalMutex{}
 }
 
-// lock acquires the mutex (blocking)
+// lock acquires the mutex (blocking, spin-waits with backoff)
 pub fn (mut m LocalMutex) lock() {
-	m.mu.@lock()
-	m.locked = true
+	for {
+		m.guard.@lock()
+		if !m.locked {
+			m.locked = true
+			m.guard.unlock()
+			return
+		}
+		m.guard.unlock()
+		time.sleep(100 * time.microsecond)
+	}
 }
 
 // unlock releases the mutex
 pub fn (mut m LocalMutex) unlock() {
+	m.guard.@lock()
 	m.locked = false
-	m.mu.unlock()
+	m.guard.unlock()
 }
 
 // try_lock attempts to acquire without blocking
 pub fn (mut m LocalMutex) try_lock() bool {
-	// V's sync.Mutex.try_lock() doesn't work correctly, so we use a workaround:
-	// Use the mutex to protect access to the locked flag
-	m.mu.@lock()
+	m.guard.@lock()
 	if m.locked {
-		// Already locked, release the mutex and return false
-		m.mu.unlock()
+		m.guard.unlock()
 		return false
 	}
-	// Not locked, acquire it
 	m.locked = true
-	// Keep the mutex locked to prevent others from checking
+	m.guard.unlock()
 	return true
 }
 

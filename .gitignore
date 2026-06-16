@@ -296,3 +296,4 @@ Makefile.local
 core
 core.*
 example/main
+/example/server

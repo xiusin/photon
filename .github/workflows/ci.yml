@@ -28,7 +28,6 @@ jobs:
       fail-fast: false
       matrix:
         module:
-          - core
           - config
           - log
           - security
@@ -71,7 +70,7 @@ jobs:
     steps:
       - name: Check status
         run: |
-          echo "All 14 module tests completed"
+          echo "All 13 module tests completed"
           if [[ "${{ needs.test.result }}" == "success" ]]; then
             echo "::notice::✅ All tests passed"
           elif [[ "${{ needs.test.result }}" == "failure" ]]; then
