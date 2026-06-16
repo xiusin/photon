@@ -164,7 +164,8 @@ fn start_server() ! {
 	port := cfg.get_int_or('server.port', 8080)
 	logger.info('Starting web server on port ${port}...')
 	// Spring Boot-style: clean single-generic API, no veb internals exposed
-	web.run[PhotonApp](port)
+	// Use run_with_routes to display all registered endpoints at startup
+	web.run_with_routes[PhotonApp](port)
 }
 
 // ── OrmAdapter Demo ──

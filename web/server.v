@@ -7,7 +7,6 @@ module web
 // no raw veb imports needed in application code.
 //
 // Also provides built-in request logging utilities.
-
 import veb
 import time
 
@@ -26,17 +25,32 @@ pub fn run[T](port int) {
 	veb.run[T, T](mut app, port)
 }
 
+// run_with_routes starts the Photon web server and prints all registered routes.
+//
+// Usage:
+//   web.run_with_routes[MyController](8080)
+//
+// This is useful for development to see all available endpoints at startup.
+pub fn run_with_routes[T](port int) {
+	routes := scan_controller[T]()
+	println('')
+	println('  Photon Web Server starting on port ${port}...')
+	print_routes(routes)
+	mut app := &T{}
+	veb.run[T, T](mut app, port)
+}
+
 // ── Request Logging — Spring Boot-style structured format ──
 
 // RequestInfo captures rich request metadata for logging.
 pub struct RequestInfo {
 pub:
-	method    string
-	path      string
-	host      string
-	ip        string
+	method     string
+	path       string
+	host       string
+	ip         string
 	user_agent string
-	start_ms  i64
+	start_ms   i64
 }
 
 // new_request_info creates a RequestInfo from the current veb.Context.
@@ -50,12 +64,12 @@ pub:
 //   }
 pub fn new_request_info(mut ctx veb.Context) RequestInfo {
 	return RequestInfo{
-		method: ctx.req.method.str()
-		path: ctx.req.url
-		host: ctx.req.host
-		ip: client_ip(&ctx)
+		method:     ctx.req.method.str()
+		path:       ctx.req.url
+		host:       ctx.req.host
+		ip:         client_ip(&ctx)
 		user_agent: ctx.req.user_agent
-		start_ms: time.ticks()
+		start_ms:   time.ticks()
 	}
 }
 

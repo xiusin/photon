@@ -9,18 +9,18 @@ module web
 // RouteInfo describes a single route
 pub struct RouteInfo {
 pub:
-	method      string   // HTTP method: GET, POST, PUT, DELETE, PATCH
-	path        string   // Route path: /users/:id
-	handler_name string  // Method name
-	middlewares []string // Middleware names to apply
+	method       string   // HTTP method: GET, POST, PUT, DELETE, PATCH
+	path         string   // Route path: /users/:id
+	handler_name string   // Method name
+	middlewares  []string // Middleware names to apply
 }
 
 // RouterConfig configures the route scanner
 pub struct RouterConfig {
 pub mut:
-	base_path    string = '/'    // Base path prefix for all routes
-	scan_package string          // Package to scan for controllers
-	enable_log   bool            // Log route registration
+	base_path    string = '/' // Base path prefix for all routes
+	scan_package string // Package to scan for controllers
+	enable_log   bool   // Log route registration
 }
 
 // RouteRegistry holds all registered routes
@@ -37,8 +37,8 @@ pub fn new_route_registry() &RouteRegistry {
 // register adds a route to the registry
 pub fn (mut rr RouteRegistry) register(method string, path string, handler_name string) {
 	rr.routes << RouteInfo{
-		method: method
-		path: path
+		method:       method
+		path:         path
 		handler_name: handler_name
 	}
 }
@@ -46,8 +46,8 @@ pub fn (mut rr RouteRegistry) register(method string, path string, handler_name 
 // get returns a GET route
 pub fn get(path string, handler_name string) RouteInfo {
 	return RouteInfo{
-		method: 'GET'
-		path: path
+		method:       'GET'
+		path:         path
 		handler_name: handler_name
 	}
 }
@@ -55,8 +55,8 @@ pub fn get(path string, handler_name string) RouteInfo {
 // post returns a POST route
 pub fn post(path string, handler_name string) RouteInfo {
 	return RouteInfo{
-		method: 'POST'
-		path: path
+		method:       'POST'
+		path:         path
 		handler_name: handler_name
 	}
 }
@@ -64,8 +64,8 @@ pub fn post(path string, handler_name string) RouteInfo {
 // put returns a PUT route
 pub fn put(path string, handler_name string) RouteInfo {
 	return RouteInfo{
-		method: 'PUT'
-		path: path
+		method:       'PUT'
+		path:         path
 		handler_name: handler_name
 	}
 }
@@ -73,8 +73,8 @@ pub fn put(path string, handler_name string) RouteInfo {
 // del returns a DELETE route
 pub fn del(path string, handler_name string) RouteInfo {
 	return RouteInfo{
-		method: 'DELETE'
-		path: path
+		method:       'DELETE'
+		path:         path
 		handler_name: handler_name
 	}
 }
@@ -82,8 +82,8 @@ pub fn del(path string, handler_name string) RouteInfo {
 // patch returns a PATCH route
 pub fn patch(path string, handler_name string) RouteInfo {
 	return RouteInfo{
-		method: 'PATCH'
-		path: path
+		method:       'PATCH'
+		path:         path
 		handler_name: handler_name
 	}
 }
@@ -93,8 +93,8 @@ pub fn group(prefix string, routes []RouteInfo) []RouteInfo {
 	mut result := []RouteInfo{}
 	for route in routes {
 		result << RouteInfo{
-			method: route.method
-			path: prefix + route.path
+			method:       route.method
+			path:         prefix + route.path
 			handler_name: route.handler_name
 		}
 	}
@@ -113,7 +113,8 @@ pub fn scan_controller[T]() []RouteInfo {
 
 		// Check for HTTP method attributes
 		for attr in method.attrs {
-			if attr == 'get' || attr == 'post' || attr == 'put' || attr == 'delete' || attr == 'patch' {
+			if attr == 'get' || attr == 'post' || attr == 'put' || attr == 'delete'
+				|| attr == 'patch' {
 				http_method = attr.to_upper()
 				found_route = true
 			}
@@ -127,23 +128,35 @@ pub fn scan_controller[T]() []RouteInfo {
 				path = '/${method.name}'
 			}
 			routes << RouteInfo{
-				method: http_method
-				path: path
+				method:       http_method
+				path:         path
 				handler_name: method.name
 			}
 		}
 	}
-
 	return routes
 }
 
-// print_routes prints all registered routes (for debugging)
+// print_routes prints all registered routes in a clean table format
 pub fn print_routes(routes []RouteInfo) {
-	println('')
-	println('  📡 Registered Routes:')
-	println('  ─────────────────────')
-	for route in routes {
-		println('  ${route.method:-7s} ${route.path:-25s} → ${route.handler_name}')
+	if routes.len == 0 {
+		return
 	}
 	println('')
+	println('  Registered Routes:')
+	println('  ${'─'.repeat(60)}')
+	println('  ${'METHOD':-8s} ${'PATH':-30s} ${'HANDLER'}')
+	println('  ${'─'.repeat(60)}')
+	for route in routes {
+		println('  ${route.method:-8s} ${route.path:-30s} ${route.handler_name}')
+	}
+	println('  ${'─'.repeat(60)}')
+	println('  Total: ${routes.len} route(s)')
+	println('')
+}
+
+// print_registered_routes scans a controller type and prints all its routes
+pub fn print_registered_routes[T]() {
+	routes := scan_controller[T]()
+	print_routes(routes)
 }
