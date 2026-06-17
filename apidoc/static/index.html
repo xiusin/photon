@@ -4,73 +4,113 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Photon API 文档</title>
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@fluentui/web-components@3.0.0/dist/web-components.min.js"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@fluentui/web-components@2.6.0/dist/web-components.min.js"></script>
   <link rel="stylesheet" href="/__docs/static/app.css">
 </head>
 <body>
-  <div class="app-layout" id="app">
-    <aside class="sidebar" id="sidebar">
-      <div class="sidebar-header">
-        <h1>
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-            <line x1="16" y1="13" x2="8" y2="13"/>
-            <line x1="16" y1="17" x2="8" y2="17"/>
-          </svg>
-          API 文档
-        </h1>
-        <p>实时自动生成 · 可编辑锁定</p>
-      </div>
-      <div class="sidebar-search">
-        <fluent-text-field id="searchInput" placeholder="搜索路由..." appearance="outline"></fluent-text-field>
-      </div>
-      <div class="sidebar-groups" id="sidebarGroups">
-        <div class="spinner"></div>
-      </div>
-    </aside>
-
-    <main class="main-content" id="mainContent">
-      <div class="main-header">
-        <span class="header-title" id="headerTitle">API 文档管理器</span>
-        <div class="header-actions">
-          <fluent-button id="refreshBtn" appearance="outline" size="small" onclick="loadEntries()">
-            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 4 23 10 17 10"/>
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-            </svg>
-            刷新
-          </fluent-button>
-          <fluent-button appearance="outline" size="small" onclick="toggleTheme()">
-            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-            </svg>
-            主题
-          </fluent-button>
+  <div class="app-root" id="app">
+    <!-- ═══ Left Rail: Navigation ═══ -->
+    <nav class="nav-rail" id="navRail">
+      <div class="nav-rail-brand">
+        <svg class="brand-icon" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M10 2l8 4.5v7L10 18l-8-4.5v-7L10 2zm0 1.15L3.5 6.38 10 9.85l6.5-3.47L10 3.15zM2.5 7.12v5.76L9.5 16V10.2L2.5 7.12zm8 8.88l7-3.12V7.12l-7 3.08V16z"/>
+        </svg>
+        <div class="brand-text">
+          <span class="brand-title">Photon</span>
+          <span class="brand-subtitle">API Docs</span>
         </div>
       </div>
 
-      <div id="contentArea">
-        <div class="empty-state" id="emptyState">
-          <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      <div class="nav-rail-search">
+        <fluent-text-field id="searchInput" placeholder="搜索路由..." appearance="outline" size="small">
+          <svg slot="start" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+            <path d="M8.5 3a5.5 5.5 0 014.383 8.823l4.147 4.147a.75.75 0 01-1.06 1.06l-4.147-4.147A5.5 5.5 0 118.5 3zm0 1.5a4 4 0 100 8 4 4 0 000-8z"/>
           </svg>
+        </fluent-text-field>
+      </div>
+
+      <div class="nav-rail-groups" id="sidebarGroups">
+        <div class="spinner"></div>
+      </div>
+
+      <div class="nav-rail-footer">
+        <fluent-button id="themeToggleBtn" appearance="stealth" size="small" title="切换主题">
+          <svg slot="start" viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+            <path d="M10 3a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0v-1.5A.75.75 0 0110 3zm0 11a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0v-1.5A.75.75 0 0110 14zm7-4a.75.75 0 01-.75.75h-1.5a.75.75 0 010-1.5h1.5a.75.75 0 01.75.75zM5.75 10a.75.75 0 01-.75.75H3.5a.75.75 0 010-1.5H5a.75.75 0 01.75.75zm10.28-4.78a.75.75 0 010 1.06l-1.06 1.06a.75.75 0 11-1.06-1.06l1.06-1.06a.75.75 0 011.06 0zM6.09 14.72a.75.75 0 01-.75.75l-1.06-1.06a.75.75 0 011.06-1.06l1.06 1.06a.75.75 0 010 1.06zM14.72 14.72a.75.75 0 01-1.06 0l-1.06-1.06a.75.75 0 111.06-1.06l1.06 1.06a.75.75 0 010 1.06zM6.09 6.28a.75.75 0 01-1.06 0L3.97 5.22a.75.75 0 011.06-1.06l1.06 1.06a.75.75 0 010 1.06z"/>
+          </svg>
+        </fluent-button>
+      </div>
+    </nav>
+
+    <!-- ═══ Main Content Area ═══ -->
+    <div class="main-area">
+      <!-- Command Bar -->
+      <header class="command-bar" id="commandBar">
+        <div class="command-bar-start">
+          <fluent-breadcrumb id="breadcrumb">
+            <fluent-breadcrumb-item href="#">API 文档</fluent-breadcrumb-item>
+            <fluent-breadcrumb-item id="breadcrumbCurrent" href="#"></fluent-breadcrumb-item>
+          </fluent-breadcrumb>
+        </div>
+        <div class="command-bar-end">
+          <fluent-button id="refreshBtn" appearance="outline" size="small">
+            <svg slot="start" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+              <path d="M10 3a7 7 0 00-6.94 6.13.75.75 0 01-1.49-.16A8.5 8.5 0 0110 1.5c2.62 0 4.97 1.19 6.53 3.06V2.75a.75.75 0 011.5 0v3.5a.75.75 0 01-.75.75h-3.5a.75.75 0 010-1.5h2.12A7 7 0 0010 3zm7 7a7 7 0 01-13.53 2.69h2.12a.75.75 0 010 1.5h-3.5a.75.75 0 01-.75-.75v-3.5a.75.75 0 011.5 0v1.81A8.5 8.5 0 0010 18.5c4.69 0 8.5-3.81 8.5-8.5h-1.5z"/>
+            </svg>
+            刷新
+          </fluent-button>
+          <fluent-button id="exportBtn" appearance="outline" size="small">
+            <svg slot="start" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+              <path d="M3 5.5A2.5 2.5 0 015.5 3h9A2.5 2.5 0 0117 5.5v9a2.5 2.5 0 01-2.5 2.5h-9A2.5 2.5 0 013 14.5v-9zM5.5 4A1.5 1.5 0 004 5.5v9A1.5 1.5 0 005.5 16h9a1.5 1.5 0 001.5-1.5v-9A1.5 1.5 0 0014.5 4h-9zm4.79 2.15a.5.5 0 01.69.7l-2.5 2.5a.5.5 0 01-.7 0l-1-1a.5.5 0 11.7-.7l.65.65 2.16-2.15zM15 10.5h-4a.5.5 0 000 1h4a.5.5 0 000-1zm-9 3h4a.5.5 0 000-1H6a.5.5 0 000 1z"/>
+            </svg>
+            导出 OpenAPI
+          </fluent-button>
+        </div>
+      </header>
+
+      <!-- Content Scroll Region -->
+      <div class="content-scroll" id="contentArea">
+        <!-- Empty State -->
+        <div class="empty-state" id="emptyState">
+          <div class="empty-state-illustration">
+            <svg viewBox="0 0 96 96" fill="none">
+              <rect x="16" y="16" width="64" height="64" rx="8" fill="var(--fill-subtle)" stroke="var(--stroke-control)" stroke-width="2"/>
+              <path d="M36 40h24M36 48h24M36 56h16" stroke="var(--fg-secondary)" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="68" cy="68" r="14" fill="var(--accent-base)" opacity="0.15"/>
+              <path d="M64 68h8M68 64v8" stroke="var(--accent-base)" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </div>
           <h2>暂无 API 文档</h2>
-          <p>发送 HTTP 请求到您的应用，文档将自动生成。</p>
-          <fluent-button appearance="accent" onclick="loadEntries()">
-            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 4 23 10 17 10"/>
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          <p>发送 HTTP 请求到您的应用，文档将自动生成并实时展示在此处。</p>
+          <fluent-button id="emptyRefreshBtn" appearance="accent" size="small">
+            <svg slot="start" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+              <path d="M10 3a7 7 0 00-6.94 6.13.75.75 0 01-1.49-.16A8.5 8.5 0 0110 1.5c2.62 0 4.97 1.19 6.53 3.06V2.75a.75.75 0 011.5 0v3.5a.75.75 0 01-.75.75h-3.5a.75.75 0 010-1.5h2.12A7 7 0 0010 3z"/>
             </svg>
             检查数据
           </fluent-button>
         </div>
+
+        <!-- Detail View -->
         <div class="detail-view" id="detailView" style="display:none"></div>
       </div>
-    </main>
+    </div>
   </div>
 
-  <div class="toast-container" id="toastContainer"></div>
+  <!-- Toast Provider -->
+  <div class="toast-provider" id="toastProvider"></div>
+
+  <!-- Delete Confirmation Dialog -->
+  <fluent-dialog id="deleteDialog" modal="true">
+    <div class="dialog-content">
+      <h3>确认删除</h3>
+      <p>此操作不可恢复，确定要删除该端点文档吗？</p>
+    </div>
+    <div class="dialog-actions">
+      <fluent-button appearance="outline" id="deleteCancelBtn">取消</fluent-button>
+      <fluent-button appearance="accent" id="deleteConfirmBtn">删除</fluent-button>
+    </div>
+  </fluent-dialog>
+
   <script src="/__docs/static/app.js"></script>
 </body>
 </html>

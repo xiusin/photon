@@ -195,13 +195,6 @@ pub fn (mut s ApiDocStore) export_openapi() string {
 		path_map[path_key] = ops.move()
 	}
 
-	// Build tags array
-	mut tags_arr := []string{}
-	for tag_name, _ in tag_set {
-		tags_arr << '{"name":"${json_escape(tag_name)}"}'
-	}
-	tags_str := tags_arr.join(',')
-
 	s.mu.unlock()
 
 	doc := OpenApiDoc{
