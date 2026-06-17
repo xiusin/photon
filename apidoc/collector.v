@@ -31,7 +31,7 @@ pub fn new_collector(store &ApiDocStore) &Collector {
 	}
 }
 
-// collect captures request metadata (called from before_request)
+// collect captures request metadata (called from before_middleware)
 pub fn (mut c Collector) collect(mut ctx veb.Context) {
 	path := ctx.req.url
 	if is_resource(path) {
@@ -42,6 +42,7 @@ pub fn (mut c Collector) collect(mut ctx veb.Context) {
 	id := method.to_upper() + '::' + normalize_path(path)
 
 	mut entry := c.store.get_or_create_entry(method, normalize_path(path)) or {
+		eprintln('[apidoc] collect — get_or_create_entry failed: ${err}')
 		return
 	}
 
@@ -60,9 +61,11 @@ pub fn (mut c Collector) collect(mut ctx veb.Context) {
 
 	// Save
 	c.store.update_entry(id, entry) or {}
+
+	eprintln('[apidoc] collect — ${id} hits=${entry.hit_count} params=${entry.parameters.len}')
 }
 
-// collect_response captures response metadata (called from after_request)
+// collect_response captures response metadata (called from after_middleware)
 pub fn (mut c Collector) collect_response(mut ctx veb.Context) {
 	path := ctx.req.url
 	if is_resource(path) {

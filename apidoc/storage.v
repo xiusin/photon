@@ -6,6 +6,42 @@ module apidoc
 // mutable access patterns required by the example controllers.
 
 import sync
+import json
+
+// OpenAPI 3.0 output structures
+
+struct OpenApiInfo {
+	title   string
+	version string
+}
+
+struct OpenApiSchema {
+	type_ string @[json:'type']
+}
+
+struct OpenApiParam {
+	name     string
+	in_      string @[json:'in']
+	required bool
+	schema   OpenApiSchema
+}
+
+struct OpenApiResponse {
+	description string
+}
+
+struct OpenApiOperation {
+	summary      string
+	operation_id string           @[json:'operationId']
+	parameters   []OpenApiParam
+	responses    map[string]OpenApiResponse
+}
+
+struct OpenApiDoc {
+	openapi string
+	info    OpenApiInfo
+	paths   map[string]map[string]OpenApiOperation
+}
 
 @[heap]
 pub struct ApiDocStore {
@@ -127,25 +163,40 @@ pub fn (mut s ApiDocStore) reset() {
 // export_openapi generates a simplified OpenAPI 3.0 JSON
 pub fn (mut s ApiDocStore) export_openapi() string {
 	s.mu.@lock()
-	mut paths := ''
 
+	mut path_map := map[string]map[string]OpenApiOperation{}
 	for _, ep in s.entries {
 		path_key := ep.path
-		if path_key.len == 0 { continue }
-		mut op := '"${ep.method.to_lower()}":{"summary":"${ep.summary}","operationId":"${ep.id}"'
-		if ep.parameters.len > 0 {
-			mut plist := []string{}
-			for p in ep.parameters {
-				plist << '{"name":"${p.name}","in":"${p.location}","required":${p.required},"schema":{"type":"${p.type_}"}}'
-			}
-			op += ',"parameters":[${plist.join(',')}]'
+		if path_key.len == 0 {
+			continue
 		}
-		op += ',"responses":{"200":{"description":"OK"}}'
-		op += '}'
-		paths += '"${path_key}":{${op}},'
+		mut params := []OpenApiParam{}
+		for p in ep.parameters {
+			params << OpenApiParam{
+				name: p.name
+				in_: p.location
+				required: p.required
+				schema: OpenApiSchema{type_: p.type_}
+			}
+		}
+		op := OpenApiOperation{
+			summary: ep.summary
+			operation_id: ep.id
+			parameters: params
+			responses: {'200': OpenApiResponse{description: 'OK'}}
+		}
+		method_key := ep.method.to_lower()
+		mut ops := (path_map[path_key] or { map[string]OpenApiOperation{} }).clone()
+		ops[method_key] = op
+		path_map[path_key] = ops.move()
 	}
-	paths = paths.trim_right(',')
 
 	s.mu.unlock()
-	return '{"openapi":"3.0.0","info":{"title":"API Documentation","version":"1.0.0"},"paths":{${paths}}}'
+
+	doc := OpenApiDoc{
+		openapi: '3.0.0'
+		info: OpenApiInfo{title: 'API Documentation', version: '1.0.0'}
+		paths: path_map
+	}
+	return json.encode(doc)
 }

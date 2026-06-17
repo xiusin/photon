@@ -4,38 +4,72 @@ module apidoc
 //
 // Provides serve_* functions that can be called from veb route handlers.
 // The user needs to define thin wrapper methods on their App struct.
+//
+// Integration:
+//   1. Embed apidoc.ApidocHandler in your App struct
+//   2. Call app.setup_middleware[T]() to register before/after middleware
+//   3. Define thin route wrappers for /__docs endpoints
 
 import veb
 import os
 
 // ApidocHandler provides self-hosted API documentation.
+// Embed this in your App struct alongside veb.Middleware[T].
+@[heap]
 pub struct ApidocHandler {
 pub mut:
-	store    &ApiDocStore = unsafe { nil }
-	collector &Collector  = unsafe { nil }
+	store     &ApiDocStore = unsafe { nil }
+	collector &Collector   = unsafe { nil }
 }
 
 // enable initializes the apidoc module.
 pub fn enable() &ApidocHandler {
 	store, collector := init('data/apidoc') or {
+		eprintln('[apidoc] init failed: ${err}')
 		panic('apidoc init failed: ${err}')
 	}
+	eprintln('[apidoc] enable() — initialized')
 	return &ApidocHandler{
 		store:     store
 		collector: collector
 	}
 }
 
-// capture hooks
-pub fn (mut h ApidocHandler) capture_request(mut ctx veb.Context) {
-	if !ctx.req.url.starts_with('/__docs') {
-		h.collector.collect(mut ctx)
+// before_middleware returns a veb middleware handler that captures request metadata.
+// Register with: app.use(veb.MiddlewareOptions[T]{ handler: handler.before_middleware[T]() })
+pub fn (mut h ApidocHandler) before_middleware[T]() veb.MiddlewareOptions[T] {
+	return veb.MiddlewareOptions[T]{
+		handler: fn [mut h] [T](mut ctx T) bool {
+			if isnil(h.collector) || isnil(h.store) {
+				eprintln('[apidoc] before_middleware — handler not initialized!')
+				return true
+			}
+			path := ctx.req.url
+			if path.starts_with('/__docs') {
+				return true // skip docs paths
+			}
+			h.collector.collect(mut ctx.Context)
+			return true
+		}
 	}
 }
 
-pub fn (mut h ApidocHandler) capture_response(mut ctx veb.Context) {
-	if !ctx.req.url.starts_with('/__docs') {
-		h.collector.collect_response(mut ctx)
+// after_middleware returns a veb middleware handler that captures response metadata.
+// Register with: app.use(veb.MiddlewareOptions[T]{ handler: handler.after_middleware[T]() })
+pub fn (mut h ApidocHandler) after_middleware[T]() veb.MiddlewareOptions[T] {
+	return veb.MiddlewareOptions[T]{
+		after:   true
+		handler: fn [mut h] [T](mut ctx T) bool {
+			if isnil(h.collector) || isnil(h.store) {
+				return true
+			}
+			path := ctx.req.url
+			if path.starts_with('/__docs') {
+				return true // skip docs paths
+			}
+			h.collector.collect_response(mut ctx.Context)
+			return true
+		}
 	}
 }
 

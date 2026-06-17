@@ -352,42 +352,42 @@ fn json_data[T](items []T) string {
 @[get]
 @["/__docs"]
 pub fn (mut app App) api_docs_index(mut ctx Context) veb.Result {
-	return app.ApidocHandler.serve_index(mut ctx.Context)
+	return app.apidoc_handler.serve_index(mut ctx.Context)
 }
 
 @[get]
 @["/__docs/static/:file"]
 pub fn (mut app App) api_docs_static(mut ctx Context, file string) veb.Result {
-	return app.ApidocHandler.serve_static_file(mut ctx.Context, file)
+	return app.apidoc_handler.serve_static_file(mut ctx.Context, file)
 }
 
 @[get]
 @["/__docs/api/entries"]
 pub fn (mut app App) api_docs_entries(mut ctx Context) veb.Result {
-	return app.ApidocHandler.serve_entries(mut ctx.Context)
+	return app.apidoc_handler.serve_entries(mut ctx.Context)
 }
 
 @[get]
 @["/__docs/api/entries/:id"]
 pub fn (mut app App) api_docs_entry_get(mut ctx Context, id string) veb.Result {
-	return app.ApidocHandler.serve_entry(mut ctx.Context, id)
+	return app.apidoc_handler.serve_entry(mut ctx.Context, id)
 }
 
 @[put]
 @["/__docs/api/entries/:id"]
 pub fn (mut app App) api_docs_entry_put(mut ctx Context, id string) veb.Result {
-	return app.ApidocHandler.serve_entry(mut ctx.Context, id)
+	return app.apidoc_handler.serve_entry(mut ctx.Context, id)
 }
 
 @[delete]
 @["/__docs/api/entries/:id"]
 pub fn (mut app App) api_docs_entry_delete(mut ctx Context, id string) veb.Result {
-	return app.ApidocHandler.serve_entry(mut ctx.Context, id)
+	return app.apidoc_handler.serve_entry(mut ctx.Context, id)
 }
 
 @[get]
 @["/__docs/api/export"]
 pub fn (mut app App) api_docs_export(mut ctx Context) veb.Result {
-	return app.ApidocHandler.serve_export(mut ctx.Context)
+	return app.apidoc_handler.serve_export(mut ctx.Context)
 }
 

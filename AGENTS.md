@@ -169,4 +169,14 @@ pub struct UserService {
 
 ---
 
+## 十、相关文档
+
+- [README.md](README.md) — 项目概览、模块架构、快速上手
+- [ARCHITECTURE.md](ARCHITECTURE.md) — 技术架构详解：模块拓扑、依赖关系、数据流、注解系统、设计决策
+- [TUTORIAL.md](TUTORIAL.md) — 实战教程：从零构建企业级 V 语言应用（配置、Web、ORM、安全、缓存等）
+- [v.mod](v.mod) — V 模块定义与依赖声明
+- [Makefile](Makefile) — 构建、测试、安装等工程化命令
+- [Dockerfile](Dockerfile) — 容器化部署配置
+- [ci-test.sh](ci-test.sh) — CI 测试脚本
+
 **本宪法是 Photon 框架开发的最高准则，所有 AGENTS、开发者、贡献者必须遵守。**
