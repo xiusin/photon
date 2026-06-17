@@ -10,11 +10,9 @@ import os
 pub fn init(storage_path string) !(&ApiDocStore, &Collector) {
 	store := get_store()
 
-	if storage_path.len > 0 {
-		if !os.exists(storage_path) {
-			os.mkdir_all(storage_path) or {
-				return error('failed to create apidoc storage: ${err}')
-			}
+	if storage_path.len > 0 && !os.exists(storage_path) {
+		os.mkdir_all(storage_path) or {
+			return error('failed to create apidoc storage: ${err}')
 		}
 	}
 

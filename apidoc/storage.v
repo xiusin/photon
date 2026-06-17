@@ -57,20 +57,24 @@ pub fn new_store() &ApiDocStore {
 	}
 }
 
+// thread-safe singleton holder
+struct DocStoreSingleton {
+mut:
+	mu sync.Mutex
+	store &ApiDocStore = unsafe { nil }
+}
+
 __global (
-	doc_store    &ApiDocStore
-	doc_store_mu sync.Mutex
+	g_singleton DocStoreSingleton
 )
 
 pub fn get_store() &ApiDocStore {
-	unsafe {
-		doc_store_mu.@lock()
-		defer { doc_store_mu.unlock() }
-		if isnil(doc_store) {
-			doc_store = new_store()
-		}
-		return doc_store
+	g_singleton.mu.@lock()
+	defer { g_singleton.mu.unlock() }
+	if isnil(g_singleton.store) {
+		g_singleton.store = new_store()
 	}
+	return g_singleton.store
 }
 
 // get_entries returns all entries as copies
@@ -135,11 +139,11 @@ pub fn (mut s ApiDocStore) delete_entry(id string) ! {
 	s.mu.unlock()
 }
 
-// lock_endpoint locks or unlocks an endpoint
+// lock_endpoint locks an endpoint
 pub fn (mut s ApiDocStore) lock_endpoint(id string) {
 	s.mu.@lock()
 	if mut ep := s.entries[id] {
-		ep.locked = !ep.locked
+		ep.locked = true
 	}
 	s.mu.unlock()
 }
@@ -160,7 +164,7 @@ pub fn (mut s ApiDocStore) reset() {
 	s.mu.unlock()
 }
 
-// export_openapi generates a simplified OpenAPI 3.0 JSON
+// export_openapi generates a more complete OpenAPI 3.0 JSON
 pub fn (mut s ApiDocStore) export_openapi() string {
 	s.mu.@lock()
 
@@ -190,6 +194,13 @@ pub fn (mut s ApiDocStore) export_openapi() string {
 		ops[method_key] = op
 		path_map[path_key] = ops.move()
 	}
+
+	// Build tags array
+	mut tags_arr := []string{}
+	for tag_name, _ in tag_set {
+		tags_arr << '{"name":"${json_escape(tag_name)}"}'
+	}
+	tags_str := tags_arr.join(',')
 
 	s.mu.unlock()
 
