@@ -3,6 +3,7 @@ module apidoc
 // collector.v — Request/Response Collector for API Docs
 
 import veb
+import x.json2
 
 @[heap]
 pub struct Collector {
@@ -75,13 +76,30 @@ pub fn (mut c Collector) collect_response(mut ctx veb.Context) {
 	method := ctx.req.method.str()
 	id := method.to_upper() + '::' + normalize_path(path)
 
-	ct := ctx.get_custom_header('Content-Type') or { 'application/json' }
-
 	mut entry := c.store.get_entry(id) or { return }
+
+	body := ctx.res.body
+	ct := ctx.res.header.get(.content_type) or { 'application/json' }
+	status := ctx.res.status_code
+
 	unsafe {
 		entry.response.content_type = ct
-		entry.response.status_code = 200
+		entry.response.status_code = status
+		// Store a sample of the response body (truncated)
+		if body.len > 0 {
+			if body.len > 2048 {
+				entry.response.body_sample = body[..2048] + '...'
+			} else {
+				entry.response.body_sample = body
+			}
+		}
 	}
+
+	// Parse JSON response body to extract property schema
+	if ct.contains('json') && body.len > 0 {
+		parse_json_response(mut entry, body)
+	}
+
 	c.store.update_entry(id, entry) or {}
 }
 
@@ -205,4 +223,57 @@ fn infer_type(val string) string {
 		if is_float { return 'float' }
 	}
 	return 'string'
+}
+
+// parse_json_response extracts property schema from a JSON response body
+fn parse_json_response(mut entry &ApiDocEntry, body string) {
+	root := json2.decode[json2.Any](body, json2.DecoderOptions{}) or { return }
+	extract_json2_props(mut entry.response, '', root, 0)
+}
+
+// extract_json2_props recursively extracts properties from json2.Any
+fn extract_json2_props(mut resp ApiDocResponse, prefix string, node json2.Any, depth int) {
+	if depth > 3 { return }
+	if node is map[string]json2.Any {
+		obj := node as map[string]json2.Any
+		for key, val in obj {
+			path := if prefix.len > 0 { '${prefix}.${key}' } else { key }
+			mut type_str := 'string'
+			mut should_recurse := false
+
+			if val is json2.Null {
+				type_str = 'null'
+			} else if val is bool {
+				type_str = 'bool'
+			} else if val is int {
+				type_str = 'int'
+			} else if val is i64 {
+				type_str = 'int'
+			} else if val is f64 {
+				type_str = 'float'
+			} else if val is string {
+				type_str = 'string'
+			} else if val is []json2.Any {
+				type_str = 'array'
+				arr := val as []json2.Any
+				if arr.len > 0 && arr[0] is map[string]json2.Any {
+					should_recurse = true
+					sub := arr[0] as map[string]json2.Any
+					extract_json2_props(mut resp, '${path}[]', sub, depth + 1)
+				}
+			} else if val is map[string]json2.Any {
+				type_str = 'object'
+				should_recurse = true
+				sub := val as map[string]json2.Any
+				extract_json2_props(mut resp, path, sub, depth + 1)
+			}
+
+			if !should_recurse {
+				resp.properties << ApiDocResponseProp{
+					path: path
+					type_: type_str
+				}
+			}
+		}
+	}
 }

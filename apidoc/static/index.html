@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Photon API 文档</title>
+  <script type="module" src="https://unpkg.com/@fluentui/web-components"></script>
   <link rel="stylesheet" href="/__docs/static/app.css">
 </head>
 <body>
@@ -11,11 +12,14 @@
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
-        <h1>📋 API 文档</h1>
+        <h1>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          API 文档
+        </h1>
         <p>实时自动生成 · 可编辑锁定</p>
       </div>
       <div class="sidebar-search">
-        <input type="text" id="searchInput" placeholder="搜索路由..." />
+        <fluent-text-field id="searchInput" placeholder="搜索路由..." appearance="outline"></fluent-text-field>
       </div>
       <div class="sidebar-groups" id="sidebarGroups">
         <div class="spinner"></div>
@@ -27,19 +31,27 @@
       <div class="main-header">
         <span class="header-title" id="headerTitle">API 文档管理器</span>
         <div class="header-actions">
-          <button class="btn btn-outline btn-sm" id="refreshBtn" onclick="loadEntries()">⟳ 刷新</button>
-          <button class="btn btn-outline btn-sm" onclick="toggleTheme()">🌓 主题</button>
+          <fluent-button id="refreshBtn" appearance="outline" size="small" onclick="loadEntries()">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            刷新
+          </fluent-button>
+          <fluent-button appearance="outline" size="small" onclick="toggleTheme()">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            主题
+          </fluent-button>
         </div>
       </div>
 
       <div id="contentArea">
         <!-- Empty State -->
         <div class="empty-state" id="emptyState">
-          <div class="empty-icon">📭</div>
+          <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           <h2>暂无 API 文档</h2>
-          <p>发送 HTTP 请求到您的应用，文档将自动生成。<br />数据会持久化保存，支持编辑和锁定。</p>
-          <br />
-          <button class="btn btn-primary" onclick="loadEntries()">⟳ 检查数据</button>
+          <p>发送 HTTP 请求到您的应用，文档将自动生成。<br/>数据会持久化保存，支持编辑和锁定。</p>
+          <fluent-button appearance="accent" onclick="loadEntries()">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            检查数据
+          </fluent-button>
         </div>
 
         <!-- Detail View -->
