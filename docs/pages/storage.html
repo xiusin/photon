@@ -1,0 +1,116 @@
+<!-- title: Storage · 存储 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Storage · 存储 -->
+<div class="hero">
+        <h1>Storage · 存储</h1>
+        <p>Flysystem 风格文件系统抽象、本地/S3 可插拔适配器、可见性控制 — Laravel Filesystem 的 V 语言实现。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 Beta</span><span class="hero-tag">import photon.storage</span><span class="hero-tag">对标 Laravel Filesystem</span></div>
+      </div>
+
+      <!-- ═══ 1. Quick Start ═══ -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header"><div class="section-icon icon-storage">💾</div><div><div class="section-title">快速上手</div><div class="section-subtitle">StorageManager · 注册适配器 · 读写文件</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.storage
+
+<span class="cm">// 1. 创建 StorageManager</span>
+<span class="kw">mut</span> manager := storage.<span class="fn">new_manager</span>()
+
+<span class="cm">// 2. 注册存储适配器</span>
+manager.<span class="fn">register</span>(<span class="st">'local'</span>, storage.<span class="fn">new_local_adapter</span>(<span class="st">'/var/uploads'</span>))
+manager.<span class="fn">register</span>(<span class="st">'s3'</span>,    storage.<span class="fn">new_s3_adapter</span>(<span class="st">'my-bucket'</span>, <span class="st">'us-east-1'</span>))
+
+<span class="cm">// 3. 读写文件</span>
+<span class="kw">mut</span> disk := manager.<span class="fn">get</span>(<span class="st">'local'</span>)
+
+<span class="cm">// 写入文件</span>
+disk.<span class="fn">write</span>(<span class="st">'avatars/alice.png'</span>, avatar_bytes, .public)!
+
+<span class="cm">// 读取文件</span>
+content := disk.<span class="fn">read</span>(<span class="st">'avatars/alice.png'</span>)!
+
+<span class="cm">// 删除文件</span>
+disk.<span class="fn">delete</span>(<span class="st">'avatars/alice.png'</span>)!
+
+<span class="cm">// 检查文件是否存在</span>
+exists := disk.<span class="fn">exists</span>(<span class="st">'avatars/alice.png'</span>)
+
+<span class="cm">// 获取文件元数据</span>
+meta := disk.<span class="fn">metadata</span>(<span class="st">'avatars/alice.png'</span>)!
+<span class="fn">println</span>(meta.size)       <span class="cm">// 文件大小</span>
+<span class="fn">println</span>(meta.mime_type)  <span class="cm">// MIME 类型</span>
+<span class="fn">println</span>(meta.visibility)  <span class="cm">// .public_ / .private_</span>
+
+<span class="cm">// Laravel 等价：Storage::disk('local')->put('path', $content)</span>
+<span class="cm">// Spring 等价：ResourceLoader / S3Template</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. Storage Interface ═══ -->
+      <div class="doc-section" id="interface">
+        <div class="section-header"><div class="section-icon icon-storage">📋</div><div><div class="section-title">Storage 接口</div><div class="section-subtitle">实现自定义适配器</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">pub interface</span> <span class="tp">Storage</span> {
+<span class="kw">mut</span>:
+    <span class="fn">write</span>(path <span class="tp">string</span>, content []<span class="tp">u8</span>, visibility <span class="tp">Visibility</span>) !
+    <span class="fn">delete</span>(path <span class="tp">string</span>) !
+    <span class="fn">set_visibility</span>(path <span class="tp">string</span>, visibility <span class="tp">Visibility</span>) !
+<span class="kw">pub</span>:
+    <span class="fn">read</span>(path <span class="tp">string</span>) ![]<span class="tp">u8</span>
+    <span class="fn">exists</span>(path <span class="tp">string</span>) <span class="tp">bool</span>
+    <span class="fn">metadata</span>(path <span class="tp">string</span>) !<span class="tp">FileMetadata</span>
+    <span class="fn">size</span>(path <span class="tp">string</span>) !<span class="tp">i64</span>
+    <span class="fn">last_modified</span>(path <span class="tp">string</span>) !<span class="tp">i64</span>
+    <span class="fn">visibility</span>(path <span class="tp">string</span>) !<span class="tp">Visibility</span>
+    <span class="fn">list</span>(path <span class="tp">string</span>) ![]<span class="tp">string</span>
+    <span class="fn">copy</span>(from <span class="tp">string</span>, to <span class="tp">string</span>) !
+    <span class="fn">move</span>(from <span class="tp">string</span>, to <span class="tp">string</span>) !
+}
+
+<span class="cm">// 可见性控制</span>
+<span class="kw">pub enum</span> <span class="tp">Visibility</span> {
+    public_    <span class="cm">// 公开可访问（CDN 可读）</span>
+    private_   <span class="cm">// 私有（需签名 URL）</span>
+}</div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. S3 Adapter ═══ -->
+      <div class="doc-section" id="s3">
+        <div class="section-header"><div class="section-icon icon-storage">☁️</div><div><div class="section-title">S3 适配器</div><div class="section-subtitle">AWS / MinIO / 兼容存储</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 创建 S3 适配器</span>
+<span class="kw">mut</span> s3 := storage.<span class="fn">new_s3_adapter</span>(<span class="st">'my-bucket'</span>, <span class="st">'us-east-1'</span>)
+s3.<span class="fn">set_endpoint</span>(<span class="st">'https://s3.amazonaws.com'</span>)  <span class="cm">// 或 MinIO: http://localhost:9000</span>
+s3.<span class="fn">set_credentials</span>(access_key, secret_key)
+
+manager.<span class="fn">register</span>(<span class="st">'s3'</span>, s3)
+
+<span class="cm">// 上传文件到 S3</span>
+manager.<span class="fn">get</span>(<span class="st">'s3'</span>).<span class="fn">write</span>(<span class="st">'uploads/report.pdf'</span>, pdf_bytes, .private)!
+
+<span class="cm">// 生成签名 URL（临时访问私有文件）</span>
+url := s3.<span class="fn">signed_url</span>(<span class="st">'uploads/report.pdf'</span>, ttl_minutes: <span class="nm">15</span>)!</div>
+        </div>
+      </div>
+
+      <div class="production-box">
+        <div class="production-title">🚀 生产实践</div>
+        <ul>
+          <li>开发环境使用 Local 适配器，生产环境使用 S3</li>
+          <li>上传文件使用 <code>.private</code> 可见性，通过签名 URL 按需授权</li>
+          <li>使用 <code>copy()</code> 而非 <code>read() + write()</code> 在同存储间复制文件</li>
+          <li>大文件使用分片上传（S3 multipart upload）</li>
+          <li>文件路径使用 UUID 或哈希，避免路径冲突和信息泄露</li>
+        </ul>
+      </div>
+
+      <div class="page-nav">
+        <a href="#mailer">← Mailer 邮件</a>
+        <a href="#cli" class="nav-next">CLI 命令行 →</a>
+      </div>

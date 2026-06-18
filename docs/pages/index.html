@@ -1,0 +1,244 @@
+<!-- title: Photon Framework — V 语言企业级框架 -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>概览 -->
+<!-- Hero -->
+      <div class="hero">
+        <h1>Photon Framework</h1>
+        <p>面向商业化应用的 V 语言企业级框架，对标 Spring Boot。编译期依赖注入、注解驱动、零运行时反射，极致性能与极低心智成本的完美平衡。</p>
+        <div class="hero-tags">
+          <span class="hero-tag">🚀 编译期 DI</span>
+          <span class="hero-tag">⚡ 零反射开销</span>
+          <span class="hero-tag">📦 注解驱动</span>
+          <span class="hero-tag">🔒 类型安全</span>
+          <span class="hero-tag">🌐 中间件生态</span>
+        </div>
+      </div>
+
+      <!-- Quick Start -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header">
+          <div class="section-icon icon-core">⚡</div>
+          <div><div class="section-title">快速上手</div><div class="section-subtitle">5 分钟构建你的第一个 Photon 应用</div></div>
+        </div>
+
+        <h3>1. 安装</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">bash</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm"># 安装 V 语言（需要 0.4.x+）</span>
+<span class="kw">git</span> clone https://github.com/vlang/v
+<span class="kw">cd</span> v && make
+
+<span class="cm"># 安装 Photon 框架</span>
+<span class="kw">v</span> install photon
+
+<span class="cm"># 或从源码安装</span>
+<span class="kw">git</span> clone https://github.com/your-org/photon.git
+<span class="kw">cd</span> photon && <span class="kw">v</span> self .
+        </div>
+        </div>
+
+        <h3>2. 最小应用</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">module</span> main
+
+<span class="kw">import</span> photon.core
+<span class="kw">import</span> photon.web
+
+<span class="cm">// 定义一个 Service</span>
+<span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">HelloService</span> {
+    <span class="at">@[autowired]</span>
+    config &<span class="tp">ConfigService</span>
+}
+
+<span class="kw">pub fn</span> (<span class="at">s</span> &<span class="tp">HelloService</span>) <span class="fn">greet</span>(name <span class="tp">string</span>) <span class="tp">string</span> {
+    <span class="kw">return</span> <span class="st">'Hello, ${name}! Config: ${s.config.get("app.name")}'</span>
+}
+
+<span class="cm">// 定义一个 Controller</span>
+<span class="at">@[controller]</span>
+<span class="kw">pub struct</span> <span class="tp">AppController</span> {
+    web.<span class="tp">BaseController</span>
+    veb.<span class="tp">Context</span>
+    <span class="at">@[autowired]</span>
+    hello_service &<span class="tp">HelloService</span>
+}
+
+<span class="at">@[get('/hello/:name')]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">app</span> <span class="tp">AppController</span>) <span class="fn">hello</span>(name <span class="tp">string</span>) veb.<span class="tp">Result</span> {
+    <span class="kw">return</span> app.ok(<span class="st">'{"message":"${app.hello_service.greet(name)}"}'</span>)
+}
+
+<span class="cm">// 启动应用</span>
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">mut</span> app := core.<span class="fn">new_application_context</span>()
+    app.<span class="fn">set_profiles</span>([<span class="st">'dev'</span>])
+    app.<span class="fn">register</span>(core.<span class="tp">BeanDefinition</span>{
+        type_name: <span class="st">'HelloService'</span>
+        scope: .singleton
+    })
+    app.<span class="fn">refresh</span>()!
+
+    <span class="cm">// 启动 Web 服务器</span>
+    <span class="kw">mut</span> server := web.<span class="fn">new_server</span>(app)
+    server.<span class="fn">run</span>(<span class="nm">8080</span>)
+}</div>
+        </div>
+
+        <h3>3. 运行</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">bash</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">v</span> run main.v
+<span class="cm"># 🚀 Photon server started on http://localhost:8080</span>
+<span class="kw">curl</span> http://localhost:8080/hello/World
+<span class="cm"># {"message":"Hello, World! Config: MyApp"}</span></div>
+        </div>
+      </div>
+
+      <!-- Architecture -->
+      <div class="doc-section" id="architecture">
+        <div class="section-header">
+          <div class="section-icon icon-core">🏗️</div>
+          <div><div class="section-title">架构概览</div><div class="section-subtitle">模块分层 · 接口解耦 · 可选依赖</div></div>
+        </div>
+
+        <div class="comparison-grid">
+          <div class="comparison-header ch-photon">模块</div>
+          <div class="comparison-header ch-spring">Spring Boot 等价</div>
+          <div class="comparison-header ch-laravel">Laravel 等价</div>
+
+          <div class="comparison-cell"><code>core</code> — IoC 容器 / DI / 生命周期</div>
+          <div class="comparison-cell"><code>spring-context</code> / <code>ApplicationContext</code></div>
+          <div class="comparison-cell"><code>Illuminate\Container</code></div>
+
+          <div class="comparison-cell"><code>config</code> — 多源配置 / Profile</div>
+          <div class="comparison-cell"><code>spring-config</code> / <code>Environment</code></div>
+          <div class="comparison-cell"><code>config/*.php</code> / env()</div>
+
+          <div class="comparison-cell"><code>web</code> — 注解路由 / 中间件</div>
+          <div class="comparison-cell"><code>spring-web</code> / <code>@Controller</code></div>
+          <div class="comparison-cell"><code>Routes/*</code> / Middleware</div>
+
+          <div class="comparison-cell"><code>orm</code> — Repository / 生命周期钩子</div>
+          <div class="comparison-cell"><code>spring-data-jpa</code> / Repository</div>
+          <div class="comparison-cell"><code>Eloquent ORM</code></div>
+
+          <div class="comparison-cell"><code>cache</code> — 多后端缓存抽象</div>
+          <div class="comparison-cell"><code>spring-cache</code> / <code>@Cacheable</code></div>
+          <div class="comparison-cell"><code>Illuminate\Cache</code></div>
+
+          <div class="comparison-cell"><code>lock</code> — 分布式锁</div>
+          <div class="comparison-cell"><code>ShedLock</code> / Redisson</div>
+          <div class="comparison-cell">—</div>
+
+          <div class="comparison-cell"><code>security</code> — 认证 / JWT / RBAC</div>
+          <div class="comparison-cell"><code>spring-security</code></div>
+          <div class="comparison-cell"><code>Sanctum</code> / <code>Passport</code></div>
+        </div>
+      </div>
+
+      <!-- Module Index -->
+      <div class="doc-section" id="modules">
+        <div class="section-header">
+          <div class="section-icon icon-core">📦</div>
+          <div><div class="section-title">模块索引</div><div class="section-subtitle">按需引入 · 各司其职</div></div>
+        </div>
+
+        <h3>核心模块</h3>
+        <div class="card-grid">
+          <a href="#core" class="module-card">
+            <h3>⚡ Core · 核心容器 <span class="module-badge badge-ga">GA</span></h3>
+            <p>IoC 容器、依赖注入、Bean 生命周期、事件总线、条件装配、FactoryBean、SmartLifecycle — 框架的基石。</p>
+            <div class="mc-tags"><span class="mc-tag">DI</span><span class="mc-tag">IoC</span><span class="mc-tag">Lifecycle</span><span class="mc-tag">EventBus</span></div>
+          </a>
+          <a href="#config" class="module-card">
+            <h3>⚙️ Config · 配置管理 <span class="module-badge badge-ga">GA</span></h3>
+            <p>多源配置加载、Profile 环境、属性绑定、<code>@[value('key')]</code> 注入 — 与 Spring Environment 等价。</p>
+            <div class="mc-tags"><span class="mc-tag">Profile</span><span class="mc-tag">Property</span><span class="mc-tag">Binding</span></div>
+          </a>
+          <a href="#web" class="module-card">
+            <h3>🌐 Web · Web 框架 <span class="module-badge badge-ga">GA</span></h3>
+            <p>注解路由、中间件链、CORS、统一响应封装、BaseController — Spring MVC 的 V 语言实现。</p>
+            <div class="mc-tags"><span class="mc-tag">Router</span><span class="mc-tag">Middleware</span><span class="mc-tag">CORS</span></div>
+          </a>
+          <a href="#orm" class="module-card">
+            <h3>🗄️ ORM · 对象映射 <span class="module-badge badge-beta">Beta</span></h3>
+            <p>Repository 模式、生命周期钩子、Auto-touch、派生查询、多库路由 — Spring Data JPA 风格。</p>
+            <div class="mc-tags"><span class="mc-tag">Repository</span><span class="mc-tag">Hooks</span><span class="mc-tag">Touch</span></div>
+          </a>
+        </div>
+
+        <h3>中间件</h3>
+        <div class="card-grid">
+          <a href="#cache" class="module-card">
+            <h3>💨 Cache · 缓存 <span class="module-badge badge-ga">GA</span></h3>
+            <p>内存/Redis 多后端抽象、TTL、Singleflight、CacheManager — Spring Cache 等价。</p>
+            <div class="mc-tags"><span class="mc-tag">TTL</span><span class="mc-tag">LRU</span><span class="mc-tag">Singleflight</span></div>
+          </a>
+          <a href="#lock" class="module-card">
+            <h3>🔒 Lock · 分布式锁 <span class="module-badge badge-ga">GA</span></h3>
+            <p>本地互斥锁 + 分布式锁接口、指数退避、自动续期 — Redisson 的轻量替代。</p>
+            <div class="mc-tags"><span class="mc-tag">Mutex</span><span class="mc-tag">Distributed</span><span class="mc-tag">Renew</span></div>
+          </a>
+          <a href="#pool" class="module-card">
+            <h3>🏊 Pool · 连接池 <span class="module-badge badge-ga">GA</span></h3>
+            <p>通用对象池、min/max 容量、健康检查、空闲超时 — HikariCP 风格的连接管理。</p>
+            <div class="mc-tags"><span class="mc-tag">Min/Max</span><span class="mc-tag">Health</span><span class="mc-tag">Idle</span></div>
+          </a>
+          <a href="#logger" class="module-card">
+            <h3>📋 Logger · 日志 <span class="module-badge badge-ga">GA</span></h3>
+            <p>Zap 风格结构化日志、JSON/Console 编码器、MDC 上下文、分级过滤 — 零分配热路径。</p>
+            <div class="mc-tags"><span class="mc-tag">Structured</span><span class="mc-tag">MDC</span><span class="mc-tag">JSON</span></div>
+          </a>
+          <a href="#queue" class="module-card">
+            <h3>📨 Queue · 消息队列 <span class="module-badge badge-beta">Beta</span></h3>
+            <p>Job 调度、延迟/链式/批量分发、重试退避、后台 Worker — Laravel Queue 风格。</p>
+            <div class="mc-tags"><span class="mc-tag">Job</span><span class="mc-tag">Retry</span><span class="mc-tag">Worker</span></div>
+          </a>
+          <a href="#security" class="module-card">
+            <h3>🛡️ Security · 安全 <span class="module-badge badge-ga">GA</span></h3>
+            <p>JWT 令牌、RBAC 权限、CSRF 防护、SecurityFilterChain — Spring Security 的 V 版本。</p>
+            <div class="mc-tags"><span class="mc-tag">JWT</span><span class="mc-tag">RBAC</span><span class="mc-tag">CSRF</span></div>
+          </a>
+        </div>
+
+        <h3>扩展</h3>
+        <div class="card-grid">
+          <a href="#mailer" class="module-card">
+            <h3>📧 Mailer · 邮件 <span class="module-badge badge-beta">Beta</span></h3>
+            <p>SMTP/Log 传输、模板渲染、批量发送、附件 — Spring MailSender 风格。</p>
+            <div class="mc-tags"><span class="mc-tag">SMTP</span><span class="mc-tag">Template</span><span class="mc-tag">Attachment</span></div>
+          </a>
+          <a href="#storage" class="module-card">
+            <h3>💾 Storage · 存储 <span class="module-badge badge-beta">Beta</span></h3>
+            <p>Flysystem 风格文件抽象、本地/S3 适配器、可见性控制 — Laravel Filesystem 等价。</p>
+            <div class="mc-tags"><span class="mc-tag">Local</span><span class="mc-tag">S3</span><span class="mc-tag">Flysystem</span></div>
+          </a>
+          <a href="#cli" class="module-card">
+            <h3>⌨️ CLI · 命令行 <span class="module-badge badge-alpha">Alpha</span></h3>
+            <p>Symfony Console 风格、命令注册、ANSI 样式、进度条、代码生成器 — Laravel Artisan 风格。</p>
+            <div class="mc-tags"><span class="mc-tag">Command</span><span class="mc-tag">Generator</span><span class="mc-tag">ANSI</span></div>
+          </a>
+        </div>
+      </div>
+
+      <!-- Design Principles -->
+      <div class="doc-section" id="principles">
+        <div class="section-header">
+          <div class="section-icon icon-constitution">📜</div>
+          <div><div class="section-title">设计原则</div><div class="section-subtitle">编译期优于运行期 · 显式优于隐式 · 约定优于配置</div></div>
+        </div>
+        <div class="card-grid">
+          <div class="card"><h4>⚙️ 编译期 DI</h4><p>所有 <code>@[autowired]</code> 依赖在编译期通过 <code>comptime $for</code> 扫描解析，零运行时反射开销。启动即巅峰性能。</p></div>
+          <div class="card"><h4>🔒 类型安全</h4><p>V 语言的强类型系统 + 编译期检查 = 循环依赖检测、类型不匹配在编译期报错，而非运行时崩溃。</p></div>
+          <div class="card"><h4>📦 注解驱动</h4><p><code>@[component]</code>、<code>@[get('/path')]</code>、<code>@[cacheable]</code> — 声明式编程，极低心智成本。</p></div>
+          <div class="card"><h4>🔌 可插拔架构</h4><p>模块间通过 trait 解耦，按需引入。不用 Cache？不 import 即可，零开销。</p></div>
+          <div class="card"><h4>🔄 向后兼容</h4><p>公开 API 变更必须经过弃用周期，遵循语义化版本控制（SemVer）。</p></div>
+          <div class="card"><h4>🏭 生产就绪</h4><p>SQL 注入防护、XSS 转义、CSRF Token、敏感信息脱敏 — 安全不是可选项。</p></div>
+        </div>
+      </div>
+
+      <!-- Navigation -->
+      <div class="page-nav">
+        <a href="#core" class="nav-next">Core 核心容器 →</a>
+      </div>

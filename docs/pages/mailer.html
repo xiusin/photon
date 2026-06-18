@@ -1,0 +1,126 @@
+<!-- title: Mailer · 邮件 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Mailer · 邮件 -->
+<div class="hero">
+        <h1>Mailer · 邮件</h1>
+        <p>SMTP/Log 双传输、模板渲染、批量发送、附件支持、Fluent Builder — Spring MailSender 的 V 语言实现。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 Beta</span><span class="hero-tag">import photon.mailer</span><span class="hero-tag">对标 Spring Mail</span></div>
+      </div>
+
+      <!-- ═══ 1. Quick Start ═══ -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header"><div class="section-icon icon-mailer">📧</div><div><div class="section-title">快速上手</div><div class="section-subtitle">SMTP 配置 · 发送邮件</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.mailer
+
+<span class="cm">// 1. 配置 SMTP</span>
+smtp_config := mailer.<span class="tp">SmtpConfig</span>{
+    host:        <span class="st">'smtp.example.com'</span>
+    port:        <span class="nm">587</span>
+    username:    <span class="st">'noreply@example.com'</span>
+    password:    <span class="st">'app-password'</span>
+    encryption:  .starttls
+}
+
+<span class="cm">// 2. 创建 Mailer</span>
+<span class="kw">mut</span> m := mailer.<span class="fn">new_mailer</span>(smtp_config)
+
+<span class="cm">// 3. 使用 Fluent Builder 构建邮件</span>
+email := mailer.<span class="fn">new_email</span>()
+    .<span class="fn">from</span>(<span class="st">'noreply@example.com'</span>, <span class="st">'MyApp'</span>)
+    .<span class="fn">to</span>(<span class="st">'alice@example.com'</span>, <span class="st">'Alice'</span>)
+    .<span class="fn">cc</span>(<span class="st">'bob@example.com'</span>)
+    .<span class="fn">subject</span>(<span class="st">'Welcome to MyApp!'</span>)
+    .<span class="fn">html_body</span>(<span class="st">'&lt;h1&gt;Welcome, Alice!&lt;/h1&gt;&lt;p&gt;Your account is ready.&lt;/p&gt;'</span>)
+    .<span class="fn">text_body</span>(<span class="st">'Welcome, Alice! Your account is ready.'</span>)
+    .<span class="fn">reply_to</span>(<span class="st">'support@example.com'</span>)
+
+<span class="cm">// 4. 发送</span>
+m.<span class="fn">send</span>(email)!
+
+<span class="cm">// Spring 等价：JavaMailSender / MimeMessage</span>
+<span class="cm">// Laravel 等价：Mail::to('alice@example.com')->send(new WelcomeMail())</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. Attachments ═══ -->
+      <div class="doc-section" id="attachments">
+        <div class="section-header"><div class="section-icon icon-mailer">📎</div><div><div class="section-title">附件</div><div class="section-subtitle">添加文件附件</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 添加附件</span>
+file_content := os.<span class="fn">read_file</span>(<span class="st">'invoice.pdf'</span>)!
+attachment := mailer.<span class="fn">new_attachment</span>(
+    <span class="st">'invoice.pdf'</span>,
+    file_content.<span class="fn">bytes</span>(),
+    <span class="st">'application/pdf'</span>
+)
+
+email := mailer.<span class="fn">new_email</span>()
+    .<span class="fn">to</span>(<span class="st">'customer@example.com'</span>)
+    .<span class="fn">subject</span>(<span class="st">'Your Invoice'</span>)
+    .<span class="fn">html_body</span>(<span class="st">'Please find your invoice attached.'</span>)
+    .<span class="fn">attach</span>(attachment)
+
+m.<span class="fn">send</span>(email)!</div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. Template ═══ -->
+      <div class="doc-section" id="template">
+        <div class="section-header"><div class="section-icon icon-mailer">📝</div><div><div class="section-title">模板渲染</div><div class="section-subtitle">变量替换 · 复用模板</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 模板文件：templates/welcome.html</span>
+<span class="cm">// &lt;h1&gt;Welcome, {{name}}!&lt;/h1&gt;</span>
+<span class="cm">// &lt;p&gt;Your account at {{app_name}} is ready.&lt;/p&gt;</span>
+
+<span class="kw">mut</span> renderer := mailer.<span class="fn">new_template_renderer</span>(<span class="st">'templates'</span>)
+
+html := renderer.<span class="fn">render</span>(<span class="st">'welcome.html'</span>, {
+    <span class="st">'name'</span>:     <span class="st">'Alice'</span>
+    <span class="st">'app_name'</span>: <span class="st">'MyApp'</span>
+})!
+
+email := mailer.<span class="fn">new_email</span>()
+    .<span class="fn">to</span>(<span class="st">'alice@example.com'</span>)
+    .<span class="fn">subject</span>(<span class="st">'Welcome!'</span>)
+    .<span class="fn">html_body</span>(html)
+
+<span class="cm">// Laravel 等价：Mail::send('emails.welcome', $data)</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 4. Log Transport ═══ -->
+      <div class="doc-section" id="log-transport">
+        <div class="section-header"><div class="section-icon icon-mailer">📋</div><div><div class="section-title">Log 传输</div><div class="section-subtitle">开发环境 · 不实际发送</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 开发环境使用 Log Transport（邮件写入日志，不实际发送）</span>
+<span class="kw">mut</span> m := mailer.<span class="fn">new_log_mailer</span>()
+
+m.<span class="fn">send</span>(email)!  <span class="cm">// 输出到日志：[MAIL] To: alice@example.com, Subject: Welcome!</span>
+
+<span class="cm">// Laravel 等价：MAIL_MAILER=log</span></div>
+        </div>
+      </div>
+
+      <div class="production-box">
+        <div class="production-title">🚀 生产实践</div>
+        <ul>
+          <li>使用 SMTP 的 STARTTLS 或 TLS 加密，避免明文传输</li>
+          <li>邮件发送失败使用 Queue 模块异步重试</li>
+          <li>批量发送使用 <code>mailer.send_batch()</code>，避免逐封发送</li>
+          <li>开发环境使用 Log Transport，避免误发真实邮件</li>
+          <li>HTML 邮件同时提供 text_body，兼容不支持 HTML 的客户端</li>
+        </ul>
+      </div>
+
+      <div class="page-nav">
+        <a href="#security">← Security 安全</a>
+        <a href="#storage" class="nav-next">Storage 存储 →</a>
+      </div>

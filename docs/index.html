@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN" x-data="photonApp()" :data-theme="theme" x-init="init()">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Photon Framework — V 语言企业级框架</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="app.js"></script>
+</head>
+<body>
+<div class="layout-wrapper">
+
+  <!-- ═══ Sidebar ═══ -->
+  <aside class="sidebar" :class="{ 'open': sidebarOpen }">
+    <div class="sidebar-brand">
+      <span class="icon">⚛️</span> Photon<span class="ver">v0.1</span>
+    </div>
+    <template x-for="section in navSections" :key="section.title">
+      <div class="sidebar-section">
+        <div class="sidebar-section-title" x-text="section.title"></div>
+        <template x-for="item in section.items" :key="item.page">
+          <a href="#" @click.prevent="navigateTo(item.page)"
+             :class="{ active: isActive(item.page) }">
+            <span class="nav-icon" x-text="item.icon"></span>
+            <span x-text="item.label"></span>
+            <span x-show="item.badge" class="nav-badge" :class="badgeClass(item.badge)" x-text="item.badge"></span>
+          </a>
+        </template>
+      </div>
+    </template>
+  </aside>
+  <div class="sidebar-overlay" :class="{ show: sidebarOpen }" @click="sidebarOpen = false"></div>
+  <button class="sidebar-toggle" @click="sidebarOpen = !sidebarOpen">☰</button>
+
+  <!-- ═══ Main Content ═══ -->
+  <div class="main-content">
+    <!-- Top Bar -->
+    <div class="top-bar">
+      <div class="breadcrumb" x-html="pageBreadcrumb"></div>
+      <div class="spacer"></div>
+      <button class="theme-btn" @click="toggleTheme()" x-text="themeIcon"></button>
+    </div>
+
+    <!-- Loading indicator -->
+    <div x-show="loading && !pageContent" x-transition class="page-body" style="text-align:center;padding-top:120px;">
+      <div style="font-size:2rem;opacity:0.5;">⏳</div>
+      <p style="color:var(--text-muted);margin-top:8px;">加载中…</p>
+    </div>
+
+    <!-- Page content area — SPA injects here with smooth transitions -->
+    <div x-show="pageContent"
+         class="page-body"
+         :class="{
+           'page-leave': pageTransition === 'leave',
+           'page-enter': pageTransition === 'enter'
+         }"
+         @animationend="if ($event.target === $el) { pageTransition === 'leave' ? _onLeaveEnd() : _onEnterEnd() }"
+         x-html="pageContent"></div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -6,6 +6,8 @@ module web
 // kernel.request → kernel.controller → kernel.response →
 // kernel.exception → kernel.terminate.
 
+import sync
+
 // KernelEventType defines standard kernel events
 pub enum KernelEventType {
 	request
@@ -26,13 +28,15 @@ fn kernel_event_name(evt KernelEventType) string {
 	}
 }
 
-// KernelListener is called when a kernel event fires
 pub type KernelListener = fn (event_name string, data voidptr)
 
-// HttpKernel manages the HTTP request lifecycle with event hooks
+// HttpKernel manages the HTTP request lifecycle with event hooks.
+// Thread-safe via sync.RwMutex.
 pub struct HttpKernel {
 pub mut:
 	listeners map[string][]KernelListener
+mut:
+	mu sync.RwMutex
 }
 
 // new_http_kernel creates a new HttpKernel
@@ -44,14 +48,18 @@ pub fn new_http_kernel() &HttpKernel {
 
 // on registers a listener for a kernel event
 pub fn (mut k HttpKernel) on(event_type KernelEventType, listener KernelListener) {
+	k.mu.@lock()
+	defer { k.mu.unlock() }
 	name := kernel_event_name(event_type)
 	k.listeners[name] << listener
 }
 
 // dispatch fires all listeners for an event
 fn (mut k HttpKernel) dispatch(event_type KernelEventType, data voidptr) {
+	k.mu.rlock()
 	name := kernel_event_name(event_type)
-	listeners := k.listeners[name] or { return }
+	listeners := k.listeners[name].clone()
+	k.mu.runlock()
 	for listener in listeners {
 		listener(name, data)
 	}

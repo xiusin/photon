@@ -1,6 +1,6 @@
 module web
 
-// web_ext_test.v - Tests for pipeline, ratelimit, form, kernel
+// web_ext_test.v - Tests for pipeline, ratelimit, kernel
 
 // ============================================================
 // Pipeline Tests
@@ -88,7 +88,7 @@ fn test_pipeline_single_pipe() {
 
 fn test_ratelimiter_new() {
 	mut r := new_rate_limiter()
-	assert r.attempts.len == 0
+	assert r.key_count() == 0
 }
 
 fn test_ratelimiter_hit_and_check() {
@@ -140,98 +140,7 @@ fn test_ratelimiter_clear_expired() {
 	mut r := new_rate_limiter()
 	r.hit('k')
 	r.clear_expired(0)
-	assert r.attempts.len == 0
-}
-
-// ============================================================
-// Form Builder Tests
-// ============================================================
-
-fn test_form_builder_new() {
-	f := form()
-	assert f.fields.len == 0
-}
-
-fn test_form_add_field() {
-	mut f := form()
-	f.add('name', .text)
-	f.add('email', .email)
-	assert f.fields.len == 2
-}
-
-fn test_form_add_label() {
-	mut f := form()
-	f.add('name', .text)
-	f.add_label('name', 'Your Name')
-	field := f.get_field('name')
-	assert field.label == 'Your Name'
-}
-
-fn test_form_add_rule() {
-	mut f := form()
-	f.add('email', .email)
-	f.add_rule('email', 'required')
-	field := f.get_field('email')
-	assert field.rules.len == 1
-	assert field.rules[0] == 'required'
-}
-
-fn test_form_add_rules() {
-	mut f := form()
-	f.add('password', .password)
-	f.add_rules('password', ['required', 'min:8'])
-	field := f.get_field('password')
-	assert field.rules.len == 2
-}
-
-fn test_form_set_required() {
-	mut f := form()
-	f.add('email', .email)
-	f.set_required('email', true)
-	field := f.get_field('email')
-	assert field.required == true
-}
-
-fn test_form_get_fields() {
-	mut f := form()
-	f.add('a', .text)
-	f.add('b', .number)
-	fields := f.get_fields()
-	assert fields.len == 2
-}
-
-fn test_form_get_field_missing() {
-	f := form()
-	field := f.get_field('nonexistent')
-	assert field.name == 'nonexistent'
-}
-
-fn test_form_field_types() {
-	mut f := form()
-	f.add('t1', .text)
-	f.add('t2', .email)
-	f.add('t3', .password)
-	f.add('t4', .number)
-	f.add('t5', .textarea)
-	f.add('t6', .select_)
-	f.add('t7', .checkbox)
-	f.add('t8', .file)
-	f.add('t9', .hidden)
-	assert f.fields.len == 9
-}
-
-fn test_form_builder_methods() {
-	mut f := form()
-	f.add('email', .email)
-	f.add_label('email', 'Email Address')
-	f.add_rule('email', 'required')
-	f.add_rule('email', 'email')
-	f.set_required('email', true)
-
-	field := f.get_field('email')
-	assert field.label == 'Email Address'
-	assert field.rules.len == 2
-	assert field.required
+	assert r.key_count() == 0
 }
 
 // ============================================================

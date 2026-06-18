@@ -1,0 +1,165 @@
+<!-- title: Config · 配置管理 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Config · 配置管理 -->
+<div class="hero">
+        <h1>Config · 配置管理</h1>
+        <p>多源配置加载、Profile 环境隔离、属性绑定与类型安全访问 — Spring Environment + @Value 的 V 语言实现。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 GA</span><span class="hero-tag">import photon.config</span><span class="hero-tag">对标 Spring Environment</span></div>
+      </div>
+
+      <!-- ═══ 1. Quick Start ═══ -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header"><div class="section-icon icon-config">⚙️</div><div><div class="section-title">快速上手</div><div class="section-subtitle">3 步完成配置管理</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.config
+
+<span class="cm">// 1. 创建配置实例</span>
+<span class="kw">mut</span> cfg := config.<span class="fn">new</span>()
+
+<span class="cm">// 2. 添加配置源</span>
+cfg.<span class="fn">add_source</span>(config.<span class="fn">new_file_source</span>(<span class="st">'config/app.json'</span>))
+cfg.<span class="fn">add_source</span>(config.<span class="fn">new_env_source</span>())    <span class="cm">// 环境变量</span>
+cfg.<span class="fn">set_profile</span>([<span class="st">'dev'</span>])
+
+<span class="cm">// 3. 加载并使用</span>
+cfg.<span class="fn">load</span>()!
+
+db_host := cfg.<span class="fn">get_or</span>(<span class="st">'database.host'</span>, <span class="st">'localhost'</span>)
+db_port := cfg.<span class="fn">get_int_or</span>(<span class="st">'database.port'</span>, <span class="nm">5432</span>)
+debug   := cfg.<span class="fn">get_bool_or</span>(<span class="st">'app.debug'</span>, <span class="kw">true</span>)</div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. ConfigSource ═══ -->
+      <div class="doc-section" id="sources">
+        <div class="section-header"><div class="section-icon icon-config">📂</div><div><div class="section-title">配置源</div><div class="section-subtitle">多源加载 · 按优先级合并</div></div></div>
+
+        <p>ConfigSource 是配置数据的来源接口，可组合多个源，后加载的覆盖先加载的同名键。</p>
+
+        <table class="doc-table">
+          <thead><tr><th>配置源</th><th>说明</th><th>Spring 等价</th><th>Laravel 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>FileSource</code></td><td>JSON 配置文件</td><td><code>application.yml</code></td><td><code>config/*.php</code></td></tr>
+            <tr><td><code>EnvSource</code></td><td>环境变量</td><td><code>Environment variables</code></td><td><code>.env</code></td></tr>
+            <tr><td><code>MapSource</code></td><td>内存 Map（程序化配置）</td><td><code>MapPropertySource</code></td><td><code>Config::set()</code></td></tr>
+            <tr><td><code>FlagSource</code></td><td>命令行参数</td><td><code>CommandLinePropertySource</code></td><td><code>Artisan options</code></td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 自定义 ConfigSource</span>
+<span class="kw">struct</span> <span class="tp">VaultSource</span> {
+    address <span class="tp">string</span>
+    token   <span class="tp">string</span>
+}
+
+<span class="kw">pub fn</span> (vs &<span class="tp">VaultSource</span>) <span class="fn">load</span>() !map[string]<span class="tp">string</span> {
+    <span class="cm">// 从 Vault API 拉取配置...</span>
+    <span class="kw">return</span> {<span class="st">'db.password'</span>: <span class="st">'fetched-from-vault'</span>}
+}
+
+<span class="kw">pub fn</span> (vs &<span class="tp">VaultSource</span>) <span class="fn">name</span>() <span class="tp">string</span> { <span class="kw">return</span> <span class="st">'vault'</span> }
+
+<span class="cm">// 注册到配置</span>
+cfg.<span class="fn">add_source</span>(&<span class="tp">VaultSource</span>{address: <span class="st">'https://vault.example.com'</span>, token: <span class="st">'s.xxx'</span>})</div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. Profile ═══ -->
+      <div class="doc-section" id="profile">
+        <div class="section-header"><div class="section-icon icon-config">🏷️</div><div><div class="section-title">Profile 环境</div><div class="section-subtitle">dev / staging / prod 环境隔离</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">mut</span> cfg := config.<span class="fn">new</span>()
+
+<span class="cm">// 设置激活的 Profile</span>
+cfg.<span class="fn">set_profile</span>([<span class="st">'prod'</span>])
+cfg.<span class="fn">add_profile</span>(<span class="st">'us-east'</span>)  <span class="cm">// 可以叠加多个</span>
+
+<span class="cm">// 加载时自动合并 Profile 特定的配置文件：</span>
+<span class="cm">// config/app.json          → 基础配置</span>
+<span class="cm">// config/app-prod.json     → 生产环境覆盖</span>
+<span class="cm">// config/app-us-east.json  → 区域覆盖</span>
+cfg.<span class="fn">load</span>()!
+
+<span class="cm">// Spring 等价：spring.profiles.active=prod,us-east</span>
+<span class="cm">// Laravel 等价：.env 中 APP_ENV=production</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 4. Property Binding ═══ -->
+      <div class="doc-section" id="binding">
+        <div class="section-header"><div class="section-icon icon-config">🔗</div><div><div class="section-title">属性绑定</div><div class="section-subtitle">@[value] 注入 · 类型安全访问</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">DatabaseConfig</span> {
+    <span class="at">@[value('database.host')]</span>
+    host <span class="tp">string</span>
+
+    <span class="at">@[value('database.port')]</span>
+    port <span class="tp">int</span>
+
+    <span class="at">@[value('database.name')]</span>
+    name <span class="tp">string</span>
+
+    <span class="at">@[value('database.pool.max')]</span>
+    max_pool <span class="tp">int</span>
+
+    <span class="at">@[value('database.ssl.enabled')]</span>
+    ssl_enabled <span class="tp">bool</span>
+}
+
+<span class="cm">// 也可直接从 Config 读取</span>
+host := cfg.<span class="fn">get_or</span>(<span class="st">'database.host'</span>, <span class="st">'localhost'</span>)   <span class="cm">// string</span>
+port := cfg.<span class="fn">get_int_or</span>(<span class="st">'database.port'</span>, <span class="nm">5432</span>)      <span class="cm">// int</span>
+ssl  := cfg.<span class="fn">get_bool_or</span>(<span class="st">'database.ssl'</span>, <span class="kw">false</span>)      <span class="cm">// bool</span>
+rate := cfg.<span class="fn">get_f64_or</span>(<span class="st">'rate.limit'</span>, <span class="nm">1.5</span>)          <span class="cm">// f64</span>
+
+<span class="cm">// Spring 等价：@Value("${database.host}")</span>
+<span class="cm">// Laravel 等价：config('database.host', 'localhost')</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 5. API Reference ═══ -->
+      <div class="doc-section" id="api">
+        <div class="section-header"><div class="section-icon icon-config">📘</div><div><div class="section-title">API 参考</div><div class="section-subtitle">Config 完整方法列表</div></div></div>
+
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>返回值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>config.new()</code></td><td><code>&Config</code></td><td>创建配置实例</td></tr>
+            <tr><td><code>cfg.add_source(source)</code></td><td>—</td><td>添加配置源</td></tr>
+            <tr><td><code>cfg.set_profile(profiles)</code></td><td>—</td><td>设置激活 Profile</td></tr>
+            <tr><td><code>cfg.add_profile(profile)</code></td><td>—</td><td>添加 Profile</td></tr>
+            <tr><td><code>cfg.load()</code></td><td><code>!</code></td><td>加载所有配置源并合并</td></tr>
+            <tr><td><code>cfg.get(key)</code></td><td><code>string</code></td><td>获取配置值（不存在返回空串）</td></tr>
+            <tr><td><code>cfg.get_or(key, default)</code></td><td><code>string</code></td><td>获取配置值或默认值</td></tr>
+            <tr><td><code>cfg.get_int(key)</code></td><td><code>!int</code></td><td>获取 int 值</td></tr>
+            <tr><td><code>cfg.get_int_or(key, default)</code></td><td><code>int</code></td><td>获取 int 值或默认值</td></tr>
+            <tr><td><code>cfg.get_bool(key)</code></td><td><code>!bool</code></td><td>获取 bool 值</td></tr>
+            <tr><td><code>cfg.get_bool_or(key, default)</code></td><td><code>bool</code></td><td>获取 bool 值或默认值</td></tr>
+            <tr><td><code>cfg.get_f64(key)</code></td><td><code>!f64</code></td><td>获取 f64 值</td></tr>
+            <tr><td><code>cfg.get_f64_or(key, default)</code></td><td><code>f64</code></td><td>获取 f64 值或默认值</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="production-box">
+        <div class="production-title">🚀 生产实践</div>
+        <ul>
+          <li>敏感信息（密码、密钥）使用环境变量注入，不要写入配置文件</li>
+          <li>环境变量覆盖文件配置（<code>EnvSource</code> 优先级最高）</li>
+          <li>使用 <code>@[value('key')]</code> 绑定到 struct 字段，避免散落的魔术字符串</li>
+          <li>Profile 特定配置只覆盖差异项，减少重复配置</li>
+        </ul>
+      </div>
+
+      <div class="page-nav">
+        <a href="#core">← Core 核心容器</a>
+        <a href="#web" class="nav-next">Web 框架 →</a>
+      </div>

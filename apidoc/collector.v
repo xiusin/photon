@@ -292,53 +292,44 @@ fn infer_type(val string) string {
 }
 
 // parse_json_response extracts property schema from a JSON response body
+// Clears existing properties first to avoid duplication across multiple requests.
 fn parse_json_response(mut entry &ApiDocEntry, body string) {
 	root := json2.decode[json2.Any](body, json2.DecoderOptions{}) or { return }
+	// Clear existing properties to prevent duplication on subsequent requests
+	entry.response.properties.clear()
 	extract_json2_props(mut entry.response, '', root, 0)
 }
 
 // extract_json2_props recursively extracts properties from json2.Any
+// Only adds leaf nodes (primitives) to properties — objects/arrays are recursed into without adding the container path.
 fn extract_json2_props(mut resp ApiDocResponse, prefix string, node json2.Any, depth int) {
 	if depth > 3 { return }
 	if node is map[string]json2.Any {
 		obj := node as map[string]json2.Any
 		for key, val in obj {
 			path := if prefix.len > 0 { '${prefix}.${key}' } else { key }
-			mut type_str := 'string'
-			mut should_recurse := false
 
 			if val is json2.Null {
-				type_str = 'null'
+				resp.properties << ApiDocResponseProp{ path: path, type_: 'null' }
 			} else if val is bool {
-				type_str = 'bool'
-			} else if val is int {
-				type_str = 'int'
-			} else if val is i64 {
-				type_str = 'int'
+				resp.properties << ApiDocResponseProp{ path: path, type_: 'bool' }
+			} else if val is int || val is i64 {
+				resp.properties << ApiDocResponseProp{ path: path, type_: 'int' }
 			} else if val is f64 {
-				type_str = 'float'
+				resp.properties << ApiDocResponseProp{ path: path, type_: 'float' }
 			} else if val is string {
-				type_str = 'string'
+				resp.properties << ApiDocResponseProp{ path: path, type_: 'string' }
 			} else if val is []json2.Any {
-				type_str = 'array'
 				arr := val as []json2.Any
 				if arr.len > 0 && arr[0] is map[string]json2.Any {
-					should_recurse = true
 					sub := arr[0] as map[string]json2.Any
 					extract_json2_props(mut resp, '${path}[]', sub, depth + 1)
+				} else {
+					resp.properties << ApiDocResponseProp{ path: path, type_: 'array' }
 				}
 			} else if val is map[string]json2.Any {
-				type_str = 'object'
-				should_recurse = true
 				sub := val as map[string]json2.Any
 				extract_json2_props(mut resp, path, sub, depth + 1)
-			}
-
-			if !should_recurse {
-				resp.properties << ApiDocResponseProp{
-					path: path
-					type_: type_str
-				}
 			}
 		}
 	}

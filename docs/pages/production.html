@@ -1,0 +1,218 @@
+<!-- title: 生产实践 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>生产实践 -->
+<div class="hero">
+        <h1>生产环境最佳实践</h1>
+        <p>安全加固、性能优化、监控告警、优雅部署 — 从开发到生产的完整 Checklist。</p>
+        <div class="hero-tags"><span class="hero-tag">🔒 安全</span><span class="hero-tag">⚡ 性能</span><span class="hero-tag">📊 监控</span><span class="hero-tag">🚀 部署</span></div>
+      </div>
+
+      <!-- ═══ Security ═══ -->
+      <div class="doc-section" id="security">
+        <div class="section-header"><div class="section-icon icon-security">🔒</div><div><div class="section-title">安全加固</div><div class="section-subtitle">安全不是可选项</div></div></div>
+
+        <div class="card-grid">
+          <div class="card">
+            <h4>🔑 JWT 安全</h4>
+            <ul class="feature-list">
+              <li>Secret 从环境变量注入，禁止硬编码</li>
+              <li>Access Token 有效期 ≤ 60 分钟</li>
+              <li>Refresh Token 7 天，支持吊销</li>
+              <li>使用 HTTPS 传输 Token</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>🛡️ CSRF / XSS</h4>
+            <ul class="feature-list">
+              <li>CSRF 保护在 Web 表单场景必须开启</li>
+              <li>API 场景使用 JWT 替代 CSRF</li>
+              <li>模板引擎默认转义 HTML</li>
+              <li>Content-Security-Policy Header</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>🗄️ SQL 注入防护</h4>
+            <ul class="feature-list">
+              <li>使用 V ORM 的参数化查询</li>
+              <li>禁止拼接 SQL 字符串</li>
+              <li>Repository 方法自动参数化</li>
+              <li>输入校验在 Controller 层完成</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>📋 日志脱敏</h4>
+            <ul class="feature-list">
+              <li>密码、Token 自动脱敏</li>
+              <li>信用卡号只显示后四位</li>
+              <li>PII 数据按合规要求处理</li>
+              <li>生产日志级别 ≥ info</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 安全配置示例</span>
+jwt_config := security.<span class="tp">JwtConfig</span>{
+    secret:     os.<span class="fn">get_env</span>(<span class="st">'JWT_SECRET'</span>)!     <span class="cm">// 环境变量</span>
+    issuer:     <span class="st">'my-app'</span>
+    expiration_minutes: <span class="nm">15</span>                  <span class="cm">// 短有效期</span>
+}
+
+csrf_config := security.<span class="tp">CsrfConfig</span>{
+    enabled:       <span class="kw">true</span>
+    cookie_secure: <span class="kw">true</span>                   <span class="cm">// HTTPS only</span>
+    cookie_same_site: <span class="st">'Strict'</span>
+}</div>
+        </div>
+      </div>
+
+      <!-- ═══ Performance ═══ -->
+      <div class="doc-section" id="performance">
+        <div class="section-header"><div class="section-icon icon-production">⚡</div><div><div class="section-title">性能优化</div><div class="section-subtitle">编译期优化 + 运行期调优</div></div></div>
+
+        <div class="card-grid">
+          <div class="card">
+            <h4>🏊 连接池</h4>
+            <ul class="feature-list">
+              <li><code>min_size</code> = 常态并发量</li>
+              <li><code>max_size</code> ≤ 数据库最大连接数</li>
+              <li>设置 <code>idle_timeout</code> 释放空闲连接</li>
+              <li>监控 <code>pool.stats()</code> 的 wait_count</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>💨 缓存策略</h4>
+            <ul class="feature-list">
+              <li>热点数据使用 Redis 缓存</li>
+              <li>Singleflight 防缓存击穿</li>
+              <li>缓存键使用 <code>namespace:key</code></li>
+              <li>设置合理 TTL，避免数据不一致</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>🔒 锁优化</h4>
+            <ul class="feature-list">
+              <li>单进程用 LocalMutex，跨节点用 DistributedLock</li>
+              <li>锁粒度越细越好</li>
+              <li>必须设置 TTL 防死锁</li>
+              <li>使用 <code>defer { lock.release() }</code></li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>📋 日志优化</h4>
+            <ul class="feature-list">
+              <li>生产使用 JSON 编码器</li>
+              <li>日志级别 ≥ info</li>
+              <li>热路径避免 debug 字符串拼接</li>
+              <li>使用 <code>is_enabled(.debug)</code> 前置检查</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ Monitoring ═══ -->
+      <div class="doc-section" id="monitoring">
+        <div class="section-header"><div class="section-icon icon-production">📊</div><div><div class="section-title">监控与告警</div><div class="section-subtitle">全链路可观测性</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 1. Request-ID 全链路追踪</span>
+chain.<span class="fn">use</span>(web.<span class="fn">request_id_middleware</span>())
+<span class="cm">// → 所有日志自动携带 request_id</span>
+
+<span class="cm">// 2. 请求日志</span>
+chain.<span class="fn">use</span>(web.<span class="fn">logging_middleware</span>())
+<span class="cm">// → {"method":"GET","path":"/api/users","status":200,"duration_ms":12}</span>
+
+<span class="cm">// 3. 连接池监控</span>
+stats := pool.<span class="fn">stats</span>()
+<span class="fn">println</span>(<span class="st">'Active: ${stats.active}, Idle: ${stats.idle}, Waits: ${stats.waits}'</span>)
+
+<span class="cm">// 4. 缓存命中率</span>
+hit_rate := cache_manager.<span class="fn">hit_rate</span>()
+<span class="fn">println</span>(<span class="st">'Cache hit rate: ${hit_rate}%'</span>)</div>
+        </div>
+
+        <h3>关键指标</h3>
+        <table class="doc-table">
+          <thead><tr><th>指标</th><th>来源</th><th>告警阈值</th></tr></thead>
+          <tbody>
+            <tr><td>请求延迟 P99</td><td>logging_middleware</td><td>> 500ms</td></tr>
+            <tr><td>错误率 (5xx)</td><td>logging_middleware</td><td>> 1%</td></tr>
+            <tr><td>连接池 wait_count</td><td>pool.stats()</td><td>持续增长</td></tr>
+            <tr><td>缓存命中率</td><td>cache_manager</td><td>< 80%</td></tr>
+            <tr><td>队列积压</td><td>queue stats</td><td>> 1000 pending</td></tr>
+            <tr><td>内存占用</td><td>进程监控</td><td>> 80% 物理内存</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ═══ Deployment ═══ -->
+      <div class="doc-section" id="deployment">
+        <div class="section-header"><div class="section-icon icon-production">🚀</div><div><div class="section-title">部署指南</div><div class="section-subtitle">编译 · 容器化 · 优雅关闭</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">bash</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm"># 1. 编译生产版本</span>
+v -prod -o myapp main.v
+
+<span class="cm"># 2. 直接运行</span>
+./myapp
+
+<span class="cm"># 3. Docker 部署</span>
+<span class="kw">FROM</span> alpine:3.18
+<span class="kw">COPY</span> myapp /app/myapp
+<span class="kw">EXPOSE</span> 8080
+<span class="kw">CMD</span> ["/app/myapp"]</div>
+        </div>
+
+        <h3>优雅关闭</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 注册 Shutdown Hook</span>
+app.<span class="fn">register_shutdown_hook</span>(fn () {
+    <span class="fn">println</span>(<span class="st">'Shutting down gracefully...'</span>)
+})
+
+<span class="cm">// 或使用 defer 确保 cleanup</span>
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">mut</span> app := core.<span class="fn">new_application_context</span>()
+    app.<span class="fn">refresh</span>()!
+    app.<span class="fn">start</span>()
+
+    <span class="kw">defer</span> {
+        app.<span class="fn">stop</span>()      <span class="cm">// 停止 SmartLifecycle Bean</span>
+        app.<span class="fn">shutdown</span>()   <span class="cm">// pre_destroy → 释放资源</span>
+    }
+
+    <span class="cm">// ...</span>
+}</div>
+        </div>
+
+        <h3>Systemd 服务</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">ini</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm"># /etc/systemd/system/myapp.service</span>
+[Unit]
+Description=MyApp (Photon)
+After=network.target
+
+[Service]
+Type=simple
+User=app
+WorkingDirectory=/opt/myapp
+ExecStart=/opt/myapp/myapp
+Restart=always
+RestartSec=5
+Environment=JWT_SECRET=xxx
+Environment=APP_ENV=production
+
+[Install]
+WantedBy=multi-user.target</div>
+        </div>
+      </div>
+
+      <div class="page-nav">
+        <a href="#comparison">← 框架对比</a>
+        <a href="#constitution" class="nav-next">文档宪法 →</a>
+      </div>

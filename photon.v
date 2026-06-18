@@ -3,6 +3,7 @@ module photon
 // photon.v - Photon Framework Main Module
 // A commercial-grade Spring-like application framework for V language
 import config
+import core
 import logger
 import cache
 import security
@@ -15,9 +16,25 @@ import locking
 import orm
 import web
 import storage
+import mailer
 
 // Re-export config types
 pub type Config = config.Config
+
+// Re-export core types (DI Container + Event System + Lifecycle)
+pub type Container = core.Container
+pub type BeanDefinition = core.BeanDefinition
+pub type Scope = core.Scope
+pub type Dependency = core.Dependency
+pub type EventBus = core.EventBus
+pub type Event = core.Event
+pub type LifecycleManager = core.LifecycleManager
+pub type ConditionContext = core.ConditionContext
+
+// Re-export core scanner types
+pub type ComponentType = core.ComponentType
+pub type ScannedBean = core.ScannedBean
+pub type ValueBinding = core.ValueBinding
 
 // Re-export logger types
 pub type Logger = logger.Logger
@@ -74,6 +91,15 @@ pub type Propagation = orm.Propagation
 pub type QueryParts = orm.QueryParts
 pub type Repository = orm.Repository
 
+// Re-export orm migration types
+pub type MigrationManager = orm.MigrationManager
+pub type Schema = orm.Schema
+pub type TableDef = orm.TableDef
+pub type ColumnDef = orm.ColumnDef
+pub type ColumnType = orm.ColumnType
+pub type IndexDef = orm.IndexDef
+pub type AppliedMigration = orm.AppliedMigration
+
 // Re-export orm adapter types (generic — use with type param)
 // pub type OrmAdapter = orm.OrmAdapter
 
@@ -106,6 +132,21 @@ pub type FileMetadata = storage.FileMetadata
 // Re-export web testing helpers
 pub type TestResponse = web.TestResponse
 
+// Re-export web validation types
+pub type ValidationError = web.ValidationError
+pub type ValidationErrors = web.ValidationErrors
+
+// Re-export web exception types
+pub type HttpException = web.HttpException
+pub type BadRequestException = web.BadRequestException
+pub type UnauthorizedException = web.UnauthorizedException
+pub type ForbiddenException = web.ForbiddenException
+pub type NotFoundException = web.NotFoundException
+pub type ConflictException = web.ConflictException
+pub type ValidationException = web.ValidationException
+pub type InternalServerErrorException = web.InternalServerErrorException
+pub type ExceptionHandlerRegistry = web.ExceptionHandlerRegistry
+
 // Re-export CLI interactive & make commands
 pub type AskResult = cli.AskResult
 pub type ScheduleCommand = cli.ScheduleCommand
@@ -113,3 +154,45 @@ pub type QueueWorkCommand = cli.QueueWorkCommand
 pub type MakeCommandCommand = cli.MakeCommandCommand
 pub type MakeControllerCommand = cli.MakeControllerCommand
 pub type MakeMiddlewareCommand = cli.MakeMiddlewareCommand
+
+// Re-export scheduler types (P1)
+pub type Scheduler = ticker.Scheduler
+pub type ScheduledTask = ticker.ScheduledTask
+pub type TaskScheduleType = ticker.TaskScheduleType
+
+// Re-export transaction annotation types (P1)
+pub type TransactionAttribute = orm.TransactionAttribute
+pub type TransactionContext = orm.TransactionContext
+pub type TransactionalInterceptor = orm.TransactionalInterceptor
+
+// Re-export cache annotation types (P1)
+pub type CacheableAttribute = cache.CacheableAttribute
+pub type CacheEvictAttribute = cache.CacheEvictAttribute
+pub type CachePutAttribute = cache.CachePutAttribute
+pub type CacheableInterceptor = cache.CacheableInterceptor
+
+// Re-export session types (P1)
+pub type Session = web.Session
+pub type SessionManager = web.SessionManager
+pub type MemorySessionStore = web.MemorySessionStore
+
+// Re-export upload types (P1)
+pub type UploadHandler = web.UploadHandler
+pub type UploadResult = web.UploadResult
+pub type NamingStrategy = web.NamingStrategy
+pub type PathStrategy = web.PathStrategy
+pub type UploadChunkManager = web.UploadChunkManager
+
+// Re-export mailer types (P1)
+pub type Mailer = mailer.Mailer
+pub type Mail = mailer.Email
+pub type SmtpConfig = mailer.SmtpConfig
+pub type Address = mailer.Address
+
+// Re-export cipher types (P1)
+pub type AesCipher = security.AesCipher
+pub type KeyDerivation = security.KeyDerivation
+
+// Re-export YAML/TOML config source types (P1)
+pub type YamlConfigSource = config.YamlConfigSource
+pub type TomlConfigSource = config.TomlConfigSource

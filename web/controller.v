@@ -74,12 +74,6 @@ pub fn (mut b BaseController) conflict(mut ctx veb.Context, msg string) veb.Resu
 	return ctx.text('{"error":"${msg}","code":409}')
 }
 
-// html returns an HTML response
-pub fn (mut b BaseController) html(mut ctx veb.Context, content string) veb.Result {
-	ctx.set_content_type('text/html')
-	return ctx.text(content)
-}
-
 // redirect sends a redirect response
 pub fn (mut b BaseController) redirect(mut ctx veb.Context, url string) veb.Result {
 	return ctx.redirect(url)

@@ -42,7 +42,7 @@ fn test_new_migration_manager() {
 	mm := new_migration_manager(om)
 	assert mm.migrations.len == 0
 	assert mm.migration_table == 'schema_migrations'
-	assert mm.db_name == ''
+	assert mm.db_name == 'default'
 }
 
 fn test_new_migration_manager_different_managers() {
@@ -262,9 +262,8 @@ fn test_migration_manager_without_in_memory_errors() {
 	mut mm := new_migration_manager(om)
 	mm.add(new_mock_migration(1, 'test'))
 
-	if _ := mm.migrate() {
-		assert false, 'expected error when not in memory mode'
-	} else {
-		assert true
-	}
+	// New behavior: migrate() no longer requires in-memory mode
+	// It works directly — the in_memory flag only affects database tracking
+	mm.migrate()!
+	assert mm.applied_count() == 1
 }

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Photon API 文档</title>
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@fluentui/web-components@2.6.0/dist/web-components.min.js"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@fluentui/web-components@2.6.1/dist/web-components.min.js"></script>
   <link rel="stylesheet" href="/__docs/static/app.css">
 </head>
 <body>
@@ -22,7 +22,7 @@
       </div>
 
       <div class="nav-rail-search">
-        <fluent-text-field id="searchInput" placeholder="搜索路由..." appearance="outline" size="small">
+        <fluent-text-field id="searchInput" placeholder="搜索路由..." appearance="outline">
           <svg slot="start" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
             <path d="M8.5 3a5.5 5.5 0 014.383 8.823l4.147 4.147a.75.75 0 01-1.06 1.06l-4.147-4.147A5.5 5.5 0 118.5 3zm0 1.5a4 4 0 100 8 4 4 0 000-8z"/>
           </svg>
@@ -68,8 +68,8 @@
         </div>
       </header>
 
-      <!-- Content Scroll Region -->
-      <div class="content-scroll" id="contentArea">
+      <!-- Content Area -->
+      <div class="content-area" id="contentArea">
         <!-- Empty State -->
         <div class="empty-state" id="emptyState">
           <div class="empty-state-illustration">
@@ -90,7 +90,7 @@
           </fluent-button>
         </div>
 
-        <!-- Detail View -->
+        <!-- Detail View with Tabs -->
         <div class="detail-view" id="detailView" style="display:none"></div>
       </div>
     </div>
@@ -99,17 +99,17 @@
   <!-- Toast Provider -->
   <div class="toast-provider" id="toastProvider"></div>
 
-  <!-- Delete Confirmation Dialog -->
-  <fluent-dialog id="deleteDialog" modal="true">
+  <!-- Delete Confirmation Dialog (hidden by default, shown via JS) -->
+  <dialog id="deleteDialog">
     <div class="dialog-content">
       <h3>确认删除</h3>
       <p>此操作不可恢复，确定要删除该端点文档吗？</p>
     </div>
     <div class="dialog-actions">
-      <fluent-button appearance="outline" id="deleteCancelBtn">取消</fluent-button>
-      <fluent-button appearance="accent" id="deleteConfirmBtn">删除</fluent-button>
+      <button class="dialog-btn-outline" id="deleteCancelBtn" type="button">取消</button>
+      <button class="dialog-btn-accent" id="deleteConfirmBtn" type="button">删除</button>
     </div>
-  </fluent-dialog>
+  </dialog>
 
   <script src="/__docs/static/app.js"></script>
 </body>

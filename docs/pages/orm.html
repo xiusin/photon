@@ -1,0 +1,180 @@
+<!-- title: ORM · 对象映射 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>ORM · 对象映射 -->
+<div class="hero">
+        <h1>ORM · 对象映射</h1>
+        <p>Repository 模式、生命周期钩子、Auto-touch、派生查询、多库路由 — Spring Data JPA 的 V 语言实现，封装 V 原生 ORM。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 Beta</span><span class="hero-tag">import photon.orm</span><span class="hero-tag">对标 Spring Data JPA</span></div>
+      </div>
+
+      <!-- ═══ Architecture ═══ -->
+      <div class="doc-section" id="architecture">
+        <div class="section-header"><div class="section-icon icon-orm">🏗️</div><div><div class="section-title">架构说明</div><div class="section-subtitle">两层协作 · 职责分离</div></div></div>
+
+        <p>Photon ORM <strong>不替换</strong> V 的原生 ORM，而是在其上包装生命周期与路由层：</p>
+
+        <div class="comparison-grid-2">
+          <div class="comparison-header ch-photon">V 原生 orm</div>
+          <div class="comparison-header ch-spring">Photon orm</div>
+          <div class="comparison-cell">编译期字段验证</div>
+          <div class="comparison-cell">生命周期钩子 (before/after insert, update, delete, find)</div>
+          <div class="comparison-cell">类型安全 QueryBuilder</div>
+          <div class="comparison-cell">多库连接路由 (OrmManager)</div>
+          <div class="comparison-cell">SQL 生成与执行</div>
+          <div class="comparison-cell">Auto-touch (created_at / updated_at)</div>
+          <div class="comparison-cell">Migration 支持</div>
+          <div class="comparison-cell">Repository 模式 (Spring Data-style)</div>
+          <div class="comparison-cell">关联加载</div>
+          <div class="comparison-cell">派生查询方法解析</div>
+        </div>
+
+        <div class="info-box info-tip">
+          💡 <strong>双 import 约定</strong>：由于 V 语言不允许同名模块互引，你需要同时 import 两个模块：<code>import orm</code>（V 原生）和 <code>import photon.orm</code>（Photon 增强）。
+        </div>
+      </div>
+
+      <!-- ═══ Entity ═══ -->
+      <div class="doc-section" id="entity">
+        <div class="section-header"><div class="section-icon icon-orm">📋</div><div><div class="section-title">实体定义</div><div class="section-subtitle">Touchable · Identifiable · 生命周期钩子</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.orm
+<span class="kw">import</span> time
+
+<span class="cm">// 定义实体 — 嵌入 Touchable 自动管理时间戳</span>
+<span class="kw">pub struct</span> <span class="tp">User</span> {
+    <span class="kw">pub mut</span>:
+    id        <span class="tp">int</span>     <span class="cm">[primary; sql: serial]</span>
+    name      <span class="tp">string</span>  <span class="cm">[sql_type: 'TEXT'];</span> <span class="tp">string</span>  <span class="cm">[sql_type: 'TEXT'; nonull]</span>
+    email     <span class="tp">string</span>  <span class="cm">[sql_type: 'TEXT'; unique]</span>
+    age       <span class="tp">int</span>
+    is_active <span class="tp">bool</span>    <span class="cm">[sql_default: '1']</span>
+    orm.<span class="tp">Touchable</span>                 <span class="cm">// 自动管理 created_at / updated_at</span>
+}
+
+<span class="cm">// 生命周期钩子</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">u</span> <span class="tp">User</span>) <span class="fn">before_insert</span>() ! {
+    <span class="cm">// 插入前的校验/转换</span>
+    <span class="kw">if</span> u.name.len == <span class="nm">0</span> {
+        <span class="kw">return</span> <span class="fn">error</span>(<span class="st">'name cannot be empty'</span>)
+    }
+    u.email = u.email.<span class="fn">to_lower</span>()
+}
+
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">u</span> <span class="tp">User</span>) <span class="fn">after_insert</span>() ! {
+    <span class="cm">// 插入后：发事件、清缓存等</span>
+    <span class="fn">println</span>(<span class="st">'User ${u.id} created'</span>)
+}
+
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">u</span> <span class="tp">User</span>) <span class="fn">before_update</span>() ! {
+    <span class="cm">// 更新前</span>
+}
+
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">u</span> <span class="tp">User</span>) <span class="fn">after_find</span>() ! {
+    <span class="cm">// 查询后：解密敏感字段、计算派生属性等</span>
+}</div>
+        </div>
+      </div>
+
+      <!-- ═══ Repository ═══ -->
+      <div class="doc-section" id="repository">
+        <div class="section-header"><div class="section-icon icon-orm">🗃️</div><div><div class="section-title">Repository 模式</div><div class="section-subtitle">BaseRepository[T] — Spring Data JPA 风格 CRUD</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> orm            <span class="cm">// V 原生 ORM</span>
+<span class="kw">import</span> photon.orm     <span class="cm">// Photon 增强层</span>
+
+<span class="cm">// 1. 初始化 OrmManager（多库路由）</span>
+<span class="kw">mut</span> om := orm.<span class="fn">new_orm_manager</span>()
+om.<span class="fn">register_connection</span>(<span class="st">'default'</span>, .sqlite, db)!
+om.<span class="fn">register_connection</span>(<span class="st">'replica'</span>,  .sqlite, replica_db)!
+
+<span class="cm">// 2. 创建 Repository</span>
+<span class="kw">mut</span> user_repo := orm.<span class="fn">new_base_repository</span>[<span class="tp">User</span>](om, <span class="st">'default'</span>)!
+
+<span class="cm">// 3. CRUD 操作</span>
+<span class="cm">// 创建</span>
+<span class="kw">mut</span> user := <span class="tp">User</span>{name: <span class="st">'Alice'</span>, email: <span class="st">'alice@example.com'</span>, age: <span class="nm">30</span>}
+user_repo.<span class="fn">insert</span>(<span class="kw">mut</span> user)!          <span class="cm">// 自动触发 before_insert → auto-touch → after_insert</span>
+
+<span class="cm">// 查询</span>
+found := user_repo.<span class="fn">find_by_id</span>(<span class="nm">1</span>)!        <span class="cm">// 按 ID 查询</span>
+all   := user_repo.<span class="fn">find_all</span>()!              <span class="cm">// 全部查询</span>
+
+<span class="cm">// 更新</span>
+<span class="kw">mut</span> existing := user_repo.<span class="fn">find_by_id</span>(<span class="nm">1</span>)!
+existing.name = <span class="st">'Alice Updated'</span>
+user_repo.<span class="fn">update</span>(<span class="kw">mut</span> existing)!      <span class="cm">// 自动更新 updated_at</span>
+
+<span class="cm">// 删除</span>
+user_repo.<span class="fn">delete_by_id</span>(<span class="nm">1</span>)!              <span class="cm">// 按 ID 删除</span>
+
+<span class="cm">// Spring 等价：extends JpaRepository&lt;User, Integer&gt;</span>
+<span class="cm">// Laravel 等价：class UserRepository extends Eloquent</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ Derived Query ═══ -->
+      <div class="doc-section" id="derived-query">
+        <div class="section-header"><div class="section-icon icon-orm">🔍</div><div><div class="section-title">派生查询</div><div class="section-subtitle">parse_method_name — 方法名即查询</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// Photon 解析方法名自动生成查询条件</span>
+<span class="cm">// 类似 Spring Data 的 Derived Query Method</span>
+
+<span class="cm">// find_by_name        → WHERE name = ?</span>
+<span class="cm">// find_by_email_and_age  → WHERE email = ? AND age = ?</span>
+<span class="cm">// find_by_age_gt      → WHERE age > ?</span>
+<span class="cm">// find_by_name_like   → WHERE name LIKE ?</span>
+<span class="cm">// find_by_age_between → WHERE age BETWEEN ? AND ?</span>
+<span class="cm">// count_by_is_active  → SELECT COUNT(*) WHERE is_active = ?</span>
+<span class="cm">// exists_by_email     → EXISTS check WHERE email = ?</span>
+<span class="cm">// delete_by_age_lt    → DELETE WHERE age < ?</span>
+
+<span class="cm">// 支持的关键字：</span>
+<span class="cm">// and, or, not, gt, gte, lt, lte, like, between, in, is_null, is_not_null</span>
+
+<span class="cm">// Spring 等价：List&lt;User&gt; findByNameAndAge(String name, int age)</span>
+<span class="cm">// Laravel 等价：User::where('name', $name)->where('age', $age)->get()</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ OrmAdapter ═══ -->
+      <div class="doc-section" id="adapter">
+        <div class="section-header"><div class="section-icon icon-orm">🔌</div><div><div class="section-title">OrmAdapter（底层 API）</div><div class="section-subtitle">灵活控制 · 你管 QueryBuilder</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 如果 BaseRepository 不够灵活，使用 OrmAdapter 手动控制</span>
+<span class="kw">mut</span> adapter := orm.<span class="fn">new_orm_adapter</span>[<span class="tp">User</span>](om, <span class="st">'default'</span>)!
+
+<span class="cm">// 仅使用钩子，你手动写 SQL</span>
+<span class="kw">mut</span> user := <span class="tp">User</span>{name: <span class="st">'Bob'</span>, email: <span class="st">'bob@example.com'</span>, age: <span class="nm">25</span>}
+adapter.<span class="fn">before_insert</span>(<span class="kw">mut</span> user)!  <span class="cm">// auto-touch + 生命周期钩子</span>
+
+<span class="cm">// 获取底层连接，执行 V ORM 查询</span>
+conn := <span class="kw">unsafe</span> { &orm.<span class="tp">Connection</span>(adapter.<span class="fn">get_conn</span>()!) }
+sql db {
+    <span class="kw">insert</span> user <span class="kw">into</span> users
+}!
+
+adapter.<span class="fn">after_insert</span>(<span class="kw">mut</span> user)!   <span class="cm">// 后置钩子</span></div>
+        </div>
+      </div>
+
+      <div class="production-box">
+        <div class="production-title">🚀 生产实践</div>
+        <ul>
+          <li>始终嵌入 <code>Touchable</code> 让 Photon 自动管理 <code>created_at</code> / <code>updated_at</code></li>
+          <li>使用 <code>before_insert</code> 做数据校验，而非在 Controller 层做</li>
+          <li>多库场景下用 <code>OrmManager</code> 路由：写操作走 master，读操作走 replica</li>
+          <li>派生查询适合简单查询，复杂查询使用 <code>OrmAdapter</code> + 手写 SQL</li>
+        </ul>
+      </div>
+
+      <div class="page-nav">
+        <a href="#web">← Web 框架</a>
+        <a href="#cache" class="nav-next">Cache 缓存 →</a>
+      </div>

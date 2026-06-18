@@ -6,6 +6,8 @@ module web
 // Groups allow bundling middleware under a name (e.g., 'web', 'api').
 // Parameterized middleware accepts runtime configuration.
 
+import sync
+
 // MiddlewareGroup bundles named middleware
 pub struct MiddlewareGroup {
 pub:
@@ -13,10 +15,13 @@ pub:
 	middlewares []string // middleware function names
 }
 
-// MiddlewareGroupRegistry manages named middleware groups
+// MiddlewareGroupRegistry manages named middleware groups.
+// Thread-safe via sync.RwMutex.
 pub struct MiddlewareGroupRegistry {
 pub mut:
 	groups map[string][]MiddlewareFunc
+mut:
+	mu sync.RwMutex
 }
 
 // new_middleware_group_registry creates a MiddlewareGroupRegistry
@@ -28,17 +33,23 @@ pub fn new_middleware_group_registry() &MiddlewareGroupRegistry {
 
 // register adds a named middleware group
 pub fn (mut mgr MiddlewareGroupRegistry) register(name string, middlewares []MiddlewareFunc) {
+	mgr.mu.@lock()
+	defer { mgr.mu.unlock() }
 	mgr.groups[name] = middlewares
 }
 
 // get retrieves middleware for a group name
-pub fn (mgr &MiddlewareGroupRegistry) get(name string) []MiddlewareFunc {
+pub fn (mut mgr MiddlewareGroupRegistry) get(name string) []MiddlewareFunc {
+	mgr.mu.rlock()
+	defer { mgr.mu.runlock() }
 	return mgr.groups[name] or { []MiddlewareFunc{} }
 }
 
 // resolve_groups resolves group names to middleware functions.
 // If a name matches a registered group, its middlewares are expanded in place.
-pub fn (mgr &MiddlewareGroupRegistry) resolve_groups(names []string) []MiddlewareFunc {
+pub fn (mut mgr MiddlewareGroupRegistry) resolve_groups(names []string) []MiddlewareFunc {
+	mgr.mu.rlock()
+	defer { mgr.mu.runlock() }
 	mut result := []MiddlewareFunc{}
 	for name in names {
 		if group := mgr.groups[name] {
@@ -49,6 +60,13 @@ pub fn (mgr &MiddlewareGroupRegistry) resolve_groups(names []string) []Middlewar
 		}
 	}
 	return result
+}
+
+// has_group checks if a middleware group is registered.
+pub fn (mut mgr MiddlewareGroupRegistry) has_group(name string) bool {
+	mgr.mu.rlock()
+	defer { mgr.mu.runlock() }
+	return name in mgr.groups
 }
 
 // ParameterizedMiddleware wraps a middleware with runtime parameters.
@@ -87,25 +105,47 @@ pub fn parse_middleware_params(spec string) ParameterizedMiddleware {
 
 // -- Parameterized Middleware Implementations --
 
+// ThrottleState holds the shared rate limiter for a throttle middleware instance.
+// Stored on the heap so the closure can safely share it across requests.
+@[heap]
+pub struct ThrottleState {
+pub mut:
+	limiter       RateLimiter
+	max_attempts  int
+	decay_seconds i64
+}
+
+// new_throttle_state creates a ThrottleState.
+pub fn new_throttle_state(max_attempts int, decay_seconds i64) &ThrottleState {
+	return &ThrottleState{
+		limiter: new_rate_limiter()
+		max_attempts: max_attempts
+		decay_seconds: decay_seconds
+	}
+}
+
 // throttle_middleware creates a parameterized rate-limiting middleware.
 // The RateLimiter is created once and shared across all requests.
-// Automatically cleans expired attempts to prevent permanent blocking.
+// Uses hit_and_record for atomic check+record — avoids the race condition
+// where a request is rejected but the hit is never recorded.
 //
 // Usage: throttle_middleware(max_attempts: 60, decay_minutes: 1)
 //   → Allows 60 requests per minute per key (IP or user).
 pub fn throttle_middleware(max_attempts int, decay_minutes int) fn (mut &MiddlewareContext) !bool {
-	// Create limiter ONCE — shared across all requests handled by this middleware
-	mut limiter := new_rate_limiter()
-	decay_seconds := i64(decay_minutes) * 60
-	return fn [max_attempts, decay_seconds, mut limiter] (mut ctx &MiddlewareContext) !bool {
+	mut state := new_throttle_state(max_attempts, i64(decay_minutes) * 60)
+	return fn [mut state] (mut ctx &MiddlewareContext) !bool {
 		mut key := ctx.data['user_id'] or { 'anonymous' }
 		key = 'throttle_${key}'
 
-		if limiter.too_many_attempts(key, max_attempts, decay_seconds) {
-			return error('rate limit exceeded: ${max_attempts} requests per ${decay_seconds / 60} minutes')
+		// hit_and_record atomically records the hit AND checks the limit.
+		// This is critical: if we checked first and then hit, a request at
+		// the exact limit boundary would be rejected without recording the hit,
+		// causing the limit window to be incorrect.
+		allowed := state.limiter.hit_and_record(key, state.max_attempts, state.decay_seconds)
+		if !allowed {
+			retry := state.limiter.retry_after(key, state.decay_seconds)
+			return error('rate limit exceeded: ${state.max_attempts} requests per ${state.decay_seconds / 60} minutes, retry after ${retry}s')
 		}
-
-		limiter.hit(key)
 		return true
 	}
 }
@@ -159,5 +199,3 @@ pub fn cors_configurable_middleware(allowed_origins []string, allowed_methods st
 		return true
 	}
 }
-
-// import for RateLimiter (which is in web module already)

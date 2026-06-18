@@ -1,0 +1,174 @@
+<!-- title: Security · 安全 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Security · 安全 -->
+<div class="hero">
+        <h1>Security · 安全</h1>
+        <p>JWT 令牌、RBAC 权限、CSRF 防护、SecurityFilterChain — Spring Security 的 V 语言实现，与 Web 模块无缝集成。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 GA</span><span class="hero-tag">import photon.security</span><span class="hero-tag">对标 Spring Security</span></div>
+      </div>
+
+      <!-- ═══ 1. JWT ═══ -->
+      <div class="doc-section" id="jwt">
+        <div class="section-header"><div class="section-icon icon-security">🔑</div><div><div class="section-title">JWT 令牌</div><div class="section-subtitle">JwtManager · HMAC-SHA256 签名</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.security
+
+<span class="cm">// 1. 配置 JWT</span>
+jwt_config := security.<span class="tp">JwtConfig</span>{
+    secret:                    <span class="st">'your-256-bit-secret-key'</span>
+    issuer:                    <span class="st">'my-app'</span>
+    audience:                  <span class="st">'my-app-users'</span>
+    expiration_minutes:        <span class="nm">60</span>           <span class="cm">// Access Token 60 分钟</span>
+    refresh_token_expiration_hours: <span class="nm">168</span>    <span class="cm">// Refresh Token 7 天</span>
+}
+
+<span class="kw">mut</span> jwt := security.<span class="fn">new_jwt_manager</span>(jwt_config)
+
+<span class="cm">// 2. 创建 Token</span>
+token := jwt.<span class="fn">create_token</span>(<span class="st">'alice'</span>, [<span class="st">'admin'</span>, <span class="st">'user'</span>])!
+<span class="cm">// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...</span>
+
+<span class="cm">// 3. 解析 Token</span>
+claims := jwt.<span class="fn">parse_token</span>(token)!
+<span class="fn">println</span>(claims.sub)    <span class="cm">// 'alice'</span>
+<span class="fn">println</span>(claims.roles)  <span class="cm">// ['admin', 'user']</span>
+
+<span class="cm">// 4. 验证 Token</span>
+valid := jwt.<span class="fn">validate_token</span>(token)!  <span class="cm">// true</span>
+
+<span class="cm">// 5. 刷新 Token</span>
+refresh_token := jwt.<span class="fn">create_refresh_token</span>(<span class="st">'alice'</span>)!
+new_access := jwt.<span class="fn">refresh_access_token</span>(refresh_token)!
+
+<span class="cm">// Spring 等价：JwtUtil / Jwts.builder()</span>
+<span class="cm">// Laravel 等价：Laravel Sanctum / Passport</span></div>
+        </div>
+
+        <h3>JwtClaims 字段</h3>
+        <table class="doc-table">
+          <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>sub</code></td><td><code>string</code></td><td>用户标识</td></tr>
+            <tr><td><code>iat</code></td><td><code>i64</code></td><td>签发时间</td></tr>
+            <tr><td><code>exp</code></td><td><code>i64</code></td><td>过期时间</td></tr>
+            <tr><td><code>iss</code></td><td><code>string</code></td><td>签发者</td></tr>
+            <tr><td><code>aud</code></td><td><code>string</code></td><td>受众</td></tr>
+            <tr><td><code>jti</code></td><td><code>string</code></td><td>Token 唯一 ID</td></tr>
+            <tr><td><code>roles</code></td><td><code>[]string</code></td><td>用户角色</td></tr>
+            <tr><td><code>permissions</code></td><td><code>[]string</code></td><td>用户权限</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ═══ 2. RBAC ═══ -->
+      <div class="doc-section" id="rbac">
+        <div class="section-header"><div class="section-icon icon-security">👥</div><div><div class="section-title">RBAC 权限</div><div class="section-subtitle">角色 · 权限 · 层级</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 定义角色和权限</span>
+<span class="kw">mut</span> rbac := security.<span class="fn">new_rbac_manager</span>()
+
+<span class="cm">// 创建角色</span>
+rbac.<span class="fn">add_role</span>(<span class="st">'admin'</span>)
+rbac.<span class="fn">add_role</span>(<span class="st">'editor'</span>)
+rbac.<span class="fn">add_role</span>(<span class="st">'viewer'</span>)
+
+<span class="cm">// 分配权限</span>
+rbac.<span class="fn">grant_permission</span>(<span class="st">'admin'</span>,  <span class="st">'user:delete'</span>)
+rbac.<span class="fn">grant_permission</span>(<span class="st">'admin'</span>,  <span class="st">'user:create'</span>)
+rbac.<span class="fn">grant_permission</span>(<span class="st">'editor'</span>, <span class="st">'post:edit'</span>)
+rbac.<span class="fn">grant_permission</span>(<span class="st">'viewer'</span>, <span class="st">'post:read'</span>)
+
+<span class="cm">// 角色继承（editor 继承 viewer 的权限）</span>
+rbac.<span class="fn">add_parent</span>(<span class="st">'editor'</span>, <span class="st">'viewer'</span>)
+
+<span class="cm">// 检查权限</span>
+has_perm := rbac.<span class="fn">has_permission</span>(<span class="st">'editor'</span>, <span class="st">'post:read'</span>)  <span class="cm">// true（继承自 viewer）</span>
+
+<span class="cm">// 使用注解保护端点</span>
+<span class="at">@[secured]</span>                           <span class="cm">// 需要认证</span>
+<span class="at">@[roles_allowed('admin')]</span>           <span class="cm">// 需要 admin 角色</span>
+<span class="at">@[delete('/users/:id')]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">app</span> <span class="tp">App</span>) <span class="fn">delete_user</span>(id <span class="tp">string</span>) veb.<span class="tp">Result</span> {
+    <span class="cm">// ...</span>
+}
+
+<span class="cm">// Spring 等价：@Secured / @PreAuthorize("hasRole('admin')")</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. CSRF ═══ -->
+      <div class="doc-section" id="csrf">
+        <div class="section-header"><div class="section-icon icon-security">🛡️</div><div><div class="section-title">CSRF 防护</div><div class="section-subtitle">Double-Submit Cookie 模式</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 配置 CSRF</span>
+csrf_config := security.<span class="tp">CsrfConfig</span>{
+    enabled:          <span class="kw">true</span>
+    cookie_name:      <span class="st">'XSRF-TOKEN'</span>
+    header_name:      <span class="st">'X-CSRF-TOKEN'</span>
+    form_field_name:  <span class="st">'_csrf'</span>
+    token_length:     <span class="nm">32</span>
+    cookie_http_only: <span class="kw">false</span>       <span class="cm">// 前端 JS 需要读取</span>
+    cookie_secure:    <span class="kw">true</span>        <span class="cm">// HTTPS only</span>
+    cookie_same_site: <span class="st">'Lax'</span>
+    ignored_methods:  [<span class="st">'GET'</span>, <span class="st">'HEAD'</span>, <span class="st">'OPTIONS'</span>]
+}
+
+<span class="cm">// 使用 CookieCsrfTokenRepository</span>
+<span class="kw">mut</span> repo := security.<span class="fn">new_cookie_token_repo</span>(csrf_config)
+
+<span class="cm">// 生成 Token</span>
+token := repo.<span class="fn">generate_token</span>()
+
+<span class="cm">// 验证 Token（从请求 Header 或 Form 字段）</span>
+valid := repo.<span class="fn">validate_token</span>(submitted_token)
+
+<span class="cm">// Spring 等价：CsrfTokenRepository / CookieCsrfTokenRepository</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 4. SecurityFilterChain ═══ -->
+      <div class="doc-section" id="filter-chain">
+        <div class="section-header"><div class="section-icon icon-security">🔗</div><div><div class="section-title">SecurityFilterChain</div><div class="section-subtitle">与 Web 中间件链集成</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 构建安全过滤链</span>
+<span class="kw">mut</span> chain := security.<span class="fn">new_security_filter_chain</span>()
+
+<span class="cm">// 公开端点</span>
+chain.<span class="fn">permit</span>(<span class="st">'/api/auth/login'</span>,    [<span class="st">'POST'</span>])
+chain.<span class="fn">permit</span>(<span class="st">'/api/auth/register'</span>, [<span class="st">'POST'</span>])
+chain.<span class="fn">permit</span>(<span class="st">'/api/health'</span>,        [<span class="st">'GET'</span>])
+
+<span class="cm">// 需要认证的端点</span>
+chain.<span class="fn">require_auth</span>(<span class="st">'/api/users/**'</span>)
+chain.<span class="fn">require_role</span>(<span class="st">'/api/admin/**'</span>, <span class="st">'admin'</span>)
+
+<span class="cm">// 拒绝所有其他请求</span>
+chain.<span class="fn">deny_all</span>()
+
+<span class="cm">// Spring 等价：SecurityFilterChain bean</span>
+<span class="cm">// Laravel 等价：Route::middleware('auth:api')</span></div>
+        </div>
+      </div>
+
+      <div class="production-box">
+        <div class="production-title">🚀 生产实践</div>
+        <ul>
+          <li>JWT Secret 使用 256 位以上的随机密钥，从环境变量注入</li>
+          <li>Access Token 有效期设置 15-60 分钟，Refresh Token 7 天</li>
+          <li>CSRF 保护在生产环境必须开启，API 场景可关闭（使用 JWT 替代）</li>
+          <li>RBAC 角色设计遵循最小权限原则</li>
+          <li>密码使用 bcrypt/argon2 哈希，永远不要明文存储</li>
+        </ul>
+      </div>
+
+      <div class="page-nav">
+        <a href="#queue">← Queue 消息队列</a>
+        <a href="#mailer" class="nav-next">Mailer 邮件 →</a>
+      </div>

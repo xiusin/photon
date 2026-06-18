@@ -83,8 +83,20 @@ photon/
 ├── Makefile              # 构建/测试/部署自动化
 ├── v.mod                 # 模块描述文件
 │
-├── core/                 # [Alpha] 核心容器（DI、生命周期、注解引擎）
-│   └── (待实现, 目前仅规划)
+├── core/                 # [Beta] 核心容器（DI、生命周期、注解引擎）
+│   ├── core.v            # Container (IoC) + BeanDefinition + Scope + Dependency
+│   ├── core_entry.v      # 模块入口 + API 文档
+│   ├── application_context.v # ApplicationContext（统一上下文：Container+EventBus+Lifecycle+Environment）
+│   ├── environment.v     # Environment（Profile + Property + Placeholder 解析）
+│   ├── scanner.v         # 编译期 Bean 扫描 + 属性解析
+│   ├── lifecycle.v       # LifecycleManager + SmartLifecycle + ContextRefreshedEvent
+│   ├── event.v           # EventBus（Spring ApplicationEvent 风格）
+│   ├── condition.v       # 条件装配（@conditional_on_* 系列注解）
+│   ├── post_processor.v  # BeanPostProcessor + BeanFactoryPostProcessor（AOP 基础）
+│   ├── factory_bean.v    # FactoryBean（工厂 Bean + FactoryBeanRegistry）
+│   ├── service_locator.v # ServiceLocator（Laravel app() 风格）+ BindingRegistry
+│   ├── auto_configuration.v # AutoConfiguration（Spring Boot 自动配置）
+│   └── context_test.v    # 新增功能测试
 │
 ├── config/               # [Beta] 配置管理
 │   ├── config.v          # Config 主结构：多源合并、类型转换
@@ -1101,19 +1113,32 @@ get_or_load(key, ttl, loader)
 | **ORM** | `@[sql: 'col_name']` | field | SQL 列名 |
 | | `@[sql_type: 'TEXT']` | field | SQL 类型 |
 | | `@[table: 'table_name']` | struct | 表名 |
-| **组件 (规划)** | `@[component]` | struct | 标记为组件 |
+| **组件 (已实现)** | `@[component]` | struct | 标记为组件 |
 | | `@[service]` | struct | 标记为服务 |
 | | `@[repository]` | struct | 标记为仓库 |
 | | `@[controller]` | struct | 标记为控制器 |
+| | `@[configuration]` | struct | 标记为配置类 |
+| | `@[auto_configuration]` | struct | 自动配置类 |
 | | `@[autowired]` | field | 自动注入 |
 | | `@[lazy]` | struct/fn | 延迟初始化 |
 | | `@[scope('singleton')]` | struct | 作用域 |
+| | `@[qualifier('name')]` | field | 限定符 |
 | | `@[post_construct]` | fn | 初始化回调 |
 | | `@[pre_destroy]` | fn | 销毁回调 |
-| **横切 (规划)** | `@[cacheable]` | fn | 方法级缓存 |
+| | `@[required]` | field | 必须注入（配合 @[autowired]）|
+| | `@[event_listener]` | fn | 事件监听器 |
+| **条件装配** | `@[conditional_on_profile('prod')]` | struct | Profile 条件 |
+| | `@[conditional_on_property('key')]` | struct | 属性存在条件 |
+| | `@[conditional_on_property('key','val')]` | struct | 属性值条件 |
+| | `@[conditional_on_bean('Name')]` | struct | Bean 存在条件 |
+| | `@[conditional_on_missing_bean('X')]` | struct | Bean 不存在条件 |
+| | `@[conditional_on_expression('key==val')]` | struct | 表达式条件 |
+| | `@[conditional_on_class('Type')]` | struct | 类存在条件 |
+| | `@[conditional_on_missing_class('Type')]` | struct | 类不存在条件 |
+| | `@[conditional_on_cloud_platform('aws')]` | struct | 云平台条件 |
+| **横切** | `@[cacheable]` | fn | 方法级缓存 |
 | | `@[transactional]` | fn | 事务 |
 | | `@[scheduled('cron')]` | fn | 定时任务 |
-| | `@[async]` | fn | 异步执行 |
 
 ### 6.2 扫描机制
 
@@ -1144,7 +1169,7 @@ pub fn scan_routes[T]() []RouteInfo {
 
 ### 6.3 当前状态
 
-> 部分注解已在代码中使用（路由、安全、DTO 绑定），部分（组件 DI 相关）为规划状态，`core/` 目录目前为空。
+> 路由、安全、DTO 绑定注解已在代码中使用。组件 DI、条件装配、事件监听器注解已在 `core/` 模块实现运行时支持，完整的编译期自动装配由 comptime scanner 驱动。
 
 ---
 
@@ -1333,7 +1358,7 @@ docker   — Docker 镜像构建
 | support | Beta | 高 | 高 | 是 |
 | cli | Beta | 高 | 低 | 是 |
 | http | Alpha | 低 | 低 | 否（stub）|
-| core | Alpha | 空 | 无 | 否（未实现）|
+| core | Beta | ApplicationContext + Container + Environment + EventBus + Lifecycle + BeanPostProcessor + FactoryBean + ServiceLocator + AutoConfiguration | 37 | 是 |
 
 ### 成熟度定义
 
@@ -1423,7 +1448,7 @@ docker   — Docker 镜像构建
 
 ### B. 当前架构缺口
 
-1. **core/** 目录为空 — DI 容器、BeanFactory、条件装配等尚未实现
+1. **core/** DI 容器已实现 — ApplicationContext + Container + Environment + EventBus + Lifecycle + BeanPostProcessor + FactoryBean + ServiceLocator + AutoConfiguration 均已就绪
 2. **http client** 为 stub — 缺少真实 HTTP 网络调用
 3. **orm 迁移** 为 stub — 需要真实数据库连接才能运行
 4. **S3 adapter** 为 stub — 缺少 AWS Signature V4 签名

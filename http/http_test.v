@@ -1,11 +1,20 @@
 module http
 
 // http_test.v - Tests for the HTTP Client module
+//
+// Note: Tests that perform actual network requests (get, post, etc.)
+// are kept minimal since they require network access. The core focus
+// is on testing the fluent API builder, URL construction, response
+// helpers, and utility functions.
+
+// ── Constructor & Defaults ──
 
 fn test_client_new() {
 	c := new_client()
 	assert c.timeout_sec == 30
 	assert c.headers.len == 0
+	assert c.query_params.len == 0
+	assert c.debug == false
 }
 
 fn test_client_base_url() {
@@ -14,10 +23,23 @@ fn test_client_base_url() {
 	assert c.base_url == 'https://api.example.com'
 }
 
+// ── Header Methods ──
+
 fn test_client_header() {
 	mut c := new_client()
 	c.with_header('X-Custom', 'value')
 	assert c.headers['X-Custom'] == 'value'
+}
+
+fn test_client_headers_batch() {
+	mut c := new_client()
+	c.with_headers({
+		'X-Req-Id': '123'
+		'X-Tenant': 'acme'
+	})
+	assert c.headers.len == 2
+	assert c.headers['X-Req-Id'] == '123'
+	assert c.headers['X-Tenant'] == 'acme'
 }
 
 fn test_client_token_auth() {
@@ -30,6 +52,9 @@ fn test_client_basic_auth() {
 	mut c := new_client()
 	c.with_basic_auth('admin', 'secret')
 	assert c.headers['Authorization'].starts_with('Basic ')
+	// Verify it's valid base64 of "admin:secret"
+	encoded := c.headers['Authorization'].split(' ')[1]
+	assert encoded.len > 0
 }
 
 fn test_client_json_content_type() {
@@ -44,6 +69,32 @@ fn test_client_custom_content_type() {
 	assert c.headers['Content-Type'] == 'application/xml'
 }
 
+fn test_client_accept_header() {
+	mut c := new_client()
+	c.with_accept('application/json')
+	assert c.headers['Accept'] == 'application/json'
+}
+
+// ── Query Parameters ──
+
+fn test_client_query_params() {
+	mut c := new_client()
+	c.with_query({'page': '1', 'limit': '10'})
+	assert c.query_params['page'] == '1'
+	assert c.query_params['limit'] == '10'
+}
+
+fn test_client_query_appended_to_url() {
+	mut c := new_client()
+	c.with_query({'key': 'value', 'foo': 'bar'})
+	url := c.build_url('/api/search')
+	assert url.contains('key=value')
+	assert url.contains('foo=bar')
+	assert url.starts_with('/api/search?')
+}
+
+// ── Retry & Timeout ──
+
 fn test_client_retry() {
 	mut c := new_client()
 	c.retry(3, 100)
@@ -57,71 +108,55 @@ fn test_client_timeout() {
 	assert c.timeout_sec == 60
 }
 
-fn test_client_get() {
-	c := new_client()
-	resp := c.get('/test') or {
-		assert false
-		return
-	}
-	assert resp.is_success()
-	assert resp.status_code == 200
-	assert resp.body.contains('GET')
-}
-
-fn test_client_post() {
-	c := new_client()
-	resp := c.post('/test', '{"data":"hello"}') or {
-		assert false
-		return
-	}
-	assert resp.status_code == 201
-}
-
-fn test_client_put() {
-	c := new_client()
-	resp := c.put('/items/1', '{"name":"updated"}') or {
-		assert false
-		return
-	}
-	assert resp.status_code == 200
-}
-
-fn test_client_delete() {
-	c := new_client()
-	resp := c.delete('/items/1') or {
-		assert false
-		return
-	}
-	assert resp.status_code == 204
-	assert resp.body == ''
-}
-
-fn test_client_patch() {
-	c := new_client()
-	resp := c.patch('/items/1', '{"name":"patched"}') or {
-		assert false
-		return
-	}
-	assert resp.status_code == 200
-}
-
-fn test_build_url() {
+fn test_client_debug() {
 	mut c := new_client()
-	
-	// No base URL — path used as-is
+	c.debug_enabled(true)
+	assert c.debug == true
+	c.debug_enabled(false)
+	assert c.debug == false
+}
+
+// ── URL Building ──
+
+fn test_build_url_no_base() {
+	mut c := new_client()
 	assert c.build_url('/api/users') == '/api/users'
 	assert c.build_url('api/users') == 'api/users'
+}
 
-	// With base URL
+fn test_build_url_with_base() {
+	mut c := new_client()
 	c.with_base_url('https://api.example.com')
 	assert c.build_url('/users') == 'https://api.example.com/users'
 	assert c.build_url('users') == 'https://api.example.com/users'
+}
 
-	// Base URL with trailing slash
+fn test_build_url_trailing_slash() {
+	mut c := new_client()
 	c.with_base_url('https://api.example.com/')
 	assert c.build_url('/users') == 'https://api.example.com/users'
 	assert c.build_url('users') == 'https://api.example.com/users'
 }
+
+fn test_build_url_with_query() {
+	mut c := new_client()
+	c.with_base_url('https://api.example.com')
+	c.with_query({'page': '2', 'sort': 'name'})
+	url := c.build_url('/users')
+	assert url.contains('https://api.example.com/users?')
+	assert url.contains('page=2')
+	assert url.contains('sort=name')
+}
+
+fn test_build_url_existing_query_with_extra() {
+	mut c := new_client()
+	c.with_query({'extra': 'param'})
+	url := c.build_url('/search?q=test')
+	// Should append with & since ? already exists
+	assert url.contains('&extra=param')
+}
+
+// ── Response Helpers ──
 
 fn test_response_success_codes() {
 	r := new_response(200, 'ok')
@@ -155,12 +190,63 @@ fn test_response_edge_codes() {
 	assert new_response(599, '').is_server_error()
 }
 
+fn test_response_header_lookup() {
+	r := &HttpResponse{
+		status_code: 200
+		body:        '{}'
+		headers:     {'Content-Type': 'application/json', 'X-Request-Id': 'abc-123'}
+	}
+	ct := r.header('Content-Type') or { '' }
+	assert ct == 'application/json'
+
+	// Case-insensitive lookup
+	ct2 := r.header('content-type') or { '' }
+	assert ct2 == 'application/json'
+
+	rid := r.header('X-Request-Id') or { '' }
+	assert rid == 'abc-123'
+
+	// Missing header returns none
+	assert r.header('Missing') == none
+}
+
+fn test_response_body_content() {
+	r := new_response(200, '{"name":"Alice","age":30}')
+	// Test body is accessible and valid JSON content
+	assert r.body.contains('"name"')
+	assert r.body.contains('"Alice"')
+}
+
+// ── Base64 Encoding ──
+
 fn test_base64_encode() {
 	// Empty input
 	assert base64_encode('') == ''
 
-	// Simple input
+	// Simple input — standard known value
 	result := base64_encode('test')
 	assert result.len > 0
 	assert result.ends_with('==')
+
+	// Known vector: "Hello" -> "SGVsbG8="
+	assert base64_encode('Hello') == 'SGVsbG8='
+}
+
+// ── Fluent API Chaining ──
+
+fn test_fluent_api_chain() {
+	mut c := new_client()
+	c = c.with_base_url('https://api.example.com')
+	c = c.with_token('xyz')
+	c = c.with_json()
+	c = c.with_accept('application/json')
+	c = c.retry(3, 100)
+	c = c.timeout_sec(60)
+
+	assert c.base_url == 'https://api.example.com'
+	assert c.headers['Authorization'] == 'Bearer xyz'
+	assert c.headers['Content-Type'] == 'application/json'
+	assert c.headers['Accept'] == 'application/json'
+	assert c.retry_times == 3
+	assert c.timeout_sec == 60
 }

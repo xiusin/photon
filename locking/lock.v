@@ -188,15 +188,90 @@ pub fn (mut lm LockManager) dist_unlock(key string) !bool {
 	return lm.distributed.release(key)
 }
 
-// LockGuard provides RAII-style automatic lock release
+// ── Lock Cleanup (Prevent Memory Leaks) ──
+
+// unlock_and_cleanup unlocks a local lock and removes it from the map
+// if no other goroutines are likely waiting for it.
+// This prevents memory leaks from accumulating unused lock entries.
+//
+// Usage pattern:
+//   lm.lock('temp-key')
+//   // ... critical section ...
+//   lm.unlock_and_cleanup('temp-key') or {}
+//
+// Note: Only use this for one-time or rarely-used keys.
+// For frequently-used keys, regular unlock() is preferred.
+pub fn (mut lm LockManager) unlock_and_cleanup(key string) ! {
+	lm.map_mu.@rlock()
+	mut mu := lm.local_locks[key] or {
+		lm.map_mu.unlock()
+		return error('lock "${key}" not found')
+	}
+	lm.map_mu.unlock()
+	mu.unlock()
+
+	// Remove the lock entry to free memory
+	// Only safe if no other goroutine is waiting — use with caution
+	lm.map_mu.@lock()
+	lm.local_locks.delete(key)
+	lm.map_mu.unlock()
+}
+
+// cleanup_unused_locks removes all lock entries that are not currently held.
+// This is safe to call periodically (e.g., during low-traffic periods)
+// to prevent memory leaks from accumulating unused lock entries.
+//
+// Returns the number of entries removed.
+pub fn (mut lm LockManager) cleanup_unused_locks() int {
+	lm.map_mu.@lock()
+	defer { lm.map_mu.unlock() }
+
+	mut removed := 0
+	mut keys_to_remove := []string{}
+	for key, mut mu in lm.local_locks {
+		// Try to acquire — if we can, nobody else holds it
+		if mu.try_lock() {
+			// We acquired it, which means nobody was holding it
+			mu.unlock()
+			keys_to_remove << key
+		}
+		// If we can't acquire it, someone is using it — skip
+	}
+	for key in keys_to_remove {
+		lm.local_locks.delete(key)
+		removed++
+	}
+	return removed
+}
+
+// lock_count returns the total number of lock entries in the manager.
+// Useful for monitoring potential memory leaks.
+pub fn (mut lm LockManager) lock_count() int {
+	lm.map_mu.rlock()
+	defer { lm.map_mu.runlock()}
+	return lm.local_locks.len
+}
+
+// LockGuard provides RAII-style automatic lock release.
+//
+// V does not have destructors, so the guard must be released explicitly
+// via unlock() or implicitly via defer:
+//
+//   mut guard := new_lock_guard(mut manager, 'my-key')
+//   defer { guard.unlock() }
+//   // ... critical section ...
+//
+// Alternatively, use guarded_lock[T] which handles defer automatically.
 pub struct LockGuard {
+pub:
 	key string
 mut:
 	manager &LockManager
 	locked  bool
 }
 
-// new_lock_guard creates a new lock guard and acquires the lock
+// new_lock_guard creates a new lock guard and acquires the lock.
+// Remember to call unlock() when done (typically via defer).
 pub fn new_lock_guard(mut manager LockManager, key string) &LockGuard {
 	manager.lock(key)
 	return &LockGuard{
@@ -206,7 +281,7 @@ pub fn new_lock_guard(mut manager LockManager, key string) &LockGuard {
 	}
 }
 
-// unlock manually releases the lock
+// unlock releases the lock. Safe to call multiple times.
 pub fn (mut lg LockGuard) unlock() {
 	if lg.locked {
 		lg.manager.unlock(lg.key) or {}
@@ -214,12 +289,38 @@ pub fn (mut lg LockGuard) unlock() {
 	}
 }
 
+// relock re-acquires the lock after unlock().
+// Useful for temporarily releasing a lock in the middle of a critical section.
+pub fn (mut lg LockGuard) relock() {
+	if !lg.locked {
+		lg.manager.lock(lg.key)
+		lg.locked = true
+	}
+}
+
+// is_locked returns whether the guard currently holds the lock.
+pub fn (lg &LockGuard) is_locked() bool {
+	return lg.locked
+}
+
 // guarded_lock runs a function under a named lock.
 // Uses `defer` to guarantee the lock is released even if `f()` panics.
+// This is the recommended way to use locks — it prevents forgetting to unlock.
 pub fn guarded_lock[T](mut manager LockManager, key string, f fn () !T) !T {
 	manager.lock(key)
 	defer {
 		manager.unlock(key) or {}
 	}
 	return f()
+}
+
+// scoped_lock acquires a lock, runs a function, and releases the lock.
+// Simpler than guarded_lock when you don't need the generic return type.
+// Spring equivalent: TransactionTemplate.execute()
+pub fn scoped_lock(mut manager LockManager, key string, f fn ()) {
+	manager.lock(key)
+	defer {
+		manager.unlock(key) or {}
+	}
+	f()
 }

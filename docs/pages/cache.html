@@ -1,0 +1,137 @@
+<!-- title: Cache · 缓存 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Cache · 缓存 -->
+<div class="hero">
+        <h1>Cache · 缓存</h1>
+        <p>多后端缓存抽象、TTL 管理、Singleflight 防击穿、CacheManager 统一入口 — Spring Cache 的 V 语言实现。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 GA</span><span class="hero-tag">import photon.cache</span><span class="hero-tag">对标 Spring Cache</span></div>
+      </div>
+
+      <!-- ═══ 1. Quick Start ═══ -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header"><div class="section-icon icon-cache">💨</div><div><div class="section-title">快速上手</div><div class="section-subtitle">CacheManager + 命名缓存</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.cache
+
+<span class="cm">// 1. 创建 CacheManager</span>
+<span class="kw">mut</span> cm := cache.<span class="fn">new_cache_manager</span>()
+
+<span class="cm">// 2. 注册命名缓存</span>
+cm.<span class="fn">register</span>(<span class="st">'users'</span>, cache.<span class="fn">new_memory_cache</span>(<span class="st">'users'</span>))
+cm.<span class="fn">register</span>(<span class="st">'products'</span>, cache.<span class="fn">new_memory_cache</span>(<span class="st">'products'</span>))
+
+<span class="cm">// 3. 基本操作</span>
+cm.<span class="fn">set</span>(<span class="st">'user:42'</span>, <span class="st">'{"name":"Alice"}'</span>, <span class="nm">300</span>)!   <span class="cm">// TTL 300 秒</span>
+val := cm.<span class="fn">get</span>(<span class="st">'user:42'</span>)!                    <span class="cm">// '{"name":"Alice"}'</span>
+cm.<span class="fn">has</span>(<span class="st">'user:42'</span>)                            <span class="cm">// true</span>
+cm.<span class="fn">delete</span>(<span class="st">'user:42'</span>)!                          <span class="cm">// 删除</span>
+cm.<span class="fn">clear</span>()!                                     <span class="cm">// 清空默认缓存</span>
+
+<span class="cm">// 4. 使用命名缓存</span>
+users_cache := cm.<span class="fn">get_cache</span>(<span class="st">'users'</span>)
+users_cache.<span class="fn">set</span>(<span class="st">'list'</span>, <span class="st">'[...]'</span>, <span class="nm">60</span>)!
+
+<span class="cm">// Spring 等价：@Cacheable / CacheManager</span>
+<span class="cm">// Laravel 等价：Cache::put('key', 'value', 300)</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. Cache Interface ═══ -->
+      <div class="doc-section" id="interface">
+        <div class="section-header"><div class="section-icon icon-cache">📋</div><div><div class="section-title">Cache 接口</div><div class="section-subtitle">实现自定义缓存后端</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// Cache 接口 — 所有缓存后端必须实现</span>
+<span class="kw">pub interface</span> <span class="tp">Cache</span> {
+<span class="kw">mut</span>:
+    <span class="fn">get</span>(key <span class="tp">string</span>) !<span class="tp">string</span>
+    <span class="fn">set</span>(key <span class="tp">string</span>, value <span class="tp">string</span>, ttl_seconds <span class="tp">int</span>) !
+    <span class="fn">delete</span>(key <span class="tp">string</span>) !
+    <span class="fn">has</span>(key <span class="tp">string</span>) <span class="tp">bool</span>
+    <span class="fn">clear</span>() !
+    <span class="fn">keys</span>() []<span class="tp">string</span>
+    <span class="fn">size</span>() <span class="tp">int</span>
+}
+
+<span class="cm">// 自定义 Redis 后端示例</span>
+<span class="kw">pub struct</span> <span class="tp">RedisCache</span> {
+    client &<span class="tp">RedisClient</span>
+    prefix <span class="tp">string</span>
+}
+
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">rc</span> <span class="tp">RedisCache</span>) <span class="fn">get</span>(key <span class="tp">string</span>) !<span class="tp">string</span> {
+    <span class="kw">return</span> rc.client.<span class="fn">get</span>(<span class="st">'${rc.prefix}:${key}'</span>)
+}
+
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">rc</span> <span class="tp">RedisCache</span>) <span class="fn">set</span>(key <span class="tp">string</span>, value <span class="tp">string</span>, ttl_seconds <span class="tp">int</span>) ! {
+    rc.client.<span class="fn">setex</span>(<span class="st">'${rc.prefix}:${key}'</span>, ttl_seconds, value)!
+}
+<span class="cm">// ... 实现其他方法</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. Singleflight ═══ -->
+      <div class="doc-section" id="singleflight">
+        <div class="section-header"><div class="section-icon icon-cache">🛡️</div><div><div class="section-title">Singleflight 防击穿</div><div class="section-subtitle">合并并发请求 · 防止缓存雪崩</div></div></div>
+
+        <p>当多个协程同时请求同一个缓存键时，Singleflight 确保只有一个协程实际执行加载逻辑，其余协程共享结果。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// CacheManager 内置 Singleflight</span>
+<span class="cm">// 并发请求 user:42 时，只有一个执行数据库查询</span>
+
+result := cm.<span class="fn">singleflight_execute</span>(<span class="st">'user:42'</span>, fn () !<span class="tp">string</span> {
+    <span class="cm">// 只有第一个请求执行此函数</span>
+    user := db.<span class="fn">find_user</span>(<span class="nm">42</span>)!
+    json_data := user.<span class="fn">json</span>()
+    cm.<span class="fn">set</span>(<span class="st">'user:42'</span>, json_data, <span class="nm">300</span>)!
+    <span class="kw">return</span> json_data
+})!
+
+<span class="cm">// Go 等价：golang.org/x/sync/singleflight</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 4. @[cacheable] ═══ -->
+      <div class="doc-section" id="cacheable">
+        <div class="section-header"><div class="section-icon icon-cache">✨</div><div><div class="section-title">@[cacheable] 注解</div><div class="section-subtitle">声明式缓存 — 方法级缓存抽象</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">UserService</span> {
+    <span class="at">@[autowired]</span>
+    cache_manager &cache.<span class="tp">CacheManager</span>
+    <span class="at">@[autowired]</span>
+    user_repo     &<span class="tp">UserRepository</span>
+}
+
+<span class="at">@[cacheable]</span>
+<span class="kw">pub fn</span> (<span class="at">s</span> &<span class="tp">UserService</span>) <span class="fn">get_user</span>(id <span class="tp">int</span>) !<span class="tp">User</span> {
+    <span class="cm">// 首次调用走数据库，后续走缓存</span>
+    <span class="kw">return</span> s.user_repo.<span class="fn">find_by_id</span>(id)!
+}
+
+<span class="cm">// Spring 等价：@Cacheable(value = "users", key = "#id")</span>
+<span class="cm">// Laravel 等价：Cache::remember("user:$id", 300, fn() => User::find($id))</span></div>
+        </div>
+      </div>
+
+      <div class="production-box">
+        <div class="production-title">🚀 生产实践</div>
+        <ul>
+          <li>设置合理的 TTL，避免缓存永不过期导致数据不一致</li>
+          <li>使用 Singleflight 防止缓存击穿（热点 key 过期瞬间大量请求打到数据库）</li>
+          <li>生产环境使用 Redis 后端，开发环境使用 Memory 后端</li>
+          <li>缓存键使用 <code>namespace:key</code> 格式，避免冲突</li>
+          <li>对序列化数据使用 JSON 格式，便于调试和跨语言读取</li>
+        </ul>
+      </div>
+
+      <div class="page-nav">
+        <a href="#orm">← ORM 对象映射</a>
+        <a href="#lock" class="nav-next">Lock 分布式锁 →</a>
+      </div>

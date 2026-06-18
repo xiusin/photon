@@ -1,0 +1,115 @@
+<!-- title: Queue · 消息队列 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Queue · 消息队列 -->
+<div class="hero">
+        <h1>Queue · 消息队列</h1>
+        <p>Job 调度、延迟/链式/批量分发、可配置重试退避、后台 Worker — Laravel Queue 的 V 语言实现。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 Beta</span><span class="hero-tag">import photon.queue</span><span class="hero-tag">对标 Laravel Queue</span></div>
+      </div>
+
+      <!-- ═══ 1. Job ═══ -->
+      <div class="doc-section" id="job">
+        <div class="section-header"><div class="section-icon icon-queue">📨</div><div><div class="section-title">Job 定义</div><div class="section-subtitle">Job 接口 · job_type / handle / tries / backoff</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.queue
+
+<span class="cm">// 1. 定义 Job（必须实现 Job 接口）</span>
+<span class="kw">pub struct</span> <span class="tp">SendWelcomeEmail</span> {
+<span class="kw">pub</span>:
+    user_id <span class="tp">int</span>
+    email   <span class="tp">string</span>
+}
+
+<span class="kw">pub fn</span> (<span class="at">j</span> &<span class="tp">SendWelcomeEmail</span>) <span class="fn">job_type</span>() <span class="tp">string</span> {
+    <span class="kw">return</span> <span class="st">'send_welcome_email'</span>
+}
+
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">j</span> <span class="tp">SendWelcomeEmail</span>) <span class="fn">handle</span>() ! {
+    <span class="cm">// 实际执行逻辑</span>
+    <span class="fn">send_email</span>(j.email, <span class="st">'Welcome!'</span>)!
+}
+
+<span class="kw">pub fn</span> (<span class="at">j</span> &<span class="tp">SendWelcomeEmail</span>) <span class="fn">tries</span>() <span class="tp">int</span> {
+    <span class="kw">return</span> <span class="nm">3</span>  <span class="cm">// 最多重试 3 次</span>
+}
+
+<span class="kw">pub fn</span> (<span class="at">j</span> &<span class="tp">SendWelcomeEmail</span>) <span class="fn">backoff</span>() []<span class="tp">i64</span> {
+    <span class="kw">return</span> [<span class="nm">10</span>, <span class="nm">30</span>, <span class="nm">60</span>]  <span class="cm">// 第 1 次重试等 10s，第 2 次 30s，第 3 次 60s</span>
+}
+
+<span class="cm">// Laravel 等价：implements ShouldQueue</span>
+<span class="cm">// Spring 等价：@Async + @Retryable</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. Dispatch ═══ -->
+      <div class="doc-section" id="dispatch">
+        <div class="section-header"><div class="section-icon icon-queue">🚀</div><div><div class="section-title">Job 调度</div><div class="section-subtitle">即时 / 延迟 / 链式 / 批量</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">mut</span> dispatcher := queue.<span class="fn">new_dispatcher</span>()
+
+<span class="cm">// 即时调度</span>
+dispatcher.<span class="fn">dispatch</span>(<span class="tp">SendWelcomeEmail</span>{user_id: <span class="nm">42</span>, email: <span class="st">'alice@example.com'</span>})!
+
+<span class="cm">// 延迟调度（60 秒后执行）</span>
+dispatcher.<span class="fn">dispatch_delayed</span>(
+    <span class="tp">SendWelcomeEmail</span>{user_id: <span class="nm">42</span>, email: <span class="st">'bob@example.com'</span>},
+    delay_secs: <span class="nm">60</span>
+)!
+
+<span class="cm">// 链式调度（按顺序执行，前一个成功才执行下一个）</span>
+dispatcher.<span class="fn">dispatch_chain</span>([
+    <span class="tp">ValidateOrder</span>{order_id: <span class="st">'ORD-001'</span>},
+    <span class="tp">ProcessPayment</span>{order_id: <span class="st">'ORD-001'</span>},
+    <span class="tp">SendConfirmation</span>{order_id: <span class="st">'ORD-001'</span>},
+])!
+
+<span class="cm">// 批量调度</span>
+dispatcher.<span class="fn">dispatch_batch</span>([
+    <span class="tp">SendWelcomeEmail</span>{user_id: <span class="nm">1</span>, email: <span class="st">'a@example.com'</span>},
+    <span class="tp">SendWelcomeEmail</span>{user_id: <span class="nm">2</span>, email: <span class="st">'b@example.com'</span>},
+    <span class="tp">SendWelcomeEmail</span>{user_id: <span class="nm">3</span>, email: <span class="st">'c@example.com'</span>},
+])!
+
+<span class="cm">// Laravel 等价：dispatch() / dispatch(new Job)->delay(60) / Bus::chain([])</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. Worker ═══ -->
+      <div class="doc-section" id="worker">
+        <div class="section-header"><div class="section-icon icon-queue">👷</div><div><div class="section-title">Worker</div><div class="section-subtitle">后台轮询 + 执行 + 重试</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 注册 Job 处理器</span>
+<span class="kw">mut</span> worker := queue.<span class="fn">new_worker</span>(queue_backend)
+worker.<span class="fn">register</span>(<span class="st">'send_welcome_email'</span>, <span class="tp">SendWelcomeEmail</span>{})
+
+<span class="cm">// 启动 Worker（轮询 + 执行）</span>
+worker.<span class="fn">run</span>()  <span class="cm">// 阻塞运行</span>
+
+<span class="cm">// 优雅停止</span>
+worker.<span class="fn">stop</span>()
+
+<span class="cm">// Laravel 等价：php artisan queue:work</span></div>
+        </div>
+      </div>
+
+      <div class="production-box">
+        <div class="production-title">🚀 生产实践</div>
+        <ul>
+          <li>Job 必须是幂等的（重试不会产生副作用）</li>
+          <li>设置合理的 <code>tries()</code> 和 <code>backoff()</code>，避免无限重试</li>
+          <li>长时间运行的任务拆分为链式 Job，每步可独立重试</li>
+          <li>Worker 进程使用 systemd/supervisor 管理，崩溃自动重启</li>
+          <li>监控队列积压（pending jobs），及时扩容 Worker</li>
+        </ul>
+      </div>
+
+      <div class="page-nav">
+        <a href="#logger">← Logger 日志</a>
+        <a href="#security" class="nav-next">Security 安全 →</a>
+      </div>

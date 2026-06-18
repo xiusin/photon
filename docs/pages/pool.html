@@ -1,0 +1,105 @@
+<!-- title: Pool · 连接池 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Pool · 连接池 -->
+<div class="hero">
+        <h1>Pool · 连接池</h1>
+        <p>通用对象池、可配置 min/max 容量、健康检查、空闲超时、线程安全 — HikariCP 风格的连接管理。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 GA</span><span class="hero-tag">import photon.pool</span><span class="hero-tag">对标 HikariCP</span></div>
+      </div>
+
+      <!-- ═══ 1. Quick Start ═══ -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header"><div class="section-icon icon-pool">🏊</div><div><div class="section-title">快速上手</div><div class="section-subtitle">创建池 · 获取对象 · 归还对象</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.pool
+
+<span class="cm">// 1. 定义池化对象（必须实现 PooledObject 接口）</span>
+<span class="kw">struct</span> <span class="tp">DbConnection</span> {
+    <span class="kw">pub mut</span>:
+    host     <span class="tp">string</span>
+    is_valid <span class="tp">bool</span> = <span class="kw">true</span>
+}
+
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">c</span> <span class="tp">DbConnection</span>) <span class="fn">close</span>() ! {
+    <span class="cm">// 关闭连接</span>
+}
+
+<span class="kw">pub fn</span> (<span class="at">c</span> &<span class="tp">DbConnection</span>) <span class="fn">is_valid</span>() <span class="tp">bool</span> {
+    <span class="kw">return</span> c.is_valid
+}
+
+<span class="cm">// 2. 创建连接池</span>
+<span class="kw">mut</span> p := pool.<span class="fn">new_pool_with_config</span>(<span class="st">'db-pool'</span>, fn () !voidptr {
+    <span class="cm">// 工厂函数 — 创建新连接</span>
+    conn := &<span class="tp">DbConnection</span>{host: <span class="st">'localhost'</span>}
+    <span class="kw">return</span> <span class="kw">unsafe</span> { conn }
+}, <span class="nm">2</span>, <span class="nm">10</span>)  <span class="cm">// min=2, max=10</span>
+
+<span class="cm">// 3. 初始化（预创建 min_size 个对象）</span>
+p.<span class="fn">initialize</span>()!
+
+<span class="cm">// 4. 获取对象</span>
+obj := p.<span class="fn">acquire</span>()!
+conn := <span class="kw">unsafe</span> { &<span class="tp">DbConnection</span>(obj) }
+<span class="cm">// ... 使用连接</span>
+
+<span class="cm">// 5. 归还对象</span>
+p.<span class="fn">release</span>(obj)
+
+<span class="cm">// 6. 查看池状态</span>
+stats := p.<span class="fn">stats</span>()
+<span class="fn">println</span>(<span class="st">'Active: ${stats.active}, Idle: ${stats.idle}'</span>)
+
+<span class="cm">// 7. 关闭池</span>
+p.<span class="fn">close</span>()!</div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. Configuration ═══ -->
+      <div class="doc-section" id="config">
+        <div class="section-header"><div class="section-icon icon-pool">⚙️</div><div><div class="section-title">配置参数</div><div class="section-subtitle">min_size / max_size / idle_timeout</div></div></div>
+
+        <table class="doc-table">
+          <thead><tr><th>参数</th><th>默认值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>min_size</code></td><td>2</td><td>池中最少保持的对象数</td></tr>
+            <tr><td><code>max_size</code></td><td>10</td><td>池中最多允许的对象数</td></tr>
+            <tr><td><code>idle_timeout_seconds</code></td><td>300</td><td>空闲对象超时时间（秒）</td></tr>
+            <tr><td><code>name</code></td><td>—</td><td>池名称（日志标识）</td></tr>
+            <tr><td><code>factory</code></td><td>—</td><td>对象工厂函数</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ═══ 3. Health Check ═══ -->
+      <div class="doc-section" id="health">
+        <div class="section-header"><div class="section-icon icon-pool">💚</div><div><div class="section-title">健康检查</div><div class="section-subtitle">自动剔除无效连接</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 获取对象时自动检查有效性</span>
+obj := p.<span class="fn">acquire</span>()!  <span class="cm">// 内部调用 obj.is_valid()</span>
+
+<span class="cm">// 手动清理无效对象</span>
+p.<span class="fn">cleanup_invalid</span>()
+
+<span class="cm">// HikariCP 等价：connectionTimeout / validationTimeout</span></div>
+        </div>
+      </div>
+
+      <div class="production-box">
+        <div class="production-title">🚀 生产实践</div>
+        <ul>
+          <li><code>min_size</code> 设置为常态并发量，减少冷启动时的连接创建开销</li>
+          <li><code>max_size</code> 不超过数据库最大连接数 / 系统文件描述符上限</li>
+          <li>设置 <code>idle_timeout</code> 避免空闲连接长期占用资源</li>
+          <li>使用 <code>defer { pool.release(conn) }</code> 确保连接一定归还</li>
+          <li>监控 <code>pool.stats()</code>，当 wait_count 持续增长时扩容</li>
+        </ul>
+      </div>
+
+      <div class="page-nav">
+        <a href="#lock">← Lock 分布式锁</a>
+        <a href="#logger" class="nav-next">Logger 日志 →</a>
+      </div>

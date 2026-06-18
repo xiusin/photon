@@ -1,0 +1,146 @@
+<!-- title: 文档宪法 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>文档宪法 -->
+<div class="hero">
+        <h1>文档宪法</h1>
+        <p>确保文档与代码永远同步的规则体系 — 当功能变更时，相关文档必须同步更新。这是所有开发者的强制性义务。</p>
+        <div class="hero-tags"><span class="hero-tag">📜 宪法</span><span class="hero-tag">强制执行</span><span class="hero-tag">文档即代码</span></div>
+      </div>
+
+      <!-- ═══ Preamble ═══ -->
+      <div class="doc-section" id="preamble">
+        <div class="section-header"><div class="section-icon icon-constitution">📜</div><div><div class="section-title">前言</div><div class="section-subtitle">为什么需要文档宪法？</div></div></div>
+
+        <div class="constitution-box">
+          <div class="constitution-title">🏛️ 核心原则</div>
+          <p>过时的文档比没有文档更危险。它误导开发者、浪费排查时间、损害框架信誉。本宪法确立"文档即代码"的原则：文档与源码享有同等的版本管理、Code Review 和持续集成地位。</p>
+        </div>
+      </div>
+
+      <!-- ═══ Articles ═══ -->
+      <div class="doc-section" id="articles">
+        <div class="section-header"><div class="section-icon icon-constitution">⚖️</div><div><div class="section-title">宪法条款</div><div class="section-subtitle">9 条强制规则</div></div></div>
+
+        <div class="constitution-article" data-article="第1条">
+          <h4>1.1 新增功能</h4>
+          <p>新增注解、API、模块或行为时，<strong>必须同步更新</strong>相关 HTML 页面：</p>
+          <ul class="feature-list">
+            <li>新增 <code>@[annotation]</code> → 更新 <strong>core.html</strong> 的注解表 + 对应模块页面的用法示例</li>
+            <li>新增 public 函数 → 更新对应模块页面的 API 参考表</li>
+            <li>新增模块 → 更新 <strong>index.html</strong> 的模块索引 + 创建新模块 HTML 页面</li>
+          </ul>
+        </div>
+
+        <div class="constitution-article" data-article="第2条">
+          <h4>2.1 API 变更</h4>
+          <p>任何 public API 的变更（签名、行为、废弃）必须同步更新文档：</p>
+          <ul class="feature-list">
+            <li>函数签名变更 → 更新 API 参考表中的参数和返回值</li>
+            <li>行为变更 → 更新用法示例和说明文字</li>
+            <li>API 废弃 → 在文档中标注 <code>@deprecated</code> 和迁移路径</li>
+          </ul>
+        </div>
+
+        <div class="constitution-article" data-article="第3条">
+          <h4>3.1 代码示例验证</h4>
+          <p>文档中的所有代码示例必须：</p>
+          <ul class="feature-list">
+            <li>与当前 API 兼容（不引用已删除的函数/类型）</li>
+            <li>可编译运行（不包含省略号占位符 <code>...</code> 除非明确标注为伪代码）</li>
+            <li>遵循 V 语言官方风格指南</li>
+          </ul>
+        </div>
+
+        <div class="constitution-article" data-article="第4条">
+          <h4>4.1 Spring/Laravel 类比同步</h4>
+          <p>comparison-grid 和 info-spring/info-laravel 中的类比必须准确：</p>
+          <ul class="feature-list">
+            <li>新功能添加类比时，需确认 Spring/Laravel 中确实存在对应概念</li>
+            <li>类比不是等价 — 必须注明差异点（如有）</li>
+            <li>Spring Boot 版本以 3.x 为准，Laravel 版本以 11.x 为准</li>
+          </ul>
+        </div>
+
+        <div class="constitution-article" data-article="第5条">
+          <h4>5.1 生产实践同步</h4>
+          <p>production.html 和各模块的 production-box 必须反映当前安全最佳实践：</p>
+          <ul class="feature-list">
+            <li>新增安全相关功能 → 更新 production.html 对应章节</li>
+            <li>性能相关变更 → 更新性能优化建议</li>
+            <li>部署方式变更 → 更新部署指南</li>
+          </ul>
+        </div>
+
+        <div class="constitution-article" data-article="第6条">
+          <h4>6.1 版本标记</h4>
+          <p>每个模块页面必须标注当前成熟度徽章：</p>
+          <ul class="feature-list">
+            <li><span class="module-badge badge-ga">GA</span> — 生产就绪，API 稳定</li>
+            <li><span class="module-badge badge-beta">Beta</span> — 功能完整，可能微调</li>
+            <li><span class="module-badge badge-alpha">Alpha</span> — 实验性，API 可能大幅变更</li>
+          </ul>
+          <p>成熟度变更时，同步更新 index.html 模块索引和模块页面的 hero-tags。</p>
+        </div>
+
+        <div class="constitution-article" data-article="第7条">
+          <h4>7.1 文档结构一致性</h4>
+          <p>所有模块页面遵循统一结构：</p>
+          <div class="code-block">
+            <div class="code-header"><span class="code-lang">结构模板</span></div>
+            <div class="code-body">1. Hero（标题 + 简介 + 标签）
+2. 快速上手（最简可用示例）
+3. 核心概念（接口/结构体说明）
+4. 详细用法（分场景 Demo）
+5. API 参考（方法列表 + 参数表）
+6. Spring/Laravel 对比
+7. 🚀 生产实践（production-box）
+8. 页面导航（上一页 / 下一页）</div>
+          </div>
+        </div>
+
+        <div class="constitution-article" data-article="第8条">
+          <h4>8.1 Code Review 检查项</h4>
+          <p>PR 审查时必须检查：</p>
+          <ul class="feature-list">
+            <li>源码变更是否涉及 public API？→ 对应文档是否同步更新？</li>
+            <li>新增的 <code>@[annotation]</code> 是否在文档中有说明？</li>
+            <li>代码示例是否可编译运行？</li>
+            <li>production-box 中的建议是否仍然适用？</li>
+            <li>成熟度徽章是否需要更新？</li>
+          </ul>
+        </div>
+
+        <div class="constitution-article" data-article="第9条">
+          <h4>9.1 违宪处理</h4>
+          <p>发现文档与代码不一致时：</p>
+          <ul class="feature-list">
+            <li>立即创建 Issue 标记为 <code>docs:out-of-sync</code></li>
+            <li>24 小时内提交修复 PR</li>
+            <li>同一文件连续 3 次违宪 → 添加 CI 检查自动验证</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ═══ Checklist ═══ -->
+      <div class="doc-section" id="checklist">
+        <div class="section-header"><div class="section-icon icon-constitution">✅</div><div><div class="section-title">文档更新 Checklist</div><div class="section-subtitle">每次代码变更后检查</div></div></div>
+
+        <table class="doc-table">
+          <thead><tr><th>变更类型</th><th>需要更新的文档</th><th>优先级</th></tr></thead>
+          <tbody>
+            <tr><td>新增 <code>@[annotation]</code></td><td>core.html 注解表 + 对应模块页</td><td>🔴 P0</td></tr>
+            <tr><td>新增 public 函数</td><td>模块页 API 参考表</td><td>🔴 P0</td></tr>
+            <tr><td>函数签名变更</td><td>API 参考表 + 用法示例</td><td>🔴 P0</td></tr>
+            <tr><td>行为变更</td><td>用法说明 + 示例代码</td><td>🟡 P1</td></tr>
+            <tr><td>新增模块</td><td>index.html + 新 HTML 页 + 侧边栏</td><td>🔴 P0</td></tr>
+            <tr><td>API 废弃</td><td>标注 @deprecated + 迁移指南</td><td>🟡 P1</td></tr>
+            <tr><td>安全相关变更</td><td>production.html + 模块页 production-box</td><td>🔴 P0</td></tr>
+            <tr><td>成熟度变更</td><td>index.html 徽章 + 模块页 hero-tags</td><td>🟡 P1</td></tr>
+            <tr><td>性能优化</td><td>production.html + 模块页 production-box</td><td>🟢 P2</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="page-nav">
+        <a href="#production">← 生产实践</a>
+        <a href="#index" class="nav-next">返回概览 →</a>
+      </div>

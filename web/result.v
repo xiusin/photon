@@ -7,6 +7,7 @@ module web
 // Designed for consistent REST API responses.
 
 import json
+import time
 
 // Result is the standard API response wrapper
 pub struct Result {
@@ -44,6 +45,7 @@ pub fn success(data string) Result {
 		code: 200
 		message: 'OK'
 		data: data
+		timestamp: time.now().unix()
 	}
 }
 
@@ -54,6 +56,7 @@ pub fn success_with_msg(data string, msg string) Result {
 		code: 200
 		message: msg
 		data: data
+		timestamp: time.now().unix()
 	}
 }
 
@@ -63,6 +66,7 @@ pub fn fail(code int, msg string) Result {
 		success: false
 		code: code
 		message: msg
+		timestamp: time.now().unix()
 	}
 }
 
@@ -101,6 +105,7 @@ pub fn created(data string) Result {
 		code: 201
 		message: 'Created'
 		data: data
+		timestamp: time.now().unix()
 	}
 }
 
@@ -110,6 +115,7 @@ pub fn no_content() Result {
 		success: true
 		code: 204
 		message: 'No Content'
+		timestamp: time.now().unix()
 	}
 }
 

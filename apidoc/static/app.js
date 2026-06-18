@@ -49,12 +49,15 @@ document.addEventListener('DOMContentLoaded', () => {
     document.documentElement.classList.add('dark')
   }
 
-  // Bind search
+  // Bind search — listen to both 'input' and 'change' for fluent-text-field compatibility
   const searchInput = document.getElementById('searchInput')
-  searchInput.addEventListener('input', (e) => {
-    state.searchTerm = (e.target.value || '').toLowerCase()
+  const handleSearch = (e) => {
+    const val = e.target.value || ''
+    state.searchTerm = val.toLowerCase()
     renderSidebar()
-  })
+  }
+  searchInput.addEventListener('input', handleSearch)
+  searchInput.addEventListener('change', handleSearch)
 
   // Bind command bar buttons
   document.getElementById('refreshBtn').addEventListener('click', loadEntries)
@@ -66,10 +69,20 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('deleteCancelBtn').addEventListener('click', closeDeleteDialog)
   document.getElementById('deleteConfirmBtn').addEventListener('click', confirmDelete)
 
+  // Close dialog on backdrop click (Fluent UI dismiss pattern)
+  const deleteDialog = document.getElementById('deleteDialog')
+  deleteDialog.addEventListener('click', (e) => {
+    if (e.target === deleteDialog) closeDeleteDialog()
+  })
+
   // Delegate click events for dynamically rendered content
   document.getElementById('sidebarGroups').addEventListener('click', handleSidebarClick)
   document.getElementById('detailView').addEventListener('click', handleDetailClick)
   document.getElementById('detailView').addEventListener('focusout', handleDetailEdit)
+
+  // Listen for fluent-combobox changes (type dropdowns)
+  document.getElementById('detailView').addEventListener('change', handleComboChange)
+  document.getElementById('detailView').addEventListener('input', handleComboChange)
 
   // Initial load
   loadEntries()
@@ -228,12 +241,29 @@ function renderDetail(id) {
   if (!entry) { showEmpty(); return }
 
   document.getElementById('emptyState').style.display = 'none'
-  const dv = document.getElementById('detailView')
-  dv.style.display = 'block'
+  document.getElementById('detailView').style.display = 'block'
 
   // Update breadcrumb
   document.getElementById('breadcrumbCurrent').textContent = entry.summary || entry.path
 
+  const detailView = document.getElementById('detailView')
+  detailView.innerHTML = `
+    <div class="main-tabs" role="tablist">
+      <button class="main-tab-btn active" data-main-tab="info" data-entry-id="${escapeAttr(entry.id)}">接口信息</button>
+      <button class="main-tab-btn" data-main-tab="test" data-entry-id="${escapeAttr(entry.id)}">测试</button>
+    </div>
+    <div class="main-tab-panels">
+      <div class="main-tab-panel active" data-main-panel="info">${renderInfoTab(entry)}</div>
+      <div class="main-tab-panel" data-main-panel="test">${renderTestTab(entry)}</div>
+    </div>
+  `
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 7. INFO TAB (Read-only configuration display)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderInfoTab(entry) {
   const lockIcon = entry.locked ? Icons.lock : Icons.unlock
   const lockBtnAppearance = entry.locked ? 'accent' : 'outline'
   const lockBtnLabel = entry.locked ? '解锁' : '锁定'
@@ -266,75 +296,78 @@ function renderDetail(id) {
 
       <div class="overview-actions">
         <fluent-button appearance="${lockBtnAppearance}" size="small" data-action="toggle-lock" data-entry-id="${escapeAttr(entry.id)}" title="${lockBtnLabel}">
-          ${lockIcon} ${lockBtnLabel}
+          ${lockBtnLabel}
         </fluent-button>
         <fluent-button appearance="outline" size="small" data-action="delete-entry" data-entry-id="${escapeAttr(entry.id)}">
-          ${Icons.trash} 删除
+          删除
         </fluent-button>
       </div>
     </div>
   </fluent-card>`
 
-  // ── Parameters Section ──
+  // ── Request Parameters Section (Read-only) ──
   const params = entry.parameters || []
-  html += renderSectionCard(
-    Icons.pin + ' 请求参数',
-    params.length,
-    params.length === 0
-      ? '<div class="empty-hint">暂未捕获到参数</div>'
-      : renderParamTable([
-          { label: '名称',   render: p => `<span class="param-name">${escapeHtml(p.name)}</span>` },
-          { label: '位置',   render: p => `<span class="param-type">${escapeHtml(p.location)}</span>` },
-          { label: '类型',   render: p => `<span class="param-type">${escapeHtml(p.type || 'string')}</span>` },
-          { label: '必需',   render: p => `<span class="param-required ${p.required ? 'yes' : 'no'}">${p.required ? '是' : '否'}</span>` },
-          { label: '说明',   render: p => `<div class="param-desc"><input type="text" value="${escapeAttr(p.description || '')}" placeholder="..." data-action="edit-param-desc" data-entry-id="${escapeAttr(entry.id)}" data-param-location="${escapeAttr(p.location)}" data-param-name="${escapeAttr(p.name)}" /></div>` },
-          { label: '示例',   render: p => `<span class="param-example">${escapeHtml(formatExamples(p.examples || p.example))}</span>` },
-          { label: '',       render: p => `<span class="param-lock${p.locked ? ' locked' : ''}" data-action="toggle-param-lock" data-entry-id="${escapeAttr(entry.id)}" data-param-location="${escapeAttr(p.location)}" data-param-name="${escapeAttr(p.name)}">${p.locked ? Icons.lock : Icons.unlock}</span>` },
-        ], params),
-    params.length
-  )
-
-  // ── Headers Section ──
-  const headers = entry.headers || []
-  html += renderSectionCard(
-    Icons.attach + ' 请求头',
-    headers.length,
-    headers.length === 0
-      ? '<div class="empty-hint">仅显示非标准请求头</div>'
-      : renderParamTable([
-          { label: '名称', render: h => `<span class="param-name">${escapeHtml(h.name)}</span>` },
-          { label: '示例', render: h => `<span class="param-example">${escapeHtml(h.value_sample || h.value || '-')}</span>` },
-          { label: '',     render: h => `<span class="param-lock${h.locked ? ' locked' : ''}" data-action="toggle-header-lock" data-entry-id="${escapeAttr(entry.id)}" data-header-name="${escapeAttr(h.name)}">${h.locked ? Icons.lock : Icons.unlock}</span>` },
-        ], headers),
-    headers.length
-  )
-
-  // ── Request Body Section ──
   const reqBody = entry.request_body || {}
   const reqProps = reqBody.properties || {}
   const reqArr = Object.entries(reqProps)
-  let reqHtml = ''
-  if (reqArr.length > 0) {
-    reqHtml += renderParamTable([
-      { label: '属性', render: (_, k) => `<span class="param-name">${escapeHtml(k)}</span>` },
-      { label: '类型', render: (_, k, p) => `<span class="param-type">${escapeHtml(p.type || p.type_ || 'string')}</span>` },
-      { label: '说明', render: (_, k, p) => `<div class="param-desc"><input type="text" value="${escapeAttr(p.description || '')}" placeholder="..." /></div>` },
-      { label: '示例', render: (_, k, p) => `<span class="param-example">${escapeHtml(formatExamples(p.examples || p.example))}</span>` },
-    ], reqArr.map(([k, p]) => ({ name: k, ...p })))
-  }
-  if (reqBody.example) {
-    reqHtml += `<pre class="json-block">${highlightJson(reqBody.example)}</pre>`
-  }
-  html += renderSectionCard(
-    Icons.package + ' 请求体' + (reqBody.content_type ? ` (${reqBody.content_type})` : ''),
-    reqArr.length + (reqBody.example ? 1 : 0),
-    reqArr.length === 0 && !reqBody.example
-      ? '<div class="empty-hint">无请求体数据</div>'
-      : reqHtml,
-    reqArr.length + (reqBody.example ? 1 : 0)
-  )
+  const headers = entry.headers || []
 
-  // ── Response Section ──
+  // Params table (read-only, no editable fields)
+  if (params.length > 0) {
+    html += renderSectionCard(
+      Icons.pin + ' 请求参数',
+      params.length,
+      renderParamTable([
+        { label: '名称',   render: p => `<span class="param-name">${escapeHtml(p.name)}</span>` },
+        { label: '位置',   render: p => `<span class="param-type">${escapeHtml(p.location)}</span>` },
+        { label: '类型',   render: p => `<span class="param-type ${(p.type || 'string').toLowerCase()}">${escapeHtml(p.type || 'string')}</span>` },
+        { label: '必需',   render: p => `<span class="param-required ${p.required ? 'yes' : 'no'}">${p.required ? '是' : '否'}</span>` },
+        { label: '说明',   render: p => `<span class="param-desc">${escapeHtml(p.description || '-')}</span>` },
+        { label: '示例',   render: p => `<span class="param-example">${escapeHtml(formatExamples(p.examples || p.example))}</span>` },
+      ], params),
+      params.length
+    )
+  }
+
+  // Request Body (read-only)
+  let bodyCount = reqArr.length + (reqBody.example ? 1 : 0)
+  if (bodyCount > 0) {
+    let bodyHtml = ''
+    if (reqArr.length > 0) {
+      bodyHtml += renderParamTable([
+        { label: '属性', render: (_, k) => `<span class="param-name">${escapeHtml(k)}</span>` },
+        { label: '类型', render: (_, k, p) => `<span class="param-type ${(p.type || p.type_ || 'string').toLowerCase()}">${escapeHtml(p.type || p.type_ || 'string')}</span>` },
+        { label: '说明', render: (_, k, p) => `<span class="param-desc">${escapeHtml(p.description || '-')}</span>` },
+        { label: '示例', render: (_, k, p) => `<span class="param-example">${escapeHtml(formatExamples(p.examples || p.example))}</span>` },
+      ], reqArr.map(([k, p]) => ({ name: k, ...p })))
+    }
+    if (reqBody.example) {
+      let pretty = reqBody.example
+      try { pretty = JSON.stringify(JSON.parse(reqBody.example), null, 2) } catch {}
+      bodyHtml += `<pre class="json-block">${highlightJson(pretty)}</pre>`
+    }
+    html += renderSectionCard(
+      Icons.package + ' 请求体',
+      bodyCount,
+      bodyHtml,
+      bodyCount
+    )
+  }
+
+  // Headers (read-only)
+  if (headers.length > 0) {
+    html += renderSectionCard(
+      Icons.attach + ' 请求头',
+      headers.length,
+      renderParamTable([
+        { label: '名称', render: h => `<span class="param-name">${escapeHtml(h.name)}</span>` },
+        { label: '示例', render: h => `<span class="param-example">${escapeHtml(h.value_sample || h.value || '-')}</span>` },
+      ], headers),
+      headers.length
+    )
+  }
+
+  // ── Response Section (Read-only) ──
   const resp = entry.response || {}
   const respProps = resp.properties || []
   let respHtml = ''
@@ -350,11 +383,11 @@ function renderDetail(id) {
   if (respProps.length > 0) {
     respHtml += renderParamTable([
       { label: '路径', render: p => `<span class="param-name">${escapeHtml(p.path)}</span>` },
-      { label: '类型', render: p => `<span class="param-type">${escapeHtml(p.type || p.type_ || 'string')}${p.nullable ? '?' : ''}</span>` },
+      { label: '类型', render: p => `<span class="param-type ${(p.type || p.type_ || 'string').toLowerCase()}">${escapeHtml(p.type || p.type_ || 'string')}</span>` },
       { label: '原始', render: p => `<span class="param-example">${escapeHtml(p.original_type || '')}</span>` },
-      { label: '说明', render: p => `<div class="param-desc"><input type="text" value="${escapeAttr(p.description || '')}" placeholder="..." data-action="edit-resp-prop-desc" data-entry-id="${escapeAttr(entry.id)}" data-resp-path="${escapeAttr(p.path)}" /></div>` },
+      { label: '说明', render: p => `<span class="param-desc">${escapeHtml(p.description || '')}</span>` },
       { label: '示例', render: p => `<span class="param-example">${escapeHtml(formatExamples(p.examples || p.example))}</span>` },
-      { label: '',     render: p => `<span class="param-lock${p.locked ? ' locked' : ''}" data-action="toggle-resp-prop-lock" data-entry-id="${escapeAttr(entry.id)}" data-resp-path="${escapeAttr(p.path)}">${p.locked ? Icons.lock : Icons.unlock}</span>` },
+      { label: '',     render: p => `<span class="param-lock px-5${p.locked ? ' locked' : ''}" data-action="toggle-resp-prop-lock" data-entry-id="${escapeAttr(entry.id)}" data-resp-path="${escapeAttr(p.path)}">${p.locked ? Icons.lock : Icons.unlock}</span>` },
     ], respProps)
   }
 
@@ -373,11 +406,141 @@ function renderDetail(id) {
     respProps.length + (resp.body_sample ? 1 : 0)
   )
 
-  dv.innerHTML = html
+  return html
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 7. COMPONENT BUILDERS
+// 8. TEST TAB (Editable request playground with sub-tabs)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderTestTab(entry) {
+  const entryId = escapeAttr(entry.id)
+  const method = escapeHtml(entry.method)
+  const path = escapeHtml(entry.path)
+
+  const reqBody = entry.request_body || {}
+  const reqProps = reqBody.properties || {}
+  const reqArr = Object.entries(reqProps)
+  const headers = entry.headers || []
+  const params = entry.parameters || []
+
+  // Build sub-tab content
+  // Params: editable value field for testing
+  const paramsHtml = params.length === 0
+    ? '<div class="empty-hint">暂未捕获到参数</div>'
+    : renderParamTable([
+        { label: '名称',   render: p => `<span class="param-name">${escapeHtml(p.name)}</span>` },
+        { label: '位置',   render: p => `<span class="param-type">${escapeHtml(p.location)}</span>` },
+        { label: '类型',   render: p => renderTypeCombo(p.type || 'string', 'param', entryId, escapeAttr(p.location), escapeAttr(p.name)) },
+        { label: '必需',   render: p => `<span class="param-required ${p.required ? 'yes' : 'no'}">${p.required ? '是' : '否'}</span>` },
+        { label: '值',     render: p => `<fluent-text-field class="param-value-input" appearance="outline" placeholder="输入值..." value="${escapeAttr(p.example || p.examples?.[0] || '')}" data-param-location="${escapeAttr(p.location)}" data-param-name="${escapeAttr(p.name)}"></fluent-text-field>` },
+        { label: '',       render: p => `<span class="param-lock px-5${p.locked ? ' locked' : ''}" data-action="toggle-param-lock" data-entry-id="${entryId}" data-param-location="${escapeAttr(p.location)}" data-param-name="${escapeAttr(p.name)}">${p.locked ? Icons.lock : Icons.unlock}</span>` },
+      ], params)
+
+  // Body: editable JSON textarea for testing
+  const bodyHtml = reqArr.length === 0 && !reqBody.example
+    ? '<div class="empty-hint">无请求体数据</div>'
+    : `<fluent-text-area class="body-json-input" appearance="outline" placeholder="输入 JSON 请求体..." style="width:100%;min-height:200px;font-family:var(--font-family-mono);" value="${escapeAttr(reqBody.example || '')}"></fluent-text-area>`
+
+  const rawHtml = reqBody.example
+    ? `<pre class="json-block">${escapeHtml(reqBody.example)}</pre>`
+    : '<div class="empty-hint">无原始请求体</div>'
+
+  const jsonHtml = reqBody.example
+    ? `<pre class="json-block">${highlightJson(reqBody.example)}</pre>`
+    : '<div class="empty-hint">无 JSON 请求体</div>'
+
+  // Headers: editable value field for testing
+  const headersHtml = headers.length === 0
+    ? '<div class="empty-hint">仅显示非标准请求头</div>'
+    : renderParamTable([
+        { label: '名称', render: h => `<span class="param-name">${escapeHtml(h.name)}</span>` },
+        { label: '值',   render: h => `<fluent-text-field class="header-value-input" appearance="outline" placeholder="输入值..." value="${escapeAttr(h.value_sample || h.value || '')}" data-header-name="${escapeAttr(h.name)}"></fluent-text-field>` },
+        { label: '',     render: h => `<span class="param-lock${h.locked ? ' locked' : ''}" data-action="toggle-header-lock" data-entry-id="${entryId}" data-header-name="${escapeAttr(h.name)}">${h.locked ? Icons.lock : Icons.unlock}</span>` },
+      ], headers)
+
+  const cookiesHtml = '<div class="empty-hint">暂无 Cookies 数据</div>'
+
+  // Determine which tabs to show based on data availability
+  const hasParams = params.length > 0
+  const hasBody = reqBody.example || reqArr.length > 0
+  const hasHeaders = headers.length > 0
+
+  // Build dynamic tab list - only show tabs that have data
+  const tabs = []
+  if (hasParams) tabs.push({ id: 'params', label: 'Params' })
+  if (hasBody) {
+    tabs.push({ id: 'body', label: 'Body' })
+    tabs.push({ id: 'raw', label: 'Raw' })
+    tabs.push({ id: 'json', label: 'Json' })
+  }
+  if (hasHeaders) tabs.push({ id: 'headers', label: 'Headers' })
+  tabs.push({ id: 'cookies', label: 'Cookies' })
+
+  // Default active tab
+  const defaultTab = tabs.length > 0 ? tabs[0].id : 'cookies'
+
+  // Build tab buttons HTML
+  const tabButtonsHtml = tabs.map((tab, idx) =>
+    `<button class="tab-btn ${tab.id === defaultTab ? 'active' : ''}" data-tab="${tab.id}" data-entry-id="${entryId}">${tab.label}</button>`
+  ).join('')
+
+  // Build tab panels HTML
+  const tabPanelsHtml = tabs.map(tab => {
+    let content = ''
+    switch (tab.id) {
+      case 'params': content = paramsHtml; break
+      case 'body': content = bodyHtml; break
+      case 'raw': content = rawHtml; break
+      case 'json': content = jsonHtml; break
+      case 'headers': content = headersHtml; break
+      case 'cookies': content = cookiesHtml; break
+    }
+    return `<div class="tab-panel ${tab.id === defaultTab ? 'active' : ''}" data-panel="${tab.id}" data-entry-id="${entryId}">${content}</div>`
+  }).join('')
+
+  // Method dropdown options
+  const methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
+  const methodOptions = methods.map(m =>
+    `<fluent-option value="${m}" ${m === entry.method ? 'selected' : ''}>${m}</fluent-option>`
+  ).join('')
+
+  return `<fluent-card class="section-card request-playground">
+    <div class="playground-header">
+      <div class="playground-url-bar">
+        <fluent-combobox class="playground-method-select" current-value="${entry.method}" data-entry-id="${entryId}">
+          ${methodOptions}
+        </fluent-combobox>
+        <fluent-text-field class="playground-url-input" appearance="outline" value="${path}"></fluent-text-field>
+        <fluent-button appearance="accent" class="playground-send-btn" data-action="send-request" data-entry-id="${entryId}">
+          发送请求
+        </fluent-button>
+      </div>
+    </div>
+    <div class="playground-tabs" data-entry-id="${entryId}">
+      <div class="tab-list" role="tablist">
+        ${tabButtonsHtml}
+      </div>
+      <div class="tab-panels">
+        ${tabPanelsHtml}
+      </div>
+    </div>
+  </fluent-card>`
+}
+
+function activateRequestTab(tabName, entryId) {
+  const tabsContainer = document.querySelector(`.playground-tabs[data-entry-id="${CSS.escape(entryId)}"]`)
+  if (!tabsContainer) return
+  tabsContainer.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tabName)
+  })
+  tabsContainer.querySelectorAll('.tab-panel').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.panel === tabName)
+  })
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 9. COMPONENT BUILDERS
 // ═══════════════════════════════════════════════════════════════════════════
 
 function renderSectionCard(title, count, bodyHtml, totalCount) {
@@ -439,6 +602,28 @@ function handleSidebarClick(e) {
 }
 
 function handleDetailClick(e) {
+  // Main tab switching (接口信息 / 测试)
+  const mainTabBtn = e.target.closest('.main-tab-btn')
+  if (mainTabBtn) {
+    const tabName = mainTabBtn.dataset.mainTab
+    const entryId = mainTabBtn.dataset.entryId
+    if (tabName && entryId) {
+      activateMainTab(tabName, entryId)
+    }
+    return
+  }
+
+  // Sub-tab switching (Params / Body / Raw / Json / Headers / Cookies)
+  const tabBtn = e.target.closest('.tab-btn')
+  if (tabBtn) {
+    const tabName = tabBtn.dataset.tab
+    const entryId = tabBtn.dataset.entryId
+    if (tabName && entryId) {
+      activateRequestTab(tabName, entryId)
+    }
+    return
+  }
+
   const target = e.target.closest('[data-action]')
   if (!target) return
 
@@ -480,7 +665,23 @@ function handleDetailClick(e) {
       updateEntry(id, { toggleRespPropLock: { path } })
       break
     }
+    case 'send-request': {
+      const id = target.dataset.entryId
+      handleSendRequest(id)
+      break
+    }
   }
+}
+
+function activateMainTab(tabName, entryId) {
+  const detailView = document.getElementById('detailView')
+  if (!detailView) return
+  detailView.querySelectorAll('.main-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mainTab === tabName)
+  })
+  detailView.querySelectorAll('.main-tab-panel').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.mainPanel === tabName)
+  })
 }
 
 function handleDetailEdit(e) {
@@ -498,6 +699,126 @@ function handleDetailEdit(e) {
   }
 }
 
+function handleComboChange(e) {
+  const target = e.target.closest('[data-action]')
+  if (!target) return
+
+  const action = target.dataset.action
+
+  if (action === 'change-param-type') {
+    const entryId = target.dataset.entryId
+    const location = target.dataset.paramLocation
+    const name = target.dataset.paramName
+    const value = target.currentValue || target.value
+    updateEntry(entryId, { updateParamType: { location, name, type: value } })
+    return
+  }
+
+  if (action === 'change-resp-type') {
+    const entryId = target.dataset.entryId
+    const path = target.dataset.respPath
+    const value = target.currentValue || target.value
+    updateEntry(entryId, { updateRespType: { path, type: value } })
+    return
+  }
+}
+
+async function handleSendRequest(id) {
+  const entry = state.entries.find(x => x.id === id)
+  if (!entry) return
+
+  // Find the test tab container for this entry
+  const testPanel = document.querySelector(`.main-tab-panel[data-main-panel="test"] .playground-tabs[data-entry-id="${CSS.escape(id)}"]`)
+  if (!testPanel) {
+    toast('测试面板未找到', 'error')
+    return
+  }
+
+  try {
+    toast('正在发送请求...', 'info')
+
+    // Read URL and Method from inputs (editable)
+    const playground = testPanel.closest('.request-playground')
+    const urlInput = playground.querySelector('.playground-url-input')
+    const methodSelect = playground.querySelector('.playground-method-select')
+    let finalUrl = urlInput?.value || entry.path
+    const method = methodSelect?.currentValue || methodSelect?.value || entry.method
+
+    const opts = {
+      method: method,
+      headers: { 'Accept': 'application/json' },
+    }
+
+    // Read custom headers from input fields
+    const headerInputs = testPanel.querySelectorAll('.header-value-input')
+    headerInputs.forEach(input => {
+      const name = input.dataset.headerName
+      const value = input.value
+      if (name && value) {
+        opts.headers[name] = value
+      }
+    })
+
+    // Build query string from editable param values if GET/DELETE
+    if (method === 'GET' || method === 'DELETE') {
+      const paramInputs = testPanel.querySelectorAll('.param-value-input')
+      const queryParams = []
+      paramInputs.forEach(input => {
+        const location = input.dataset.paramLocation
+        const name = input.dataset.paramName
+        const value = input.value
+        if (location === 'query' && name && value) {
+          queryParams.push(`${encodeURIComponent(name)}=${encodeURIComponent(value)}`)
+        }
+      })
+      if (queryParams.length > 0) {
+        finalUrl += (finalUrl.includes('?') ? '&' : '?') + queryParams.join('&')
+      }
+    }
+
+    // Read body from editable textarea for POST/PUT/PATCH
+    if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
+      const bodyInput = testPanel.querySelector('.body-json-input')
+      const bodyValue = bodyInput?.value
+      if (bodyValue) {
+        opts.headers['Content-Type'] = entry.request_body?.content_type || 'application/json'
+        opts.body = bodyValue
+      }
+    }
+
+    const res = await fetch(finalUrl, opts)
+    const text = await res.text()
+    let body = text
+    try { body = JSON.stringify(JSON.parse(text), null, 2) } catch {}
+
+    showRequestResult({ status: res.status, statusText: res.statusText, headers: Object.fromEntries(res.headers.entries()), body })
+    toast(`请求完成: ${res.status} ${res.statusText}`, res.ok ? 'success' : 'warning')
+  } catch (err) {
+    toast('请求失败: ' + err.message, 'error')
+  }
+}
+
+function showRequestResult(result) {
+  let html = `<div class="request-result">
+    <div class="result-status ${result.status < 300 ? 'success' : (result.status < 500 ? 'warning' : 'error')}">
+      <span class="result-status-code">${result.status}</span>
+      <span class="result-status-text">${escapeHtml(result.statusText)}</span>
+    </div>
+    <div class="result-body">
+      <pre class="json-block">${escapeHtml(result.body)}</pre>
+    </div>
+  </div>`
+
+  // Insert or replace result panel in detail view
+  const dv = document.getElementById('detailView')
+  const existing = dv.querySelector('.request-result')
+  if (existing) {
+    existing.outerHTML = html
+  } else {
+    dv.insertAdjacentHTML('beforeend', html)
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 9. DELETE DIALOG (Fluent UI Dialog — no confirm())
 // ═══════════════════════════════════════════════════════════════════════════
@@ -505,7 +826,7 @@ function handleDetailEdit(e) {
 function openDeleteDialog(id) {
   state.pendingDeleteId = id
   const dialog = document.getElementById('deleteDialog')
-  if (dialog && dialog.showModal) {
+  if (dialog) {
     dialog.showModal()
   }
 }
@@ -513,7 +834,7 @@ function openDeleteDialog(id) {
 function closeDeleteDialog() {
   state.pendingDeleteId = null
   const dialog = document.getElementById('deleteDialog')
-  if (dialog && dialog.close) {
+  if (dialog && dialog.open) {
     dialog.close()
   }
 }
@@ -650,4 +971,19 @@ function formatExamples(examples) {
   if (!examples) return '-'
   if (Array.isArray(examples)) return examples.join(', ') || '-'
   return String(examples)
+}
+
+// Type options for the dropdown
+const TYPE_OPTIONS = ['string', 'int', 'float', 'bool', 'array', 'object', 'any', 'null']
+
+function renderTypeCombo(currentType, context, entryId, location, nameOrPath) {
+  const options = TYPE_OPTIONS.map(t =>
+    `<fluent-option value="${t}"${t === currentType ? ' selected' : ''}>${t}</fluent-option>`
+  ).join('')
+
+  const dataAttrs = context === 'param'
+    ? `data-action="change-param-type" data-entry-id="${entryId}" data-param-location="${location}" data-param-name="${nameOrPath}"`
+    : `data-action="change-resp-type" data-entry-id="${entryId}" data-resp-path="${nameOrPath}"`
+
+  return `<fluent-combobox class="type-combo" ${dataAttrs} current-value="${currentType}">${options}</fluent-combobox>`
 }

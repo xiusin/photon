@@ -1,0 +1,254 @@
+<!-- title: 框架对比 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>框架对比 -->
+<div class="hero">
+        <h1>框架对比</h1>
+        <p>Photon vs Spring Boot vs Laravel — 概念映射与迁移指南，帮助你快速理解 Photon 的设计理念与定位。</p>
+        <div class="hero-tags">
+          <span class="hero-tag" style="color:var(--photon-color)">⚡ Photon</span>
+          <span class="hero-tag" style="color:var(--spring-color)">🌱 Spring Boot</span>
+          <span class="hero-tag" style="color:var(--laravel-color)">🔺 Laravel</span>
+        </div>
+      </div>
+
+      <!-- ═══ Core Concepts ═══ -->
+      <div class="doc-section" id="core">
+        <div class="section-header"><div class="section-icon icon-compare">📊</div><div><div class="section-title">核心概念对比</div><div class="section-subtitle">DI / IoC / 生命周期</div></div></div>
+
+        <div class="comparison-grid">
+          <div class="comparison-header ch-photon">Photon</div>
+          <div class="comparison-header ch-spring">Spring Boot</div>
+          <div class="comparison-header ch-laravel">Laravel</div>
+
+          <div class="comparison-cell"><code>@[component]</code></div>
+          <div class="comparison-cell"><code>@Component / @Service</code></div>
+          <div class="comparison-cell">Service Provider 注册</div>
+
+          <div class="comparison-cell"><code>@[autowired]</code></div>
+          <div class="comparison-cell"><code>@Autowired</code></div>
+          <div class="comparison-cell">构造器自动注入</div>
+
+          <div class="comparison-cell"><code>@[qualifier('name')]</code></div>
+          <div class="comparison-cell"><code>@Qualifier("name")</code></div>
+          <div class="comparison-cell"><code>$app->when()->needs()->give()</code></div>
+
+          <div class="comparison-cell"><code>@[scope('prototype')]</code></div>
+          <div class="comparison-cell"><code>@Scope("prototype")</code></div>
+          <div class="comparison-cell"><code>$app->bind()</code>（非 singleton）</div>
+
+          <div class="comparison-cell"><code>@[lazy]</code></div>
+          <div class="comparison-cell"><code>@Lazy</code></div>
+          <div class="comparison-cell">Deferred Provider</div>
+
+          <div class="comparison-cell"><code>@[post_construct]</code></div>
+          <div class="comparison-cell"><code>@PostConstruct</code></div>
+          <div class="comparison-cell">Provider <code>boot()</code></div>
+
+          <div class="comparison-cell"><code>@[pre_destroy]</code></div>
+          <div class="comparison-cell"><code>@PreDestroy</code></div>
+          <div class="comparison-cell">—</div>
+
+          <div class="comparison-cell"><code>@[value('key')]</code></div>
+          <div class="comparison-cell"><code>@Value("${key}")</code></div>
+          <div class="comparison-cell"><code>config('key')</code></div>
+
+          <div class="comparison-cell"><code>DeferredProvider</code></div>
+          <div class="comparison-cell"><code>ObjectProvider&lt;T&gt;</code></div>
+          <div class="comparison-cell"><code>Container::lazy()</code></div>
+        </div>
+      </div>
+
+      <!-- ═══ Conditional ═══ -->
+      <div class="doc-section" id="conditional">
+        <div class="section-header"><div class="section-icon icon-compare">🔀</div><div><div class="section-title">条件装配对比</div><div class="section-subtitle">按条件注册 Bean</div></div></div>
+
+        <div class="comparison-grid">
+          <div class="comparison-header ch-photon">Photon</div>
+          <div class="comparison-header ch-spring">Spring Boot</div>
+          <div class="comparison-header ch-laravel">Laravel</div>
+
+          <div class="comparison-cell"><code>@[conditional_on_profile('prod')]</code></div>
+          <div class="comparison-cell"><code>@Profile("prod")</code></div>
+          <div class="comparison-cell">env 配置分支</div>
+
+          <div class="comparison-cell"><code>@[conditional_on_property('key')]</code></div>
+          <div class="comparison-cell"><code>@ConditionalOnProperty</code></div>
+          <div class="comparison-cell">config 判断</div>
+
+          <div class="comparison-cell"><code>@[conditional_on_bean('Type')]</code></div>
+          <div class="comparison-cell"><code>@ConditionalOnBean</code></div>
+          <div class="comparison-cell"><code>$app->bound()</code></div>
+
+          <div class="comparison-cell"><code>@[conditional_on_missing_bean('Type')]</code></div>
+          <div class="comparison-cell"><code>@ConditionalOnMissingBean</code></div>
+          <div class="comparison-cell">默认绑定覆盖</div>
+
+          <div class="comparison-cell"><code>AutoConfiguration</code></div>
+          <div class="comparison-cell"><code>@AutoConfiguration</code></div>
+          <div class="comparison-cell">Package auto-discovery</div>
+        </div>
+      </div>
+
+      <!-- ═══ Web ═══ -->
+      <div class="doc-section" id="web">
+        <div class="section-header"><div class="section-icon icon-compare">🌐</div><div><div class="section-title">Web 层对比</div><div class="section-subtitle">路由 / 中间件 / Controller</div></div></div>
+
+        <div class="comparison-grid">
+          <div class="comparison-header ch-photon">Photon</div>
+          <div class="comparison-header ch-spring">Spring Boot</div>
+          <div class="comparison-header ch-laravel">Laravel</div>
+
+          <div class="comparison-cell"><code>@[controller]</code></div>
+          <div class="comparison-cell"><code>@RestController</code></div>
+          <div class="comparison-cell">Controller class</div>
+
+          <div class="comparison-cell"><code>@[get('/path')]</code></div>
+          <div class="comparison-cell"><code>@GetMapping("/path")</code></div>
+          <div class="comparison-cell"><code>Route::get('/path')</code></div>
+
+          <div class="comparison-cell"><code>MiddlewareChain</code></div>
+          <div class="comparison-cell"><code>HandlerInterceptor</code></div>
+          <div class="comparison-cell">Middleware</div>
+
+          <div class="comparison-cell"><code>BaseController</code></div>
+          <div class="comparison-cell"><code>ResponseEntity</code></div>
+          <div class="comparison-cell">JsonResponse</div>
+
+          <div class="comparison-cell"><code>CorsMiddleware</code></div>
+          <div class="comparison-cell"><code>@CrossOrigin</code></div>
+          <div class="comparison-cell">CORS middleware</div>
+        </div>
+      </div>
+
+      <!-- ═══ Data ═══ -->
+      <div class="doc-section" id="data">
+        <div class="section-header"><div class="section-icon icon-compare">🗄️</div><div><div class="section-title">数据层对比</div><div class="section-subtitle">ORM / Repository / 缓存</div></div></div>
+
+        <div class="comparison-grid">
+          <div class="comparison-header ch-photon">Photon</div>
+          <div class="comparison-header ch-spring">Spring Boot</div>
+          <div class="comparison-header ch-laravel">Laravel</div>
+
+          <div class="comparison-cell"><code>BaseRepository[T]</code></div>
+          <div class="comparison-cell"><code>JpaRepository&lt;T, ID&gt;</code></div>
+          <div class="comparison-cell">Eloquent Model</div>
+
+          <div class="comparison-cell">派生查询方法</div>
+          <div class="comparison-cell">Derived Query Method</div>
+          <div class="comparison-cell">Scope / where</div>
+
+          <div class="comparison-cell"><code>Touchable</code> (auto-timestamp)</div>
+          <div class="comparison-cell"><code>@CreatedDate / @LastModifiedDate</code></div>
+          <div class="comparison-cell"><code>$timestamps = true</code></div>
+
+          <div class="comparison-cell"><code>before_insert / after_find</code></div>
+          <div class="comparison-cell"><code>@PrePersist / @PostLoad</code></div>
+          <div class="comparison-cell">Eloquent Events (creating/created)</div>
+
+          <div class="comparison-cell"><code>CacheManager</code></div>
+          <div class="comparison-cell"><code>CacheManager</code></div>
+          <div class="comparison-cell"><code>Cache::facade</code></div>
+
+          <div class="comparison-cell"><code>@[cacheable]</code></div>
+          <div class="comparison-cell"><code>@Cacheable</code></div>
+          <div class="comparison-cell"><code>Cache::remember()</code></div>
+        </div>
+      </div>
+
+      <!-- ═══ Security ═══ -->
+      <div class="doc-section" id="security">
+        <div class="section-header"><div class="section-icon icon-compare">🛡️</div><div><div class="section-title">安全层对比</div><div class="section-subtitle">JWT / RBAC / CSRF</div></div></div>
+
+        <div class="comparison-grid">
+          <div class="comparison-header ch-photon">Photon</div>
+          <div class="comparison-header ch-spring">Spring Boot</div>
+          <div class="comparison-header ch-laravel">Laravel</div>
+
+          <div class="comparison-cell"><code>JwtManager</code></div>
+          <div class="comparison-cell">Spring Security OAuth2 / JWT</div>
+          <div class="comparison-cell">Sanctum / Passport</div>
+
+          <div class="comparison-cell"><code>RBAC Manager</code></div>
+          <div class="comparison-cell"><code>@PreAuthorize / @Secured</code></div>
+          <div class="comparison-cell">Gate / Policy</div>
+
+          <div class="comparison-cell"><code>CsrfTokenRepository</code></div>
+          <div class="comparison-cell"><code>CsrfTokenRepository</code></div>
+          <div class="comparison-cell"><code>VerifyCsrfToken</code></div>
+
+          <div class="comparison-cell"><code>@[secured]</code></div>
+          <div class="comparison-cell"><code>@Secured</code></div>
+          <div class="comparison-cell"><code>auth middleware</code></div>
+
+          <div class="comparison-cell"><code>@[roles_allowed('admin')]</code></div>
+          <div class="comparison-cell"><code>@PreAuthorize("hasRole('admin')")</code></div>
+          <div class="comparison-cell"><code>Gate::allows('admin')</code></div>
+        </div>
+      </div>
+
+      <!-- ═══ Infrastructure ═══ -->
+      <div class="doc-section" id="infra">
+        <div class="section-header"><div class="section-icon icon-compare">🏗️</div><div><div class="section-title">基础设施对比</div><div class="section-subtitle">队列 / 锁 / 池 / 日志 / 存储 / 邮件 / CLI</div></div></div>
+
+        <div class="comparison-grid">
+          <div class="comparison-header ch-photon">Photon</div>
+          <div class="comparison-header ch-spring">Spring Boot</div>
+          <div class="comparison-header ch-laravel">Laravel</div>
+
+          <div class="comparison-cell">Queue (Job/Worker)</div>
+          <div class="comparison-cell">Spring Batch / @Async</div>
+          <div class="comparison-cell">Queue (Job/Worker)</div>
+
+          <div class="comparison-cell">Lock (Mutex/Distributed)</div>
+          <div class="comparison-cell">ShedLock / Redisson</div>
+          <div class="comparison-cell">— (需第三方包)</div>
+
+          <div class="comparison-cell">Pool (Object/Connection)</div>
+          <div class="comparison-cell">HikariCP</div>
+          <div class="comparison-cell">连接管理器</div>
+
+          <div class="comparison-cell">Logger (Structured/MDC)</div>
+          <div class="comparison-cell">Logback / SLF4J MDC</div>
+          <div class="comparison-cell">Monolog</div>
+
+          <div class="comparison-cell">Storage (Flysystem)</div>
+          <div class="comparison-cell">ResourceLoader / S3Template</div>
+          <div class="comparison-cell">Filesystem (Flysystem)</div>
+
+          <div class="comparison-cell">Mailer (SMTP/Template)</div>
+          <div class="comparison-cell">JavaMailSender</div>
+          <div class="comparison-cell">Mail (Mailable)</div>
+
+          <div class="comparison-cell">CLI (Artisan-style)</div>
+          <div class="comparison-cell">Spring Shell</div>
+          <div class="comparison-cell">Artisan</div>
+        </div>
+      </div>
+
+      <!-- ═══ Key Differences ═══ -->
+      <div class="doc-section" id="differences">
+        <div class="section-header"><div class="section-icon icon-compare">⚡</div><div><div class="section-title">关键差异</div><div class="section-subtitle">Photon 的独特优势</div></div></div>
+
+        <div class="card-grid">
+          <div class="card">
+            <h4>⚡ 编译期 DI vs 运行期反射</h4>
+            <p>Spring 使用运行期反射扫描 Bean，Laravel 使用运行期容器解析。Photon 通过 <code>comptime $for</code> 在编译期完成所有依赖解析，零运行时开销。</p>
+          </div>
+          <div class="card">
+            <h4>🔒 编译期循环依赖检测</h4>
+            <p>Spring 在运行时通过三级缓存解决循环依赖（有坑），Laravel 允许循环依赖。Photon 在编译期直接报错，强制你使用 DeferredProvider 打破循环。</p>
+          </div>
+          <div class="card">
+            <h4>🚀 单二进制部署</h4>
+            <p>V 编译为原生机器码，Photon 应用编译后是一个独立二进制文件，无需 JVM / PHP Runtime / Docker，直接部署。</p>
+          </div>
+          <div class="card">
+            <h4>📦 极小内存占用</h4>
+            <p>无 JVM 堆开销（Spring），无 PHP-FPM 进程池（Laravel）。Photon 应用内存占用通常在 10-30 MB，适合嵌入式和边缘计算。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="page-nav">
+        <a href="#cli">← CLI 命令行</a>
+        <a href="#production" class="nav-next">生产实践 →</a>
+      </div>

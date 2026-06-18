@@ -1,0 +1,756 @@
+<!-- title: Core · 核心容器 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Core · 核心容器 -->
+<div class="hero">
+        <h1>Core · 核心容器</h1>
+        <p>Photon 的心脏：IoC 容器、编译期依赖注入、Bean 生命周期管理、事件总线、条件装配、FactoryBean — Spring ApplicationContext 的 V 语言实现。</p>
+        <div class="hero-tags">
+          <span class="hero-tag">🇻‍🇦 GA</span>
+          <span class="hero-tag">import photon.core</span>
+          <span class="hero-tag">对标 Spring Context</span>
+        </div>
+      </div>
+
+      <!-- ═══ 1. IoC Container ═══ -->
+      <div class="doc-section" id="ioc-container">
+        <div class="section-header">
+          <div class="section-icon icon-core">🏺</div>
+          <div><div class="section-title">IoC 容器</div><div class="section-subtitle">Container · 控制反转的核心实现</div></div>
+        </div>
+
+        <p>Container 是 Photon IoC 的底层引擎，管理所有 Bean 的注册、实例化和依赖解析。推荐使用上层的 <code>ApplicationContext</code>，但 Container 也可独立使用。</p>
+
+        <div class="comparison-grid">
+          <div class="comparison-header ch-photon">Photon</div>
+          <div class="comparison-header ch-spring">Spring</div>
+          <div class="comparison-header ch-laravel">Laravel</div>
+          <div class="comparison-cell"><code>new_container()</code></div>
+          <div class="comparison-cell"><code>new GenericApplicationContext()</code></div>
+          <div class="comparison-cell"><code>new Container()</code></div>
+          <div class="comparison-cell"><code>container.register(def)</code></div>
+          <div class="comparison-cell"><code>context.registerBeanDefinition()</code></div>
+          <div class="comparison-cell"><code>$app->singleton()</code></div>
+          <div class="comparison-cell"><code>container.resolve('Type')</code></div>
+          <div class="comparison-cell"><code>context.getBean(Type.class)</code></div>
+          <div class="comparison-cell"><code>$app->make(Type::class)</code></div>
+        </div>
+
+        <h3>基本用法</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.core
+
+<span class="cm">// 1. 创建容器</span>
+<span class="kw">mut</span> container := core.<span class="fn">new_container</span>()
+
+<span class="cm">// 2. 注册 Bean 定义</span>
+container.<span class="fn">register</span>(core.<span class="tp">BeanDefinition</span>{
+    type_name:    <span class="st">'UserService'</span>
+    scope:        .singleton         <span class="cm">// singleton | prototype | request</span>
+    dependencies: [
+        core.<span class="tp">Dependency</span>{ field_name: <span class="st">'user_repo'</span>, type_name: <span class="st">'UserRepository'</span>, is_required: <span class="kw">true</span> }
+    ]
+})
+
+<span class="cm">// 3. 解析 Bean（自动创建实例 + 注入依赖）</span>
+instance := container.<span class="fn">resolve</span>(<span class="st">'UserService'</span>)!
+
+<span class="cm">// 4. 检查 Bean 是否存在</span>
+exists := container.<span class="fn">has</span>(<span class="st">'UserService'</span>) <span class="cm">// true</span>
+
+<span class="cm">// 5. 按限定符解析</span>
+cache := container.<span class="fn">resolve_by_qualifier</span>(<span class="st">'redis-cache'</span>)!</div>
+        </div>
+
+        <h3>BeanDefinition 核心字段</h3>
+        <table class="doc-table">
+          <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>type_name</code></td><td><code>string</code></td><td>Bean 类型名称（struct 名）</td></tr>
+            <tr><td><code>scope</code></td><td><code>Scope</code></td><td>作用域：<code>.singleton</code>（默认）| <code>.prototype</code> | <code>.request</code></td></tr>
+            <tr><td><code>dependencies</code></td><td><code>[]Dependency</code></td><td>依赖列表（编译期自动填充）</td></tr>
+            <tr><td><code>qualifier</code></td><td><code>string</code></td><td>限定符（同一类型多个 Bean 时区分）</td></tr>
+            <tr><td><code>is_lazy</code></td><td><code>bool</code></td><td>是否延迟初始化</td></tr>
+            <tr><td><code>is_primary</code></td><td><code>bool</code></td><td>是否为主要 Bean（同类型优先选择）</td></tr>
+            <tr><td><code>profiles</code></td><td><code>[]string</code></td><td>仅在指定 Profile 激活时注册</td></tr>
+            <tr><td><code>init_order</code></td><td><code>int</code></td><td>初始化顺序（越小越先）</td></tr>
+          </tbody>
+        </table>
+
+        <div class="production-box">
+          <div class="production-title">🚀 生产实践</div>
+          <ul>
+            <li>优先使用 <code>ApplicationContext</code> 而非裸 <code>Container</code>，前者整合了生命周期、事件、环境</li>
+            <li>Singleton Bean 的创建顺序由 <code>init_order</code> 控制，确保数据库连接池在 DAO 之前初始化</li>
+            <li>使用 <code>is_primary = true</code> 解决同类型多实现的歧义，而非到处写 <code>qualifier</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ═══ 2. Dependency Injection ═══ -->
+      <div class="doc-section" id="di">
+        <div class="section-header">
+          <div class="section-icon icon-core">💉</div>
+          <div><div class="section-title">依赖注入 (DI)</div><div class="section-subtitle">编译期自动注入 · 零反射开销</div></div>
+        </div>
+
+        <p>Photon 的 DI 通过 V 语言的 <code>comptime $for</code> 在编译期扫描 <code>@[autowired]</code> 注解并生成注入代码，运行时零反射开销。</p>
+
+        <h3>字段注入（推荐）</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">UserService</span> {
+    <span class="at">@[autowired]</span>
+    user_repo &<span class="tp">UserRepository</span>     <span class="cm">// 必需依赖 — 解析失败会报错</span>
+
+    <span class="at">@[autowired]</span>
+    cache     &<span class="tp">CacheService</span>       <span class="cm">// 必需依赖</span>
+}
+
+<span class="cm">// Spring 等价：</span>
+<span class="cm">// @Service</span>
+<span class="cm">// public class UserService {</span>
+<span class="cm">//     @Autowired UserRepository userRepo;</span>
+<span class="cm">//     @Autowired CacheService cache;</span>
+<span class="cm">// }</span></div>
+        </div>
+
+        <h3>限定符注入（同类型多实现）</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 场景：存在多个 Cache 实现（MemoryCache, RedisCache）</span>
+
+<span class="at">@[component]</span>
+<span class="at">@[qualifier('memory-cache')]</span>
+<span class="kw">pub struct</span> <span class="tp">MemoryCacheService</span> { /* ... */ }
+
+<span class="at">@[component]</span>
+<span class="at">@[qualifier('redis-cache')]</span>
+<span class="kw">pub struct</span> <span class="tp">RedisCacheService</span> { /* ... */ }
+
+<span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">OrderService</span> {
+    <span class="at">@[autowired]</span>
+    <span class="at">@[qualifier('redis-cache')]</span>
+    cache &<span class="tp">CacheService</span>     <span class="cm">// 明确指定使用 RedisCache</span>
+}
+
+<span class="cm">// Spring 等价：@Qualifier("redis-cache")</span>
+<span class="cm">// Laravel 等价：$app->when(OrderService::class)->needs(Cache::class)->give(RedisCache::class)</span></div>
+        </div>
+
+        <h3>可选注入</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">NotificationService</span> {
+    <span class="at">@[autowired]</span>
+    mailer &<span class="tp">MailerService</span> <span class="cm">// 必需</span>
+
+    <span class="cm">// 可选依赖 — 容器中没有时不报错，保持 nil</span>
+    slack_notifier ?&<span class="tp">SlackService</span>
+}
+
+<span class="cm">// Spring 等价：@Autowired(required = false)</span></div>
+        </div>
+
+        <h3>集合注入（注入所有实现）</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 定义接口</span>
+<span class="kw">pub interface</span> <span class="tp">EventHandler</span> {
+    <span class="fn">handle</span>(event <span class="tp">string</span>) !
+}
+
+<span class="cm">// 多个实现</span>
+<span class="at">@[component]</span> <span class="kw">pub struct</span> <span class="tp">EmailHandler</span> { /* ... */ }
+<span class="at">@[component]</span> <span class="kw">pub struct</span> <span class="tp">SmsHandler</span> { /* ... */ }
+<span class="at">@[component]</span> <span class="kw">pub struct</span> <span class="tp">PushHandler</span> { /* ... */ }
+
+<span class="cm">// 注入所有 EventHandler 实现</span>
+<span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">EventDispatcher</span> {
+    <span class="at">@[autowired]</span>
+    handlers &[]<span class="tp">EventHandler</span>  <span class="cm">// 自动注入所有实现</span>
+}
+
+<span class="cm">// Spring 等价：@Autowired List&lt;EventHandler&gt; handlers;</span>
+<span class="cm">// Laravel 等价：$app->tagged('event-handler')</span></div>
+        </div>
+
+        <h3>DeferredProvider（延迟提供者）</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">ExpensiveService</span> {
+    <span class="at">@[autowired]</span>
+    heavy_provider core.<span class="tp">DeferredProvider</span>  <span class="cm">// 首次 .get() 才解析</span>
+}
+
+<span class="kw">pub fn</span> (<span class="at">s</span> &<span class="tp">ExpensiveService</span>) <span class="fn">do_work</span>() ! {
+    <span class="cm">// 只有在真正需要时才解析 HeavyBean</span>
+    heavy := s.heavy_provider.<span class="fn">get</span>()!
+    <span class="cm">// ...</span>
+}
+
+<span class="cm">// Spring 等价：ObjectProvider&lt;HeavyBean&gt;</span>
+<span class="cm">// Laravel 等价：Container::lazy()</span></div>
+        </div>
+
+        <div class="info-box info-warn">
+          ⚠️ <strong>循环依赖检测</strong>：Photon 在编译期检测循环依赖并报错。如果 A 依赖 B，B 又依赖 A，编译时会收到明确的错误信息。解决方案：使用 <code>DeferredProvider</code> 打破循环。
+        </div>
+      </div>
+
+      <!-- ═══ 3. Scope ═══ -->
+      <div class="doc-section" id="scope">
+        <div class="section-header">
+          <div class="section-icon icon-core">🎯</div>
+          <div><div class="section-title">Bean 作用域</div><div class="section-subtitle">Singleton · Prototype · Request</div></div>
+        </div>
+
+        <table class="doc-table">
+          <thead><tr><th>作用域</th><th>说明</th><th>Spring 等价</th><th>使用场景</th></tr></thead>
+          <tbody>
+            <tr><td><code>.singleton</code></td><td>全局唯一实例（默认）</td><td><code>@Scope("singleton")</code></td><td>Service、Repository、配置</td></tr>
+            <tr><td><code>.prototype</code></td><td>每次注入创建新实例</td><td><code>@Scope("prototype")</code></td><td>有状态的临时对象、命令对象</td></tr>
+            <tr><td><code>.request</code></td><td>每个 HTTP 请求一个实例</td><td><code>@Scope("request")</code></td><td>请求上下文、请求级缓存</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="at">@[component]</span>
+<span class="at">@[scope('singleton')]</span>      <span class="cm">// 默认，可省略</span>
+<span class="kw">pub struct</span> <span class="tp">DatabasePool</span> { /* ... */ }
+
+<span class="at">@[component]</span>
+<span class="at">@[scope('prototype')]</span>     <span class="cm">// 每次注入都是新实例</span>
+<span class="kw">pub struct</span> <span class="tp">ShoppingCart</span> { /* ... */ }
+
+<span class="at">@[component]</span>
+<span class="at">@[scope('request')]</span>       <span class="cm">// Web 模块：每请求一个</span>
+<span class="kw">pub struct</span> <span class="tp">RequestContext</span> { /* ... */ }
+
+<span class="at">@[component]</span>
+<span class="at">@[lazy]</span>                   <span class="cm">// 延迟到首次使用才创建</span>
+<span class="kw">pub struct</span> <span class="tp">HeavyService</span> { /* ... */ }</div>
+        </div>
+      </div>
+
+      <!-- ═══ 4. Service Locator ═══ -->
+      <div class="doc-section" id="service-locator">
+        <div class="section-header">
+          <div class="section-icon icon-core">🔍</div>
+          <div><div class="section-title">服务定位器 (Service Locator)</div><div class="section-subtitle">Laravel app() / resolve() 风格的运行时查找</div></div>
+        </div>
+
+        <p>Photon 鼓励使用 DI（<code>@[autowired]</code>），但也提供 ServiceLocator 作为后备方案，用于：</p>
+        <ul class="feature-list">
+          <li>遗留代码中无法使用构造器注入的场景</li>
+          <li>非托管对象中需要访问服务的场景</li>
+          <li>测试时需要替换 Mock 服务的场景</li>
+        </ul>
+
+        <div class="comparison-grid">
+          <div class="comparison-header ch-photon">Photon ServiceLocator</div>
+          <div class="comparison-header ch-spring">Spring ServiceLocatorFactoryBean</div>
+          <div class="comparison-header ch-laravel">Laravel app() / resolve()</div>
+          <div class="comparison-cell"><code>sl.resolve('Type')</code></div>
+          <div class="comparison-cell"><code>factoryBean.getObject()</code></div>
+          <div class="comparison-cell"><code>app('service')</code></div>
+          <div class="comparison-cell"><code>sl.has('Type')</code></div>
+          <div class="comparison-cell">—</div>
+          <div class="comparison-cell"><code>app()->bound('service')</code></div>
+          <div class="comparison-cell"><code>sl.resolve_by_qualifier('name')</code></div>
+          <div class="comparison-cell">—</div>
+          <div class="comparison-cell"><code>app()->make('name')</code></div>
+        </div>
+
+        <h3>基本用法</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.core
+
+<span class="cm">// 1. 创建 ServiceLocator（绑定到 ApplicationContext）</span>
+<span class="kw">mut</span> app := core.<span class="fn">new_application_context</span>()
+app.<span class="fn">refresh</span>()!
+
+<span class="kw">mut</span> locator := core.<span class="fn">new_service_locator</span>(app)
+
+<span class="cm">// 2. 按类型名解析</span>
+service := locator.<span class="fn">resolve</span>(<span class="st">'UserService'</span>)!
+
+<span class="cm">// 3. 按限定符解析</span>
+redis_cache := locator.<span class="fn">resolve_by_qualifier</span>(<span class="st">'redis-cache'</span>)!
+
+<span class="cm">// 4. 检查是否存在</span>
+<span class="kw">if</span> locator.<span class="fn">has</span>(<span class="st">'PaymentGateway'</span>) {
+    gateway := locator.<span class="fn">resolve</span>(<span class="st">'PaymentGateway'</span>)!
+}
+
+<span class="cm">// 5. 便捷函数（类似 Laravel 的 app() / resolve()）</span>
+svc := core.<span class="fn">service_from</span>(<span class="kw">mut</span> app, <span class="st">'UserService'</span>)!
+exists := core.<span class="fn">has_service_from</span>(<span class="kw">mut</span> app, <span class="st">'UserService'</span>)</div>
+        </div>
+
+        <h3>ServiceBinding（Laravel 风格绑定）</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 注册绑定（类似 Laravel 的 Container::bind / Container::singleton）</span>
+<span class="kw">mut</span> registry := core.<span class="fn">new_binding_registry</span>()
+
+<span class="cm">// 单例绑定</span>
+registry.<span class="fn">bind_singleton</span>(<span class="st">'CacheService'</span>, fn () !voidptr {
+    <span class="kw">return</span> <span class="kw">unsafe</span> { &<span class="tp">RedisCache</span>{} }
+})
+
+<span class="cm">// 每次新建绑定</span>
+registry.<span class="fn">bind</span>(<span class="st">'ShoppingCart'</span>, fn () !voidptr {
+    <span class="kw">return</span> <span class="kw">unsafe</span> { &<span class="tp">ShoppingCart</span>{} }
+})</div>
+        </div>
+
+        <div class="info-box info-tip">
+          💡 <strong>DI vs Service Locator</strong>：DI 是控制反转（依赖被推入对象），Service Locator 是服务拉取（对象主动查找依赖）。Photon 推荐 DI，但 Service Locator 在以下场景很有用：非托管代码、桥接遗留系统、动态服务选择。
+        </div>
+      </div>
+
+      <!-- ═══ 5. FactoryBean ═══ -->
+      <div class="doc-section" id="factory-bean">
+        <div class="section-header">
+          <div class="section-icon icon-core">🏭</div>
+          <div><div class="section-title">FactoryBean</div><div class="section-subtitle">编程式 Bean 创建 — Spring FactoryBean 等价</div></div>
+        </div>
+
+        <p>当 Bean 的创建需要复杂逻辑（如读取配置、建立连接、条件选择实现）时，使用 FactoryBean 将创建逻辑委托给工厂对象。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 1. 实现 FactoryBean 接口</span>
+<span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">DatabaseConnectionFactory</span> {
+    <span class="at">@[autowired]</span>
+    config &<span class="tp">DatabaseConfig</span>
+}
+
+<span class="cm">// create() — 生产实际的 Bean 实例</span>
+<span class="kw">pub fn</span> (f &<span class="tp">DatabaseConnectionFactory</span>) <span class="fn">create</span>() !voidptr {
+    conn := <span class="fn">new_connection</span>(f.config.host, f.config.port)!
+    <span class="kw">return</span> <span class="kw">unsafe</span> { conn }
+}
+
+<span class="cm">// bean_type() — 声明工厂产出的类型名</span>
+<span class="kw">pub fn</span> (f &<span class="tp">DatabaseConnectionFactory</span>) <span class="fn">bean_type</span>() <span class="tp">string</span> {
+    <span class="kw">return</span> <span class="st">'DatabaseConnection'</span>
+}
+
+<span class="cm">// is_singleton() — 工厂产出是否为单例</span>
+<span class="kw">pub fn</span> (f &<span class="tp">DatabaseConnectionFactory</span>) <span class="fn">is_singleton</span>() <span class="tp">bool</span> {
+    <span class="kw">return</span> <span class="kw">true</span>
+}
+
+<span class="cm">// 2. 注册到容器</span>
+<span class="kw">mut</span> ctx := core.<span class="fn">new_application_context</span>()
+factory_def := core.<span class="fn">new_factory_bean_definition</span>(
+    <span class="st">'DatabaseConnectionFactory'</span>,
+    &<span class="tp">DatabaseConnectionFactory</span>{}
+)
+ctx.container.factory_registry.<span class="fn">register</span>(factory_def)
+
+<span class="cm">// 3. 解析时自动走工厂</span>
+conn := ctx.<span class="fn">resolve</span>(<span class="st">'DatabaseConnection'</span>)!  <span class="cm">// 调用 factory.create()</span>
+
+<span class="cm">// Spring 等价：implements FactoryBean&lt;Connection&gt;</span>
+<span class="cm">// Laravel 等价：$app->singleton(Connection::class, fn() => new Connection(...))</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 6. Conditional Registration ═══ -->
+      <div class="doc-section" id="conditional">
+        <div class="section-header">
+          <div class="section-icon icon-core">🔀</div>
+          <div><div class="section-title">条件装配</div><div class="section-subtitle">@[conditional_on_*] — Bean 按条件注册</div></div>
+        </div>
+
+        <p>条件装配允许根据环境状态决定 Bean 是否注册，这是 Spring Boot 自动配置的核心机制。</p>
+
+        <table class="doc-table">
+          <thead><tr><th>注解</th><th>条件</th><th>Spring 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>@[conditional_on_profile('prod')]</code></td><td>仅在指定 Profile 激活时注册</td><td><code>@Profile("prod")</code></td></tr>
+            <tr><td><code>@[conditional_on_property('key')]</code></td><td>配置键存在时注册</td><td><code>@ConditionalOnProperty</code></td></tr>
+            <tr><td><code>@[conditional_on_property('key','val')]</code></td><td>配置键等于指定值时注册</td><td><code>@ConditionalOnProperty(havingValue="val")</code></td></tr>
+            <tr><td><code>@[conditional_on_bean('Type')]</code></td><td>指定 Bean 存在时注册</td><td><code>@ConditionalOnBean</code></td></tr>
+            <tr><td><code>@[conditional_on_missing_bean('Type')]</code></td><td>指定 Bean 不存在时注册</td><td><code>@ConditionalOnMissingBean</code></td></tr>
+            <tr><td><code>@[conditional_on_expression('key==val')]</code></td><td>表达式为真时注册</td><td><code>@ConditionalOnExpression</code></td></tr>
+            <tr><td><code>@[conditional_on_class('Type')]</code></td><td>类型存在时注册</td><td><code>@ConditionalOnClass</code></td></tr>
+          </tbody>
+        </table>
+
+        <h3>实战示例</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 仅在生产环境启用 Redis 缓存</span>
+<span class="at">@[component]</span>
+<span class="at">@[conditional_on_profile('prod')]</span>
+<span class="at">@[conditional_on_property('cache.driver', 'redis')]</span>
+<span class="kw">pub struct</span> <span class="tp">RedisCacheService</span> {
+    <span class="at">@[value('redis.host')]</span>
+    host <span class="tp">string</span>
+    <span class="at">@[value('redis.port')]</span>
+    port <span class="tp">int</span>
+}
+
+<span class="cm">// 开发环境用内存缓存（当 RedisCacheService 不存在时注册）</span>
+<span class="at">@[component]</span>
+<span class="at">@[conditional_on_missing_bean('RedisCacheService')]</span>
+<span class="kw">pub struct</span> <span class="tp">MemoryCacheService</span> { /* ... */ }
+
+<span class="cm">// 自动配置：当 CacheManager Bean 存在且配置开启时注册</span>
+<span class="at">@[auto_configuration]</span>
+<span class="at">@[conditional_on_bean('CacheManager')]</span>
+<span class="at">@[conditional_on_property('cache.annotations.enabled', 'true')]</span>
+<span class="kw">pub struct</span> <span class="tp">CacheAnnotationConfig</span> { /* ... */ }</div>
+        </div>
+      </div>
+
+      <!-- ═══ 7. Lifecycle ═══ -->
+      <div class="doc-section" id="lifecycle">
+        <div class="section-header">
+          <div class="section-icon icon-core">🔄</div>
+          <div><div class="section-title">Bean 生命周期</div><div class="section-subtitle">从实例化到销毁的完整旅程</div></div>
+        </div>
+
+        <div class="lifecycle-flow">
+          <span class="lifecycle-step step-create">实例化</span><span class="lifecycle-arrow">→</span>
+          <span class="lifecycle-step step-inject">@[autowired] 注入</span><span class="lifecycle-arrow">→</span>
+          <span class="lifecycle-step step-inject">Setter 注入</span><span class="lifecycle-arrow">→</span>
+          <span class="lifecycle-step step-init">@[post_construct]</span><span class="lifecycle-arrow">→</span>
+          <span class="lifecycle-step step-ready">Ready ✓</span><span class="lifecycle-arrow">→</span>
+          <span class="lifecycle-step step-destroy">@[pre_destroy]</span><span class="lifecycle-arrow">→</span>
+          <span class="lifecycle-step step-destroy">销毁</span>
+        </div>
+
+        <h3>生命周期回调</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">DatabaseService</span> {
+    <span class="at">@[autowired]</span>
+    config &<span class="tp">DatabaseConfig</span>
+    <span class="kw">mut</span>:
+    pool &<span class="tp">ConnectionPool</span> = <span class="kw">unsafe</span> { nil }
+}
+
+<span class="cm">// @[post_construct] — 所有依赖注入完成后调用</span>
+<span class="at">@[post_construct]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">s</span> <span class="tp">DatabaseService</span>) <span class="fn">init</span>() ! {
+    <span class="cm">// 初始化连接池（此时 config 已经注入完毕）</span>
+    s.pool = <span class="fn">new_connection_pool</span>(s.config.max_connections)!
+    <span class="fn">println</span>(<span class="st">'Database pool initialized with ${s.config.max_connections} connections'</span>)
+}
+
+<span class="cm">// @[pre_destroy] — 容器关闭前调用，释放资源</span>
+<span class="at">@[pre_destroy]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">s</span> <span class="tp">DatabaseService</span>) <span class="fn">cleanup</span>() {
+    <span class="kw">if</span> !<span class="fn">isnil</span>(s.pool) {
+        s.pool.<span class="fn">close</span>()
+        <span class="fn">println</span>(<span class="st">'Database pool closed'</span>)
+    }
+}
+
+<span class="cm">// Spring 等价：@PostConstruct / @PreDestroy</span>
+<span class="cm">// Laravel 等价：Service Provider 的 register() / boot()</span></div>
+        </div>
+
+        <h3>SmartLifecycle（Spring SmartLifecycle 等价）</h3>
+        <p>当 Bean 需要在应用启动后执行异步任务（如消息消费、定时调度），可实现 SmartLifecycle 接口：</p>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// SmartLifecycle 接口</span>
+<span class="kw">pub interface</span> <span class="tp">SmartLifecycle</span> {
+    <span class="fn">is_running</span>() <span class="tp">bool</span>
+    <span class="fn">start</span>()       <span class="cm">// 应用启动后调用</span>
+    <span class="fn">stop</span>()        <span class="cm">// 应用关闭前调用</span>
+    <span class="fn">get_phase</span>() <span class="tp">int</span>  <span class="cm">// 执行顺序，越小越先启动、越后停止</span>
+}
+
+<span class="cm">// 示例：消息消费者</span>
+<span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">MessageConsumer</span> {
+    <span class="kw">mut</span>:
+    running <span class="tp">bool</span>
+}
+
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">c</span> <span class="tp">MessageConsumer</span>) <span class="fn">start</span>() {
+    c.running = <span class="kw">true</span>
+    <span class="fn">println</span>(<span class="st">'Message consumer started'</span>)
+    <span class="cm">// 启动消费协程...</span>
+}
+
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">c</span> <span class="tp">MessageConsumer</span>) <span class="fn">stop</span>() {
+    c.running = <span class="kw">false</span>
+    <span class="fn">println</span>(<span class="st">'Message consumer stopped'</span>)
+}
+
+<span class="kw">pub fn</span> (<span class="at">c</span> &<span class="tp">MessageConsumer</span>) <span class="fn">is_running</span>() <span class="tp">bool</span> { <span class="kw">return</span> c.running }
+<span class="kw">pub fn</span> (<span class="at">c</span> &<span class="tp">MessageConsumer</span>) <span class="fn">get_phase</span>() <span class="tp">int</span> { <span class="kw">return</span> <span class="nm">100</span> }</div>
+        </div>
+      </div>
+
+      <!-- ═══ 8. Event System ═══ -->
+      <div class="doc-section" id="events">
+        <div class="section-header">
+          <div class="section-icon icon-core">📡</div>
+          <div><div class="section-title">事件总线</div><div class="section-subtitle">EventBus — Spring ApplicationEvent + Laravel Event 等价</div></div>
+        </div>
+
+        <p>EventBus 提供发布/订阅模式的事件分发，支持同步和异步（配合 Queue 模块）分发，以及事件传播控制。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.core
+
+<span class="cm">// 1. 获取事件总线（从 ApplicationContext）</span>
+<span class="kw">mut</span> bus := app.event_bus
+
+<span class="cm">// 2. 注册事件监听器</span>
+bus.<span class="fn">on</span>(<span class="st">'user.registered'</span>, fn (e &core.<span class="tp">Event</span>) {
+    <span class="fn">println</span>(<span class="st">'New user registered: ${e.payload_str}'</span>)
+})
+
+<span class="cm">// 带优先级的监听器（数字越小越先执行）</span>
+bus.<span class="fn">on_with_priority</span>(<span class="st">'user.registered'</span>, fn (e &core.<span class="tp">Event</span>) {
+    <span class="cm">// 发送欢迎邮件（高优先级）</span>
+}, priority: <span class="nm">10</span>)
+
+bus.<span class="fn">on_with_priority</span>(<span class="st">'user.registered'</span>, fn (e &core.<span class="tp">Event</span>) {
+    <span class="cm">// 初始化用户数据（低优先级）</span>
+}, priority: <span class="nm">100</span>)
+
+<span class="cm">// 3. 分发事件</span>
+event := core.<span class="fn">new_event</span>(<span class="st">'user.registered'</span>, <span class="st">'alice'</span>)
+bus.<span class="fn">dispatch</span>(event) or { <span class="nm">0</span> }
+
+<span class="cm">// 带元数据的事件</span>
+event2 := core.<span class="fn">new_event_with_data</span>(<span class="st">'order.created'</span>, <span class="st">'order-123'</span>, {
+    <span class="st">'source'</span>: <span class="st">'web'</span>
+    <span class="st">'user_id'</span>: <span class="st">'42'</span>
+})
+bus.<span class="fn">dispatch</span>(event2) or { <span class="nm">0</span> }
+
+<span class="cm">// 4. 停止事件传播</span>
+bus.<span class="fn">on</span>(<span class="st">'payment.processed'</span>, fn (<span class="at">mut</span> <span class="at">e</span> core.<span class="tp">Event</span>) {
+    <span class="cm">// 处理支付...</span>
+    e.<span class="fn">stop_propagation</span>()  <span class="cm">// 后续监听器不再收到此事件</span>
+})
+
+<span class="cm">// Spring 等价：@EventListener / ApplicationEventPublisher</span>
+<span class="cm">// Laravel 等价：Event::listen() / Event::dispatch()</span></div>
+        </div>
+
+        <h3>Event 结构体</h3>
+        <table class="doc-table">
+          <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>name</code></td><td><code>string</code></td><td>事件名称</td></tr>
+            <tr><td><code>payload</code></td><td><code>voidptr</code></td><td>类型化载荷指针</td></tr>
+            <tr><td><code>payload_str</code></td><td><code>string</code></td><td>字符串载荷</td></tr>
+            <tr><td><code>timestamp</code></td><td><code>i64</code></td><td>Unix 时间戳</td></tr>
+            <tr><td><code>stopped</code></td><td><code>bool</code></td><td>是否停止传播</td></tr>
+            <tr><td><code>data</code></td><td><code>map[string]string</code></td><td>元数据键值对</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ═══ 9. Auto Configuration ═══ -->
+      <div class="doc-section" id="auto-config">
+        <div class="section-header">
+          <div class="section-icon icon-core">🤖</div>
+          <div><div class="section-title">自动配置</div><div class="section-subtitle">AutoConfiguration — Spring Boot @EnableAutoConfiguration 等价</div></div>
+        </div>
+
+        <p>自动配置类在用户 Bean 注册之后处理，遵循"用户优先"原则。通过条件装配实现按需加载。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 定义自动配置</span>
+<span class="at">@[auto_configuration]</span>
+<span class="at">@[conditional_on_property('cache.enabled', 'true')]</span>
+<span class="at">@[conditional_on_missing_bean('CacheManager')]</span>
+<span class="kw">pub struct</span> <span class="tp">CacheAutoConfiguration</span> {}
+
+<span class="kw">pub fn</span> (<span class="at">c</span> &<span class="tp">CacheAutoConfiguration</span>) <span class="fn">configure</span>(<span class="at">mut</span> <span class="at">ctx</span> core.<span class="tp">ApplicationContext</span>) ! {
+    <span class="cm">// 仅当 CacheManager 不存在时，注册默认实现</span>
+    ctx.<span class="fn">register</span>(core.<span class="tp">BeanDefinition</span>{
+        type_name: <span class="st">'CacheManager'</span>
+        scope:     .singleton
+    })
+}
+
+<span class="kw">pub fn</span> (<span class="at">c</span> &<span class="tp">CacheAutoConfiguration</span>) <span class="fn">order</span>() <span class="tp">int</span> { <span class="kw">return</span> <span class="nm">100</span> }
+
+<span class="cm">// 注册到 AutoConfigurationManager</span>
+<span class="kw">mut</span> app := core.<span class="fn">new_application_context</span>()
+app.auto_config_manager.<span class="fn">add_candidate</span>(core.<span class="tp">AutoConfigurationCandidate</span>{
+    type_name:  <span class="st">'CacheAutoConfiguration'</span>
+    config:     &<span class="tp">CacheAutoConfiguration</span>{}
+    conditions: [&<span class="tp">OnPropertyCondition</span>{key: <span class="st">'cache.enabled'</span>, value: <span class="st">'true'</span>}]
+    order_:     <span class="nm">100</span>
+})
+
+<span class="cm">// refresh() 时自动处理</span>
+app.<span class="fn">refresh</span>()!  <span class="cm">// → 评估条件 → 注册 Bean → 调用 configure()</span></div>
+        </div>
+
+        <div class="production-box">
+          <div class="production-title">🚀 生产实践</div>
+          <ul>
+            <li>自动配置类保持轻量，只注册 Bean 定义，不做重逻辑</li>
+            <li>使用 <code>@[conditional_on_missing_bean]</code> 让用户可以覆盖默认配置</li>
+            <li><code>order()</code> 值越小越先处理，确保基础设施（DB、Cache）先于业务 Bean</li>
+            <li>将自动配置集中到 <code>auto_configuration.v</code> 文件，便于管理和调试</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ═══ 10. Environment ═══ -->
+      <div class="doc-section" id="environment">
+        <div class="section-header">
+          <div class="section-icon icon-core">🌍</div>
+          <div><div class="section-title">环境与 Profile</div><div class="section-subtitle">Environment — Spring Environment 等价</div></div>
+        </div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">mut</span> app := core.<span class="fn">new_application_context</span>()
+
+<span class="cm">// 设置激活的 Profile</span>
+app.<span class="fn">set_profiles</span>([<span class="st">'prod'</span>, <span class="st">'us-east'</span>])
+
+<span class="cm">// 添加 Profile</span>
+app.<span class="fn">add_profile</span>(<span class="st">'metrics'</span>)
+
+<span class="cm">// 获取当前 Profile</span>
+profiles := app.environment.<span class="fn">get_active_profiles</span>()
+<span class="cm">// ['prod', 'us-east', 'metrics']</span>
+
+<span class="cm">// @[value] 注入配置属性</span>
+<span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">AppConfig</span> {
+    <span class="at">@[value('app.name')]</span>
+    name <span class="tp">string</span>
+
+    <span class="at">@[value('app.port')]</span>
+    port <span class="tp">int</span>
+
+    <span class="at">@[value('app.debug')]</span>
+    debug <span class="tp">bool</span>
+}
+
+<span class="cm">// Spring 等价：@Value("${app.name}")</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 11. Post Processor ═══ -->
+      <div class="doc-section" id="post-processor">
+        <div class="section-header">
+          <div class="section-icon icon-core">🔧</div>
+          <div><div class="section-title">后置处理器</div><div class="section-subtitle">BeanPostProcessor · BeanFactoryPostProcessor — AOP 基础</div></div>
+        </div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// BeanPostProcessor — 在每个 Bean 初始化前后拦截</span>
+<span class="kw">pub interface</span> <span class="tp">BeanPostProcessor</span> {
+    <span class="fn">post_process_before_initialization</span>(bean voidptr, type_name <span class="tp">string</span>) !voidptr
+    <span class="fn">post_process_after_initialization</span>(bean voidptr, type_name <span class="tp">string</span>) !voidptr
+}
+
+<span class="cm">// BeanFactoryPostProcessor — 在 Bean 实例化之前修改 Bean 定义</span>
+<span class="kw">pub interface</span> <span class="tp">BeanFactoryPostProcessor</span> {
+    <span class="fn">post_process_bean_factory</span>(<span class="at">mut</span> <span class="at">container</span> <span class="tp">Container</span>) !
+}
+
+<span class="cm">// 内置后置处理器：</span>
+<span class="cm">// - AutowiredAnnotationPostProcessor  → 处理 @[autowired]</span>
+<span class="cm">// - ValueAnnotationPostProcessor      → 处理 @[value('key')]</span>
+<span class="cm">// - LifecycleAnnotationPostProcessor  → 处理 @[post_construct] / @[pre_destroy]</span>
+<span class="cm">// - EventListenerPostProcessor        → 处理 @[event_listener]</span>
+
+<span class="cm">// 注册自定义后置处理器</span>
+<span class="kw">mut</span> app := core.<span class="fn">new_application_context</span>()
+app.<span class="fn">add_post_processor</span>(my_custom_processor)</div>
+        </div>
+
+        <div class="info-box info-spring">
+          🌱 <strong>Spring AOP 桥梁</strong>：BeanPostProcessor 是 Spring AOP 的底层机制。Photon 未来将在其上构建 <code>@[aspect]</code>、<code>@[around]</code> 等切面编程注解，敬请期待。
+        </div>
+      </div>
+
+      <!-- ═══ 12. ApplicationContext API ═══ -->
+      <div class="doc-section" id="app-context-api">
+        <div class="section-header">
+          <div class="section-icon icon-core">📘</div>
+          <div><div class="section-title">ApplicationContext 完整 API</div><div class="section-subtitle">统一入口 · 一站式管理</div></div>
+        </div>
+
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>返回值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>new_application_context()</code></td><td><code>&ApplicationContext</code></td><td>创建应用上下文</td></tr>
+            <tr><td><code>app.set_profiles(['dev'])</code></td><td>—</td><td>设置激活 Profile</td></tr>
+            <tr><td><code>app.add_profile('prod')</code></td><td>—</td><td>添加 Profile</td></tr>
+            <tr><td><code>app.register(def)</code></td><td>—</td><td>注册 Bean 定义</td></tr>
+            <tr><td><code>app.refresh()</code></td><td><code>!</code></td><td>刷新上下文（实例化所有 eager 单例）</td></tr>
+            <tr><td><code>app.resolve('Type')</code></td><td><code>!voidptr</code></td><td>解析 Bean 实例</td></tr>
+            <tr><td><code>app.has('Type')</code></td><td><code>bool</code></td><td>检查 Bean 是否存在</td></tr>
+            <tr><td><code>app.resolve_by_qualifier('name')</code></td><td><code>!voidptr</code></td><td>按限定符解析</td></tr>
+            <tr><td><code>app.add_post_processor(pp)</code></td><td>—</td><td>注册 BeanPostProcessor</td></tr>
+            <tr><td><code>app.add_factory_post_processor(fpp)</code></td><td>—</td><td>注册 BeanFactoryPostProcessor</td></tr>
+            <tr><td><code>app.start()</code></td><td>—</td><td>启动 SmartLifecycle Bean</td></tr>
+            <tr><td><code>app.stop()</code></td><td>—</td><td>停止 SmartLifecycle Bean</td></tr>
+            <tr><td><code>app.shutdown()</code></td><td>—</td><td>关闭上下文（pre_destroy + 释放资源）</td></tr>
+          </tbody>
+        </table>
+
+        <h3>典型使用流程</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="cm">// 1. 创建上下文</span>
+    <span class="kw">mut</span> app := core.<span class="fn">new_application_context</span>()
+
+    <span class="cm">// 2. 配置环境</span>
+    app.<span class="fn">set_profiles</span>([<span class="st">'dev'</span>])
+
+    <span class="cm">// 3. 注册 Bean（编译期自动扫描 @[component] 也可）</span>
+    app.<span class="fn">register</span>(core.<span class="tp">BeanDefinition</span>{
+        type_name: <span class="st">'UserService'</span>
+        scope:     .singleton
+    })
+
+    <span class="cm">// 4. 刷新 — 实例化 + 依赖注入 + 生命周期回调</span>
+    app.<span class="fn">refresh</span>()!
+
+    <span class="cm">// 5. 启动 SmartLifecycle Bean（消息消费者、调度器等）</span>
+    app.<span class="fn">start</span>()
+
+    <span class="cm">// 6. 使用应用</span>
+    svc := app.<span class="fn">resolve</span>(<span class="st">'UserService'</span>)!
+
+    <span class="cm">// 7. 优雅关闭</span>
+    <span class="kw">defer</span> {
+        app.<span class="fn">stop</span>()     <span class="cm">// 停止 SmartLifecycle</span>
+        app.<span class="fn">shutdown</span>()  <span class="cm">// pre_destroy → 释放资源</span>
+    }
+}</div>
+        </div>
+      </div>
+
+      <!-- Navigation -->
+      <div class="page-nav">
+        <a href="#index">← 概览</a>
+        <a href="#config" class="nav-next">Config 配置管理 →</a>
+      </div>

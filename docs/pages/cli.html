@@ -1,0 +1,130 @@
+<!-- title: CLI · 命令行 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>CLI · 命令行 -->
+<div class="hero">
+        <h1>CLI · 命令行</h1>
+        <p>Symfony Console 风格 CLI 框架、命令注册与调度、ANSI 样式、进度条、代码生成器 — Laravel Artisan 的 V 语言实现。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 Alpha</span><span class="hero-tag">import photon.cli</span><span class="hero-tag">对标 Laravel Artisan</span></div>
+      </div>
+
+      <!-- ═══ 1. Quick Start ═══ -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header"><div class="section-icon icon-cli">⌨️</div><div><div class="section-title">快速上手</div><div class="section-subtitle">注册命令 · 解析参数 · 执行</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.cli
+
+<span class="cm">// 1. 创建 CLI Application</span>
+<span class="kw">mut</span> app := cli.<span class="fn">new_application</span>(<span class="st">'myapp'</span>, <span class="st">'1.0.0'</span>)
+
+<span class="cm">// 2. 添加内置命令</span>
+app.<span class="fn">add_command</span>(cli.<span class="fn">new_list_command</span>())      <span class="cm">// list — 列出所有命令</span>
+app.<span class="fn">add_command</span>(cli.<span class="fn">new_help_command</span>())      <span class="cm">// help — 显示命令帮助</span>
+app.<span class="fn">add_command</span>(cli.<span class="fn">new_serve_command</span>())     <span class="cm">// serve — 启动开发服务器</span>
+app.<span class="fn">add_command</span>(cli.<span class="fn">new_schedule_run_command</span>()) <span class="cm">// schedule:run</span>
+app.<span class="fn">add_command</span>(cli.<span class="fn">new_queue_work_command</span>())   <span class="cm">// queue:work</span>
+
+<span class="cm">// 3. 添加自定义命令</span>
+app.<span class="fn">add_command</span>(my_greet_command)
+
+<span class="cm">// 4. 运行（自动解析 os.args）</span>
+app.<span class="fn">run</span>() <span class="kw">or</span> { <span class="fn">panic</span>(err) }
+
+<span class="cm">// Laravel 等价：php artisan</span>
+<span class="cm">// Spring 等价：Spring Shell</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. Custom Command ═══ -->
+      <div class="doc-section" id="custom-command">
+        <div class="section-header"><div class="section-icon icon-cli">🛠️</div><div><div class="section-title">自定义命令</div><div class="section-subtitle">Command 接口 · 参数 · 选项</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 定义自定义命令</span>
+<span class="kw">struct</span> <span class="tp">GreetCommand</span> {}
+
+<span class="kw">pub fn</span> (<span class="at">c</span> &<span class="tp">GreetCommand</span>) <span class="fn">name</span>() <span class="tp">string</span> { <span class="kw">return</span> <span class="st">'greet'</span> }
+<span class="kw">pub fn</span> (<span class="at">c</span> &<span class="tp">GreetCommand</span>) <span class="fn">description</span>() <span class="tp">string</span> { <span class="kw">return</span> <span class="st">'Greet a user'</span> }
+
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">c</span> <span class="tp">GreetCommand</span>) <span class="fn">execute</span>(<span class="at">mut</span> <span class="at">ctx</span> cli.<span class="tp">CommandContext</span>) ! {
+    <span class="cm">// 获取参数</span>
+    name := ctx.<span class="fn">argument</span>(<span class="st">'name'</span>) <span class="kw">or</span> { <span class="st">'World'</span> }
+
+    <span class="cm">// 获取选项</span>
+    loud := ctx.<span class="fn">option</span>(<span class="st">'loud'</span>) != <span class="st">''</span>
+
+    msg := <span class="st">'Hello, ${name}!'</span>
+    <span class="kw">if</span> loud {
+        ctx.<span class="fn">info</span>(msg.<span class="fn">to_upper</span>())
+    } <span class="kw">else</span> {
+        ctx.<span class="fn">info</span>(msg)
+    }
+}
+
+<span class="cm">// 使用方式：</span>
+<span class="cm">// myapp greet Alice --loud</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. Styled Output ═══ -->
+      <div class="doc-section" id="styled-output">
+        <div class="section-header"><div class="section-icon icon-cli">🎨</div><div><div class="section-title">样式化输出</div><div class="section-subtitle">ANSI 颜色 · 表格 · 进度条</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 颜色输出</span>
+ctx.<span class="fn">info</span>(<span class="st">'Information message'</span>)     <span class="cm">// 绿色</span>
+ctx.<span class="fn">warn</span>(<span class="st">'Warning message'</span>)          <span class="cm">// 黄色</span>
+ctx.<span class="fn">error</span>(<span class="st">'Error message'</span>)            <span class="cm">// 红色</span>
+ctx.<span class="fn">success</span>(<span class="st">'Operation completed!'</span>)   <span class="cm">// 绿色加粗</span>
+
+<span class="cm">// 进度条</span>
+<span class="kw">mut</span> bar := ctx.<span class="fn">new_progress_bar</span>(<span class="nm">100</span>)
+<span class="kw">for</span> i <span class="kw">in</span> <span class="nm">0</span> .. <span class="nm">100</span> {
+    <span class="fn">do_work</span>(i)
+    bar.<span class="fn">advance</span>(<span class="nm">1</span>)
+}
+bar.<span class="fn">finish</span>()
+
+<span class="cm">// 交互式输入</span>
+name   := ctx.<span class="fn">ask</span>(<span class="st">'What is your name?'</span>)
+yes    := ctx.<span class="fn">confirm</span>(<span class="st">'Continue?'</span>)           <span class="cm">// true/false</span>
+secret := ctx.<span class="fn">secret</span>(<span class="st">'Enter password:'</span>)       <span class="cm">// 隐藏输入</span>
+choice := ctx.<span class="fn">choice</span>(<span class="st">'Select env:'</span>, [<span class="st">'dev'</span>, <span class="st">'staging'</span>, <span class="st">'prod'</span>])
+
+<span class="cm">// Laravel 等价：$this->info() / $this->confirm() / $this->choice()</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 4. Code Generation ═══ -->
+      <div class="doc-section" id="generators">
+        <div class="section-header"><div class="section-icon icon-cli">✨</div><div><div class="section-title">代码生成器</div><div class="section-subtitle">make:command · make:controller · make:middleware</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">bash</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm"># 内置代码生成命令</span>
+myapp make:command SendEmails        <span class="cm"># 生成命令模板</span>
+myapp make:controller UserController  <span class="cm"># 生成控制器模板</span>
+myapp make:middleware AuthMiddleware  <span class="cm"># 生成中间件模板</span>
+myapp make:repository UserRepository  <span class="cm"># 生成 Repository 模板</span>
+myapp make:service UserService        <span class="cm"># 生成 Service 模板</span>
+
+<span class="cm"># Laravel 等价：php artisan make:controller</span></div>
+        </div>
+      </div>
+
+      <div class="production-box">
+        <div class="production-title">🚀 生产实践</div>
+        <ul>
+          <li>使用 <code>make:*</code> 命令生成脚手架，保持代码结构一致</li>
+          <li>自定义命令遵循 <code>namespace:action</code> 命名规范（如 <code>user:deactivate</code>）</li>
+          <li>长时间运行的任务使用进度条提供反馈</li>
+          <li>敏感输入（密码）使用 <code>secret()</code> 而非 <code>ask()</code></li>
+        </ul>
+      </div>
+
+      <div class="page-nav">
+        <a href="#storage">← Storage 存储</a>
+        <a href="#comparison" class="nav-next">框架对比 →</a>
+      </div>

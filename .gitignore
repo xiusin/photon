@@ -293,7 +293,5 @@ test/fixtures/**/*.jpg
 Makefile.local
 
 # Just in case: ignore any file named "core" dump
-core
-core.*
 example/main
 /example/server

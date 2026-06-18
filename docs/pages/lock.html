@@ -1,0 +1,130 @@
+<!-- title: Lock · 分布式锁 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Lock · 分布式锁 -->
+<div class="hero">
+        <h1>Lock · 分布式锁</h1>
+        <p>本地互斥锁 + 分布式锁接口、指数退避、自动续期 — Redisson 的轻量 V 语言替代方案。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 GA</span><span class="hero-tag">import photon.locking</span><span class="hero-tag">对标 Redisson</span></div>
+      </div>
+
+      <!-- ═══ 1. LocalMutex ═══ -->
+      <div class="doc-section" id="local">
+        <div class="section-header"><div class="section-icon icon-lock">🔒</div><div><div class="section-title">本地互斥锁</div><div class="section-subtitle">LocalMutex · 指数退避自旋</div></div></div>
+
+        <p>基于 V 的 <code>sync.Mutex</code> 实现，使用指数退避策略（100μs → 50ms cap）平衡低延迟与低 CPU 消耗。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.locking
+
+<span class="cm">// 创建互斥锁</span>
+<span class="kw">mut</span> m := locking.<span class="fn">new_mutex</span>()
+
+<span class="cm">// 阻塞获取锁</span>
+m.<span class="fn">lock</span>()
+<span class="cm">// ... 临界区代码</span>
+m.<span class="fn">unlock</span>()
+
+<span class="cm">// 非阻塞尝试获取锁</span>
+<span class="kw">if</span> m.<span class="fn">try_lock</span>() {
+    <span class="cm">// 获取成功</span>
+    <span class="cm">// ... 临界区代码</span>
+    m.<span class="fn">unlock</span>()
+} <span class="kw">else</span> {
+    <span class="cm">// 获取失败，执行备选逻辑</span>
+}
+
+<span class="cm">// Go 等价：sync.Mutex</span>
+<span class="cm">// Java 等价：ReentrantLock</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. DistributedLock ═══ -->
+      <div class="doc-section" id="distributed">
+        <div class="section-header"><div class="section-icon icon-lock">🌐</div><div><div class="section-title">分布式锁接口</div><div class="section-subtitle">DistributedLock · Redis / etcd 可插拔后端</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// DistributedLock 接口</span>
+<span class="kw">pub interface</span> <span class="tp">DistributedLock</span> {
+    <span class="fn">acquire</span>(key <span class="tp">string</span>, ttl_ms <span class="tp">int</span>) !<span class="tp">bool</span>
+    <span class="fn">release</span>(key <span class="tp">string</span>) !<span class="tp">bool</span>
+    <span class="fn">renew</span>(key <span class="tp">string</span>, ttl_ms <span class="tp">int</span>) !<span class="tp">bool</span>   <span class="cm">// 自动续期（看门狗）</span>
+    <span class="fn">is_locked</span>(key <span class="tp">string</span>) <span class="tp">bool</span>
+}
+
+<span class="cm">// 使用 Redis 分布式锁</span>
+<span class="kw">mut</span> dlock := <span class="fn">new_redis_distributed_lock</span>(redis_client)
+
+<span class="cm">// 获取锁（TTL 10 秒）</span>
+locked := dlock.<span class="fn">acquire</span>(<span class="st">'order:123'</span>, <span class="nm">10000</span>)!
+<span class="kw">if</span> locked {
+    <span class="cm">// ... 处理业务</span>
+    dlock.<span class="fn">release</span>(<span class="st">'order:123'</span>)!
+}
+
+<span class="cm">// 自动续期（防止业务执行时间超过 TTL）</span>
+dlock.<span class="fn">renew</span>(<span class="st">'order:123'</span>, <span class="nm">10000</span>)!
+
+<span class="cm">// Java 等价：Redisson RLock</span>
+<span class="cm">// Go 等价：go-redsync</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. LockManager ═══ -->
+      <div class="doc-section" id="manager">
+        <div class="section-header"><div class="section-icon icon-lock">🎛️</div><div><div class="section-title">LockManager</div><div class="section-subtitle">统一锁管理 · 本地 + 分布式</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">mut</span> lm := locking.<span class="fn">new_lock_manager</span>()
+
+<span class="cm">// 获取/创建本地锁</span>
+<span class="kw">mut</span> local_lock := lm.<span class="fn">get_or_create</span>(<span class="st">'inventory:update'</span>)
+local_lock.<span class="fn">lock</span>()
+<span class="cm">// ... 扣减库存</span>
+local_lock.<span class="fn">unlock</span>()
+
+<span class="cm">// 使用分布式锁</span>
+lm.<span class="fn">set_distributed_lock</span>(redis_dlock)
+lm.<span class="fn">with_distributed_lock</span>(<span class="st">'order:pay'</span>, <span class="nm">5000</span>, fn () ! {
+    <span class="cm">// 自动获取锁，执行后释放锁</span>
+    <span class="fn">process_payment</span>()!
+})!</div>
+        </div>
+      </div>
+
+      <!-- ═══ 4. RWMutex ═══ -->
+      <div class="doc-section" id="rwmutex">
+        <div class="section-header"><div class="section-icon icon-lock">📖</div><div><div class="section-title">读写锁</div><div class="section-subtitle">RWMutex · 读多写少场景优化</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">mut</span> rw := locking.<span class="fn">new_rwmutex</span>()
+
+<span class="cm">// 读锁（多个读者可并行）</span>
+rw.<span class="fn">rlock</span>()
+data := <span class="fn">read_data</span>()
+rw.<span class="fn">runlock</span>()
+
+<span class="cm">// 写锁（独占）</span>
+rw.<span class="fn">lock</span>()
+<span class="fn">write_data</span>(new_value)
+rw.<span class="fn">unlock</span>()</div>
+        </div>
+      </div>
+
+      <div class="production-box">
+        <div class="production-title">🚀 生产实践</div>
+        <ul>
+          <li>分布式锁必须设置 TTL，防止死锁（进程崩溃后锁自动释放）</li>
+          <li>长事务使用 <code>renew()</code> 续期，防止业务未完成锁已过期</li>
+          <li>获取锁后使用 <code>defer { lock.release() }</code> 确保异常时释放</li>
+          <li>本地锁适用于单进程内的资源保护，跨进程/跨节点使用分布式锁</li>
+          <li>锁的粒度越细越好：<code>order:123</code> 优于 <code>orders</code></li>
+        </ul>
+      </div>
+
+      <div class="page-nav">
+        <a href="#cache">← Cache 缓存</a>
+        <a href="#pool" class="nav-next">Pool 连接池 →</a>
+      </div>

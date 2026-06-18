@@ -62,11 +62,35 @@ pub fn bind[T](ctx &veb.Context) !T {
 		$if field.typ is string {
 			result.$(field.name) = val
 		} $else $if field.typ is int {
-			result.$(field.name) = val.int()
+			if is_required && val == '' {
+				return error('${field.name} is required but empty — cannot convert to int')
+			}
+			if val != '' {
+				if !is_numeric(val) {
+					return error('${field.name}: invalid integer value "${val}"')
+			}
+				result.$(field.name) = val.int()
+			}
 		} $else $if field.typ is i64 {
-			result.$(field.name) = val.i64()
+			if is_required && val == '' {
+				return error('${field.name} is required but empty — cannot convert to i64')
+			}
+			if val != '' {
+				if !is_numeric(val) {
+					return error('${field.name}: invalid i64 value "${val}"')
+			}
+				result.$(field.name) = val.i64()
+			}
 		} $else $if field.typ is f64 {
-			result.$(field.name) = val.f64()
+			if is_required && val == '' {
+				return error('${field.name} is required but empty — cannot convert to f64')
+			}
+			if val != '' {
+				if !is_numeric(val) {
+					return error('${field.name}: invalid f64 value "${val}"')
+			}
+				result.$(field.name) = val.f64()
+			}
 		} $else $if field.typ is bool {
 			result.$(field.name) = val == '1' || val == 'true' || val == 'on' || val == 'yes'
 		}
@@ -129,10 +153,12 @@ fn extract_params(ctx &veb.Context) map[string]string {
 	query := url[pos + 1..]
 	for kv in query.split('&') {
 		pair := kv.split('=')
-		if pair.len == 2 {
-			// Don't overwrite existing keys
-			if params[pair[0]] == '' {
-				params[pair[0]] = pair[1]
+		if pair.len >= 1 {
+			key := url_decode(pair[0])
+			val := if pair.len >= 2 { url_decode(pair[1]) } else { '' }
+			// Don't overwrite existing keys (form params take precedence)
+			if params[key] == '' {
+				params[key] = val
 			}
 		}
 	}
@@ -148,4 +174,76 @@ fn extract_attr_arg(attr string) string {
 		return rest[1..rest.len - 1]
 	}
 	return rest
+}
+
+// is_numeric checks if a string represents a valid number (integer or float).
+fn is_numeric(s string) bool {
+	if s.len == 0 {
+		return false
+	}
+	mut has_digit := false
+	mut has_dot := false
+	for i, ch in s {
+		if ch == `-` && i == 0 {
+			continue
+		}
+		if ch == `.` {
+			if has_dot {
+				return false
+			}
+			has_dot = true
+			continue
+		}
+		if ch < `0` || ch > `9` {
+			return false
+		}
+		has_digit = true
+	}
+	return has_digit
+}
+
+// url_decode performs simple percent-decoding for URL-encoded values.
+// Converts %XX sequences back to their character equivalents.
+fn url_decode(s string) string {
+	mut result := []u8{}
+	mut i := 0
+	for i < s.len {
+		if s[i] == `%` && i + 2 < s.len {
+			hex_str := s[i + 1..i + 3]
+			code := int_from_hex(hex_str)
+			if code >= 0 {
+				result << u8(code)
+				i += 3
+				continue
+			}
+		} else if s[i] == `+` {
+			result << u8(` `)
+			i++
+			continue
+		}
+		result << s[i]
+		i++
+	}
+	return result.bytestr()
+}
+
+// int_from_hex converts a 2-char hex string to an integer.
+fn int_from_hex(s string) int {
+	if s.len < 2 {
+		return -1
+	}
+	mut result := 0
+	for i in 0 .. 2 {
+		ch := s[i]
+		if ch >= `0` && ch <= `9` {
+			result = result * 16 + int(ch - `0`)
+		} else if ch >= `a` && ch <= `f` {
+			result = result * 16 + int(ch - `a`) + 10
+		} else if ch >= `A` && ch <= `F` {
+			result = result * 16 + int(ch - `A`) + 10
+		} else {
+			return -1
+		}
+	}
+	return result
 }

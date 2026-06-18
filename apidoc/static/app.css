@@ -105,7 +105,16 @@
   /* ── Layout ── */
   --nav-rail-width:   280px;
   --command-bar-h:    44px;
-  --content-max-w:    960px;
+  --content-max-w:    1200px;
+
+  /* ── Acrylic / Frosted Glass ── */
+  --acrylic-tint:           rgba(255, 255, 255, 0.82);
+  --acrylic-tint-alt:       rgba(255, 255, 255, 0.72);
+  --acrylic-noise-opacity:   0.03;
+  --acrylic-blur:           20px;
+  --acrylic-border:         rgba(255, 255, 255, 0.30);
+  --acrylic-fallback:       var(--neutral-92);
+  --acrylic-fallback-alt:   var(--neutral-88);
 
   /* ── Radius (Fluent UI corner radius) ── */
   --radius-sm:        2px;
@@ -156,6 +165,14 @@
    ════════════════════════════════════════════════════════════════════════════ */
 
 .dark {
+  --acrylic-tint:           rgba(40, 40, 40, 0.78);
+  --acrylic-tint-alt:       rgba(40, 40, 40, 0.68);
+  --acrylic-noise-opacity:   0.04;
+  --acrylic-blur:           20px;
+  --acrylic-border:         rgba(255, 255, 255, 0.10);
+  --acrylic-fallback:       var(--neutral-20);
+  --acrylic-fallback-alt:   var(--neutral-24);
+
   --accent-base:       #4ca2e0;
   --accent-hover:      #6cb8f0;
   --accent-active:     #3d96d4;
@@ -224,6 +241,11 @@ body {
   line-height: var(--font-line-height);
   color: var(--fg-primary);
   background: var(--fill-layer);
+  /* Subtle gradient background for acrylic effect to work against */
+  background-image:
+    radial-gradient(ellipse at 10% 20%, rgba(0, 120, 212, 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 90% 80%, rgba(139, 92, 246, 0.03) 0%, transparent 50%);
+  background-attachment: fixed;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -245,9 +267,32 @@ body {
   min-width: var(--nav-rail-width);
   display: flex;
   flex-direction: column;
-  background: var(--fill-nav-rail);
-  border-right: 1px solid var(--stroke-divider);
+  /* Acrylic / Frosted Glass */
+  background: var(--acrylic-tint);
+  -webkit-backdrop-filter: blur(var(--acrylic-blur)) saturate(125%);
+  backdrop-filter: blur(var(--acrylic-blur)) saturate(125%);
+  border-right: 1px solid var(--acrylic-border);
   overflow: hidden;
+  position: relative;
+  z-index: 2;
+}
+
+/* Acrylic noise texture overlay */
+.nav-rail::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+  opacity: var(--acrylic-noise-opacity);
+  pointer-events: none;
+  z-index: -1;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .nav-rail {
+    background: var(--acrylic-fallback);
+  }
 }
 
 /* ── Brand ── */
@@ -479,10 +524,20 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--space-xl);
-  background: var(--fill-card);
-  border-bottom: 1px solid var(--stroke-divider);
+  padding: 0 var(--space-xxxl);
+  /* Acrylic bar */
+  background: var(--acrylic-tint);
+  -webkit-backdrop-filter: blur(var(--acrylic-blur)) saturate(125%);
+  backdrop-filter: blur(var(--acrylic-blur)) saturate(125%);
+  border-bottom: 1px solid var(--acrylic-border);
   gap: var(--space-md);
+  z-index: 2;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .command-bar {
+    background: var(--acrylic-fallback);
+  }
 }
 
 .command-bar-start {
@@ -501,14 +556,72 @@ body {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   10. CONTENT SCROLL REGION
+   10. CONTENT AREA (Single panel with tabs)
    ════════════════════════════════════════════════════════════════════════════ */
 
-.content-scroll {
+.content-area {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+
+.detail-view {
   flex: 1;
   overflow-y: auto;
-  overflow-x: hidden;
-  background: var(--fill-subtle);
+  padding: var(--space-lg) var(--space-xxxl);
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   10a. MAIN TABS (接口信息 / 测试)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.main-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--stroke-subtle);
+  margin-bottom: var(--space-lg);
+}
+
+.main-tab-btn {
+  position: relative;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+.main-tab-btn:hover {
+  color: var(--fg-primary);
+}
+.main-tab-btn.active {
+  color: var(--accent-base);
+}
+.main-tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  background: var(--accent-base);
+  border-radius: 2px 2px 0 0;
+}
+
+.main-tab-panels {
+  position: relative;
+}
+
+.main-tab-panel {
+  display: none;
+}
+.main-tab-panel.active {
+  display: block;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -551,36 +664,57 @@ body {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   12. DETAIL VIEW
-   ════════════════════════════════════════════════════════════════════════════ */
-
-.detail-view {
-  padding: var(--space-xl);
-  max-width: var(--content-max-w);
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
-   13. CARD COMPONENT (Fluent UI Card)
+   12. CARD COMPONENT (Fluent UI Card)
    ════════════════════════════════════════════════════════════════════════════ */
 
 fluent-card {
   display: block;
-  background: var(--fill-card);
-  border: 1px solid var(--stroke-control);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-2);
-  margin-bottom: var(--space-md);
+  /* Acrylic / Frosted Glass card */
+  background: var(--acrylic-tint);
+  -webkit-backdrop-filter: blur(var(--acrylic-blur)) saturate(125%);
+  backdrop-filter: blur(var(--acrylic-blur)) saturate(125%);
+  border: 1px solid var(--acrylic-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-4);
+  margin-bottom: var(--space-lg);
   overflow: hidden;
+  position: relative;
+}
+
+/* Acrylic noise texture for cards */
+fluent-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+  opacity: var(--acrylic-noise-opacity);
+  pointer-events: none;
+  z-index: 0;
+  border-radius: var(--radius-xl);
+}
+
+fluent-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  fluent-card {
+    background: var(--acrylic-fallback);
+  }
 }
 
 fluent-card:hover {
-  box-shadow: var(--shadow-4);
-  transition: box-shadow var(--duration-short) var(--curve-ease);
+  box-shadow: var(--shadow-8);
+  border-color: var(--stroke-control);
+  transition: box-shadow var(--duration-short) var(--curve-ease),
+              border-color var(--duration-short) var(--curve-ease);
 }
 
 /* ── Overview Card ── */
 .overview-card .card-body {
-  padding: var(--space-lg);
+  padding: var(--space-xl) var(--space-xxl);
 }
 
 .route-method-path {
@@ -637,9 +771,9 @@ fluent-card:hover {
 .overview-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  margin-top: var(--space-md);
-  padding-top: var(--space-md);
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
   border-top: 1px solid var(--stroke-subtle);
   justify-content: flex-end;
 }
@@ -698,7 +832,7 @@ fluent-card:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-sm) var(--space-lg);
+  padding: var(--space-md) var(--space-xxl);
   border-bottom: 1px solid var(--stroke-subtle);
   cursor: pointer;
   user-select: none;
@@ -759,21 +893,23 @@ fluent-card:hover {
 
 .param-table th {
   text-align: left;
-  padding: var(--space-xs) var(--space-md);
+  padding: var(--space-sm) var(--space-lg);
   font-size: var(--font-size-caption);
   font-weight: 600;
   text-transform: uppercase;
   color: var(--fg-secondary);
   border-bottom: 1px solid var(--stroke-divider);
-  background: var(--fill-subtle);
+  background: var(--acrylic-tint-alt);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   letter-spacing: 0.03em;
   white-space: nowrap;
 }
 
 .param-table td {
-  padding: var(--space-xs) var(--space-md);
+  padding: var(--space-sm) var(--space-lg);
   border-bottom: 1px solid var(--stroke-subtle);
-  vertical-align: top;
+  vertical-align: middle;
   line-height: 1.6;
 }
 
@@ -794,10 +930,27 @@ fluent-card:hover {
 }
 
 .param-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-family: var(--font-family-mono);
   font-size: var(--font-size-caption);
-  color: #8b5cf6;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  line-height: 16px;
+  white-space: nowrap;
 }
+
+/* Type badge colors */
+.param-type.string  { color: #7c3aed; background: rgba(124, 58, 237, 0.08); }
+.param-type.int     { color: #0d7377; background: rgba(13, 115, 119, 0.08); }
+.param-type.float   { color: #0d7377; background: rgba(13, 115, 119, 0.08); }
+.param-type.bool    { color: #c2410c; background: rgba(194, 65, 12, 0.08); }
+.param-type.array   { color: #0369a1; background: rgba(3, 105, 161, 0.08); }
+.param-type.object  { color: #0369a1; background: rgba(3, 105, 161, 0.08); }
+.param-type.null    { color: var(--fg-tertiary); background: rgba(0,0,0,0.04); }
+.param-type         { color: #7c3aed; background: rgba(124, 58, 237, 0.08); }
 
 .param-required {
   font-size: var(--font-size-caption);
@@ -865,16 +1018,30 @@ fluent-card:hover {
   color: var(--accent-base);
 }
 
+/* Utility: horizontal padding 5px */
+.px-5 {
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+/* fluent-text-field inside param table */
+.param-table fluent-text-field {
+  width: 100%;
+  min-width: 180px;
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    17. JSON CODE BLOCK (Syntax Highlighted)
    ════════════════════════════════════════════════════════════════════════════ */
 
 .json-block {
-  background: var(--fill-input);
-  border: 1px solid var(--stroke-control);
+  background: var(--acrylic-tint-alt);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--acrylic-border);
   border-radius: var(--radius-md);
-  padding: var(--space-md) var(--space-lg);
-  margin: var(--space-md) 0;
+  padding: var(--space-md) var(--space-xl);
+  margin: var(--space-md) var(--space-xxl);
   font-family: var(--font-family-mono);
   font-size: var(--font-size-sm);
   line-height: 1.7;
@@ -921,11 +1088,32 @@ fluent-card:hover {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   19. DIALOG (Fluent UI Dialog)
+   19. DIALOG (Native <dialog> with Fluent UI styling)
    ════════════════════════════════════════════════════════════════════════════ */
 
-fluent-dialog {
-  --dialog-width: 340px;
+dialog {
+  border: 1px solid var(--acrylic-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-28);
+  background: var(--acrylic-tint);
+  -webkit-backdrop-filter: blur(var(--acrylic-blur)) saturate(125%);
+  backdrop-filter: blur(var(--acrylic-blur)) saturate(125%);
+  color: var(--fg-primary);
+  padding: 0;
+  max-width: 400px;
+  width: 90vw;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  dialog {
+    background: var(--acrylic-fallback);
+  }
+}
+
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.32);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
 }
 
 .dialog-content {
@@ -952,6 +1140,55 @@ fluent-dialog {
   padding: var(--space-sm) var(--space-xl) var(--space-lg);
 }
 
+/* Dialog buttons — Fluent UI Button style */
+.dialog-btn-outline,
+.dialog-btn-accent {
+  font-family: var(--font-family);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1;
+  height: 36px;
+  min-width: 80px;
+  padding: 0 var(--space-lg);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  outline: none;
+  transition: background var(--duration-short) var(--curve-ease),
+              border-color var(--duration-short) var(--curve-ease),
+              box-shadow var(--duration-short) var(--curve-ease);
+}
+
+.dialog-btn-outline {
+  background: var(--fill-card);
+  color: var(--fg-primary);
+  border: 1px solid var(--stroke-control);
+}
+
+.dialog-btn-outline:hover {
+  background: var(--fill-hover);
+  border-color: var(--stroke-control);
+}
+
+.dialog-btn-outline:active {
+  background: var(--fill-active);
+}
+
+.dialog-btn-accent {
+  background: var(--accent-base);
+  color: var(--accent-foreground);
+  border: 1px solid var(--accent-base);
+}
+
+.dialog-btn-accent:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.dialog-btn-accent:active {
+  background: var(--accent-active);
+  border-color: var(--accent-active);
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    20. TOAST (Fluent UI Notification Bar)
    ════════════════════════════════════════════════════════════════════════════ */
@@ -972,15 +1209,23 @@ fluent-dialog {
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-lg);
-  border-radius: var(--radius-md);
-  background: var(--fill-card);
-  border: 1px solid var(--stroke-control);
+  border-radius: var(--radius-lg);
+  background: var(--acrylic-tint);
+  -webkit-backdrop-filter: blur(var(--acrylic-blur)) saturate(125%);
+  backdrop-filter: blur(var(--acrylic-blur)) saturate(125%);
+  border: 1px solid var(--acrylic-border);
   box-shadow: var(--shadow-8);
   font-size: var(--font-size-body);
   color: var(--fg-primary);
   animation: toast-slide-in var(--duration-normal) var(--curve-decelerate);
   max-width: 360px;
   pointer-events: auto;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .toast {
+    background: var(--acrylic-fallback);
+  }
 }
 
 .toast::before {
@@ -1038,11 +1283,14 @@ fluent-dialog {
 fluent-text-field {
   width: 100%;
   font-size: var(--font-size-body);
+  --textfield-height: 30px;
 }
 
 fluent-button {
-  --button-height: 28px;
+  --button-height: 36px;
+  --button-padding: var(--space-sm) var(--space-lg);
   font-size: var(--font-size-sm);
+  border-radius: var(--radius-md);
 }
 
 fluent-breadcrumb {
@@ -1078,7 +1326,204 @@ fluent-badge {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   24. RESPONSIVE (Mobile)
+   24. TYPE DROPDOWN (fluent-combobox)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Global fix: all fluent-combobox listboxes must float above everything */
+fluent-combobox {
+  position: relative;
+  z-index: 50;
+}
+fluent-combobox::part(listbox) {
+  position: absolute !important;
+  z-index: 99999 !important;
+}
+
+.type-combo {
+  --dropdown-width: 120px;
+  min-width: 100px;
+  max-width: 120px;
+}
+.type-combo::part(control) {
+  height: 32px;
+  min-height: 32px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 0 8px;
+}
+.type-combo::part(listbox) {
+  border-radius: 4px;
+  font-size: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.type-combo fluent-option {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   25. REQUEST PLAYGROUND (Apifox-style sub-tabs inside Test tab)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.request-playground {
+  margin-bottom: var(--space-lg);
+}
+
+.playground-header {
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--stroke-subtle);
+}
+
+.playground-url-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* Method dropdown in playground */
+.playground-method-select {
+  min-width: 100px;
+  max-width: 120px;
+  flex-shrink: 0;
+}
+.playground-method-select::part(control) {
+  height: 32px;
+  min-height: 32px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 0 8px;
+}
+
+.playground-method-select.get::part(control),
+.playground-method-select [value="GET"] {
+  color: #2d8cf0;
+}
+.playground-method-select.post::part(control),
+.playground-method-select [value="POST"] {
+  color: #19be6b;
+}
+.playground-method-select.put::part(control),
+.playground-method-select [value="PUT"] {
+  color: #ff9900;
+}
+.playground-method-select.delete::part(control),
+.playground-method-select [value="DELETE"] {
+  color: #ed4014;
+}
+.playground-method-select.patch::part(control),
+.playground-method-select [value="PATCH"] {
+  color: #ff9900;
+}
+.playground-method-select.head::part(control),
+.playground-method-select [value="HEAD"] {
+  color: #808695;
+}
+.playground-method-select.options::part(control),
+.playground-method-select [value="OPTIONS"] {
+  color: #808695;
+}
+
+.playground-url-input {
+  flex: 1;
+  min-width: 0;
+}
+.playground-url-input::part(control) {
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+}
+
+.playground-send-btn {
+  flex-shrink: 0;
+  height: 32px;
+}
+
+/* ── Sub-tabs (Params | Body | Raw | Json | Headers | Cookies) ── */
+.playground-tabs {
+  padding: 0 var(--space-lg) var(--space-lg);
+}
+
+.tab-list {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--stroke-subtle);
+  margin-bottom: var(--space-md);
+}
+
+.tab-btn {
+  position: relative;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+.tab-btn:hover {
+  color: var(--fg-primary);
+}
+.tab-btn.active {
+  color: var(--accent-base);
+}
+.tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  background: var(--accent-base);
+  border-radius: 2px 2px 0 0;
+}
+
+.tab-panels {
+  position: relative;
+}
+
+.tab-panel {
+  display: none;
+}
+.tab-panel.active {
+  display: block;
+}
+
+/* ── Request Result ── */
+.request-result {
+  margin: var(--space-lg) 0;
+  border: 1px solid var(--stroke-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.result-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--stroke-subtle);
+}
+.result-status.success { background: rgba(25, 190, 107, 0.08); color: #19be6b; }
+.result-status.warning { background: rgba(255, 153, 0, 0.08); color: #ff9900; }
+.result-status.error   { background: rgba(237, 64, 20, 0.08); color: #ed4014; }
+.result-status-code {
+  font-family: var(--font-family-mono);
+  font-size: 14px;
+}
+.result-body {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--fill-subtle);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   26. RESPONSIVE (Mobile)
    ════════════════════════════════════════════════════════════════════════════ */
 
 @media (max-width: 768px) {
