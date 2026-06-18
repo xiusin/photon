@@ -30,7 +30,7 @@ ORM_TESTS := $(ROOT_PREFIX)orm/orm_test.v \
 
 # ── Targets ──
 
-.PHONY: build run test test-all check clean help
+.PHONY: build run test test-all check clean help docs-serve
 
 help:
 	@echo "Photon Framework Build & Test"
@@ -47,6 +47,7 @@ help:
 	@echo "  make docker-run   - Build and run Docker container"
 	@echo "  make docker-push  - Push to container registry"
 	@echo "  make clean         - Remove build artifacts"
+	@echo "  make docs-serve    - Start documentation server (port 8765)"
 
 build:
 	@mkdir -p $(ROOT_PREFIX)bin
@@ -89,6 +90,11 @@ check:
 clean:
 	rm -rf $(ROOT_PREFIX)bin/
 	@echo "Cleaned build artifacts."
+
+# ── Documentation Server ──
+
+docs-serve:
+	v run $(ROOT_PREFIX)docs/serve.v
 
 # ── Linux Service Deployment ──
 
