@@ -1,0 +1,67 @@
+# ═══════════════════════════════════════════════════════════
+# PhotonBlog Demo — Docker Compose 生产覆盖配置
+# ═══════════════════════════════════════════════════════════
+#
+# 用法：
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# 生产环境特有配置：
+#   - 资源限制（CPU/内存）
+#   - 重启策略
+#   - 日志驱动与轮转
+# ═══════════════════════════════════════════════════════════
+
+version: '3.8'
+
+services:
+  app:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      - APP_PROFILE=prod
+      - APP_DEBUG=false
+      - LOG_LEVEL=info
+      - LOG_JSON_FORMAT=true
+
+  queue:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  scheduler:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
