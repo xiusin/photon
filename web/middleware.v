@@ -4,7 +4,6 @@ module web
 //
 // Provides a composable middleware chain for request/response processing.
 // Compatible with V 0.5.1 veb.Context API.
-
 import veb
 import time
 
@@ -42,18 +41,18 @@ pub type MiddlewareFunc = fn (ctx &MiddlewareContext) !bool
 // injection into all log output during this request.
 pub struct MiddlewareContext {
 pub mut:
-	ctx       &veb.Context
-	data      map[string]string // Shared data across middleware
-	logger    &RequestLogger = unsafe { nil } // Set to enable request_id→logger auto-flow
+	ctx    &veb.Context
+	data   map[string]string // Shared data across middleware
+	logger &RequestLogger = unsafe { nil } // Set to enable request_id→logger auto-flow
 pub:
-	route_path string
+	route_path   string
 	route_method string
 }
 
 // new_middleware_context creates a new MiddlewareContext
 pub fn new_middleware_context(ctx &veb.Context) &MiddlewareContext {
 	return &MiddlewareContext{
-		ctx: ctx
+		ctx:  ctx
 		data: map[string]string{}
 	}
 }
@@ -103,8 +102,10 @@ pub fn cors_middleware(mut ctx &MiddlewareContext) !bool {
 	ctx.ctx.set_custom_header('Access-Control-Allow-Origin', '*') or {
 		eprintln('[CORS] Failed to set Allow-Origin header')
 	}
-	ctx.ctx.set_custom_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS') or {}
-	ctx.ctx.set_custom_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With') or {}
+	ctx.ctx.set_custom_header('Access-Control-Allow-Methods',
+		'GET, POST, PUT, DELETE, PATCH, OPTIONS') or {}
+	ctx.ctx.set_custom_header('Access-Control-Allow-Headers',
+		'Content-Type, Authorization, X-Requested-With') or {}
 	ctx.ctx.set_custom_header('Access-Control-Max-Age', '86400') or {}
 
 	if ctx.route_method == 'OPTIONS' {

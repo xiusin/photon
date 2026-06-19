@@ -14,11 +14,11 @@ pub const pre_authorize_attr = 'pre_authorize'
 // SecuredConfig holds security configuration for an endpoint
 pub struct SecuredConfig {
 pub mut:
-	is_secured       bool
-	required_roles   []string
-	required_perms   []string
-	is_permit_all    bool
-	is_deny_all      bool
+	is_secured     bool
+	required_roles []string
+	required_perms []string
+	is_permit_all  bool
+	is_deny_all    bool
 }
 
 // parse_security_attrs extracts security configuration from method attributes
@@ -40,7 +40,7 @@ pub fn parse_security_attrs(attrs []string) SecuredConfig {
 			config.is_secured = true
 			perm_str := attr['${pre_authorize_attr}:'.len..].trim("'").trim('"')
 			if perm_str.starts_with('hasPermission') {
-				config.required_perms = [perm_str['hasPermission('.len..perm_str.len-1].trim("'").trim('"')]
+				config.required_perms = [perm_str['hasPermission('.len..perm_str.len - 1].trim("'").trim('"')]
 			}
 		}
 	}

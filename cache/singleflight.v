@@ -5,13 +5,12 @@ module cache
 // Provides call deduplication: multiple concurrent requests for the same key
 // are coalesced into a single execution. Equivalent to Go's singleflight.
 // Prevents cache stampede / thundering herd under high concurrency.
-
 import sync
 import time
 
 // Call represents an in-flight or completed singleflight call
 struct Call {
-	key  string
+	key string
 mut:
 	val  string
 	err  string
@@ -47,7 +46,9 @@ pub fn (mut sf Singleflight) do(key string, f fn () !string) !string {
 	existing := sf.calls[key] or { unsafe { nil } }
 	if isnil(existing) {
 		// Leader — create in-flight Call and execute fn
-		mut c := &Call{ key: key }
+		mut c := &Call{
+			key: key
+		}
 		sf.calls[key] = c
 		sf.mu.unlock()
 

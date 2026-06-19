@@ -54,5 +54,13 @@ pub fn bind_field_value(attrs []string, config_val string) string {
 	}
 	parts := expr.split(':')
 	_ = parts[0] // key (used for property lookup)
-	return if config_val.len > 0 { config_val } else { if parts.len > 1 { parts[1] } else { '' } }
+	return if config_val.len > 0 {
+		config_val
+	} else {
+		if parts.len > 1 {
+			parts[1]
+		} else {
+			''
+		}
+	}
 }

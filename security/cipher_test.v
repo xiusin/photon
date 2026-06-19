@@ -54,7 +54,7 @@ fn test_aes_decrypt_tampered_payload() {
 	cipher := new_aes_cipher('12345678901234567890123456789012')!
 	encrypted := cipher.encrypt('secret') or { '' }
 	if encrypted.len == 0 {
-		return // empty string decrypts to empty, skip
+		return
 	}
 	// Tamper with the payload (change bytes in the middle)
 	mut tampered_bytes := []u8{}

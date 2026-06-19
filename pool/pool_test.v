@@ -61,7 +61,7 @@ fn test_pool_initialize_with_default_min() {
 fn test_pool_acquire_from_empty() {
 	mut p := new_pool_with_config('test', obj_factory, 0, 10)
 	obj := p.acquire()!
-	assert obj != voidptr(0)
+	assert obj != unsafe { nil }
 
 	stats := p.stats()
 	assert stats.active == 1
@@ -73,7 +73,7 @@ fn test_pool_acquire_from_initialized() {
 	p.initialize()!
 
 	obj := p.acquire()!
-	assert obj != voidptr(0)
+	assert obj != unsafe { nil }
 
 	stats := p.stats()
 	assert stats.active == 1
@@ -190,11 +190,11 @@ fn test_pool_stats_after_operations() {
 
 fn test_pool_stats_struct() {
 	ps := PoolStats{
-		name: 'db-pool'
-		total: 10
+		name:   'db-pool'
+		total:  10
 		active: 3
-		idle: 7
-		max: 20
+		idle:   7
+		max:    20
 	}
 	assert ps.name == 'db-pool'
 	assert ps.total == 10

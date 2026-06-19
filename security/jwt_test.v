@@ -8,7 +8,9 @@ module security
 // -- JwtConfig tests --
 
 fn test_jwt_config_defaults() {
-	config := JwtConfig{ secret: 'test-secret' }
+	config := JwtConfig{
+		secret: 'test-secret'
+	}
 	assert config.secret == 'test-secret'
 	assert config.issuer == 'photon'
 	assert config.expiration_minutes == 60
@@ -17,11 +19,11 @@ fn test_jwt_config_defaults() {
 
 fn test_jwt_config_custom_values() {
 	config := JwtConfig{
-		secret: 'my-secret'
-		issuer: 'my-app'
-		expiration_minutes: 30
+		secret:                         'my-secret'
+		issuer:                         'my-app'
+		expiration_minutes:             30
 		refresh_token_expiration_hours: 24
-		audience: 'api-users'
+		audience:                       'api-users'
 	}
 	assert config.issuer == 'my-app'
 	assert config.expiration_minutes == 30
@@ -32,10 +34,10 @@ fn test_jwt_config_custom_values() {
 
 fn test_jwt_claims_initialization() {
 	claims := JwtClaims{
-		sub: 'bob'
-		iat: 1000
-		exp: 2000
-		iss: 'photon'
+		sub:   'bob'
+		iat:   1000
+		exp:   2000
+		iss:   'photon'
 		roles: ['USER']
 	}
 	assert claims.sub == 'bob'

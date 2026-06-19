@@ -18,7 +18,6 @@ module core
 //
 // Auto-configuration is processed AFTER user-defined beans, allowing
 // user beans to take precedence (the "user has the final word" principle).
-
 import sync
 
 // ── AutoConfiguration ──
@@ -85,10 +84,10 @@ pub fn (mut m AutoConfigurationManager) add_candidate(candidate AutoConfiguratio
 // add_auto_configuration registers an AutoConfiguration with optional conditions.
 pub fn (mut m AutoConfigurationManager) add_auto_configuration(type_name string, config &AutoConfiguration, conditions []&Condition) {
 	candidate := AutoConfigurationCandidate{
-		type_name: type_name
-		config: unsafe { config }
+		type_name:  type_name
+		config:     unsafe { config }
 		conditions: conditions
-		order_: config.order()
+		order_:     config.order()
 	}
 	m.add_candidate(candidate)
 }

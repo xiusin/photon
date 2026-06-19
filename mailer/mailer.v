@@ -13,7 +13,6 @@ module mailer
 //   - Fluent email builder (EmailBuilder)
 //   - CC/BCC/Reply-To support
 //   - File attachments
-
 import net.smtp as vsmtp
 import strings
 import time
@@ -113,31 +112,31 @@ pub fn new_email() Email {
 // EmailBuilder provides a fluent API for constructing emails.
 pub struct EmailBuilder {
 mut:
-	from        Address
-	to          []Address
-	cc          []Address
-	bcc         []Address
-	reply_to    Address
-	subject     string
-	body        string
-	html_body   string
-	is_html     bool
-	attachments []EmailAttachment
-	headers     map[string]string
-	priority    int
-	template    string
+	from          Address
+	to            []Address
+	cc            []Address
+	bcc           []Address
+	reply_to      Address
+	subject       string
+	body          string
+	html_body     string
+	is_html       bool
+	attachments   []EmailAttachment
+	headers       map[string]string
+	priority      int
+	template      string
 	template_data map[string]string
 }
 
 // new_email_builder creates a new EmailBuilder.
 pub fn new_email_builder() EmailBuilder {
 	return EmailBuilder{
-		to:           []Address{}
-		cc:           []Address{}
-		bcc:          []Address{}
-		attachments:  []EmailAttachment{}
-		headers:      map[string]string{}
-		priority:     3
+		to:            []Address{}
+		cc:            []Address{}
+		bcc:           []Address{}
+		attachments:   []EmailAttachment{}
+		headers:       map[string]string{}
+		priority:      3
 		template_data: map[string]string{}
 	}
 }
@@ -257,7 +256,9 @@ pub fn (mut b EmailBuilder) build() Email {
 	e.bcc = b.bcc
 	e.reply_to = b.reply_to
 	e.subject = b.subject
-	for k, v in b.headers { e.headers[k] = v }
+	for k, v in b.headers {
+		e.headers[k] = v
+	}
 	e.priority = b.priority
 	e.attachments = b.attachments
 
@@ -308,12 +309,12 @@ pub interface MailTransport {
 pub struct SmtpConfig {
 pub:
 	host       string
-	port       int    = 587
+	port       int = 587
 	username   string
 	password   string
 	encryption EncryptionType = .starttls
-	timeout_ms int    = 30000
-	from_name  string = 'Photon App'
+	timeout_ms int            = 30000
+	from_name  string         = 'Photon App'
 }
 
 // SmtpTransport sends emails via SMTP.
@@ -332,13 +333,13 @@ pub fn new_smtp_transport(config SmtpConfig) &SmtpTransport {
 // send sends an Email via SMTP.
 pub fn (st SmtpTransport) send(mail Email) ! {
 	mut client := vsmtp.new_client(
-		server: st.config.host
-		port: st.config.port
+		server:   st.config.host
+		port:     st.config.port
 		username: st.config.username
 		password: st.config.password
-		from: mail.from.email
+		from:     mail.from.email
 		starttls: st.config.encryption == .starttls
-		ssl: st.config.encryption == .tls
+		ssl:      st.config.encryption == .tls
 	)!
 
 	to_str := mail.to.map(it.email).join(', ')
@@ -349,23 +350,27 @@ pub fn (st SmtpTransport) send(mail Email) ! {
 	for att in mail.attachments {
 		smtp_attachments << vsmtp.Attachment{
 			filename: att.filename
-			bytes: att.content
+			bytes:    att.content
 		}
 	}
 
-	body_type := if mail.is_html || mail.html_body.len > 0 { vsmtp.BodyType.html } else { vsmtp.BodyType.text }
+	body_type := if mail.is_html || mail.html_body.len > 0 {
+		vsmtp.BodyType.html
+	} else {
+		vsmtp.BodyType.text
+	}
 	body_content := if mail.is_html || mail.html_body.len > 0 { mail.html_body } else { mail.body }
 
 	vsmtp_config := vsmtp.Mail{
-		from: mail.from.email
-		to: to_str
-		cc: cc_str
-		bcc: bcc_str
-		subject: mail.subject
-		body_type: body_type
-		body: body_content
+		from:        mail.from.email
+		to:          to_str
+		cc:          cc_str
+		bcc:         bcc_str
+		subject:     mail.subject
+		body_type:   body_type
+		body:        body_content
 		attachments: smtp_attachments
-		date: time.now()
+		date:        time.now()
 	}
 
 	client.send(vsmtp_config)!
@@ -408,12 +413,12 @@ pub fn (lt LogTransport) send(mail Email) ! {
 	sb.write_string('MAIL LOG\n')
 	sb.write_string('-----------------------------------------------------------\n')
 	sb.write_string('From: ${mail.from.str()}\n')
-	sb.write_string('To: ${mail.to.map(it.str()).join(", ")}\n')
+	sb.write_string('To: ${mail.to.map(it.str()).join(', ')}\n')
 	if mail.cc.len > 0 {
-		sb.write_string('Cc: ${mail.cc.map(it.str()).join(", ")}\n')
+		sb.write_string('Cc: ${mail.cc.map(it.str()).join(', ')}\n')
 	}
 	if mail.bcc.len > 0 {
-		sb.write_string('Bcc: ${mail.bcc.map(it.str()).join(", ")}\n')
+		sb.write_string('Bcc: ${mail.bcc.map(it.str()).join(', ')}\n')
 	}
 	if mail.reply_to.email.len > 0 {
 		sb.write_string('Reply-To: ${mail.reply_to.str()}\n')
@@ -501,7 +506,7 @@ pub mut:
 pub fn new_mailer(config SmtpConfig) &Mailer {
 	transport := new_smtp_transport(config)
 	return &Mailer{
-		transport: transport
+		transport:    transport
 		from_address: Address{
 			email: config.username
 			name:  config.from_name
@@ -547,10 +552,10 @@ pub fn (mut m Mailer) send_with_builder(builder EmailBuilder) ! {
 // send_to is a convenience method for simple text emails.
 pub fn (mut m Mailer) send_to(to string, subject string, body string) ! {
 	return m.send(Email{
-		from:   m.from_address
-		to:     [Address{email: to}]
+		from:    m.from_address
+		to:      [Address{ email: to }]
 		subject: subject
-		body:   body
+		body:    body
 	})
 }
 
@@ -558,7 +563,7 @@ pub fn (mut m Mailer) send_to(to string, subject string, body string) ! {
 pub fn (mut m Mailer) send_html(to string, subject string, html_body string) ! {
 	return m.send(Email{
 		from:      m.from_address
-		to:        [Address{email: to}]
+		to:        [Address{ email: to }]
 		subject:   subject
 		html_body: html_body
 		is_html:   true

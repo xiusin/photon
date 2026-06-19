@@ -592,7 +592,7 @@ pub fn (mut om OrmManager) register_connection(name string, driver DriverType, d
 		return error('connection "${name}" already registered')
 	}
 	om.connections[name] = OrmConnection{
-		db: db
+		db:     db
 		driver: driver
 	}
 	if om.default.len == 0 {
@@ -614,9 +614,7 @@ pub fn (om &OrmManager) connection(name string) !OrmConnection {
 	if db_name.len == 0 {
 		return error('no default connection set')
 	}
-	return om.connections[db_name] or {
-		return error('connection "${db_name}" not registered')
-	}
+	return om.connections[db_name] or { return error('connection "${db_name}" not registered') }
 }
 
 // get_conn returns the raw connection pointer by name (or default).

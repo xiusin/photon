@@ -10,7 +10,7 @@ module security
 
 fn test_role_struct() {
 	r := Role{
-		name: 'ADMIN'
+		name:        'ADMIN'
 		permissions: ['user:read', 'user:write']
 		description: 'Administrator role'
 	}

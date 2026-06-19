@@ -2,7 +2,6 @@ module logger
 
 // logger_test.v - Unit tests for Photon Logger Module
 // Tests: Level enum, Logger creation, Encoders, MDC context, level filtering
-
 import time
 
 // ============================================================

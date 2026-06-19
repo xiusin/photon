@@ -20,7 +20,9 @@ fn test_collect_is_not_empty() {
 fn test_collect_each() {
 	mut tracker := &SumTracker{}
 	c := collect([1, 2, 3])
-	c.each(fn [mut tracker](n int) { tracker.sum += n })
+	c.each(fn [mut tracker] (n int) {
+		tracker.sum += n
+	})
 	assert tracker.sum == 6
 }
 
@@ -32,7 +34,9 @@ mut:
 
 fn test_collect_transform() {
 	mut c := collect([1, 2, 3])
-	c.transform(fn (n int) int { return n * 10 })
+	c.transform(fn (n int) int {
+		return n * 10
+	})
 	assert c.all() == [10, 20, 30]
 }
 
@@ -66,7 +70,9 @@ fn test_collect_slice_out_of_bounds() {
 
 fn test_collect_key_by() {
 	c := collect(['Alice', 'Bob'])
-	by_first := c.key_by(fn (s string) string { return s[0..1] })
+	by_first := c.key_by(fn (s string) string {
+		return s[0..1]
+	})
 	assert by_first['A'] == 'Alice'
 	assert by_first['B'] == 'Bob'
 }
@@ -88,7 +94,9 @@ fn test_collect_push_pop() {
 
 fn test_collect_tap() {
 	c := collect([1, 2, 3])
-	result := c.tap(fn (col &Collection[int]) int { return col.count() })
+	result := c.tap(fn (col &Collection[int]) int {
+		return col.count()
+	})
 	assert result.all() == [1, 2, 3] // tap returns self
 }
 
@@ -116,7 +124,9 @@ fn test_collect_empty_json() {
 // ============================================================
 
 fn test_arr_forget() {
-	mut m := {'key': 'value'}
+	mut m := {
+		'key': 'value'
+	}
 	forget_string(mut m, 'key')
 	assert has_string(m, 'key') == false
 }
@@ -129,19 +139,25 @@ fn test_arr_set() {
 
 fn test_arr_last() {
 	items := [1, 2, 3, 4, 5]
-	result := last(items, fn (n int) bool { return n > 2 }, 0)
+	result := last(items, fn (n int) bool {
+		return n > 2
+	}, 0)
 	assert result == 5
 }
 
 fn test_arr_last_not_found() {
 	items := [1, 2, 3]
-	result := last(items, fn (n int) bool { return n > 10 }, -1)
+	result := last(items, fn (n int) bool {
+		return n > 10
+	}, -1)
 	assert result == -1
 }
 
 fn test_arr_filter_items() {
 	items := [1, 2, 3, 4, 5]
-	result := filter_items(items, fn (n int) bool { return n % 2 == 0 })
+	result := filter_items(items, fn (n int) bool {
+		return n % 2 == 0
+	})
 	assert result == [2, 4]
 }
 
@@ -152,7 +168,10 @@ fn test_arr_collapse() {
 }
 
 fn test_arr_keys_values() {
-	mut m := {'a': '1', 'b': '2'}
+	mut m := {
+		'a': '1'
+		'b': '2'
+	}
 	keys := keys_string(m)
 	vals := values_string(m)
 	assert keys.len == 2

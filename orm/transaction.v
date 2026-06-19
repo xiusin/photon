@@ -37,16 +37,31 @@ pub enum Isolation {
 // Wraps V's official orm.Connection or orm.TransactionalConnection.
 pub struct TransactionManager {
 pub mut:
-	active         bool
+	active          bool
 	savepoint_count int
 	propagation     Propagation = .required
 	isolation       Isolation   = .default_
 	read_only       bool
+	conn            voidptr        = unsafe { nil } // 数据库连接（由用户提供）
+	begin_fn        fn (voidptr) ! = unsafe { nil } // 真实 begin 回调
+	commit_fn       fn (voidptr) ! = unsafe { nil } // 真实 commit 回调
+	rollback_fn     fn (voidptr) ! = unsafe { nil } // 真实 rollback 回调
 }
 
 // new_transaction_manager creates a TransactionManager.
 pub fn new_transaction_manager() &TransactionManager {
 	return &TransactionManager{}
+}
+
+// new_transaction_manager_with_conn creates a TransactionManager bound to a real DB connection.
+// The begin/commit/rollback callbacks operate on the provided connection.
+pub fn new_transaction_manager_with_conn(conn voidptr, begin_fn fn (voidptr) !, commit_fn fn (voidptr) !, rollback_fn fn (voidptr) !) &TransactionManager {
+	return &TransactionManager{
+		conn:        conn
+		begin_fn:    begin_fn
+		commit_fn:   commit_fn
+		rollback_fn: rollback_fn
+	}
 }
 
 // begin starts a transaction on the provided connection.
@@ -56,6 +71,9 @@ pub fn (mut tm TransactionManager) begin() ! {
 	if tm.active {
 		return error('transaction already active')
 	}
+	if !isnil(tm.begin_fn) {
+		tm.begin_fn(tm.conn)!
+	}
 	tm.active = true
 }
 
@@ -64,6 +82,9 @@ pub fn (mut tm TransactionManager) commit() ! {
 	if !tm.active {
 		return error('no active transaction')
 	}
+	if !isnil(tm.commit_fn) {
+		tm.commit_fn(tm.conn)!
+	}
 	tm.active = false
 }
 
@@ -71,6 +92,9 @@ pub fn (mut tm TransactionManager) commit() ! {
 pub fn (mut tm TransactionManager) rollback() ! {
 	if !tm.active {
 		return error('no active transaction')
+	}
+	if !isnil(tm.rollback_fn) {
+		tm.rollback_fn(tm.conn)!
 	}
 	tm.active = false
 }

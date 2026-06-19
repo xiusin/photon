@@ -3,12 +3,17 @@ module mailer
 // ── Address Tests ──
 
 fn test_address_str_email_only() {
-	a := Address{email: 'user@example.com'}
+	a := Address{
+		email: 'user@example.com'
+	}
 	assert a.str() == 'user@example.com'
 }
 
 fn test_address_str_with_name() {
-	a := Address{email: 'user@example.com', name: 'John Doe'}
+	a := Address{
+		email: 'user@example.com'
+		name:  'John Doe'
+	}
 	assert a.str() == '"John Doe" <user@example.com>'
 }
 
@@ -44,8 +49,11 @@ fn test_new_email() {
 
 fn test_email_set_fields() {
 	mut e := new_email()
-	e.from = Address{email: 'sender@example.com', name: 'Sender'}
-	e.to = [Address{email: 'receiver@example.com'}]
+	e.from = Address{
+		email: 'sender@example.com'
+		name:  'Sender'
+	}
+	e.to = [Address{ email: 'receiver@example.com' }]
 	e.subject = 'Test Subject'
 	e.body = 'Hello, World!'
 
@@ -73,7 +81,7 @@ fn test_new_attachment_default_type() {
 
 fn test_smtp_config_defaults() {
 	config := SmtpConfig{
-		host: 'smtp.example.com'
+		host:     'smtp.example.com'
 		username: 'user@example.com'
 		password: 'secret'
 	}
@@ -89,8 +97,10 @@ fn test_log_transport_send() {
 	reset_log_sent_count()
 	mut lt := new_log_transport()
 	mut e := new_email()
-	e.from = Address{email: 'sender@example.com'}
-	e.to = [Address{email: 'receiver@example.com'}]
+	e.from = Address{
+		email: 'sender@example.com'
+	}
+	e.to = [Address{ email: 'receiver@example.com' }]
 	e.subject = 'Test'
 	e.body = 'Hello'
 
@@ -102,8 +112,10 @@ fn test_log_transport_send_html() {
 	reset_log_sent_count()
 	mut lt := new_log_transport()
 	mut e := new_email()
-	e.from = Address{email: 'sender@example.com'}
-	e.to = [Address{email: 'receiver@example.com'}]
+	e.from = Address{
+		email: 'sender@example.com'
+	}
+	e.to = [Address{ email: 'receiver@example.com' }]
 	e.subject = 'HTML Test'
 	e.html_body = '<h1>Hello</h1>'
 	e.is_html = true
@@ -116,11 +128,15 @@ fn test_log_transport_with_cc_bcc() {
 	reset_log_sent_count()
 	mut lt := new_log_transport()
 	mut e := new_email()
-	e.from = Address{email: 'sender@example.com'}
-	e.to = [Address{email: 'to@example.com'}]
-	e.cc = [Address{email: 'cc@example.com'}]
-	e.bcc = [Address{email: 'bcc@example.com'}]
-	e.reply_to = Address{email: 'reply@example.com'}
+	e.from = Address{
+		email: 'sender@example.com'
+	}
+	e.to = [Address{ email: 'to@example.com' }]
+	e.cc = [Address{ email: 'cc@example.com' }]
+	e.bcc = [Address{ email: 'bcc@example.com' }]
+	e.reply_to = Address{
+		email: 'reply@example.com'
+	}
 	e.subject = 'Multi-recipient'
 	e.body = 'Test body'
 	e.headers['X-Priority'] = '1'
@@ -162,17 +178,13 @@ fn test_new_log_mailer() {
 fn test_mailer_send_to() {
 	reset_log_sent_count()
 	mut m := new_log_mailer()
-	m.send_to('test@example.com', 'Test Subject', 'Test Body') or {
-		assert false
-	}
+	m.send_to('test@example.com', 'Test Subject', 'Test Body') or { assert false }
 }
 
 fn test_mailer_send_html() {
 	reset_log_sent_count()
 	mut m := new_log_mailer()
-	m.send_html('test@example.com', 'HTML Subject', '<h1>Hello</h1>') or {
-		assert false
-	}
+	m.send_html('test@example.com', 'HTML Subject', '<h1>Hello</h1>') or { assert false }
 }
 
 fn test_null_mailer() {
@@ -281,14 +293,19 @@ fn test_builder_priority_clamping() {
 
 fn test_render_template_basic() {
 	tpl := 'Hello, {{name}}! Welcome to {{app_name}}.'
-	data := {'name': 'Alice', 'app_name': 'PhotonApp'}
+	data := {
+		'name':     'Alice'
+		'app_name': 'PhotonApp'
+	}
 	result := render_template(tpl, data)
 	assert result == 'Hello, Alice! Welcome to PhotonApp.'
 }
 
 fn test_render_template_partial() {
 	tpl := 'Dear {{name}}, your order #{{order_id}} is confirmed.'
-	data := {'name': 'Bob'}
+	data := {
+		'name': 'Bob'
+	}
 	result := render_template(tpl, data)
 	assert result.contains('Dear Bob,')
 	assert result.contains('#{{order_id}}') // unknown var left as-is
@@ -306,7 +323,11 @@ fn test_template_welcome() {
 	assert tpl.contains('{{name}}')
 	assert tpl.contains('{{app_name}}')
 
-	data := {'name': 'Charlie', 'app_name': 'MyApp', 'action_url': 'https://example.com/start'}
+	data := {
+		'name':       'Charlie'
+		'app_name':   'MyApp'
+		'action_url': 'https://example.com/start'
+	}
 	rendered := render_template(tpl, data)
 	assert rendered.contains('Charlie')
 	assert rendered.contains('MyApp')
@@ -370,7 +391,11 @@ fn test_builder_with_vars_batch() {
 	b = b.from('x@y.z')
 	b = b.to('a@b.c')
 	b = b.set_template('Hi {{first}} {{last}}, your code is {{code}}.')
-	b = b.with_vars({'first': 'Grace', 'last': 'Hopper', 'code': '123456'})
+	b = b.with_vars({
+		'first': 'Grace'
+		'last':  'Hopper'
+		'code':  '123456'
+	})
 	email := b.build()
 
 	assert email.body == 'Hi Grace Hopper, your code is 123456.'

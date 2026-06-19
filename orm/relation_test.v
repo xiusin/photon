@@ -6,11 +6,11 @@ module orm
 
 fn test_relationship_has_many() {
 	rel := Relationship{
-		name: 'posts'
-		typ: 'has_many'
-		target: 'Post'
+		name:        'posts'
+		typ:         'has_many'
+		target:      'Post'
 		foreign_key: 'user_id'
-		local_key: 'id'
+		local_key:   'id'
 	}
 	assert rel.name == 'posts'
 	assert rel.typ == 'has_many'
@@ -22,11 +22,11 @@ fn test_relationship_has_many() {
 
 fn test_relationship_belongs_to() {
 	rel := Relationship{
-		name: 'author'
-		typ: 'belongs_to'
-		target: 'User'
+		name:        'author'
+		typ:         'belongs_to'
+		target:      'User'
 		foreign_key: 'author_id'
-		local_key: 'id'
+		local_key:   'id'
 	}
 	assert rel.name == 'author'
 	assert rel.typ == 'belongs_to'
@@ -35,11 +35,11 @@ fn test_relationship_belongs_to() {
 
 fn test_relationship_many_to_many() {
 	rel := Relationship{
-		name: 'tags'
-		typ: 'many_to_many'
-		target: 'Tag'
+		name:        'tags'
+		typ:         'many_to_many'
+		target:      'Tag'
 		foreign_key: 'tag_id'
-		local_key: 'post_id'
+		local_key:   'post_id'
 		pivot_table: 'post_tags'
 	}
 	assert rel.name == 'tags'
@@ -50,11 +50,11 @@ fn test_relationship_many_to_many() {
 
 fn test_relationship_has_one() {
 	rel := Relationship{
-		name: 'profile'
-		typ: 'has_one'
-		target: 'Profile'
+		name:        'profile'
+		typ:         'has_one'
+		target:      'Profile'
 		foreign_key: 'user_id'
-		local_key: 'id'
+		local_key:   'id'
 	}
 	assert rel.name == 'profile'
 	assert rel.typ == 'has_one'
@@ -64,6 +64,7 @@ fn test_relationship_has_one() {
 // --- HasMany Tests ---
 
 struct Post {}
+
 struct Tag {}
 
 fn test_new_has_many() {
@@ -118,14 +119,14 @@ struct User {
 pub:
 	id int
 pub mut:
-	posts HasMany[Post]
+	posts   HasMany[Post]
 	profile HasOne[Post]
 }
 
 fn test_user_entity_with_relationships() {
 	mut user := User{
-		id: 1
-		posts: new_has_many[Post]()
+		id:      1
+		posts:   new_has_many[Post]()
 		profile: new_has_one[Post]()
 	}
 	assert user.id == 1
@@ -146,10 +147,18 @@ fn test_new_relation_loader() {
 
 fn test_relationship_all_types_differ() {
 	// Each relationship type should be distinguishable
-	has_many_rel := Relationship{ typ: 'has_many' }
-	belongs_to_rel := Relationship{ typ: 'belongs_to' }
-	many_to_many_rel := Relationship{ typ: 'many_to_many' }
-	has_one_rel := Relationship{ typ: 'has_one' }
+	has_many_rel := Relationship{
+		typ: 'has_many'
+	}
+	belongs_to_rel := Relationship{
+		typ: 'belongs_to'
+	}
+	many_to_many_rel := Relationship{
+		typ: 'many_to_many'
+	}
+	has_one_rel := Relationship{
+		typ: 'has_one'
+	}
 
 	assert has_many_rel.typ != belongs_to_rel.typ
 	assert belongs_to_rel.typ != many_to_many_rel.typ

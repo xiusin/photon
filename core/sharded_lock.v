@@ -17,7 +17,6 @@ module core
 // Also provides:
 //   - Per-bean locking for safe singleton instantiation
 //   - Lock auto-cleanup to prevent memory leaks
-
 import sync
 
 // shard_count is the number of lock segments.
@@ -174,7 +173,7 @@ pub fn (mut bl BeanLock) remove(bean_name string) {
 // lock_count returns the number of active per-bean locks.
 pub fn (mut bl BeanLock) lock_count() int {
 	bl.mu.rlock()
-	defer { bl.mu.runlock()}
+	defer { bl.mu.runlock() }
 	return bl.locks.len
 }
 

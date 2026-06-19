@@ -9,9 +9,9 @@ module orm
 // Relationship represents a relationship between entities
 pub struct Relationship {
 pub:
-	name       string
-	typ        string // 'has_many', 'belongs_to', 'many_to_many', 'has_one'
-	target     string // Target entity type name
+	name        string
+	typ         string // 'has_many', 'belongs_to', 'many_to_many', 'has_one'
+	target      string // Target entity type name
 	foreign_key string
 	local_key   string
 	pivot_table string // For many-to-many

@@ -10,7 +10,9 @@ pub mut:
 
 // collect creates a new Collection from a slice
 pub fn collect[T](items []T) Collection[T] {
-	return Collection[T]{items: items.clone()}
+	return Collection[T]{
+		items: items.clone()
+	}
 }
 
 // new_collection creates an empty Collection
@@ -48,7 +50,9 @@ pub fn (c &Collection[T]) map[R](f fn (T) R) Collection[R] {
 	for item in c.items {
 		result << f(item)
 	}
-	return Collection[R]{items: result}
+	return Collection[R]{
+		items: result
+	}
 }
 
 // filter returns items matching a predicate
@@ -59,7 +63,9 @@ pub fn (c &Collection[T]) filter(f fn (T) bool) Collection[T] {
 			result << item
 		}
 	}
-	return Collection[T]{items: result}
+	return Collection[T]{
+		items: result
+	}
 }
 
 // reject returns items NOT matching a predicate
@@ -70,7 +76,9 @@ pub fn (c &Collection[T]) reject(f fn (T) bool) Collection[T] {
 			result << item
 		}
 	}
-	return Collection[T]{items: result}
+	return Collection[T]{
+		items: result
+	}
 }
 
 // each executes f for each item without mutation
@@ -168,12 +176,16 @@ pub fn (c &Collection[T]) chunk(size int) [][]T {
 
 // take returns the first n items
 pub fn (c &Collection[T]) take(n int) Collection[T] {
-	return Collection[T]{items: take(c.items, n)}
+	return Collection[T]{
+		items: take(c.items, n)
+	}
 }
 
 // skip returns items after skipping n
 pub fn (c &Collection[T]) skip(n int) Collection[T] {
-	return Collection[T]{items: skip(c.items, n)}
+	return Collection[T]{
+		items: skip(c.items, n)
+	}
 }
 
 // slice returns items from start to end
@@ -185,7 +197,9 @@ pub fn (c &Collection[T]) slice(start int, end int) Collection[T] {
 	if start < 0 || start >= e {
 		return new_collection[T]()
 	}
-	return Collection[T]{items: c.items[start..e]}
+	return Collection[T]{
+		items: c.items[start..e]
+	}
 }
 
 // ============================================================
@@ -197,7 +211,9 @@ pub fn (c &Collection[T]) slice(start int, end int) Collection[T] {
 // Complexity: O(n log n) via quicksort, with O(n) key extraction.
 pub fn (c &Collection[T]) sort_by[R](f fn (T) R) Collection[T] {
 	if c.items.len <= 1 {
-		return Collection[T]{items: c.items.clone()}
+		return Collection[T]{
+			items: c.items.clone()
+		}
 	}
 
 	n := c.items.len
@@ -219,7 +235,9 @@ pub fn (c &Collection[T]) sort_by[R](f fn (T) R) Collection[T] {
 		result << c.items[idx]
 	}
 
-	return Collection[T]{items: result}
+	return Collection[T]{
+		items: result
+	}
 }
 
 // quicksort_indices sorts indices in-place using keys (ascending)
@@ -245,9 +263,14 @@ fn quicksort_indices[R](mut keys []R, mut indices []int, lo int, hi int) {
 	mut i := lo
 	mut j := hi
 	for {
-		for keys[indices[i]] < pivot_val { i++ }
-		for keys[indices[j]] > pivot_val { j-- }
-		if i >= j { break }
+		for keys[indices[i]] < pivot_val {
+			i++
+		}
+		for keys[indices[j]] > pivot_val {
+			j--
+		}
+		if i >= j { break
+		 }
 		indices[i], indices[j] = indices[j], indices[i]
 		i++
 		j--
@@ -259,7 +282,9 @@ fn quicksort_indices[R](mut keys []R, mut indices []int, lo int, hi int) {
 
 // reverse reverses the order
 pub fn (c &Collection[T]) reverse() Collection[T] {
-	return Collection[T]{items: reverse(c.items)}
+	return Collection[T]{
+		items: reverse(c.items)
+	}
 }
 
 // ============================================================
@@ -293,14 +318,18 @@ pub fn (c &Collection[T]) key_by[K](f fn (T) K) map[K]T {
 pub fn (c &Collection[T]) merge(other Collection[T]) Collection[T] {
 	mut result := c.items.clone()
 	result << other.items
-	return Collection[T]{items: result}
+	return Collection[T]{
+		items: result
+	}
 }
 
 // concat appends items
 pub fn (c &Collection[T]) concat(items []T) Collection[T] {
 	mut result := c.items.clone()
 	result << items
-	return Collection[T]{items: result}
+	return Collection[T]{
+		items: result
+	}
 }
 
 // push adds an item to the end
@@ -327,7 +356,7 @@ pub fn (c &Collection[T]) tap[R](f fn (&Collection[T]) R) &Collection[T] {
 
 // pipe passes the collection through a callback
 pub fn (c &Collection[T]) pipe[R](f fn (col Collection[T]) R) R {
-	return f(Collection[T]{items: c.items.clone()})
+	return f(Collection[T]{ items: c.items.clone() })
 }
 
 // ============================================================

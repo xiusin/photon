@@ -41,11 +41,11 @@ pub:
 // QueryParts holds all extracted query components
 pub struct QueryParts {
 pub mut:
-	operation   QueryOperation = .find
-	distinct    bool
-	limit_val   int
-	conditions  []QueryCondition
-	order_by    []OrderPart
+	operation  QueryOperation = .find
+	distinct   bool
+	limit_val  int
+	conditions []QueryCondition
+	order_by   []OrderPart
 }
 
 // parse_method_name parses a Spring Data-style method name into query parts
@@ -107,7 +107,7 @@ pub fn parse_method_name(method string) !QueryParts {
 				prop_name = prop[..prop.len - 3]
 			}
 			parts.order_by << OrderPart{
-				property: camel_to_snake(prop_name)
+				property:  camel_to_snake(prop_name)
 				direction: direction
 			}
 		}
@@ -143,7 +143,7 @@ pub fn parse_method_name(method string) !QueryParts {
 				i++
 				parts.conditions << QueryCondition{
 					property: conds[i].to_lower()
-					logic: 'OR'
+					logic:    'OR'
 				}
 			} else if cond == 'And' || cond == 'Or' {
 				// Keyword at end — ignore

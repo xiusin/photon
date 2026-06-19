@@ -6,35 +6,34 @@ module security
 // the veb web framework. Handles JWT extraction, authentication,
 // authorization, CSRF validation, and SecurityContext management.
 // Compatible with V 0.5.1 veb.Context API.
-
 import veb
 
 // SecurityFilterChain processes security for HTTP requests
 pub struct SecurityFilterChain {
 pub mut:
-	auth_manager     &AuthenticationManager
-	jwt_manager      &JwtManager
-	csrf_manager     &CsrfManager
-	metadata_source  &SecurityMetadataSource
-	context_holder   &SecurityContextHolder
-	role_hierarchy   &RoleHierarchy
-	enabled          bool = true
+	auth_manager    &AuthenticationManager
+	jwt_manager     &JwtManager
+	csrf_manager    &CsrfManager
+	metadata_source &SecurityMetadataSource
+	context_holder  &SecurityContextHolder
+	role_hierarchy  &RoleHierarchy
+	enabled         bool = true
 }
 
 // new_security_filter_chain creates a new SecurityFilterChain
 pub fn new_security_filter_chain(auth_mgr &AuthenticationManager, jwt_mgr &JwtManager, csrf_mgr &CsrfManager) &SecurityFilterChain {
 	return &SecurityFilterChain{
-		auth_manager: unsafe { auth_mgr }
-		jwt_manager: unsafe { jwt_mgr }
-		csrf_manager: unsafe { csrf_mgr }
+		auth_manager:    unsafe { auth_mgr }
+		jwt_manager:     unsafe { jwt_mgr }
+		csrf_manager:    unsafe { csrf_mgr }
 		metadata_source: new_security_metadata_source()
-		context_holder: &SecurityContextHolder{}
-		role_hierarchy: build_default_hierarchy()
+		context_holder:  &SecurityContextHolder{}
+		role_hierarchy:  build_default_hierarchy()
 	}
 }
 
 // filter processes a request through the security chain
-pub fn (mut sfc SecurityFilterChain) filter(mut ctx &veb.Context) !bool {
+pub fn (mut sfc SecurityFilterChain) filter(mut ctx veb.Context) !bool {
 	if !sfc.enabled {
 		return true
 	}
@@ -62,7 +61,8 @@ pub fn (mut sfc SecurityFilterChain) filter(mut ctx &veb.Context) !bool {
 		actual := sfc.csrf_manager.get_actual_token(actual_header, actual_form)
 
 		sfc.csrf_manager.validate(actual, expected) or {
-			ctx.send_response_to_client('application/json', '{"error":"CSRF token invalid","code":403}')
+			ctx.send_response_to_client('application/json',
+				'{"error":"CSRF token invalid","code":403}')
 			return false
 		}
 	}
@@ -70,13 +70,15 @@ pub fn (mut sfc SecurityFilterChain) filter(mut ctx &veb.Context) !bool {
 	// Step 4: Extract and validate JWT from Authorization header
 	auth_header := ctx.get_custom_header('Authorization') or { '' }
 	if auth_header.len == 0 {
-		ctx.send_response_to_client('application/json', '{"error":"Authentication required","code":401}')
+		ctx.send_response_to_client('application/json',
+			'{"error":"Authentication required","code":401}')
 		return false
 	}
 
 	mut auth := new_authentication('', auth_header)
 	sfc.auth_manager.authenticate(mut auth) or {
-		ctx.send_response_to_client('application/json', '{"error":"Invalid or expired token","code":401}')
+		ctx.send_response_to_client('application/json',
+			'{"error":"Invalid or expired token","code":401}')
 		return false
 	}
 
@@ -88,7 +90,8 @@ pub fn (mut sfc SecurityFilterChain) filter(mut ctx &veb.Context) !bool {
 	// Step 6: Check role-based authorization
 	if sec_config.is_secured && sec_config.required_roles.len > 0 {
 		if !role_matches(auth.authorities, sec_config.required_roles) {
-			ctx.send_response_to_client('application/json', '{"error":"Insufficient privileges","code":403}')
+			ctx.send_response_to_client('application/json',
+				'{"error":"Insufficient privileges","code":403}')
 			sfc.context_holder.clear_context()
 			return false
 		}
@@ -139,7 +142,7 @@ pub fn (mut sfc SecurityFilterChain) with_secured(path string) {
 // with_roles marks a path as requiring specific roles
 pub fn (mut sfc SecurityFilterChain) with_roles(path string, roles []string) {
 	sfc.metadata_source.register(path, SecuredConfig{
-		is_secured: true
+		is_secured:     true
 		required_roles: roles
 	})
 }
@@ -159,18 +162,17 @@ pub fn csrf_middleware(mgr &CsrfManager) fn (ctx &veb.Context) !bool {
 			return true
 		}
 		expected := unsafe { mgr.get_expected_token() }
-		actual := mgr.get_actual_token(
-			ctx.get_custom_header(mgr.config.header_name) or { '' },
-			ctx.get_custom_header('_csrf') or { '' },
-		)
+		actual := mgr.get_actual_token(ctx.get_custom_header(mgr.config.header_name) or { '' }, ctx.get_custom_header('_csrf') or {
+			''
+		})
 		mgr.validate(actual, expected) or { return false }
 		return true
 	}
 }
 
 // cors_security_middleware adds configurable CORS headers
-pub fn cors_security_middleware(allowed_origins []string) fn (mut ctx &veb.Context) !bool {
-	return fn [allowed_origins] (mut ctx &veb.Context) !bool {
+pub fn cors_security_middleware(allowed_origins []string) fn (mut ctx veb.Context) !bool {
+	return fn [allowed_origins] (mut ctx veb.Context) !bool {
 		origin := ctx.get_custom_header('Origin') or { '' }
 		mut allowed := false
 		for ao in allowed_origins {
@@ -182,7 +184,8 @@ pub fn cors_security_middleware(allowed_origins []string) fn (mut ctx &veb.Conte
 		if allowed && origin.len > 0 {
 			ctx.set_custom_header('Access-Control-Allow-Origin', origin)
 			ctx.set_custom_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE')
-			ctx.set_custom_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-TOKEN')
+			ctx.set_custom_header('Access-Control-Allow-Headers',
+				'Content-Type, Authorization, X-CSRF-TOKEN')
 			ctx.set_custom_header('Access-Control-Allow-Credentials', 'true')
 		}
 		return true

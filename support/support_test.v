@@ -170,8 +170,14 @@ fn test_arr_except_string() {
 
 fn test_arr_pluck() {
 	maps := [
-		{'name': 'Alice', 'age': '30'}
-		{'name': 'Bob', 'age': '25'}
+		{
+			'name': 'Alice'
+			'age':  '30'
+		},
+		{
+			'name': 'Bob'
+			'age':  '25'
+		},
 	]
 	names := pluck(maps, 'name')
 	assert names.len == 2
@@ -181,7 +187,9 @@ fn test_arr_pluck() {
 
 fn test_arr_first() {
 	items := [1, 2, 3, 4, 5]
-	result := first(items, fn (n int) bool { return n > 3 }, 0)
+	result := first(items, fn (n int) bool {
+		return n > 3
+	}, 0)
 	assert result == 4
 }
 
@@ -207,8 +215,12 @@ fn test_arr_unique_string() {
 }
 
 fn test_arr_merge_string() {
-	a := {'x': '1'}
-	b := {'y': '2'}
+	a := {
+		'x': '1'
+	}
+	b := {
+		'y': '2'
+	}
 	result := merge_string(a, b)
 	assert result.len == 2
 }
@@ -243,39 +255,55 @@ fn test_collect_basic() {
 
 fn test_collect_map() {
 	col := collect([1, 2, 3])
-	doubled := col.map(fn (n int) int { return n * 2 })
+	doubled := col.map(fn (n int) int {
+		return n * 2
+	})
 	items := doubled.all()
 	assert items == [2, 4, 6]
 }
 
 fn test_collect_filter() {
 	col := collect([1, 2, 3, 4, 5])
-	even := col.filter(fn (n int) bool { return n % 2 == 0 })
+	even := col.filter(fn (n int) bool {
+		return n % 2 == 0
+	})
 	assert even.all() == [2, 4]
 }
 
 fn test_collect_reject() {
 	col := collect([1, 2, 3, 4, 5])
-	not_even := col.reject(fn (n int) bool { return n % 2 == 0 })
+	not_even := col.reject(fn (n int) bool {
+		return n % 2 == 0
+	})
 	assert not_even.all() == [1, 3, 5]
 }
 
 fn test_collect_reduce() {
 	col := collect([1, 2, 3])
-	sum := col.reduce(0, fn (acc int, n int) int { return acc + n })
+	sum := col.reduce(0, fn (acc int, n int) int {
+		return acc + n
+	})
 	assert sum == 6
 }
 
 fn test_collect_contains() {
 	col := collect([1, 2, 3])
-	assert col.contains(fn (n int) bool { return n == 2 }) == true
-	assert col.contains(fn (n int) bool { return n == 99 }) == false
+	assert col.contains(fn (n int) bool {
+		return n == 2
+	}) == true
+	assert col.contains(fn (n int) bool {
+		return n == 99
+	}) == false
 }
 
 fn test_collect_every_some() {
 	col := collect([2, 4, 6])
-	assert col.every(fn (n int) bool { return n % 2 == 0 }) == true
-	assert col.some(fn (n int) bool { return n > 4 }) == true
+	assert col.every(fn (n int) bool {
+		return n % 2 == 0
+	}) == true
+	assert col.some(fn (n int) bool {
+		return n > 4
+	}) == true
 }
 
 fn test_collect_take_skip() {
@@ -286,7 +314,9 @@ fn test_collect_take_skip() {
 
 fn test_collect_sort_by() {
 	col := collect([3, 1, 2])
-	sorted := col.sort_by(fn (n int) int { return n })
+	sorted := col.sort_by(fn (n int) int {
+		return n
+	})
 	assert sorted.all() == [1, 2, 3]
 }
 
@@ -297,7 +327,9 @@ fn test_collect_reverse_col() {
 
 fn test_collect_group_by() {
 	col := collect(['Alice', 'Bob', 'Ann'])
-	groups := col.group_by(fn (s string) string { return s[0].ascii_str() })
+	groups := col.group_by(fn (s string) string {
+		return s[0].ascii_str()
+	})
 	assert groups.len > 0
 }
 

@@ -490,16 +490,53 @@ valid := csrf.validate_token(session_id, header_token)!
 ### 加密与哈希
 
 ```v
-// BCrypt 哈希
+// BCrypt 哈希（基于 PBKDF2-SHA256 真实 KDF）
 hasher := security.new_bcrypt_hasher()
 hash := hasher.hash('my_password')!
 valid := hasher.verify('my_password', hash)! // true
 
-// 对称加密
-encrypter := security.new_encrypter('aes-256-cbc-key-32chars')
-encrypted := encrypter.encrypt('敏感数据')!
-decrypted := encrypter.decrypt(encrypted)!
+// 对称加密（推荐使用 AesCipher）
+cipher := security.new_aes_cipher('aes-256-cbc-key-32chars')!
+encrypted := cipher.encrypt('敏感数据')!
+decrypted := cipher.decrypt(encrypted)!
 ```
+
+### PasswordEncoder 体系（Spring 对齐）
+
+Photon 提供 Spring 风格的 `PasswordEncoder` 接口体系，支持多算法并行迁移：
+
+```v
+// DelegatingPasswordEncoder —— 生产推荐，支持 {id}hash 前缀路由
+mut encoders := map[string]security.PasswordEncoder{}
+encoders['bcrypt'] = security.new_bcrypt_password_encoder()
+encoders['argon2id'] = security.new_argon2_password_encoder()
+encoders['fnv'] = security.new_fnv_password_encoder() // 旧哈希验证适配器
+
+delegating := security.new_delegating_password_encoder('bcrypt', encoders)
+
+// encode 输出：{bcrypt}$2y$10$...
+encoded := delegating.encode('my_password')!
+
+// matches 自动解析前缀并路由到对应编码器
+assert delegating.matches('my_password', encoded)! // true
+
+// 旧无前缀哈希通过 default_id_for_matches 回退
+assert delegating.matches('my_password', '$2y$10$oldhash...')! // true
+
+// upgrade_encoding 检测是否需要升级到默认编码器
+if delegating.upgrade_encoding(encoded) {
+    new_encoded := delegating.encode('my_password')!
+    // 持久化 new_encoded...
+}
+```
+
+**编码器类型**：
+- `BCryptPasswordEncoder`：输出 `{bcrypt}$2y$<rounds>$<salt><hash>`，基于 `BcryptHasher`
+- `Argon2PasswordEncoder`：输出 `{argon2id}$argon2id$v=19$...`，基于 `Argon2Hasher`
+- `FnvPasswordEncoder`：旧 FNV-1a 哈希验证适配器，`encode` 返回升级提示错误
+- `DelegatingPasswordEncoder`：多算法路由器，生产环境推荐
+
+> ⚠️ **Encrypter 已废弃**：`security.Encrypter`（XOR 加密）已标注 `@[deprecated]`，请迁移至 `security.AesCipher`（AES-256-CBC + HMAC）。调用 `new_encrypter`/`encrypt`/`decrypt` 会输出 stderr 警告。
 
 ---
 

@@ -1,7 +1,6 @@
 module support
 
 // str.v - String Helpers (Laravel Str class inspired)
-
 import rand
 
 // is_upper_char checks if a byte is an uppercase ASCII letter
@@ -259,8 +258,8 @@ pub fn mask(s string, ch string, idx int, length int) string {
 // is_json checks if a string is valid JSON (heuristic)
 pub fn is_json(s string) bool {
 	trimmed := s.trim_space()
-	return (trimmed.starts_with('{') && trimmed.ends_with('}')) ||
-		(trimmed.starts_with('[') && trimmed.ends_with(']'))
+	return (trimmed.starts_with('{') && trimmed.ends_with('}'))
+		|| (trimmed.starts_with('[') && trimmed.ends_with(']'))
 }
 
 // lower converts to lowercase

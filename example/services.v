@@ -10,7 +10,6 @@ module main
 //   2. AuthService     — 认证/授权逻辑
 //   3. HealthService   — 健康检查与统计
 //   4. CacheService    — 缓存业务封装
-
 import time
 import cache
 import orm
@@ -34,16 +33,16 @@ pub mut:
 
 pub struct UserService {
 pub mut:
-	log_  &logger.Logger
-	om    &orm.OrmManager
-	users []User // 内存数据存储（演示用，生产应使用数据库）
+	log_    &logger.Logger
+	om      &orm.OrmManager
+	users   []User // 内存数据存储（演示用，生产应使用数据库）
 	next_id int = 1
 }
 
 pub fn new_user_service(log_ &logger.Logger) &UserService {
 	mut svc := &UserService{
-		log_: log_
-		om: unsafe { nil }
+		log_:  log_
+		om:    unsafe { nil }
 		users: []User{}
 	}
 	// 预置演示用户
@@ -53,11 +52,56 @@ pub fn new_user_service(log_ &logger.Logger) &UserService {
 
 fn (mut s UserService) seed_demo_users() {
 	demo_users := [
-		User{id: 1, username: 'admin', email: 'admin@photon.io', password: 'admin123', nickname: '管理员', role: 'ADMIN', status: 1, created_at: time.now().unix()},
-		User{id: 2, username: 'moderator', email: 'mod@photon.io', password: 'mod123', nickname: '版主', role: 'MODERATOR', status: 1, created_at: time.now().unix()},
-		User{id: 3, username: 'alice', email: 'alice@example.com', password: 'alice123', nickname: '爱丽丝', role: 'USER', status: 1, created_at: time.now().unix()},
-		User{id: 4, username: 'bob', email: 'bob@example.com', password: 'bob123', nickname: '鲍勃', role: 'USER', status: 1, created_at: time.now().unix()},
-		User{id: 5, username: 'charlie', email: 'charlie@example.com', password: 'charlie123', nickname: '查理', role: 'USER', status: 0, created_at: time.now().unix()},
+		User{
+			id:         1
+			username:   'admin'
+			email:      'admin@photon.io'
+			password:   'admin123'
+			nickname:   '管理员'
+			role:       'ADMIN'
+			status:     1
+			created_at: time.now().unix()
+		},
+		User{
+			id:         2
+			username:   'moderator'
+			email:      'mod@photon.io'
+			password:   'mod123'
+			nickname:   '版主'
+			role:       'MODERATOR'
+			status:     1
+			created_at: time.now().unix()
+		},
+		User{
+			id:         3
+			username:   'alice'
+			email:      'alice@example.com'
+			password:   'alice123'
+			nickname:   '爱丽丝'
+			role:       'USER'
+			status:     1
+			created_at: time.now().unix()
+		},
+		User{
+			id:         4
+			username:   'bob'
+			email:      'bob@example.com'
+			password:   'bob123'
+			nickname:   '鲍勃'
+			role:       'USER'
+			status:     1
+			created_at: time.now().unix()
+		},
+		User{
+			id:         5
+			username:   'charlie'
+			email:      'charlie@example.com'
+			password:   'charlie123'
+			nickname:   '查理'
+			role:       'USER'
+			status:     0
+			created_at: time.now().unix()
+		},
 	]
 	s.users << demo_users
 	s.next_id = 6
@@ -69,7 +113,8 @@ pub fn (s &UserService) list(query UserListQuery) ([]User, int) {
 	for u in s.users {
 		// 关键词过滤
 		if query.keyword.len > 0 {
-			if !u.username.contains(query.keyword) && !u.nickname.contains(query.keyword) && !u.email.contains(query.keyword) {
+			if !u.username.contains(query.keyword) && !u.nickname.contains(query.keyword)
+				&& !u.email.contains(query.keyword) {
 				continue
 			}
 		}
@@ -128,13 +173,13 @@ pub fn (mut s UserService) create(req CreateUserRequest) !User {
 		}
 	}
 	mut user := User{
-		id: s.next_id
+		id:       s.next_id
 		username: req.username
-		email: req.email
+		email:    req.email
 		password: req.password
 		nickname: if req.nickname.len > 0 { req.nickname } else { req.username }
-		status: 1
-		role: 'USER'
+		status:   1
+		role:     'USER'
 	}
 	s.next_id++
 	s.users << user
@@ -194,9 +239,9 @@ pub fn (s &UserService) count() int {
 
 pub struct AuthService {
 pub mut:
-	log_       &logger.Logger
-	user_svc   &UserService
-	jwt_mgr    &JWTManager
+	log_     &logger.Logger
+	user_svc &UserService
+	jwt_mgr  &JWTManager
 }
 
 pub struct JWTConfig {
@@ -210,7 +255,9 @@ pub mut:
 }
 
 pub fn new_jwt_manager(config JWTConfig) &JWTManager {
-	return &JWTManager{config: config}
+	return &JWTManager{
+		config: config
+	}
 }
 
 // generate_token 生成 JWT token（简化版，正式应使用 security.JwtManager）
@@ -291,11 +338,13 @@ fn base64_decode(input string) !string {
 }
 
 pub fn new_auth_service(log_ &logger.Logger, user_svc &UserService, jwt_config JWTConfig) &AuthService {
-	return unsafe { &AuthService{
-		log_: log_
-		user_svc: user_svc
-		jwt_mgr: new_jwt_manager(jwt_config)
-	}}
+	return unsafe {
+		&AuthService{
+			log_:     log_
+			user_svc: user_svc
+			jwt_mgr:  new_jwt_manager(jwt_config)
+		}
+	}
 }
 
 // login 用户登录
@@ -310,19 +359,19 @@ pub fn (mut s AuthService) login(req LoginRequest) !LoginResponse {
 	token, expires_in := s.jwt_mgr.generate_token(user.username, user.role)
 	s.log_.info('[AuthService] 用户登录: username=${user.username} role=${user.role}')
 	return LoginResponse{
-		access_token: token
-		token_type: 'Bearer'
-		expires_in: expires_in * 60
+		access_token:  token
+		token_type:    'Bearer'
+		expires_in:    expires_in * 60
 		refresh_token: base64_encode('refresh:${user.username}:${time.now().unix()}')
-		user: UserProfile{
-			id: user.id
+		user:          UserProfile{
+			id:       user.id
 			username: user.username
 			nickname: user.nickname
-			avatar: user.avatar
-			email: user.email
-			role: user.role
-			status: user.status
-			created: time.unix(user.created_at).format_ss()
+			avatar:   user.avatar
+			email:    user.email
+			role:     user.role
+			status:   user.status
+			created:  time.unix(user.created_at).format_ss()
 		}
 	}
 }
@@ -331,14 +380,14 @@ pub fn (mut s AuthService) login(req LoginRequest) !LoginResponse {
 pub fn (s &AuthService) get_profile(username string) !UserProfile {
 	user := s.user_svc.get_by_username(username)!
 	return UserProfile{
-		id: user.id
+		id:       user.id
 		username: user.username
 		nickname: user.nickname
-		avatar: user.avatar
-		email: user.email
-		role: user.role
-		status: user.status
-		created: time.unix(user.created_at).format_ss()
+		avatar:   user.avatar
+		email:    user.email
+		role:     user.role
+		status:   user.status
+		created:  time.unix(user.created_at).format_ss()
 	}
 }
 
@@ -352,13 +401,15 @@ pub mut:
 }
 
 pub fn new_health_service() &HealthService {
-	return &HealthService{start_time: time.ticks()}
+	return &HealthService{
+		start_time: time.ticks()
+	}
 }
 
 pub fn (s &HealthService) health() HealthStatus {
 	return HealthStatus{
-		status: 'UP'
-		version: '0.4.0'
+		status:    'UP'
+		version:   '0.4.0'
 		uptime_ms: time.ticks() - s.start_time
 		timestamp: time.now().unix()
 	}
@@ -374,11 +425,15 @@ pub fn (s &HealthService) uptime_ms() i64 {
 
 pub struct CacheService {
 pub mut:
-	cache_mgr &cache.CacheManager
+	cache_mgr &cache.CacheRegistry
 }
 
-pub fn new_cache_service(cache_mgr &cache.CacheManager) &CacheService {
-	return unsafe { &CacheService{cache_mgr: cache_mgr} }
+pub fn new_cache_service(cache_mgr &cache.CacheRegistry) &CacheService {
+	return unsafe {
+		&CacheService{
+			cache_mgr: cache_mgr
+		}
+	}
 }
 
 pub fn (mut s CacheService) get(key string) !string {

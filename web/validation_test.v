@@ -197,10 +197,10 @@ fn test_validate_password_strength() {
 
 fn test_validation_error_str() {
 	err := ValidationError{
-		field: 'email'
-		rule: 'email'
+		field:   'email'
+		rule:    'email'
 		message: 'email must be a valid email address'
-		value: 'invalid'
+		value:   'invalid'
 	}
 	assert err.str() == 'email: email must be a valid email address'
 }
@@ -221,7 +221,13 @@ fn test_validation_errors_first() {
 	assert errors.has_errors() == false
 
 	mut errors2 := new_validation_errors()
-	errors2['name'] = [ValidationError{field: 'name', rule: 'required', message: 'name is required'}]
+	errors2['name'] = [
+		ValidationError{
+			field:   'name'
+			rule:    'required'
+			message: 'name is required'
+		},
+	]
 	// Verify the error is there via all_messages
 	messages := errors2.all_messages()
 	assert messages.len == 1
@@ -230,8 +236,9 @@ fn test_validation_errors_first() {
 
 fn test_validation_errors_all_messages() {
 	mut errors := new_validation_errors()
-	errors['email'] = [ValidationError{message: 'email is invalid'}, ValidationError{message: 'email is required'}]
-	errors['name'] = [ValidationError{message: 'name is required'}]
+	errors['email'] = [ValidationError{ message: 'email is invalid' },
+		ValidationError{ message: 'email is required' }]
+	errors['name'] = [ValidationError{ message: 'name is required' }]
 
 	messages := errors.all_messages()
 	assert messages.len == 3
@@ -241,11 +248,29 @@ fn test_validation_errors_all_messages() {
 
 fn test_validation_errors_merge() {
 	mut errors := new_validation_errors()
-	errors['field1'] = [ValidationError{field: 'field1', rule: 'required', message: 'field1 is required'}]
+	errors['field1'] = [
+		ValidationError{
+			field:   'field1'
+			rule:    'required'
+			message: 'field1 is required'
+		},
+	]
 
 	mut other := new_validation_errors()
-	other['field2'] = [ValidationError{field: 'field2', rule: 'email', message: 'field2 must be email'}]
-	other['field1'] = [ValidationError{field: 'field1', rule: 'min_len', message: 'field1 too short'}]
+	other['field2'] = [
+		ValidationError{
+			field:   'field2'
+			rule:    'email'
+			message: 'field2 must be email'
+		},
+	]
+	other['field1'] = [
+		ValidationError{
+			field:   'field1'
+			rule:    'min_len'
+			message: 'field1 too short'
+		},
+	]
 
 	errors.merge(other)
 	assert errors['field1'].len == 2
@@ -254,8 +279,8 @@ fn test_validation_errors_merge() {
 
 fn test_validation_errors_for() {
 	mut errors := new_validation_errors()
-	errors['email'] = [ValidationError{field: 'email', message: 'bad email'}]
-	errors['name'] = [ValidationError{field: 'name', message: 'bad name'}]
+	errors['email'] = [ValidationError{ field: 'email', message: 'bad email' }]
+	errors['name'] = [ValidationError{ field: 'name', message: 'bad name' }]
 
 	field_errors := errors.errors_for('email')
 	assert field_errors.len == 1
@@ -314,17 +339,13 @@ fn test_default_error_message() {
 fn test_register_and_use_custom_validator() {
 	clear_custom_validators()
 
-	register_validator(
-		'even',
-		fn (value string, arg string) bool {
-			if value.len == 0 { return true }
-			num := value.int()
-			return num % 2 == 0
-		},
-		fn (field string, arg string) string {
-			return '${field} must be an even number'
-		}
-	)
+	register_validator('even', fn (value string, arg string) bool {
+		if value.len == 0 { return true }
+		num := value.int()
+		return num % 2 == 0
+	}, fn (field string, arg string) string {
+		return '${field} must be an even number'
+	})
 
 	pass1, _ := check_rule('count', '4', 'even')
 	assert pass1 == true // 4 is even, should pass
@@ -339,30 +360,22 @@ fn test_register_and_use_custom_validator() {
 fn test_multiple_custom_validators() {
 	clear_custom_validators()
 
-	register_validator(
-		'positive',
-		fn (value string, arg string) bool {
-			if value.len == 0 { return true }
-			num := value.int()
-			return num > 0
-		},
-		fn (field string, arg string) string {
-			return '${field} must be positive'
-		}
-	)
+	register_validator('positive', fn (value string, arg string) bool {
+		if value.len == 0 { return true }
+		num := value.int()
+		return num > 0
+	}, fn (field string, arg string) string {
+		return '${field} must be positive'
+	})
 
-	register_validator(
-		'multiple_of',
-		fn (value string, arg string) bool {
-			if value.len == 0 || arg.len == 0 { return true }
-			num := value.int()
-			mod := arg.int()
-			return mod != 0 && num % mod == 0
-		},
-		fn (field string, arg string) string {
-			return '${field} must be a multiple of ${arg}'
-		}
-	)
+	register_validator('multiple_of', fn (value string, arg string) bool {
+		if value.len == 0 || arg.len == 0 { return true }
+		num := value.int()
+		mod := arg.int()
+		return mod != 0 && num % mod == 0
+	}, fn (field string, arg string) string {
+		return '${field} must be a multiple of ${arg}'
+	})
 
 	pass_pos, _ := check_rule('amount', '10', 'positive')
 	assert pass_pos == true
@@ -382,14 +395,14 @@ fn test_multiple_custom_validators() {
 fn test_nested_validation_no_errors() {
 	rules := {
 		'street': 'required|min_len:5'
-		'city':    'required'
-		'zip':     'digits:5'
+		'city':   'required'
+		'zip':    'digits:5'
 	}
 
 	params := {
 		'street': '123 Main St'
-		'city':    'Springfield'
-		'zip':     '90210'
+		'city':   'Springfield'
+		'zip':    '90210'
 	}
 
 	errors := validate_nested(params, 'address', rules)
@@ -399,8 +412,8 @@ fn test_nested_validation_no_errors() {
 fn test_nested_validation_with_errors() {
 	rules := {
 		'street': 'required|min_len:5'
-		'city':    'required'
-		'zip':     'digits:5'
+		'city':   'required'
+		'zip':    'digits:5'
 	}
 
 	params := {
@@ -447,11 +460,15 @@ fn test_required_if_condition() {
 	cond := required_if('account_type', 'premium')
 
 	// When account_type is premium, condition should be true
-	params_premium := {'account_type': 'premium'}
+	params_premium := {
+		'account_type': 'premium'
+	}
 	assert cond.check(params_premium) == true
 
 	// When account_type is not premium, condition should be false
-	params_free := {'account_type': 'free'}
+	params_free := {
+		'account_type': 'free'
+	}
 	assert cond.check(params_free) == false
 }
 
@@ -459,11 +476,15 @@ fn test_required_unless_condition() {
 	cond := required_unless('account_type', 'guest')
 
 	// When account_type is guest, condition should be false (not required)
-	params_guest := {'account_type': 'guest'}
+	params_guest := {
+		'account_type': 'guest'
+	}
 	assert cond.check(params_guest) == false
 
 	// When account_type is not guest, condition should be true (required)
-	params_user := {'account_type': 'user'}
+	params_user := {
+		'account_type': 'user'
+	}
 	assert cond.check(params_user) == true
 }
 
@@ -495,8 +516,8 @@ fn test_parse_rule_complex_arg() {
 
 fn test_validation_error_response() {
 	mut errors := new_validation_errors()
-	errors['email'] = [ValidationError{message: 'email is invalid'}]
-	errors['name'] = [ValidationError{message: 'name is required'}]
+	errors['email'] = [ValidationError{ message: 'email is invalid' }]
+	errors['name'] = [ValidationError{ message: 'name is required' }]
 
 	resp := validation_error(errors)
 	assert resp.code == 422

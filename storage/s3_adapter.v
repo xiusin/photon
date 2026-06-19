@@ -6,28 +6,27 @@ module storage
 // services (MinIO, DigitalOcean Spaces, Cloudflare R2, Backblaze B2, etc.).
 // This is a stub implementation; production use requires V's net/http
 // for AWS Signature V4 signing and XML API calls.
-
 import os
 import time
 
 // S3Adapter provides cloud storage access via S3-compatible API
 pub struct S3Adapter {
 pub:
-	bucket    string  // bucket name
-	region    string  // AWS region
-	endpoint  string  // custom endpoint for S3-compatible services
+	bucket   string // bucket name
+	region   string // AWS region
+	endpoint string // custom endpoint for S3-compatible services
 pub mut:
-	key       string  // access key ID
-	secret    string  // secret access key
-	base_url  string  // constructed base URL
-	use_path_style bool // true for MinIO-style path-based access
+	key            string // access key ID
+	secret         string // secret access key
+	base_url       string // constructed base URL
+	use_path_style bool   // true for MinIO-style path-based access
 }
 
 // new_s3_adapter creates an S3Adapter for standard AWS S3
 pub fn new_s3_adapter(bucket string, region string) &S3Adapter {
 	mut adapter := &S3Adapter{
-		bucket: bucket
-		region: region
+		bucket:         bucket
+		region:         region
 		use_path_style: false
 	}
 	adapter.build_base_url()
@@ -37,11 +36,11 @@ pub fn new_s3_adapter(bucket string, region string) &S3Adapter {
 // new_s3_compatible_adapter creates an S3Adapter for S3-compatible services
 pub fn new_s3_compatible_adapter(bucket string, region string, endpoint string, key string, secret string) &S3Adapter {
 	mut adapter := &S3Adapter{
-		bucket: bucket
-		region: region
-		endpoint: endpoint
-		key: key
-		secret: secret
+		bucket:         bucket
+		region:         region
+		endpoint:       endpoint
+		key:            key
+		secret:         secret
 		use_path_style: true
 	}
 	adapter.build_base_url()

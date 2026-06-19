@@ -5,7 +5,6 @@ module ticker
 // Uses 64 buckets to reduce lock contention, inspired by Go's runtime timer design.
 // Uses a simple polling approach compatible with V's threading model.
 // Timers are checked lazily when the user blocks on a channel receive.
-
 import time
 
 const num_buckets = 64

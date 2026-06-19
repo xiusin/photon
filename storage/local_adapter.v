@@ -5,13 +5,12 @@ module storage
 // Implements the Storage interface for the local filesystem.
 // Supports root directory scoping, visibility via file permissions,
 // directory traversal, and all common file operations.
-
 import os
 
 // LocalAdapter provides filesystem access scoped to a root directory
 pub struct LocalAdapter {
 pub:
-	root      string // root directory path
+	root string // root directory path
 pub mut:
 	permissions map[string]string // path → visibility override
 }
@@ -19,7 +18,7 @@ pub mut:
 // new_local_adapter creates a LocalAdapter with the given root directory
 pub fn new_local_adapter(root string) &LocalAdapter {
 	return &LocalAdapter{
-		root: root
+		root:        root
 		permissions: map[string]string{}
 	}
 }
@@ -212,12 +211,14 @@ pub fn (la &LocalAdapter) list_contents(directory string) ![]&FileMetadata {
 		if os.is_dir(full_entry) {
 			// Directories are listed as files with size 0
 			result << &FileMetadata{
-				path: entry_path
-				size: 0
-				mime_type: 'inode/directory'
+				path:          entry_path
+				size:          0
+				mime_type:     'inode/directory'
 				last_modified: os.file_last_mod_unix(full_entry)
-				visibility: .private_
-				extra: {'type': 'directory'}
+				visibility:    .private_
+				extra:         {
+					'type': 'directory'
+				}
 			}
 		} else {
 			sz := os.file_size(full_entry)

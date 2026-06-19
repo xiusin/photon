@@ -46,7 +46,7 @@ pub fn (p &Pipeline) then(destination fn (voidptr) voidptr) voidptr {
 	for i := p.pipes.len; i > 0; i-- {
 		pipe := p.pipes[i - 1]
 		prev := carry
-		carry = fn [pipe, prev](passable voidptr) voidptr {
+		carry = fn [pipe, prev] (passable voidptr) voidptr {
 			return pipe(passable, prev)
 		}
 	}

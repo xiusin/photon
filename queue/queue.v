@@ -12,9 +12,9 @@ module queue
 // JobPayload wraps job data for transport
 pub struct JobPayload {
 pub:
-	id      string
+	id       string
 	job_type string
-	data    string  // JSON serialized
+	data     string // JSON serialized
 	attempts int
 pub mut:
 	delay_secs i64

@@ -15,37 +15,37 @@ module core
 
 // ── Attribute Constants ──
 
-pub const attr_component   = 'component'
-pub const attr_service     = 'service'
-pub const attr_repository  = 'repository'
+pub const attr_component = 'component'
+pub const attr_service = 'service'
+pub const attr_repository = 'repository'
 pub const attr_controller = 'controller'
 pub const attr_configuration = 'configuration'
-pub const attr_autowired  = 'autowired'
-pub const attr_scope       = 'scope'
-pub const attr_lazy        = 'lazy'
-pub const attr_qualifier   = 'qualifier'
-pub const attr_value       = 'value'
+pub const attr_autowired = 'autowired'
+pub const attr_scope = 'scope'
+pub const attr_lazy = 'lazy'
+pub const attr_qualifier = 'qualifier'
+pub const attr_value = 'value'
 pub const attr_post_construct = 'post_construct'
-pub const attr_pre_destroy    = 'pre_destroy'
+pub const attr_pre_destroy = 'pre_destroy'
 // New annotations (Spring Boot / Laravel inspired)
-pub const attr_auto_configuration     = 'auto_configuration'
-pub const attr_event_listener         = 'event_listener'
-pub const attr_conditional_on_profile      = 'conditional_on_profile'
-pub const attr_conditional_on_property     = 'conditional_on_property'
-pub const attr_conditional_on_bean         = 'conditional_on_bean'
+pub const attr_auto_configuration = 'auto_configuration'
+pub const attr_event_listener = 'event_listener'
+pub const attr_conditional_on_profile = 'conditional_on_profile'
+pub const attr_conditional_on_property = 'conditional_on_property'
+pub const attr_conditional_on_bean = 'conditional_on_bean'
 pub const attr_conditional_on_missing_bean = 'conditional_on_missing_bean'
-pub const attr_conditional_on_expression   = 'conditional_on_expression'
-pub const attr_conditional_on_class        = 'conditional_on_class'
+pub const attr_conditional_on_expression = 'conditional_on_expression'
+pub const attr_conditional_on_class = 'conditional_on_class'
 pub const attr_conditional_on_missing_class = 'conditional_on_missing_class'
 pub const attr_conditional_on_cloud_platform = 'conditional_on_cloud_platform'
-pub const attr_scheduled             = 'scheduled'
-pub const attr_transactional        = 'transactional'
-pub const attr_cacheable            = 'cacheable'
-pub const attr_required             = 'required'
-pub const attr_depends_on           = 'depends_on'
-pub const attr_primary              = 'primary'
-pub const attr_extends              = 'extends'
-pub const attr_bean                 = 'bean'
+pub const attr_scheduled = 'scheduled'
+pub const attr_transactional = 'transactional'
+pub const attr_cacheable = 'cacheable'
+pub const attr_required = 'required'
+pub const attr_depends_on = 'depends_on'
+pub const attr_primary = 'primary'
+pub const attr_extends = 'extends'
+pub const attr_bean = 'bean'
 
 // ── Component Types ──
 
@@ -92,16 +92,16 @@ pub fn component_type_from_attr(attr string) ComponentType {
 // Used to build a BeanDefinition for the container.
 pub struct ScannedBean {
 pub:
-	type_name       string
-	component_type  ComponentType
-	scope           Scope        = .singleton
-	is_lazy         bool
-	qualifier       string
-	dependencies    []Dependency
-	init_method     string       // @[post_construct]
-	destroy_method  string       // @[pre_destroy]
-	value_bindings  []ValueBinding
-	conditions      []string     // @[conditional_on_*] attribute strings
+	type_name      string
+	component_type ComponentType
+	scope          Scope = .singleton
+	is_lazy        bool
+	qualifier      string
+	dependencies   []Dependency
+	init_method    string // @[post_construct]
+	destroy_method string // @[pre_destroy]
+	value_bindings []ValueBinding
+	conditions     []string // @[conditional_on_*] attribute strings
 }
 
 // ValueBinding represents an @[value('config.key')] annotation on a field.
@@ -117,8 +117,8 @@ pub:
 // any component-type annotation (component, service, repository, etc.).
 pub fn has_component_attr(attrs []string) bool {
 	for attr in attrs {
-		if attr in [attr_component, attr_service, attr_repository,
-			attr_controller, attr_configuration, attr_auto_configuration] {
+		if attr in [attr_component, attr_service, attr_repository, attr_controller,
+			attr_configuration, attr_auto_configuration] {
 			return true
 		}
 	}
@@ -154,7 +154,7 @@ pub fn extract_scope(attrs []string) Scope {
 					val = val[..val.len - 1]
 				}
 			}
-			val = val.trim('\'').trim('"').trim_space()
+			val = val.trim("'").trim('"').trim_space()
 			return scope_from_str(val)
 		}
 	}
@@ -174,7 +174,7 @@ pub fn extract_qualifier(attrs []string) string {
 					val = val[..val.len - 1]
 				}
 			}
-			return val.trim('\'').trim('"').trim_space()
+			return val.trim("'").trim('"').trim_space()
 		}
 	}
 	return ''
@@ -193,7 +193,7 @@ pub fn extract_value_expr(attrs []string) string {
 					val = val[..val.len - 1]
 				}
 			}
-			return val.trim('\'').trim('"').trim_space()
+			return val.trim("'").trim('"').trim_space()
 		}
 	}
 	return ''
@@ -222,12 +222,12 @@ pub fn extract_depends_on(attrs []string) []string {
 					val = val[..val.len - 1]
 				}
 			}
-			val = val.trim('\'').trim('"').trim_space()
+			val = val.trim("'").trim('"').trim_space()
 			// Support comma-separated list: 'BeanA','BeanB' or BeanA,BeanB
 			mut names := []string{}
 			parts := val.split(',')
 			for part in parts {
-				trimmed := part.trim_space().trim('\'').trim('"')
+				trimmed := part.trim_space().trim("'").trim('"')
 				if trimmed.len > 0 {
 					names << trimmed
 				}
@@ -258,7 +258,7 @@ pub fn extract_parent_name(attrs []string) string {
 					val = val[..val.len - 1]
 				}
 			}
-			return val.trim('\'').trim('"').trim_space()
+			return val.trim("'").trim('"').trim_space()
 		}
 	}
 	return ''
@@ -320,7 +320,7 @@ pub fn extract_scheduled_expr(attrs []string) string {
 					val = val[..val.len - 1]
 				}
 			}
-			return val.trim('\'').trim('"').trim_space()
+			return val.trim("'").trim('"').trim_space()
 		}
 	}
 	return ''
@@ -340,7 +340,7 @@ pub fn extract_cacheable_key(attrs []string) string {
 					val = val[..val.len - 1]
 				}
 			}
-			return val.trim('\'').trim('"').trim_space()
+			return val.trim("'").trim('"').trim_space()
 		}
 	}
 	return ''
@@ -355,9 +355,9 @@ pub fn extract_cacheable_key(attrs []string) string {
 // Spring equivalent: @Bean method
 pub struct BeanMethod {
 pub:
-	method_name string       // V method name
-	bean_name   string       // resulting bean type_name (defaults to method_name)
-	attrs        []string    // method-level attributes (scope, primary, depends_on, etc.)
+	method_name string   // V method name
+	bean_name   string   // resulting bean type_name (defaults to method_name)
+	attrs       []string // method-level attributes (scope, primary, depends_on, etc.)
 }
 
 // new_bean_method creates a BeanMethod from a method name and attributes.
@@ -375,7 +375,7 @@ pub fn new_bean_method(method_name string, attrs []string) BeanMethod {
 					val = val[..val.len - 1]
 				}
 			}
-			custom_name := val.trim('\'').trim('"').trim_space()
+			custom_name := val.trim("'").trim('"').trim_space()
 			if custom_name.len > 0 {
 				bean_name = custom_name
 			}
@@ -384,8 +384,8 @@ pub fn new_bean_method(method_name string, attrs []string) BeanMethod {
 	}
 	return BeanMethod{
 		method_name: method_name
-		bean_name: bean_name
-		attrs: attrs.clone()
+		bean_name:   bean_name
+		attrs:       attrs.clone()
 	}
 }
 
@@ -408,17 +408,17 @@ pub fn (bm &BeanMethod) depends_on() []string {
 // Spring equivalent: @Configuration class
 pub struct ConfigurationClass {
 pub mut:
-	type_name   string        // struct name
+	type_name    string       // struct name
 	bean_methods []BeanMethod // @[bean] methods found in this class
-	attrs       []string     // class-level attributes
+	attrs        []string     // class-level attributes
 }
 
 // new_configuration_class creates a ConfigurationClass.
 pub fn new_configuration_class(type_name string, attrs []string) ConfigurationClass {
 	return ConfigurationClass{
-		type_name: type_name
+		type_name:    type_name
 		bean_methods: []BeanMethod{}
-		attrs: attrs.clone()
+		attrs:        attrs.clone()
 	}
 }
 

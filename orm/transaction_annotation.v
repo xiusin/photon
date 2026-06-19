@@ -30,19 +30,19 @@ module orm
 // TransactionAttribute holds parsed attributes from @[transactional].
 pub struct TransactionAttribute {
 pub mut:
-	propagation  Propagation = .required
-	isolation    Isolation   = .default_
-	readonly     bool
-	timeout_ms   int            // 0 = no timeout
-	rollback_for []string         // exception type names that trigger rollback
-	no_rollback_for []string     // exception type names that do NOT trigger rollback
+	propagation     Propagation = .required
+	isolation       Isolation   = .default_
+	readonly        bool
+	timeout_ms      int      // 0 = no timeout
+	rollback_for    []string // exception type names that trigger rollback
+	no_rollback_for []string // exception type names that do NOT trigger rollback
 }
 
 // new_transaction_attribute creates a TransactionAttribute with defaults.
 pub fn new_transaction_attribute() TransactionAttribute {
 	return TransactionAttribute{
 		propagation: .required
-		isolation: .default_
+		isolation:   .default_
 	}
 }
 
@@ -132,29 +132,65 @@ pub fn isolation_from_str(s string) Isolation {
 	}
 }
 
+// parse_transactional_event_listener_attr parses the @[transactional_event_listener]
+// attribute string and returns the transaction phase as a string identifier.
+// Returns one of: 'before_commit', 'after_commit', 'after_rollback', 'after_completion'.
+// This string can be mapped to core.TransactionPhase by the caller, avoiding a
+// circular dependency between orm and core.
+pub fn parse_transactional_event_listener_attr(attr string) string {
+	// Expected formats:
+	//   @[transactional_event_listener]                         → 'after_commit' (default)
+	//   @[transactional_event_listener('before_commit')]        → 'before_commit'
+	//   @[transactional_event_listener(phase: 'after_rollback')] → 'after_rollback'
+	s := attr.trim_space()
+	if s.len == 0 {
+		return 'after_commit'
+	}
+
+	// Strip surrounding quotes if present
+	cleaned := s.trim('"').trim("'").trim_space()
+	if cleaned.len == 0 {
+		return 'after_commit'
+	}
+
+	// Handle 'phase: value' format
+	mut phase_str := cleaned
+	if cleaned.starts_with('phase:') {
+		phase_str = cleaned[6..].trim_space().trim('"').trim("'").trim_space()
+	}
+
+	return match phase_str.to_lower() {
+		'before_commit', 'beforecommit' { 'before_commit' }
+		'after_commit', 'aftercommit' { 'after_commit' }
+		'after_rollback', 'afterrollback' { 'after_rollback' }
+		'after_completion', 'aftercompletion' { 'after_completion' }
+		else { 'after_commit' }
+	}
+}
+
 // ── TransactionContext ──
 
 // TransactionContext holds the current transaction state for the active scope.
 pub struct TransactionContext {
 pub:
-	propagation  Propagation
-	isolation    Isolation
-	readonly     bool
-	timeout_ms   int
+	propagation Propagation
+	isolation   Isolation
+	readonly    bool
+	timeout_ms  int
 pub mut:
-	is_active    bool
-	savepoints   []string  // named savepoints for nested transactions
+	is_active  bool
+	savepoints []string // named savepoints for nested transactions
 }
 
 // new_transaction_context creates a TransactionContext from a TransactionAttribute.
 pub fn new_transaction_context(attr TransactionAttribute) &TransactionContext {
 	return &TransactionContext{
 		propagation: attr.propagation
-		isolation: attr.isolation
-		readonly: attr.readonly
-		timeout_ms: attr.timeout_ms
-		is_active: true
-		savepoints: []string{}
+		isolation:   attr.isolation
+		readonly:    attr.readonly
+		timeout_ms:  attr.timeout_ms
+		is_active:   true
+		savepoints:  []string{}
 	}
 }
 

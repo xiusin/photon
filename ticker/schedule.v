@@ -21,16 +21,15 @@ module ticker
 //   }).name('morning_report')
 //   sched.start()  // runs in background
 //   sched.stop()   // graceful shutdown
-
 import time
 
 // ── TaskSchedule ──
 
 // TaskScheduleType defines how a scheduled task is triggered.
 pub enum TaskScheduleType {
-	interval      // every N seconds
-	cron          // cron expression
-	one_shot_at   // run once at a specific time
+	interval       // every N seconds
+	cron           // cron expression
+	one_shot_at    // run once at a specific time
 	one_shot_delay // run once after a delay
 }
 
@@ -39,17 +38,17 @@ pub enum TaskScheduleType {
 // ScheduledTask represents a registered scheduled task.
 pub struct ScheduledTask {
 pub mut:
-	name            string
-	schedule_type   TaskScheduleType
-	interval_ns     i64          // for interval type
-	cron_expr       string       // for cron type
-	target_time     i64          // unix nano, for one_shot_at
-	delay_ns        i64          // for one_shot_delay
-	task_fn         ScheduledTaskFn = unsafe { nil }
-	last_run        i64          // unix nano of last execution
-	run_count       int
-	is_running      bool
-	enabled         bool         = true
+	name          string
+	schedule_type TaskScheduleType
+	interval_ns   i64    // for interval type
+	cron_expr     string // for cron type
+	target_time   i64    // unix nano, for one_shot_at
+	delay_ns      i64    // for one_shot_delay
+	task_fn       ScheduledTaskFn = unsafe { nil }
+	last_run      i64 // unix nano of last execution
+	run_count     int
+	is_running    bool
+	enabled       bool = true
 }
 
 // ScheduledTaskFn is the function signature for scheduled tasks.
@@ -135,17 +134,16 @@ fn parse_cron_field(field string, min int, max int) !CronField {
 		}
 	}
 
-	return CronField{values: values}
+	return CronField{
+		values: values
+	}
 }
 
 // cron_matches checks if the parsed cron fields match the given time.
 pub fn cron_matches(fields []CronField, t time.Time) bool {
 	wd := t.day_of_week()
-	return t.minute in fields[0].values &&
-		t.hour in fields[1].values &&
-		t.day in fields[2].values &&
-		t.month in fields[3].values &&
-		wd in fields[4].values
+	return t.minute in fields[0].values && t.hour in fields[1].values && t.day in fields[2].values
+		&& t.month in fields[3].values && wd in fields[4].values
 }
 
 // ── TaskBuilder ──
@@ -182,8 +180,8 @@ pub fn (mut b TaskBuilder) name(n string) &TaskBuilder {
 @[heap]
 pub struct Scheduler {
 pub mut:
-	tasks       []&ScheduledTask
-	is_running  bool
+	tasks                []&ScheduledTask
+	is_running           bool
 	default_name_counter int
 }
 
@@ -199,7 +197,7 @@ pub fn new_task_scheduler() &Scheduler {
 pub fn (mut s Scheduler) every(d time.Duration) &TaskBuilder {
 	return &TaskBuilder{
 		schedule_type: .interval
-		interval_ns: i64(d)
+		interval_ns:   i64(d)
 	}
 }
 
@@ -207,7 +205,7 @@ pub fn (mut s Scheduler) every(d time.Duration) &TaskBuilder {
 pub fn (mut s Scheduler) cron(expr string) &TaskBuilder {
 	return &TaskBuilder{
 		schedule_type: .cron
-		cron_expr: expr
+		cron_expr:     expr
 	}
 }
 
@@ -215,7 +213,7 @@ pub fn (mut s Scheduler) cron(expr string) &TaskBuilder {
 pub fn (mut s Scheduler) at(t time.Time) &TaskBuilder {
 	return &TaskBuilder{
 		schedule_type: .one_shot_at
-		target_time: t.unix_nano()
+		target_time:   t.unix_nano()
 	}
 }
 
@@ -223,27 +221,27 @@ pub fn (mut s Scheduler) at(t time.Time) &TaskBuilder {
 pub fn (mut s Scheduler) delay(d time.Duration) &TaskBuilder {
 	return &TaskBuilder{
 		schedule_type: .one_shot_delay
-		delay_ns: i64(d)
+		delay_ns:      i64(d)
 	}
 }
 
 // register adds a configured task builder to the scheduler.
 pub fn (mut s Scheduler) register(b &TaskBuilder) {
 	if isnil(b.task_fn) {
-		return // Skip tasks without a function
+		return
 	}
 	task_name := if b.name_.len > 0 { b.name_ } else { 'task_${s.default_name_counter}' }
 	s.default_name_counter++
 
 	mut task := &ScheduledTask{
-		name: task_name
+		name:          task_name
 		schedule_type: b.schedule_type
-		interval_ns: b.interval_ns
-		cron_expr: b.cron_expr
-		target_time: b.target_time
-		delay_ns: b.delay_ns
-		task_fn: b.task_fn
-		enabled: true
+		interval_ns:   b.interval_ns
+		cron_expr:     b.cron_expr
+		target_time:   b.target_time
+		delay_ns:      b.delay_ns
+		task_fn:       b.task_fn
+		enabled:       true
 	}
 
 	if b.schedule_type == .one_shot_delay {
@@ -297,8 +295,9 @@ pub fn (mut s Scheduler) tick() {
 				} else {
 					// Only match if we haven't already run this minute
 					cron_fields := parse_cron(task.cron_expr) or { continue }
-					cron_matches(cron_fields, now) &&
-						(now.unix() - (task.last_run / 1_000_000_000)) >= 60
+
+					cron_matches(cron_fields, now)
+						&& (now.unix() - (task.last_run / 1_000_000_000)) >= 60
 				}
 			}
 			.one_shot_at {
@@ -311,9 +310,7 @@ pub fn (mut s Scheduler) tick() {
 
 		if is_due {
 			task.is_running = true
-			task.task_fn() or {
-				eprintln('[Scheduler] task "${task.name}" failed: ${err}')
-			}
+			task.task_fn() or { eprintln('[Scheduler] task "${task.name}" failed: ${err}') }
 			task.last_run = now.unix_nano()
 			task.run_count++
 			task.is_running = false
@@ -354,6 +351,7 @@ pub fn (mut s Scheduler) print_status() {
 			.one_shot_at { 'at ${time.unix(task.target_time / 1_000_000_000).format_ss()}' }
 			.one_shot_delay { 'delay ${time.Duration(task.delay_ns)}' }
 		}
+
 		enabled_str := if task.enabled { 'Y' } else { 'N' }
 		println('  ${task.name} | ${schedule_str} | runs:${task.run_count} | enabled:${enabled_str}')
 	}

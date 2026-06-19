@@ -5,7 +5,6 @@ module security
 // Implements JSON Web Token (JWT) creation, parsing, and validation.
 // Uses HMAC-SHA256 signing via V's crypto module.
 // Supports configurable expiration, issuer, audience, and custom claims.
-
 import time
 import encoding.base64
 import json
@@ -13,23 +12,23 @@ import json
 // JwtConfig configures JWT token behavior
 pub struct JwtConfig {
 pub:
-	secret         string
-	issuer         string = 'photon'
-	audience       string
-	expiration_minutes int = 60
+	secret                         string
+	issuer                         string = 'photon'
+	audience                       string
+	expiration_minutes             int = 60
 	refresh_token_expiration_hours int = 168
 }
 
 // JwtClaims represents the claims in a JWT token
 pub struct JwtClaims {
 pub mut:
-	sub       string
-	iat       i64
-	exp       i64
-	iss       string
-	aud       string
-	jti       string
-	roles     []string
+	sub         string
+	iat         i64
+	exp         i64
+	iss         string
+	aud         string
+	jti         string
+	roles       []string
 	permissions []string
 }
 
@@ -50,12 +49,12 @@ pub fn new_jwt_manager(config JwtConfig) &JwtManager {
 pub fn (jm &JwtManager) create_token(username string, roles []string) !string {
 	now := time.now().unix()
 	claims := JwtClaims{
-		sub: username
-		iat: now
-		exp: now + i64(jm.config.expiration_minutes * 60)
-		iss: jm.config.issuer
-		aud: jm.config.audience
-		jti: generate_jti(username, now)
+		sub:   username
+		iat:   now
+		exp:   now + i64(jm.config.expiration_minutes * 60)
+		iss:   jm.config.issuer
+		aud:   jm.config.audience
+		jti:   generate_jti(username, now)
 		roles: roles
 	}
 	return jm.encode(claims)
@@ -183,7 +182,9 @@ fn (jm &JwtManager) hmac_sign(data string) []u8 {
 		for i in 0 .. key.len {
 			padded[i] = key[i]
 		}
-		unsafe { key = padded }
+		unsafe {
+			key = padded
+		}
 	}
 
 	// Inner and outer padding
@@ -212,22 +213,70 @@ fn (jm &JwtManager) hmac_sign(data string) []u8 {
 fn sha256_hash(data []u8) []u8 {
 	// SHA-256 constants
 	k := [
-		u32(0x428a2f98), 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
-		0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-		0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
-		0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-		0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
-		0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-		0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
-		0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-		0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
-		0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-		0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
-		0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-		0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
-		0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-		0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
-		0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+		u32(0x428a2f98),
+		0x71374491,
+		0xb5c0fbcf,
+		0xe9b5dba5,
+		0x3956c25b,
+		0x59f111f1,
+		0x923f82a4,
+		0xab1c5ed5,
+		0xd807aa98,
+		0x12835b01,
+		0x243185be,
+		0x550c7dc3,
+		0x72be5d74,
+		0x80deb1fe,
+		0x9bdc06a7,
+		0xc19bf174,
+		0xe49b69c1,
+		0xefbe4786,
+		0x0fc19dc6,
+		0x240ca1cc,
+		0x2de92c6f,
+		0x4a7484aa,
+		0x5cb0a9dc,
+		0x76f988da,
+		0x983e5152,
+		0xa831c66d,
+		0xb00327c8,
+		0xbf597fc7,
+		0xc6e00bf3,
+		0xd5a79147,
+		0x06ca6351,
+		0x14292967,
+		0x27b70a85,
+		0x2e1b2138,
+		0x4d2c6dfc,
+		0x53380d13,
+		0x650a7354,
+		0x766a0abb,
+		0x81c2c92e,
+		0x92722c85,
+		0xa2bfe8a1,
+		0xa81a664b,
+		0xc24b8b70,
+		0xc76c51a3,
+		0xd192e819,
+		0xd6990624,
+		0xf40e3585,
+		0x106aa070,
+		0x19a4c116,
+		0x1e376c08,
+		0x2748774c,
+		0x34b0bcb5,
+		0x391c0cb3,
+		0x4ed8aa4a,
+		0x5b9cca4f,
+		0x682e6ff3,
+		0x748f82ee,
+		0x78a5636f,
+		0x84c87814,
+		0x8cc70208,
+		0x90befffa,
+		0xa4506ceb,
+		0xbef9a3f7,
+		0xc67178f2,
 	]
 
 	// Initialize hash values
@@ -256,10 +305,8 @@ fn sha256_hash(data []u8) []u8 {
 	for i := 0; i < padded.len; i += 64 {
 		mut w := []u32{len: 64}
 		for t := 0; t < 16; t++ {
-			w[t] = u32(padded[i + t * 4]) << 24 |
-				u32(padded[i + t * 4 + 1]) << 16 |
-				u32(padded[i + t * 4 + 2]) << 8 |
-				u32(padded[i + t * 4 + 3])
+			w[t] = u32(padded[i + t * 4]) << 24 | u32(padded[i + t * 4 + 1]) << 16 | u32(padded[i +
+				t * 4 + 2]) << 8 | u32(padded[i + t * 4 + 3])
 		}
 		for t := 16; t < 64; t++ {
 			s0 := right_rotate(w[t - 15], 7) ^ right_rotate(w[t - 15], 18) ^ (w[t - 15] >> 3)

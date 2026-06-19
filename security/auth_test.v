@@ -10,23 +10,23 @@ module security
 
 fn test_plain_text_encoder_encode_returns_same() {
 	pe := PlainTextPasswordEncoder{}
-	encoded := pe.encode('myPassword123')
+	encoded := pe.encode('myPassword123')!
 	assert encoded == 'myPassword123'
 }
 
 fn test_plain_text_encoder_matches_correct() {
 	pe := PlainTextPasswordEncoder{}
-	assert pe.matches('password', 'password') == true
+	assert pe.matches('password', 'password')! == true
 }
 
 fn test_plain_text_encoder_matches_incorrect() {
 	pe := PlainTextPasswordEncoder{}
-	assert pe.matches('correct', 'wrong') == false
+	assert pe.matches('correct', 'wrong')! == false
 }
 
 fn test_plain_text_encoder_encode_empty() {
 	pe := PlainTextPasswordEncoder{}
-	assert pe.encode('') == ''
+	assert pe.encode('')! == ''
 }
 
 // -- Authentication tests --
@@ -93,7 +93,9 @@ fn test_authenticate_with_jwt_provider() {
 	mut am := new_auth_manager()
 	jm := new_jwt_manager(JwtConfig{ secret: 'test-key' })
 	token_str := jm.create_token('alice', ['USER']) or { '' }
-	am.providers << &JwtAuthenticationProvider{ jwt_manager: jm }
+	am.providers << &JwtAuthenticationProvider{
+		jwt_manager: jm
+	}
 
 	mut auth := new_authentication('', 'Bearer ${token_str}')
 	am.authenticate(mut auth) or {
@@ -109,7 +111,9 @@ fn test_authenticate_with_plain_token_no_bearer() {
 	mut am := new_auth_manager()
 	jm := new_jwt_manager(JwtConfig{ secret: 'test-key' })
 	token_str := jm.create_token('bob', ['ADMIN']) or { '' }
-	am.providers << &JwtAuthenticationProvider{ jwt_manager: jm }
+	am.providers << &JwtAuthenticationProvider{
+		jwt_manager: jm
+	}
 
 	mut auth := new_authentication('', token_str)
 	am.authenticate(mut auth) or {
@@ -124,7 +128,9 @@ fn test_authenticate_jwt_with_details() {
 	mut am := new_auth_manager()
 	jm := new_jwt_manager(JwtConfig{ secret: 'test-key' })
 	token_str := jm.create_token('alice', ['USER']) or { '' }
-	am.providers << &JwtAuthenticationProvider{ jwt_manager: jm }
+	am.providers << &JwtAuthenticationProvider{
+		jwt_manager: jm
+	}
 
 	mut auth := new_authentication('', 'Bearer ${token_str}')
 	am.authenticate(mut auth) or {
@@ -139,28 +145,36 @@ fn test_authenticate_jwt_with_details() {
 
 fn test_jwt_provider_supports_bearer() {
 	jm := new_jwt_manager(JwtConfig{ secret: 'test' })
-	jp := JwtAuthenticationProvider{ jwt_manager: jm }
+	jp := JwtAuthenticationProvider{
+		jwt_manager: jm
+	}
 	auth := new_authentication('', 'Bearer some-token-value-here-123')
 	assert jp.supports(auth) == true
 }
 
 fn test_jwt_provider_supports_long_token() {
 	jm := new_jwt_manager(JwtConfig{ secret: 'test' })
-	jp := JwtAuthenticationProvider{ jwt_manager: jm }
+	jp := JwtAuthenticationProvider{
+		jwt_manager: jm
+	}
 	auth := new_authentication('', 'this-is-a-very-long-token-string-that-exceeds-twenty-chars')
 	assert jp.supports(auth) == true
 }
 
 fn test_jwt_provider_does_not_support_short_token() {
 	jm := new_jwt_manager(JwtConfig{ secret: 'test' })
-	jp := JwtAuthenticationProvider{ jwt_manager: jm }
+	jp := JwtAuthenticationProvider{
+		jwt_manager: jm
+	}
 	auth := new_authentication('', 'short')
 	assert jp.supports(auth) == false
 }
 
 fn test_jwt_provider_does_not_support_empty_credentials() {
 	jm := new_jwt_manager(JwtConfig{ secret: 'test' })
-	jp := JwtAuthenticationProvider{ jwt_manager: jm }
+	jp := JwtAuthenticationProvider{
+		jwt_manager: jm
+	}
 	auth := new_authentication('', '')
 	assert jp.supports(auth) == false
 }
@@ -171,7 +185,7 @@ fn test_username_provider_supports_credentials() {
 	user_service := new_in_memory_service()
 	encoder := &PlainTextPasswordEncoder{}
 	up := UsernamePasswordAuthenticationProvider{
-		user_service: user_service
+		user_service:     user_service
 		password_encoder: encoder
 	}
 	auth := new_authentication('alice', 'password123')
@@ -182,7 +196,7 @@ fn test_username_provider_does_not_support_bearer() {
 	user_service := new_in_memory_service()
 	encoder := &PlainTextPasswordEncoder{}
 	up := UsernamePasswordAuthenticationProvider{
-		user_service: user_service
+		user_service:     user_service
 		password_encoder: encoder
 	}
 	auth := new_authentication('alice', 'Bearer token123')
@@ -193,7 +207,7 @@ fn test_username_provider_does_not_support_empty() {
 	user_service := new_in_memory_service()
 	encoder := &PlainTextPasswordEncoder{}
 	up := UsernamePasswordAuthenticationProvider{
-		user_service: user_service
+		user_service:     user_service
 		password_encoder: encoder
 	}
 	auth := new_authentication('', '')
@@ -207,7 +221,7 @@ fn test_username_provider_authenticate_success() {
 
 	encoder := &PlainTextPasswordEncoder{}
 	up := UsernamePasswordAuthenticationProvider{
-		user_service: user_service
+		user_service:     user_service
 		password_encoder: encoder
 	}
 
@@ -228,7 +242,7 @@ fn test_username_provider_authenticate_wrong_password() {
 
 	encoder := &PlainTextPasswordEncoder{}
 	up := UsernamePasswordAuthenticationProvider{
-		user_service: user_service
+		user_service:     user_service
 		password_encoder: encoder
 	}
 
@@ -245,7 +259,7 @@ fn test_username_provider_authenticate_user_not_found() {
 	user_service := new_in_memory_service()
 	encoder := &PlainTextPasswordEncoder{}
 	up := UsernamePasswordAuthenticationProvider{
-		user_service: user_service
+		user_service:     user_service
 		password_encoder: encoder
 	}
 

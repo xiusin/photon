@@ -170,9 +170,9 @@ fn test_upload_handle_bytes() {
 
 fn test_upload_error_str() {
 	e := UploadError{
-		field: 'avatar'
+		field:   'avatar'
 		message: 'too large'
-		code: .file_too_large
+		code:    .file_too_large
 	}
 	s := e.str()
 	assert s.contains('avatar')

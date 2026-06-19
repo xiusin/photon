@@ -4,7 +4,6 @@ module queue
 //
 // Uses a head-pointer ring-buffer approach for O(1) amortized pop,
 // avoiding the O(n) delete(0) shift cost for large queues.
-
 import sync
 
 // queued_jobs implements a ring-buffer-like queue for O(1) pop.

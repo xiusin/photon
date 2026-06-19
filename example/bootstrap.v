@@ -4,7 +4,6 @@ module main
 //
 // 职责：服务注册、配置加载、模块初始化、依赖装配。
 // 相当于 Spring Boot 的 @SpringBootApplication 启动逻辑。
-
 import config
 import logger
 import cache
@@ -35,7 +34,7 @@ pub:
 	cfg        &config.Config
 	app_cfg    AppConfig
 	services   &ServiceRegistry
-	middleware  &MiddlewareManager
+	middleware &MiddlewareManager
 }
 
 // new_bootstrap 创建并运行 Bootstrap
@@ -54,9 +53,7 @@ pub fn new_bootstrap() !&Bootstrap {
 			'app.debug':      'true'
 		}
 	})
-	cfg.load() or {
-		return error('config load failed: ${err}')
-	}
+	cfg.load() or { return error('config load failed: ${err}') }
 
 	// ── 2. Environment 环境检测 ──
 	is_prod := cfg.get_or('profile', 'dev') == 'production'
@@ -88,7 +85,7 @@ pub fn new_bootstrap() !&Bootstrap {
 	log_.info('Config loaded — app=${app_cfg.app_name} v${app_cfg.app_version}')
 
 	// ── 5. Cache 缓存初始化 ──
-	mut cache_mgr := cache.new_cache_manager()
+	mut cache_mgr := cache.new_cache_registry()
 	unsafe {
 		cache_mgr.register('default', cache.new_memory_cache('default'))
 	}
@@ -99,7 +96,7 @@ pub fn new_bootstrap() !&Bootstrap {
 	// ── 6. Services 服务注册 ──
 	user_svc := new_user_service(log_)
 	jwt_config := JWTConfig{
-		secret: app_cfg.jwt_secret
+		secret:             app_cfg.jwt_secret
 		expiration_minutes: app_cfg.jwt_expiry
 	}
 	auth_svc := new_auth_service(log_, user_svc, jwt_config)
@@ -107,10 +104,10 @@ pub fn new_bootstrap() !&Bootstrap {
 	cache_svc := new_cache_service(cache_mgr)
 
 	services := &ServiceRegistry{
-		user_service: user_svc
-		auth_service: auth_svc
+		user_service:   user_svc
+		auth_service:   auth_svc
 		health_service: health_svc
-		cache_service: cache_svc
+		cache_service:  cache_svc
 	}
 	log_.info('Services registered — UserService, AuthService, HealthService, CacheService')
 
@@ -120,10 +117,10 @@ pub fn new_bootstrap() !&Bootstrap {
 
 	log_.info('Bootstrap complete — ${app_cfg.app_name} v${app_cfg.app_version} ready')
 	return &Bootstrap{
-		log_: log_
-		cfg: cfg
-		app_cfg: app_cfg
-		services: services
+		log_:       log_
+		cfg:        cfg
+		app_cfg:    app_cfg
+		services:   services
 		middleware: mw
 	}
 }

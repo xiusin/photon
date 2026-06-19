@@ -1,7 +1,6 @@
 module main
 
 // main.v — Photon Web Application 入口
-
 import cli
 import veb
 import time
@@ -14,12 +13,12 @@ pub struct App {
 	veb.Context
 	veb.Middleware[Context]
 pub mut:
-	start_time   i64
-	req_count    int
-	services     &ServiceRegistry = unsafe { nil }
-	middleware   &MiddlewareManager = unsafe { nil }
-	app_config   &AppConfig = unsafe { nil }
-	log_         &logger.Logger = unsafe { nil }
+	start_time     i64
+	req_count      int
+	services       &ServiceRegistry      = unsafe { nil }
+	middleware     &MiddlewareManager    = unsafe { nil }
+	app_config     &AppConfig            = unsafe { nil }
+	log_           &logger.Logger        = unsafe { nil }
 	apidoc_handler &apidoc.ApidocHandler = unsafe { nil }
 }
 
@@ -46,11 +45,11 @@ pub fn main() {
 	boot.log_.info('API Documentation module ready')
 
 	mut web_app := &App{
-		start_time: time.ticks()
-		log_: boot.log_
-		services: boot.services
-		middleware: boot.middleware
-		app_config: &boot.app_cfg
+		start_time:     time.ticks()
+		log_:           boot.log_
+		services:       boot.services
+		middleware:     boot.middleware
+		app_config:     &boot.app_cfg
 		apidoc_handler: apidoc_handler
 	}
 
@@ -61,7 +60,7 @@ pub fn main() {
 
 	// 注册全局应用 middleware（请求计数 + CORS + 日志）
 	web_app.use(veb.MiddlewareOptions[Context]{
-		handler: fn [mut web_app](mut ctx Context) bool {
+		handler: fn [mut web_app] (mut ctx Context) bool {
 			web_app.req_count++
 			if !isnil(web_app.middleware) {
 				web_app.middleware.apply_global(mut ctx.Context) or {}

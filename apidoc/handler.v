@@ -9,7 +9,6 @@ module apidoc
 //   1. Embed apidoc.ApidocHandler in your App struct
 //   2. Call app.setup_middleware[T]() to register before/after middleware
 //   3. Define thin route wrappers for /__docs endpoints
-
 import veb
 import os
 
@@ -105,18 +104,31 @@ pub fn (mut h ApidocHandler) serve_static_file(mut ctx veb.Context, file string)
 		return ctx.text('{"code":404,"msg":"file not found"}')
 	}
 
-	if file.ends_with('.css') { ctx.set_content_type('text/css; charset=utf-8') }
-	else if file.ends_with('.js') { ctx.set_content_type('application/javascript; charset=utf-8') }
-	else if file.ends_with('.html') { ctx.set_content_type('text/html; charset=utf-8') }
-	else if file.ends_with('.json') { ctx.set_content_type('application/json; charset=utf-8') }
-	else if file.ends_with('.png') { ctx.set_content_type('image/png') }
-	else if file.ends_with('.svg') { ctx.set_content_type('image/svg+xml') }
-	else if file.ends_with('.ico') { ctx.set_content_type('image/x-icon') }
-	else if file.ends_with('.woff') { ctx.set_content_type('font/woff') }
-	else if file.ends_with('.woff2') { ctx.set_content_type('font/woff2') }
-	else if file.ends_with('.ttf') { ctx.set_content_type('font/ttf') }
-	else if file.ends_with('.eot') { ctx.set_content_type('application/vnd.ms-fontobject') }
-	else if file.ends_with('.map') { ctx.set_content_type('application/json') }
+	if file.ends_with('.css') {
+		ctx.set_content_type('text/css; charset=utf-8')
+	} else if file.ends_with('.js') {
+		ctx.set_content_type('application/javascript; charset=utf-8')
+	} else if file.ends_with('.html') {
+		ctx.set_content_type('text/html; charset=utf-8')
+	} else if file.ends_with('.json') {
+		ctx.set_content_type('application/json; charset=utf-8')
+	} else if file.ends_with('.png') {
+		ctx.set_content_type('image/png')
+	} else if file.ends_with('.svg') {
+		ctx.set_content_type('image/svg+xml')
+	} else if file.ends_with('.ico') {
+		ctx.set_content_type('image/x-icon')
+	} else if file.ends_with('.woff') {
+		ctx.set_content_type('font/woff')
+	} else if file.ends_with('.woff2') {
+		ctx.set_content_type('font/woff2')
+	} else if file.ends_with('.ttf') {
+		ctx.set_content_type('font/ttf')
+	} else if file.ends_with('.eot') {
+		ctx.set_content_type('application/vnd.ms-fontobject')
+	} else if file.ends_with('.map') {
+		ctx.set_content_type('application/json')
+	}
 
 	return ctx.text(content)
 }
@@ -151,6 +163,7 @@ pub fn (mut h ApidocHandler) serve_entry(mut ctx veb.Context, id string) veb.Res
 				'unlock' { h.store.unlock_endpoint(id) }
 				else {}
 			}
+
 			ctx.set_content_type('application/json')
 			return ctx.text('{"code":0,"msg":"OK","data":{}}')
 		}

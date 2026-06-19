@@ -10,11 +10,11 @@ module cache
 // CacheableAttribute holds parsed attributes from @[cacheable].
 pub struct CacheableAttribute {
 pub mut:
-	cache_name   string = 'default'
-	key_pattern  string
-	ttl_seconds  int    = 300   // default 5 minutes
-	condition    string
-	unless       string
+	cache_name  string = 'default'
+	key_pattern string
+	ttl_seconds int = 300 // default 5 minutes
+	condition   string
+	unless      string
 }
 
 // ── CacheEvictAttribute ──
@@ -22,9 +22,9 @@ pub mut:
 // CacheEvictAttribute holds parsed attributes from @[cache_evict].
 pub struct CacheEvictAttribute {
 pub mut:
-	cache_name   string = 'default'
-	key_pattern  string
-	all_entries  bool
+	cache_name        string = 'default'
+	key_pattern       string
+	all_entries       bool
 	before_invocation bool
 }
 
@@ -33,11 +33,11 @@ pub mut:
 // CachePutAttribute holds parsed attributes from @[cache_put].
 pub struct CachePutAttribute {
 pub mut:
-	cache_name   string = 'default'
-	key_pattern  string
-	ttl_seconds  int    = 300
-	condition    string
-	unless       string
+	cache_name  string = 'default'
+	key_pattern string
+	ttl_seconds int = 300
+	condition   string
+	unless      string
 }
 
 // ── Attribute Parsing ──
@@ -168,7 +168,7 @@ pub fn build_cache_key(attr CacheableAttribute, method_name string, args ...stri
 	}
 
 	if args.len > 0 {
-		return '${attr.cache_name}::${method_name}::${args.join(",")}'
+		return '${attr.cache_name}::${method_name}::${args.join(',')}'
 	}
 	return '${attr.cache_name}::${method_name}'
 }
@@ -184,7 +184,7 @@ pub fn build_evict_key(attr CacheEvictAttribute, method_name string, args ...str
 	}
 
 	if args.len > 0 {
-		return '${attr.cache_name}::${method_name}::${args.join(",")}'
+		return '${attr.cache_name}::${method_name}::${args.join(',')}'
 	}
 	return '${attr.cache_name}::${method_name}'
 }
@@ -194,11 +194,11 @@ pub fn build_evict_key(attr CacheEvictAttribute, method_name string, args ...str
 // CacheableInterceptor provides around-advice for cacheable methods.
 pub struct CacheableInterceptor {
 pub mut:
-	cache_manager &CacheManager = new_cache_manager()
+	cache_manager &CacheRegistry = new_cache_registry()
 }
 
 // new_cacheable_interceptor creates a CacheableInterceptor.
-pub fn new_cacheable_interceptor(cm &CacheManager) &CacheableInterceptor {
+pub fn new_cacheable_interceptor(cm &CacheRegistry) &CacheableInterceptor {
 	return &CacheableInterceptor{
 		cache_manager: unsafe { cm }
 	}
@@ -246,9 +246,65 @@ pub fn (mut ci CacheableInterceptor) put(attr CachePutAttribute, method_name str
 	} else {
 		cache_key += method_name
 		if args.len > 0 {
-			cache_key += '::${args.join(",")}'
+			cache_key += '::${args.join(',')}'
 		}
 	}
 
 	ci.cache_manager.set(cache_key, value, attr.ttl_seconds)!
+}
+
+// ── CacheConfigAttribute (class-level @[cache_config] annotation) ──
+
+// CacheConfigAttribute holds parsed attributes from @[cache_config].
+pub struct CacheConfigAttribute {
+pub mut:
+	cache_names   []string
+	key_generator string // name of KeyGenerator to use
+}
+
+// parse_cache_config_attr parses the @[cache_config] attribute string.
+pub fn parse_cache_config_attr(attr string) CacheConfigAttribute {
+	mut ca := CacheConfigAttribute{}
+	if attr.len == 0 {
+		return ca
+	}
+	parts := attr.split(';')
+	for part in parts {
+		p := part.trim_space()
+		if p.starts_with('cache:') {
+			// Comma-separated cache names
+			names := p['cache:'.len..].split(',')
+			for name in names {
+				ca.cache_names << name.trim_space()
+			}
+		} else if p.starts_with('key_generator:') {
+			ca.key_generator = p['key_generator:'.len..]
+		} else {
+			// Single cache name without prefix
+			ca.cache_names << p
+		}
+	}
+	return ca
+}
+
+// ── KeyGenerator Interface ──
+
+// KeyGenerator generates cache keys from method name and arguments.
+pub interface KeyGenerator {
+	generate(method_name string, args ...string) string
+}
+
+// SimpleKeyGenerator generates keys as method_name::arg1,arg2,...
+pub struct SimpleKeyGenerator {}
+
+// new_simple_key_generator creates a SimpleKeyGenerator.
+pub fn new_simple_key_generator() SimpleKeyGenerator {
+	return SimpleKeyGenerator{}
+}
+
+pub fn (g SimpleKeyGenerator) generate(method_name string, args ...string) string {
+	if args.len == 0 {
+		return method_name
+	}
+	return method_name + '::' + args.join(',')
 }

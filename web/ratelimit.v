@@ -8,7 +8,6 @@ module web
 //   - This allows thousands of concurrent rate-limit checks with minimal contention.
 //   - Read-only operations (remaining, retry_after) use the same shard lock
 //     but complete in O(1) without iterating the full map.
-
 import time
 import sync
 
@@ -31,7 +30,7 @@ pub fn new_rate_limiter() &RateLimiter {
 	mut shards := []sync.Mutex{len: shard_count}
 	return &RateLimiter{
 		attempts: map[string][]i64{}
-		shards: shards
+		shards:   shards
 	}
 }
 
@@ -263,7 +262,7 @@ mut:
 pub fn new_fixed_window_limiter() &FixedWindowLimiter {
 	return &FixedWindowLimiter{
 		windows: map[string]FixedWindowEntry{}
-		shards: []sync.Mutex{len: shard_count}
+		shards:  []sync.Mutex{len: shard_count}
 	}
 }
 

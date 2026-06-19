@@ -42,6 +42,7 @@ pub type ChannelLogger = logger.ChannelLogger
 
 // Re-export cache types
 pub type CacheManager = cache.CacheManager
+pub type CacheRegistry = cache.CacheRegistry
 
 // Re-export security types
 pub type JwtManager = security.JwtManager

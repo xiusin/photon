@@ -1,7 +1,6 @@
 module web
 
 // bind_test.v — Tests for Spring-style DTO Binding
-
 import veb
 
 struct SimpleDto {
@@ -99,9 +98,7 @@ fn test_bind_json() {
 
 fn test_bind_json_empty_body() {
 	ctx := ctx_with_params('')
-	_ = bind_json[SimpleDto](ctx) or {
-		return // expected
-	}
+	_ = bind_json[SimpleDto](ctx) or { return }
 	assert false
 }
 

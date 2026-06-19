@@ -248,7 +248,7 @@ pub fn (mut lm LockManager) cleanup_unused_locks() int {
 // Useful for monitoring potential memory leaks.
 pub fn (mut lm LockManager) lock_count() int {
 	lm.map_mu.rlock()
-	defer { lm.map_mu.runlock()}
+	defer { lm.map_mu.runlock() }
 	return lm.local_locks.len
 }
 

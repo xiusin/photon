@@ -171,7 +171,7 @@ fn test_lock_with_timeout_expires_when_held() {
 // Helper: polls try_lock() until acquired. Same logic as lock_with_timeout's inner loop,
 // but at the LocalMutex level to avoid the V shared-lock deadlock that would occur
 // if lock_with_timeout held `lock lm { }` for the entire polling duration.
-fn poll_mutex_until_acquired(shared mu &LocalMutex) {
+fn poll_mutex_until_acquired(shared mu LocalMutex) {
 	start := time.now().unix_milli()
 	for {
 		lock mu {

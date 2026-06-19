@@ -15,9 +15,9 @@ pub mut:
 // new_input parses os.args into a CommandInput
 pub fn new_input(raw_args []string) &CommandInput {
 	mut input := CommandInput{
-		args:    map[string]string{}
-		options: map[string]string{}
-		flags:   map[string]bool{}
+		args:     map[string]string{}
+		options:  map[string]string{}
+		flags:    map[string]bool{}
 		raw_args: raw_args
 	}
 
@@ -65,10 +65,10 @@ pub fn new_input(raw_args []string) &CommandInput {
 
 	return &CommandInput{
 		command_name: input.command_name
-		args: input.args
-		options: input.options
-		flags: input.flags
-		raw_args: input.raw_args
+		args:         input.args
+		options:      input.options
+		flags:        input.flags
+		raw_args:     input.raw_args
 	}
 }
 

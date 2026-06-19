@@ -21,7 +21,6 @@ module web
 //   upload.allowed_extensions = ['.jpg', '.png', '.pdf']
 //
 //   result := upload.handle(ctx, 'avatar', '/var/www/uploads')!
-
 import veb
 import os
 import crypto.sha256
@@ -48,11 +47,11 @@ pub struct UploadResult {
 pub:
 	original_name string
 	stored_name   string
-	path          string  // full path on disk
+	path          string // full path on disk
 	size          int
 	extension     string
 	mime_type     string
-	hash          string  // SHA-256 hash of file content
+	hash          string // SHA-256 hash of file content
 }
 
 // ── Upload Error ──
@@ -94,11 +93,11 @@ pub fn (e UploadError) str() string {
 // UploadHandler handles file uploads with validation and storage.
 pub struct UploadHandler {
 pub mut:
-	max_size            int = 10 * 1024 * 1024  // 10MB default
-	allowed_extensions  []string  // empty = all allowed
-	allowed_mime_types  []string  // empty = all allowed
-	naming_strategy     NamingStrategy = .hash
-	path_strategy       PathStrategy  = .date
+	max_size           int = 10 * 1024 * 1024 // 10MB default
+	allowed_extensions []string // empty = all allowed
+	allowed_mime_types []string // empty = all allowed
+	naming_strategy    NamingStrategy = .hash
+	path_strategy      PathStrategy   = .date
 }
 
 // NamingStrategy defines how uploaded files are named.
@@ -111,19 +110,19 @@ pub enum NamingStrategy {
 
 // PathStrategy defines how subdirectories are organized.
 pub enum PathStrategy {
-	flat      // all files in one directory
-	date      // YYYY/MM/DD subdirectories
-	hash_dir  // first 2 chars of hash as subdirectory
+	flat     // all files in one directory
+	date     // YYYY/MM/DD subdirectories
+	hash_dir // first 2 chars of hash as subdirectory
 }
 
 // new_upload_handler creates an UploadHandler with sensible defaults.
 pub fn new_upload_handler() &UploadHandler {
 	return &UploadHandler{
-		max_size: 10 * 1024 * 1024
+		max_size:           10 * 1024 * 1024
 		allowed_extensions: []string{}
 		allowed_mime_types: []string{}
-		naming_strategy: .hash
-		path_strategy: .date
+		naming_strategy:    .hash
+		path_strategy:      .date
 	}
 }
 
@@ -232,9 +231,7 @@ pub fn (mut h UploadHandler) handle(ctx &veb.Context, field string, dest_dir str
 	content_type := ctx.form['${field}_type'] or { 'application/octet-stream' }
 
 	// Validate (includes dangerous filename check)
-	h.validate(original_name, file_data.len, content_type) or {
-		return err
-	}
+	h.validate(original_name, file_data.len, content_type) or { return err }
 
 	// Sanitize filename: strip path components
 	safe_name := sanitize_filename(original_name)
@@ -249,9 +246,7 @@ pub fn (mut h UploadHandler) handle(ctx &veb.Context, field string, dest_dir str
 
 	// Write file
 	full_path := os.join_path(full_dir, stored_name)
-	os.write_file(full_path, file_data) or {
-		return error('failed to write uploaded file: ${err}')
-	}
+	os.write_file(full_path, file_data) or { return error('failed to write uploaded file: ${err}') }
 
 	// Compute hash
 	hash := sha256_hex(file_data.bytes())
@@ -260,12 +255,12 @@ pub fn (mut h UploadHandler) handle(ctx &veb.Context, field string, dest_dir str
 
 	return UploadResult{
 		original_name: safe_name
-		stored_name: stored_name
-		path: full_path
-		size: file_data.len
-		extension: ext
-		mime_type: content_type
-		hash: hash
+		stored_name:   stored_name
+		path:          full_path
+		size:          file_data.len
+		extension:     ext
+		mime_type:     content_type
+		hash:          hash
 	}
 }
 
@@ -283,9 +278,7 @@ pub fn (mut h UploadHandler) handle_bytes(original_name string, data []u8, dest_
 
 	// Validate (includes dangerous filename check)
 	content_type := guess_mime_type(safe_name)
-	h.validate(safe_name, data.len, content_type) or {
-		return err
-	}
+	h.validate(safe_name, data.len, content_type) or { return err }
 
 	// Generate stored name
 	stored_name := h.generate_name_from_bytes(safe_name, data)
@@ -297,9 +290,7 @@ pub fn (mut h UploadHandler) handle_bytes(original_name string, data []u8, dest_
 
 	// Write file using binary-safe method
 	full_path := os.join_path(full_dir, stored_name)
-	os.write_bytes(full_path, data) or {
-		return error('failed to write uploaded file: ${err}')
-	}
+	os.write_bytes(full_path, data) or { return error('failed to write uploaded file: ${err}') }
 
 	// Compute hash
 	hash := sha256_hex(data)
@@ -308,12 +299,12 @@ pub fn (mut h UploadHandler) handle_bytes(original_name string, data []u8, dest_
 
 	return UploadResult{
 		original_name: safe_name
-		stored_name: stored_name
-		path: full_path
-		size: data.len
-		extension: ext
-		mime_type: content_type
-		hash: hash
+		stored_name:   stored_name
+		path:          full_path
+		size:          data.len
+		extension:     ext
+		mime_type:     content_type
+		hash:          hash
 	}
 }
 
@@ -468,7 +459,7 @@ pub mut:
 // Thread-safe via sync.RwMutex.
 pub struct UploadChunkManager {
 pub mut:
-	chunks map[string]&ChunkInfo  // upload_id -> chunk info
+	chunks   map[string]&ChunkInfo // upload_id -> chunk info
 	temp_dir string = '/tmp/photon_uploads'
 mut:
 	mu sync.RwMutex
@@ -487,13 +478,13 @@ pub fn (mut cm UploadChunkManager) init_upload(file_name string, total_chunks in
 	cm.mu.@lock()
 	defer { cm.mu.unlock() }
 	cm.chunks[upload_id] = &ChunkInfo{
-		upload_id: upload_id
-		total_chunks: total_chunks
-		chunk_index: 0
-		file_name: file_name
-		total_size: total_size
+		upload_id:       upload_id
+		total_chunks:    total_chunks
+		chunk_index:     0
+		file_name:       file_name
+		total_size:      total_size
 		received_chunks: []bool{len: total_chunks, init: false}
-		chunk_dir: os.join_path(cm.temp_dir, upload_id)
+		chunk_dir:       os.join_path(cm.temp_dir, upload_id)
 	}
 	entry := cm.chunks[upload_id] or { unsafe { nil } }
 	os.mkdir_all(entry.chunk_dir, os.MkdirParams{}) or {}
@@ -515,9 +506,7 @@ pub fn (mut cm UploadChunkManager) receive_chunk(upload_id string, chunk_index i
 	}
 
 	chunk_path := os.join_path(info.chunk_dir, '${chunk_index:08d}.part')
-	os.write_file(chunk_path, data) or {
-		return error('failed to write chunk: ${err}')
-	}
+	os.write_file(chunk_path, data) or { return error('failed to write chunk: ${err}') }
 
 	info.received_chunks[chunk_index] = true
 }
@@ -540,24 +529,18 @@ pub fn (mut cm UploadChunkManager) is_complete(upload_id string) bool {
 pub fn (mut cm UploadChunkManager) assemble(upload_id string, dest_path string) ! {
 	cm.mu.@lock()
 	defer { cm.mu.unlock() }
-	info := cm.chunks[upload_id] or {
-		return error('upload session not found: ${upload_id}')
-	}
+	info := cm.chunks[upload_id] or { return error('upload session not found: ${upload_id}') }
 
 	// Read and concatenate all chunks as binary
 	mut content := []u8{}
 	for i in 0 .. info.total_chunks {
 		chunk_path := os.join_path(info.chunk_dir, '${i:08d}.part')
-		chunk_data := os.read_bytes(chunk_path) or {
-			return error('missing chunk ${i}')
-		}
+		chunk_data := os.read_bytes(chunk_path) or { return error('missing chunk ${i}') }
 		content << chunk_data
 	}
 
 	// Write the assembled file using binary-safe method
-	os.write_bytes(dest_path, content) or {
-		return error('failed to write assembled file: ${err}')
-	}
+	os.write_bytes(dest_path, content) or { return error('failed to write assembled file: ${err}') }
 
 	// Clean up chunks
 	os.rmdir_all(info.chunk_dir) or {}

@@ -73,9 +73,9 @@ import sync
 
 // Scope defines the lifecycle of a bean instance.
 pub enum Scope {
-	singleton  // default — one instance per container
-	prototype  // new instance per resolve
-	request    // one instance per HTTP request (web module)
+	singleton // default — one instance per container
+	prototype // new instance per resolve
+	request   // one instance per HTTP request (web module)
 }
 
 // str returns a human-readable scope name.
@@ -101,10 +101,10 @@ pub fn scope_from_str(s string) Scope {
 
 // BeanState tracks the current state of a bean in its lifecycle.
 pub enum BeanState {
-	registered   // definition added, not yet instantiated
+	registered    // definition added, not yet instantiated
 	instantiating // instance being created (circular dependency detection)
-	ready        // fully initialized and available
-	destroying   // being destroyed
+	ready         // fully initialized and available
+	destroying    // being destroyed
 }
 
 // str returns a human-readable bean state.
@@ -122,12 +122,12 @@ pub fn (bs BeanState) str() string {
 // Dependency describes a single @[autowired] field on a bean.
 pub struct Dependency {
 pub:
-	field_name  string   // V struct field name
-	type_name   string   // fully-qualified type name to resolve
-	qualifier   string   // @[qualifier('name')] — empty if unqualified
+	field_name  string // V struct field name
+	type_name   string // fully-qualified type name to resolve
+	qualifier   string // @[qualifier('name')] — empty if unqualified
 	is_required bool = true // @[autowired] default required; set false for optional injection
-		// Spring equivalent: @Autowired(required = true/false)
-		// When is_required=false and the bean is not found, injection is silently skipped
+	// Spring equivalent: @Autowired(required = true/false)
+	// When is_required=false and the bean is not found, injection is silently skipped
 }
 
 // ── BeanDefinition ──
@@ -137,22 +137,22 @@ pub:
 // registered into the Container before the application starts.
 pub struct BeanDefinition {
 pub:
-	type_name    string       // struct name, e.g. 'UserService'
+	type_name string // struct name, e.g. 'UserService'
 pub mut:
-	scope        Scope        = .singleton
-	is_lazy      bool         // @[lazy]
-	dependencies []Dependency // @[autowired] fields
-	qualifier    string       // @[qualifier('name')]
-	init_method  string       // @[post_construct] method name
-	destroy_method string     // @[pre_destroy] method name
-	tags         []string     // @[component]/@[service]/@[repository]/@[controller]
-	order_       int          // instantiation order (lower = earlier)
-	state BeanState = .registered
-	depends_on   []string     // @[depends_on('BeanA','BeanB')] — explicit creation order
-	is_primary   bool         // @[primary] — prefer this bean when multiple candidates exist
-	parent_name  string       // parent bean definition name for property inheritance
+	scope          Scope = .singleton
+	is_lazy        bool         // @[lazy]
+	dependencies   []Dependency // @[autowired] fields
+	qualifier      string       // @[qualifier('name')]
+	init_method    string       // @[post_construct] method name
+	destroy_method string       // @[pre_destroy] method name
+	tags           []string     // @[component]/@[service]/@[repository]/@[controller]
+	order_         int          // instantiation order (lower = earlier)
+	state          BeanState = .registered
+	depends_on     []string // @[depends_on('BeanA','BeanB')] — explicit creation order
+	is_primary     bool     // @[primary] — prefer this bean when multiple candidates exist
+	parent_name    string   // parent bean definition name for property inheritance
 	// ── Enhanced DI fields (Spring/Laravel inspired) ──
-	interfaces   []string           // interfaces this bean implements (for type-based lookup)
+	interfaces            []string              // interfaces this bean implements (for type-based lookup)
 	method_injections     []MethodInjection     // @[autowired] on setter/method (Spring method injection)
 	collection_injections []CollectionInjection // inject all beans of a type (Spring List<T> injection)
 	lookup_injections     []LookupInjection     // @[lookup] method injection (Spring @Lookup)
@@ -161,15 +161,15 @@ pub mut:
 // new_bean_definition creates a BeanDefinition with defaults.
 pub fn new_bean_definition(type_name string) BeanDefinition {
 	return BeanDefinition{
-		type_name: type_name
-		scope: .singleton
-		dependencies: []Dependency{}
-		tags: []string{}
-		depends_on: []string{}
-		interfaces: []string{}
-		method_injections: []MethodInjection{}
+		type_name:             type_name
+		scope:                 .singleton
+		dependencies:          []Dependency{}
+		tags:                  []string{}
+		depends_on:            []string{}
+		interfaces:            []string{}
+		method_injections:     []MethodInjection{}
 		collection_injections: []CollectionInjection{}
-		lookup_injections: []LookupInjection{}
+		lookup_injections:     []LookupInjection{}
 	}
 }
 
@@ -187,36 +187,36 @@ pub fn new_bean_definition(type_name string) BeanDefinition {
 //       .build()
 pub struct BeanDefinitionBuilder {
 pub mut:
-	type_name     string
-	scope_        Scope        = .singleton
-	is_lazy_      bool
-	qualifier_    string
-	tags_         []string
-	dependencies_ []Dependency
-	init_method_  string
+	type_name       string
+	scope_          Scope = .singleton
+	is_lazy_        bool
+	qualifier_      string
+	tags_           []string
+	dependencies_   []Dependency
+	init_method_    string
 	destroy_method_ string
-	depends_on_   []string
-	is_primary_   bool
-	parent_name_  string
+	depends_on_     []string
+	is_primary_     bool
+	parent_name_    string
 	// Enhanced DI
-	interfaces_             []string
-	method_injections_      []MethodInjection
-	collection_injections_  []CollectionInjection
-	lookup_injections_      []LookupInjection
+	interfaces_            []string
+	method_injections_     []MethodInjection
+	collection_injections_ []CollectionInjection
+	lookup_injections_     []LookupInjection
 }
 
 // new_bean_definition_builder creates a builder for the given type.
 pub fn new_bean_definition_builder(type_name string) BeanDefinitionBuilder {
 	return BeanDefinitionBuilder{
-		type_name: type_name
-		scope_: .singleton
-		tags_: []string{}
-		dependencies_: []Dependency{}
-		depends_on_: []string{}
-		interfaces_: []string{}
-		method_injections_: []MethodInjection{}
+		type_name:              type_name
+		scope_:                 .singleton
+		tags_:                  []string{}
+		dependencies_:          []Dependency{}
+		depends_on_:            []string{}
+		interfaces_:            []string{}
+		method_injections_:     []MethodInjection{}
 		collection_injections_: []CollectionInjection{}
-		lookup_injections_: []LookupInjection{}
+		lookup_injections_:     []LookupInjection{}
 	}
 }
 
@@ -314,21 +314,21 @@ pub fn (mut b BeanDefinitionBuilder) add_lookup_injection(li LookupInjection) &B
 // build constructs the final BeanDefinition.
 pub fn (b &BeanDefinitionBuilder) build() BeanDefinition {
 	return BeanDefinition{
-		type_name: b.type_name
-		scope: b.scope_
-		is_lazy: b.is_lazy_
-		qualifier: b.qualifier_
-		tags: b.tags_.clone()
-		dependencies: b.dependencies_.clone()
-		init_method: b.init_method_
-		destroy_method: b.destroy_method_
-		depends_on: b.depends_on_.clone()
-		is_primary: b.is_primary_
-		parent_name: b.parent_name_
-		interfaces: b.interfaces_.clone()
-		method_injections: b.method_injections_.clone()
+		type_name:             b.type_name
+		scope:                 b.scope_
+		is_lazy:               b.is_lazy_
+		qualifier:             b.qualifier_
+		tags:                  b.tags_.clone()
+		dependencies:          b.dependencies_.clone()
+		init_method:           b.init_method_
+		destroy_method:        b.destroy_method_
+		depends_on:            b.depends_on_.clone()
+		is_primary:            b.is_primary_
+		parent_name:           b.parent_name_
+		interfaces:            b.interfaces_.clone()
+		method_injections:     b.method_injections_.clone()
 		collection_injections: b.collection_injections_.clone()
-		lookup_injections: b.lookup_injections_.clone()
+		lookup_injections:     b.lookup_injections_.clone()
 	}
 }
 
@@ -377,33 +377,33 @@ pub mut:
 @[heap]
 pub struct Container {
 pub mut:
-	definitions      map[string]BeanDefinition    // type_name → definition
-	instances        map[string]&BeanInstance     // type_name → singleton instance
-	qualifiers       map[string]string            // qualifier → type_name
-	aliases          map[string]string            // alias → canonical type_name
-	profiles         []string                     // active profiles
+	definitions      map[string]BeanDefinition // type_name → definition
+	instances        map[string]&BeanInstance  // type_name → singleton instance
+	qualifiers       map[string]string         // qualifier → type_name
+	aliases          map[string]string         // alias → canonical type_name
+	profiles         []string                  // active profiles
 	factory_registry &FactoryBeanRegistry = unsafe { nil } // FactoryBean support
-	parent           &Container = unsafe { nil }  // parent container (hierarchical context)
-	type_index       &BeanTypeIndex = unsafe { nil } // type-based bean lookup index
-	event_bus        &EventBus = unsafe { nil }  // optional event bus for bean lifecycle events
+	parent           &Container           = unsafe { nil } // parent container (hierarchical context)
+	type_index       &BeanTypeIndex       = unsafe { nil } // type-based bean lookup index
+	event_bus        &EventBus            = unsafe { nil } // optional event bus for bean lifecycle events
 mut:
-	sharded_mu  ShardedRwMutex // fine-grained sharded lock (replaces global RwMutex)
-	bean_lock   &BeanLock       // per-bean lock for safe singleton instantiation
-	mu          sync.RwMutex    // fallback global lock for bulk operations (destroy_all, etc.)
+	sharded_mu ShardedRwMutex // fine-grained sharded lock (replaces global RwMutex)
+	bean_lock  &BeanLock      // per-bean lock for safe singleton instantiation
+	mu         sync.RwMutex   // fallback global lock for bulk operations (destroy_all, etc.)
 }
 
 // new_container creates an empty Container.
 pub fn new_container() &Container {
 	return &Container{
-		definitions: map[string]BeanDefinition{}
-		instances: map[string]&BeanInstance{}
-		qualifiers: map[string]string{}
-		aliases: map[string]string{}
-		profiles: []string{}
+		definitions:      map[string]BeanDefinition{}
+		instances:        map[string]&BeanInstance{}
+		qualifiers:       map[string]string{}
+		aliases:          map[string]string{}
+		profiles:         []string{}
 		factory_registry: new_factory_bean_registry()
-		type_index: new_bean_type_index()
-		sharded_mu: new_sharded_rw_mutex()
-		bean_lock: new_bean_lock()
+		type_index:       new_bean_type_index()
+		sharded_mu:       new_sharded_rw_mutex()
+		bean_lock:        new_bean_lock()
 	}
 }
 
@@ -522,16 +522,16 @@ pub fn (mut c Container) register_instance(type_name string, instance voidptr) !
 	// Auto-create definition if not present
 	if type_name !in c.definitions {
 		c.definitions[type_name] = BeanDefinition{
-			type_name: type_name
-			scope: .singleton
-			tags: []string{}
+			type_name:  type_name
+			scope:      .singleton
+			tags:       []string{}
 			depends_on: []string{}
 		}
 	}
 	c.instances[type_name] = &BeanInstance{
 		definition: unsafe { &c.definitions[type_name] }
-		instance: instance
-		state: .ready
+		instance:   instance
+		state:      .ready
 	}
 }
 
@@ -746,7 +746,7 @@ pub fn (mut c Container) has(type_name string) bool {
 // has_qualifier checks if a qualifier is registered.
 pub fn (mut c Container) has_qualifier(qualifier string) bool {
 	c.mu.rlock()
-	defer { c.mu.runlock()}
+	defer { c.mu.runlock() }
 	return qualifier in c.qualifiers
 }
 
@@ -789,7 +789,7 @@ pub fn (mut c Container) resolve_primary() !voidptr {
 // get_primary_bean_name returns the type_name of the primary bean, or empty string.
 pub fn (mut c Container) get_primary_bean_name() string {
 	c.mu.rlock()
-	defer { c.mu.runlock()}
+	defer { c.mu.runlock() }
 	for name, def in c.definitions {
 		if def.is_primary {
 			return name
@@ -940,37 +940,35 @@ fn merge_bean_definitions(parent BeanDefinition, child BeanDefinition) BeanDefin
 // get_definition returns a copy of a bean definition.
 pub fn (mut c Container) get_definition(type_name string) !BeanDefinition {
 	c.mu.rlock()
-	defer { c.mu.runlock()}
-	return c.definitions[type_name] or {
-		return error('bean "${type_name}" not found')
-	}
+	defer { c.mu.runlock() }
+	return c.definitions[type_name] or { return error('bean "${type_name}" not found') }
 }
 
 // bean_names returns all registered bean type names.
 pub fn (mut c Container) bean_names() []string {
 	c.mu.rlock()
-	defer { c.mu.runlock()}
+	defer { c.mu.runlock() }
 	return c.definitions.keys()
 }
 
 // bean_count returns the number of registered beans.
 pub fn (mut c Container) bean_count() int {
 	c.mu.rlock()
-	defer { c.mu.runlock()}
+	defer { c.mu.runlock() }
 	return c.definitions.len
 }
 
 // singleton_count returns the number of instantiated singletons.
 pub fn (mut c Container) singleton_count() int {
 	c.mu.rlock()
-	defer { c.mu.runlock()}
+	defer { c.mu.runlock() }
 	return c.instances.len
 }
 
 // dependencies_of returns the dependencies for a given bean.
 pub fn (mut c Container) dependencies_of(type_name string) []Dependency {
 	c.mu.rlock()
-	defer { c.mu.runlock()}
+	defer { c.mu.runlock() }
 	def := c.definitions[type_name] or { return []Dependency{} }
 	return def.dependencies.clone()
 }
@@ -992,8 +990,8 @@ pub fn (mut c Container) set_instance(type_name string, instance voidptr) {
 
 	c.instances[type_name] = &BeanInstance{
 		definition: unsafe { nil }
-		instance: instance
-		state: .ready
+		instance:   instance
+		state:      .ready
 	}
 
 	// Transition bean state from instantiating → ready
@@ -1022,9 +1020,7 @@ pub fn (mut c Container) mark_ready(type_name string) ! {
 	c.mu.@lock()
 	defer { c.mu.unlock() }
 
-	mut def := c.definitions[type_name] or {
-		return error('bean "${type_name}" not found')
-	}
+	mut def := c.definitions[type_name] or { return error('bean "${type_name}" not found') }
 	def.state = .ready
 	c.definitions[type_name] = def
 }
@@ -1140,7 +1136,7 @@ pub fn (mut c Container) set_profiles(profiles []string) {
 // has_profile checks if a profile is active.
 pub fn (mut c Container) has_profile(profile string) bool {
 	c.mu.rlock()
-	defer { c.mu.runlock()}
+	defer { c.mu.runlock() }
 	return profile in c.profiles
 }
 
@@ -1290,7 +1286,7 @@ pub fn (mut c Container) beans_for_interface(interface_name string) []string {
 	}
 	// Fallback: scan definitions
 	c.mu.rlock()
-	defer { c.mu.runlock()}
+	defer { c.mu.runlock() }
 	mut result := []string{}
 	for name, def in c.definitions {
 		if interface_name in def.interfaces {
@@ -1312,7 +1308,7 @@ pub fn (mut c Container) beans_for_tag(tag string) []string {
 	}
 	// Fallback: scan definitions
 	c.mu.rlock()
-	defer { c.mu.runlock()}
+	defer { c.mu.runlock() }
 	mut result := []string{}
 	for name, def in c.definitions {
 		if tag in def.tags {
@@ -1361,7 +1357,7 @@ pub fn (mut c Container) resolve_all_by_tag(tag string) ![]voidptr {
 //   cache := provider.get()!  // only resolved now
 pub fn (mut c Container) create_deferred_provider(type_name string) &DeferredProvider {
 	mut provider := new_deferred_provider(type_name)
-	provider.set_container(unsafe { c})
+	provider.set_container(unsafe { c })
 	return provider
 }
 
@@ -1371,7 +1367,7 @@ pub fn (mut c Container) create_deferred_provider(type_name string) &DeferredPro
 pub fn (mut c Container) create_mutable_deferred_provider(type_name string) &DeferredProvider {
 	mut provider := new_deferred_provider(type_name)
 	provider.mutable = true
-	provider.set_container(unsafe { c})
+	provider.set_container(unsafe { c })
 	return provider
 }
 
@@ -1530,9 +1526,9 @@ pub fn (mut cf ContainerFreeze) frozen() bool {
 // Laravel equivalent: N/A (use Container::make() directly)
 pub struct LookupInjection {
 pub:
-	method_name string       // method to override
-	type_name   string       // bean type to look up
-	qualifier   string       // optional qualifier for disambiguation
+	method_name string // method to override
+	type_name   string // bean type to look up
+	qualifier   string // optional qualifier for disambiguation
 }
 
 // resolve_lookup resolves a bean for a @Lookup method injection.

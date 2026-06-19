@@ -6,7 +6,6 @@ module cache
 //   - Cache tags: group related cache entries for bulk invalidation
 //   - Atomic locks: distributed mutex via cache backend
 //   - remember_forever: cache helper with callback fallback
-
 import time
 import sync
 
@@ -22,7 +21,9 @@ pub:
 
 // new_tag_set creates a TagSet from tag names
 pub fn new_tag_set(tags []string) &TagSet {
-	return &TagSet{tags: tags}
+	return &TagSet{
+		tags: tags
+	}
 }
 
 // get_namespace returns a unique namespace key for this tag set
@@ -38,8 +39,8 @@ pub fn (ts &TagSet) get_namespace() string {
 @[heap]
 pub struct TaggedCache {
 pub mut:
-	store   &Cache
-	tags    []string
+	store &Cache
+	tags  []string
 }
 
 // new_tagged_cache creates a TaggedCache for the given tags
@@ -47,7 +48,7 @@ pub fn new_tagged_cache(store &Cache, tags []string) &TaggedCache {
 	return unsafe {
 		&TaggedCache{
 			store: store
-			tags: tags
+			tags:  tags
 		}
 	}
 }
@@ -113,16 +114,16 @@ pub mut:
 	owner    string
 	acquired bool
 mut:
-	mu       sync.Mutex
+	mu sync.Mutex
 }
 
 // new_cache_lock creates a CacheLock
 pub fn new_cache_lock(store &Cache, name string, ttl_sec int) &CacheLock {
 	return &CacheLock{
-		store: store
-		name: name
+		store:   store
+		name:    name
 		ttl_sec: ttl_sec
-		owner: 'lock_${time.now().unix_nano()}'
+		owner:   'lock_${time.now().unix_nano()}'
 	}
 }
 
@@ -199,7 +200,7 @@ pub fn (mut cl CacheLock) force_release() ! {
 // remember gets a value from cache or calls the callback to produce it.
 // If the key exists and is not expired, returns cached value.
 // Otherwise calls the callback, caches the result, and returns it.
-pub fn remember(mut cm CacheManager, key string, ttl_seconds int, callback fn () !string) !string {
+pub fn remember(mut cm CacheRegistry, key string, ttl_seconds int, callback fn () !string) !string {
 	if cm.has(key) {
 		return cm.get(key)
 	}
@@ -210,24 +211,24 @@ pub fn remember(mut cm CacheManager, key string, ttl_seconds int, callback fn ()
 }
 
 // remember_forever is like remember but with no expiration (TTL=0)
-pub fn remember_forever(mut cm CacheManager, key string, callback fn () !string) !string {
+pub fn remember_forever(mut cm CacheRegistry, key string, callback fn () !string) !string {
 	return remember(mut cm, key, 0, callback)
 }
 
 // sear retrieves from cache or stores a permanent value.
-pub fn sear(mut cm CacheManager, key string, callback fn () !string) !string {
+pub fn sear(mut cm CacheRegistry, key string, callback fn () !string) !string {
 	return remember_forever(mut cm, key, callback)
 }
 
 // put_many stores multiple key-value pairs with the same TTL
-pub fn put_many(mut cm CacheManager, values map[string]string, ttl_seconds int) ! {
+pub fn put_many(mut cm CacheRegistry, values map[string]string, ttl_seconds int) ! {
 	for key, value in values {
 		cm.set(key, value, ttl_seconds)!
 	}
 }
 
 // get_many retrieves multiple keys at once
-pub fn get_many(mut cm CacheManager, keys []string) map[string]string {
+pub fn get_many(mut cm CacheRegistry, keys []string) map[string]string {
 	mut result := map[string]string{}
 	for key in keys {
 		if val := cm.get(key) {
@@ -239,12 +240,10 @@ pub fn get_many(mut cm CacheManager, keys []string) map[string]string {
 
 // delete_many deletes multiple keys at once.
 // Returns an aggregated error if any single deletion fails.
-pub fn delete_many(mut cm CacheManager, keys []string) ! {
+pub fn delete_many(mut cm CacheRegistry, keys []string) ! {
 	mut errors := []string{}
 	for key in keys {
-		cm.delete(key) or {
-			errors << '${key}: ${err}'
-		}
+		cm.delete(key) or { errors << '${key}: ${err}' }
 	}
 	if errors.len > 0 {
 		return error('delete_many: ${errors.len}/${keys.len} keys failed: ${errors.join('; ')}')
@@ -252,6 +251,6 @@ pub fn delete_many(mut cm CacheManager, keys []string) ! {
 }
 
 // flush_all clears the entire default cache
-pub fn flush_all(mut cm CacheManager) ! {
+pub fn flush_all(mut cm CacheRegistry) ! {
 	cm.clear()!
 }

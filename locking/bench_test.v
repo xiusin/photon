@@ -7,7 +7,6 @@ module locking
 //   - Throughput (ops/sec): lock/unlock cycles per second
 //   - Latency (µs/op): average time per operation
 //   - Contention impact: performance under concurrent access
-
 import time
 
 const bench_warmup_iters = 100

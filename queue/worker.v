@@ -4,7 +4,6 @@ module queue
 //
 // Polls the queue for jobs and executes them with retry and backoff.
 // Jobs are registered by type name to a factory function.
-
 import time
 
 // JobFactory creates a new Job instance from a registered type
@@ -16,8 +15,8 @@ pub:
 	queue_name string = 'default'
 	sleep_secs int    = 5 // poll interval when idle
 pub mut:
-	running    bool
-	registry      map[string]JobFactory
+	running        bool
+	registry       map[string]JobFactory
 	failed_handler &FailedJobHandler = unsafe { nil }
 }
 
@@ -93,9 +92,7 @@ pub fn (mut w QueueWorker) tick() {
 	// Execute with retry
 	for attempt := 0; attempt < max_tries; attempt++ {
 		mut has_error := false
-		job.handle() or {
-			has_error = true
-		}
+		job.handle() or { has_error = true }
 		if !has_error {
 			// Success — job completed
 			return

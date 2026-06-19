@@ -12,7 +12,6 @@ module core
 //       println('New user: ${e.payload_str}')
 //   })
 //   bus.dispatch(core.new_event('user.registered', 'alice')) or { 0 }
-
 import sync
 import time
 
@@ -24,30 +23,30 @@ import time
 pub struct Event {
 pub:
 	name        string
-	payload     voidptr           // typed payload pointer
-	payload_str string            // string representation of payload
+	payload     voidptr // typed payload pointer
+	payload_str string  // string representation of payload
 pub mut:
-	timestamp   i64               // unix timestamp
-	stopped     bool              // set to true to stop propagation
-	data        map[string]string // arbitrary metadata
+	timestamp i64               // unix timestamp
+	stopped   bool              // set to true to stop propagation
+	data      map[string]string // arbitrary metadata
 }
 
 // new_event creates a new Event with the current timestamp.
 pub fn new_event(name string, payload_str string) &Event {
 	return &Event{
-		name: name
+		name:        name
 		payload_str: payload_str
-		timestamp: time.now().unix()
+		timestamp:   time.now().unix()
 	}
 }
 
 // new_event_with_data creates a new Event with metadata.
 pub fn new_event_with_data(name string, payload_str string, data map[string]string) &Event {
 	return &Event{
-		name: name
+		name:        name
 		payload_str: payload_str
-		data: data
-		timestamp: time.now().unix()
+		data:        data
+		timestamp:   time.now().unix()
 	}
 }
 
@@ -84,7 +83,7 @@ pub enum ListenerPriority {
 pub struct RegisteredListener {
 pub:
 	listener   EventListener = unsafe { nil }
-	priority   int    = 50 // ListenerPriority.normal
+	priority   int           = 50 // ListenerPriority.normal
 	event_name string
 pub mut:
 	called_count int
@@ -97,7 +96,8 @@ pub mut:
 @[heap]
 pub struct EventBus {
 pub mut:
-	listeners map[string][]RegisteredListener
+	listeners               map[string][]RegisteredListener
+	transactional_listeners map[string][]TransactionalRegisteredListener
 mut:
 	mu sync.RwMutex
 }
@@ -105,7 +105,8 @@ mut:
 // new_event_bus creates an empty EventBus.
 pub fn new_event_bus() &EventBus {
 	return &EventBus{
-		listeners: map[string][]RegisteredListener{}
+		listeners:               map[string][]RegisteredListener{}
+		transactional_listeners: map[string][]TransactionalRegisteredListener{}
 	}
 }
 
@@ -122,8 +123,8 @@ pub fn (mut bus EventBus) on_with_priority(event_name string, listener EventList
 
 	mut listeners := bus.listeners[event_name] or { []RegisteredListener{} }
 	listeners << RegisteredListener{
-		listener: listener
-		priority: priority
+		listener:   listener
+		priority:   priority
 		event_name: event_name
 	}
 	// Sort by priority (ascending — lower fires first)
@@ -278,4 +279,95 @@ pub fn (mut bus EventBus) print_listeners() {
 			println('    priority=${rl.priority} called=${rl.called_count}')
 		}
 	}
+}
+
+// ── Transactional Event Support ──
+
+// TransactionPhase defines when a transactional event listener fires.
+// Spring equivalent: org.springframework.transaction.event.TransactionPhase
+pub enum TransactionPhase {
+	before_commit    // before transaction commit
+	after_commit     // after successful commit
+	after_rollback   // after transaction rollback
+	after_completion // after commit or rollback
+}
+
+// TransactionalEventListener handles events at specific transaction phases.
+// Spring equivalent: @TransactionalEventListener
+pub interface TransactionalEventListener {
+	phase() TransactionPhase
+mut:
+	handle(event &Event)
+}
+
+// TransactionalRegisteredListener wraps a TransactionalEventListener with metadata.
+pub struct TransactionalRegisteredListener {
+pub:
+	phase      TransactionPhase
+	event_name string
+pub mut:
+	listener TransactionalEventListener
+}
+
+// on_transactional registers a transactional event listener.
+// The listener will only be invoked when dispatch_transactional is called
+// with the matching phase.
+pub fn (mut bus EventBus) on_transactional(event_name string, listener TransactionalEventListener) {
+	bus.mu.@lock()
+	defer { bus.mu.unlock() }
+
+	mut listeners := bus.transactional_listeners[event_name] or {
+		[]TransactionalRegisteredListener{}
+	}
+	listeners << TransactionalRegisteredListener{
+		listener:   listener
+		phase:      listener.phase()
+		event_name: event_name
+	}
+	bus.transactional_listeners[event_name] = listeners
+}
+
+// dispatch_transactional fires an event for a specific transaction phase.
+// Only listeners registered for the matching phase are invoked.
+// Returns the number of listeners that were called.
+pub fn (mut bus EventBus) dispatch_transactional(event &Event, phase TransactionPhase) int {
+	bus.mu.rlock()
+	mut listeners := bus.transactional_listeners[event.name] or {
+		[]TransactionalRegisteredListener{}
+	}
+	bus.mu.runlock()
+
+	mut called := 0
+	for mut rl in listeners {
+		if event.is_propagation_stopped() {
+			break
+		}
+		// Match phase: after_completion fires for both commit and rollback
+		if rl.phase == phase || (rl.phase == .after_completion && (phase == .after_commit
+			|| phase == .after_rollback)) {
+			rl.listener.handle(event)
+			called++
+		}
+	}
+	return called
+}
+
+// dispatch_transactional_all fires an event for all phases.
+// Useful for after_completion which should fire regardless of commit/rollback.
+pub fn (mut bus EventBus) dispatch_transactional_all(event &Event) int {
+	bus.mu.rlock()
+	mut listeners := bus.transactional_listeners[event.name] or {
+		[]TransactionalRegisteredListener{}
+	}
+	bus.mu.runlock()
+
+	mut called := 0
+	for mut rl in listeners {
+		if event.is_propagation_stopped() {
+			break
+		}
+		rl.listener.handle(event)
+		called++
+	}
+	return called
 }

@@ -178,7 +178,7 @@ fn test_scheduler_enabled_count() {
 fn test_task_builder_name() {
 	mut b := &TaskBuilder{
 		schedule_type: .interval
-		interval_ns: i64(10 * time.second)
+		interval_ns:   i64(10 * time.second)
 	}
 	b.name_ = 'my_task'
 	assert b.name_ == 'my_task'

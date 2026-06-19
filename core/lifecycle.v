@@ -7,18 +7,17 @@ module core
 //
 // Lifecycle hooks are detected at compile time via comptime $for
 // scanning for @[post_construct] and @[pre_destroy] attributes.
-
 import sync
 
 // ── LifecyclePhase ──
 
 // LifecyclePhase represents the current phase of a bean.
 pub enum LifecyclePhase {
-	created          // struct instantiated, no injection yet
-	injecting        // @[autowired] fields being set
-	initialized      // @[post_construct] called, bean is ready
-	destroying       // @[pre_destroy] called, bean is shutting down
-	destroyed        // bean is no longer usable
+	created     // struct instantiated, no injection yet
+	injecting   // @[autowired] fields being set
+	initialized // @[post_construct] called, bean is ready
+	destroying  // @[pre_destroy] called, bean is shutting down
+	destroyed   // bean is no longer usable
 }
 
 // str returns a human-readable lifecycle phase.
@@ -50,8 +49,8 @@ pub struct LifecycleManager {
 pub mut:
 	post_construct_callbacks map[string]LifecycleCallback // type_name → callback
 	pre_destroy_callbacks    map[string]LifecycleCallback // type_name → callback
-	init_order              []string   // ordered list of type_names for startup
-	destroy_order           []string   // reverse of init_order for shutdown
+	init_order               []string                     // ordered list of type_names for startup
+	destroy_order            []string                     // reverse of init_order for shutdown
 mut:
 	mu sync.RwMutex
 }
@@ -60,9 +59,9 @@ mut:
 pub fn new_lifecycle_manager() &LifecycleManager {
 	return &LifecycleManager{
 		post_construct_callbacks: map[string]LifecycleCallback{}
-		pre_destroy_callbacks: map[string]LifecycleCallback{}
-		init_order: []string{}
-		destroy_order: []string{}
+		pre_destroy_callbacks:    map[string]LifecycleCallback{}
+		init_order:               []string{}
+		destroy_order:            []string{}
 	}
 }
 
@@ -91,13 +90,11 @@ pub fn (mut lm LifecycleManager) invoke_post_construct(type_name string) ! {
 	lm.mu.rlock()
 	callback := lm.post_construct_callbacks[type_name] or {
 		lm.mu.runlock()
-		return // No callback registered — that's fine
+		return
 	}
 	lm.mu.runlock()
 
-	callback() or {
-		return error('post_construct failed for "${type_name}": ${err}')
-	}
+	callback() or { return error('post_construct failed for "${type_name}": ${err}') }
 }
 
 // invoke_pre_destroy calls the @[pre_destroy] callback for a bean.
@@ -105,13 +102,11 @@ pub fn (mut lm LifecycleManager) invoke_pre_destroy(type_name string) ! {
 	lm.mu.rlock()
 	callback := lm.pre_destroy_callbacks[type_name] or {
 		lm.mu.runlock()
-		return // No callback registered — that's fine
+		return
 	}
 	lm.mu.runlock()
 
-	callback() or {
-		return error('pre_destroy failed for "${type_name}": ${err}')
-	}
+	callback() or { return error('pre_destroy failed for "${type_name}": ${err}') }
 }
 
 // invoke_all_post_construct calls all @[post_construct] callbacks in order.
@@ -170,7 +165,7 @@ pub interface SmartLifecycle {
 	is_running() bool
 	start() !
 	stop() !
-	phase() int    // lower = starts earlier, stops later
+	phase() int // lower = starts earlier, stops later
 }
 
 // ── ApplicationRunner ──
@@ -191,8 +186,8 @@ pub interface ApplicationRunner {
 pub struct SmartLifecycleEntry {
 pub:
 	type_name string
-	bean     &SmartLifecycle = unsafe { nil }
-	phase_   int
+	bean      &SmartLifecycle = unsafe { nil }
+	phase_    int
 }
 
 // SmartLifecycleManager manages SmartLifecycle beans, starting them
@@ -214,8 +209,8 @@ pub fn (mut m SmartLifecycleManager) register(type_name string, bean &SmartLifec
 	phase := bean.phase()
 	m.entries << SmartLifecycleEntry{
 		type_name: type_name
-		bean: unsafe { bean }
-		phase_: phase
+		bean:      unsafe { bean }
+		phase_:    phase
 	}
 }
 
@@ -271,12 +266,12 @@ pub fn (m &SmartLifecycleManager) entry_count() int {
 
 // ApplicationEventNames provides standardized event name constants.
 // Spring equivalent: ApplicationEvent subclasses.
-pub const event_context_refreshed  = 'context.refreshed'
-pub const event_context_started    = 'context.started'
-pub const event_context_stopped    = 'context.stopped'
-pub const event_context_closed     = 'context.closed'
-pub const event_bean_created       = 'bean.created'
-pub const event_bean_destroyed     = 'bean.destroyed'
+pub const event_context_refreshed = 'context.refreshed'
+pub const event_context_started = 'context.started'
+pub const event_context_stopped = 'context.stopped'
+pub const event_context_closed = 'context.closed'
+pub const event_bean_created = 'bean.created'
+pub const event_bean_destroyed = 'bean.destroyed'
 
 // ── InitializingBean / DisposableBean ──
 //

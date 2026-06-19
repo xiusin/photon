@@ -1,7 +1,6 @@
 module orm
 
 // entity_test.v - Tests for BaseEntity, SoftDeletableEntity, and lifecycle hooks
-
 import time
 
 // --- BaseEntity Tests ---
@@ -61,10 +60,10 @@ fn test_base_entity_touch_increments_version() {
 
 fn test_base_entity_struct_fields() {
 	mut e := BaseEntity{
-		id: 1
+		id:         1
 		created_at: 100
 		updated_at: 200
-		version: 5
+		version:    5
 	}
 	assert e.id == 1
 	assert e.created_at == 100
@@ -74,11 +73,9 @@ fn test_base_entity_struct_fields() {
 }
 
 fn test_test_entity_embeds_base_entity() {
-	mut te := TestEntity{
-		BaseEntity{
-			id: 99
-		}
-	}
+	mut te := TestEntity{BaseEntity{
+		id: 99
+	}}
 	assert te.id() == 99
 	assert te.is_new() == false
 }

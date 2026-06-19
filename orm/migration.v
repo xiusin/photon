@@ -64,22 +64,70 @@ pub enum ColumnType {
 // sql_type returns the SQL type string for a ColumnType, driver-aware.
 pub fn (ct ColumnType) sql_type(driver DriverType) string {
 	return match ct {
-		.integer { 'INTEGER' }
-		.bigint { 'BIGINT' }
-		.vstring { if driver == .pg { 'VARCHAR' } else { 'TEXT' } }
-		.text { 'TEXT' }
-		.vbool { if driver == .sqlite { 'INTEGER' } else { 'BOOLEAN' } }
-		.vfloat { 'REAL' }
-		.vdouble { 'DOUBLE PRECISION' }
-		.decimal { 'DECIMAL' }
-		.vdate { 'DATE' }
-		.vtime { 'TIME' }
-		.timestamp { 'TIMESTAMP' }
-		.datetime { 'DATETIME' }
-		.vbinary { 'BLOB' }
-		.vjson { if driver == .pg { 'JSONB' } else { 'TEXT' } }
-		.vuuid { if driver == .pg { 'UUID' } else { 'TEXT' } }
-		.enumval { 'TEXT' } // SQLite doesn't support ENUM
+		.integer {
+			'INTEGER'
+		}
+		.bigint {
+			'BIGINT'
+		}
+		.vstring {
+			if driver == .pg {
+				'VARCHAR'
+			} else {
+				'TEXT'
+			}
+		}
+		.text {
+			'TEXT'
+		}
+		.vbool {
+			if driver == .sqlite {
+				'INTEGER'
+			} else {
+				'BOOLEAN'
+			}
+		}
+		.vfloat {
+			'REAL'
+		}
+		.vdouble {
+			'DOUBLE PRECISION'
+		}
+		.decimal {
+			'DECIMAL'
+		}
+		.vdate {
+			'DATE'
+		}
+		.vtime {
+			'TIME'
+		}
+		.timestamp {
+			'TIMESTAMP'
+		}
+		.datetime {
+			'DATETIME'
+		}
+		.vbinary {
+			'BLOB'
+		}
+		.vjson {
+			if driver == .pg {
+				'JSONB'
+			} else {
+				'TEXT'
+			}
+		}
+		.vuuid {
+			if driver == .pg {
+				'UUID'
+			} else {
+				'TEXT'
+			}
+		}
+		.enumval {
+			'TEXT'
+		} // SQLite doesn't support ENUM
 	}
 }
 
@@ -90,28 +138,28 @@ pub struct ColumnDef {
 pub:
 	name           string
 	type_          ColumnType
-	length         int       // for string/varchar
-	precision      int       // for decimal
-	scale          int       // for decimal
+	length         int // for string/varchar
+	precision      int // for decimal
+	scale          int // for decimal
 	is_primary     bool
 	auto_increment bool
 	is_foreign     bool
 	ref_table      string
-	ref_column     string    = 'id'
-	on_delete      string    = 'CASCADE'
+	ref_column     string = 'id'
+	on_delete      string = 'CASCADE'
 pub mut:
-	is_nullable    bool     = true  // columns are nullable by default
-	is_unique      bool
-	is_indexed     bool
-	default_val    string
-	is_added       bool     // for ALTER TABLE ADD COLUMN
-	is_dropped     bool     // for ALTER TABLE DROP COLUMN
-	new_name       string   // for ALTER TABLE RENAME COLUMN
+	is_nullable bool = true // columns are nullable by default
+	is_unique   bool
+	is_indexed  bool
+	default_val string
+	is_added    bool   // for ALTER TABLE ADD COLUMN
+	is_dropped  bool   // for ALTER TABLE DROP COLUMN
+	new_name    string // for ALTER TABLE RENAME COLUMN
 }
 
 // to_sql generates the SQL column definition string.
 pub fn (c &ColumnDef) to_sql(driver DriverType) string {
-    mut s := '${c.name} ${c.type_.sql_type(driver)}'
+	mut s := '${c.name} ${c.type_.sql_type(driver)}'
 
 	// Add length for string type
 	if c.type_ == .vstring && c.length > 0 && driver != .sqlite {
@@ -147,7 +195,8 @@ pub fn (c &ColumnDef) to_sql(driver DriverType) string {
 
 	// Default value
 	if c.default_val.len > 0 {
-		if c.default_val.starts_with("'") || c.type_ == .vstring || c.type_ == .text || c.type_ == .vuuid {
+		if c.default_val.starts_with("'") || c.type_ == .vstring || c.type_ == .text
+			|| c.type_ == .vuuid {
 			if !c.default_val.starts_with("'") {
 				s += " DEFAULT '${c.default_val}'"
 			} else {
@@ -176,17 +225,17 @@ pub struct TableDef {
 pub:
 	name string
 pub mut:
-	columns   []ColumnDef
-	indexes   []IndexDef
+	columns     []ColumnDef
+	indexes     []IndexDef
 	primary_key []string
 }
 
 // new_table_def creates a new TableDef.
 pub fn new_table_def(name string) &TableDef {
 	return &TableDef{
-		name: name
-		columns: []ColumnDef{}
-		indexes: []IndexDef{}
+		name:        name
+		columns:     []ColumnDef{}
+		indexes:     []IndexDef{}
 		primary_key: []string{}
 	}
 }
@@ -196,10 +245,10 @@ pub fn new_table_def(name string) &TableDef {
 // id adds an auto-incrementing primary key column.
 pub fn (mut t TableDef) id() {
 	t.columns << ColumnDef{
-		name: 'id'
-		type_: .integer
-		is_primary: true
-		is_nullable: false
+		name:           'id'
+		type_:          .integer
+		is_primary:     true
+		is_nullable:    false
 		auto_increment: true
 	}
 	t.primary_key << 'id'
@@ -208,10 +257,10 @@ pub fn (mut t TableDef) id() {
 // big_id adds a big auto-incrementing primary key.
 pub fn (mut t TableDef) big_id() {
 	t.columns << ColumnDef{
-		name: 'id'
-		type_: .bigint
-		is_primary: true
-		is_nullable: false
+		name:           'id'
+		type_:          .bigint
+		is_primary:     true
+		is_nullable:    false
 		auto_increment: true
 	}
 	t.primary_key << 'id'
@@ -220,8 +269,8 @@ pub fn (mut t TableDef) big_id() {
 // string_ adds a string column (VARCHAR/TEXT).
 pub fn (mut t TableDef) string_(name string, length int) {
 	t.columns << ColumnDef{
-		name: name
-		type_: .vstring
+		name:   name
+		type_:  .vstring
 		length: length
 	}
 }
@@ -229,7 +278,7 @@ pub fn (mut t TableDef) string_(name string, length int) {
 // text adds a TEXT column.
 pub fn (mut t TableDef) text(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .text
 	}
 }
@@ -237,7 +286,7 @@ pub fn (mut t TableDef) text(name string) {
 // integer adds an INTEGER column.
 pub fn (mut t TableDef) integer(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .integer
 	}
 }
@@ -245,7 +294,7 @@ pub fn (mut t TableDef) integer(name string) {
 // bigint adds a BIGINT column.
 pub fn (mut t TableDef) bigint(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .bigint
 	}
 }
@@ -253,8 +302,8 @@ pub fn (mut t TableDef) bigint(name string) {
 // boolean_ adds a BOOLEAN column.
 pub fn (mut t TableDef) boolean_(name string) {
 	t.columns << ColumnDef{
-		name: name
-		type_: .vbool
+		name:        name
+		type_:       .vbool
 		default_val: 'false'
 	}
 }
@@ -262,7 +311,7 @@ pub fn (mut t TableDef) boolean_(name string) {
 // float_ adds a FLOAT column.
 pub fn (mut t TableDef) float_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .vfloat
 	}
 }
@@ -270,7 +319,7 @@ pub fn (mut t TableDef) float_(name string) {
 // double_ adds a DOUBLE column.
 pub fn (mut t TableDef) double_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .vdouble
 	}
 }
@@ -278,17 +327,17 @@ pub fn (mut t TableDef) double_(name string) {
 // decimal_ adds a DECIMAL column.
 pub fn (mut t TableDef) decimal_(name string, precision int, scale int) {
 	t.columns << ColumnDef{
-		name: name
-		type_: .decimal
+		name:      name
+		type_:     .decimal
 		precision: precision
-		scale: scale
+		scale:     scale
 	}
 }
 
 // date_ adds a DATE column.
 pub fn (mut t TableDef) date_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .vdate
 	}
 }
@@ -296,7 +345,7 @@ pub fn (mut t TableDef) date_(name string) {
 // time_ adds a TIME column.
 pub fn (mut t TableDef) time_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .vtime
 	}
 }
@@ -304,7 +353,7 @@ pub fn (mut t TableDef) time_(name string) {
 // timestamp_ adds a TIMESTAMP column.
 pub fn (mut t TableDef) timestamp_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .timestamp
 	}
 }
@@ -312,7 +361,7 @@ pub fn (mut t TableDef) timestamp_(name string) {
 // datetime_ adds a DATETIME column.
 pub fn (mut t TableDef) datetime_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .datetime
 	}
 }
@@ -320,7 +369,7 @@ pub fn (mut t TableDef) datetime_(name string) {
 // binary_ adds a BLOB/BINARY column.
 pub fn (mut t TableDef) binary_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .vbinary
 	}
 }
@@ -328,7 +377,7 @@ pub fn (mut t TableDef) binary_(name string) {
 // json_ adds a JSON/JSONB column.
 pub fn (mut t TableDef) json_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .vjson
 	}
 }
@@ -336,7 +385,7 @@ pub fn (mut t TableDef) json_(name string) {
 // uuid_ adds a UUID column.
 pub fn (mut t TableDef) uuid_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .vuuid
 	}
 }
@@ -344,7 +393,7 @@ pub fn (mut t TableDef) uuid_(name string) {
 // enum_ adds an ENUM column (stored as TEXT in SQLite).
 pub fn (mut t TableDef) enum_(name string, _values []string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .enumval
 	}
 }
@@ -352,12 +401,12 @@ pub fn (mut t TableDef) enum_(name string, _values []string) {
 // references adds a foreign key column.
 pub fn (mut t TableDef) references(name string, ref_table string) {
 	t.columns << ColumnDef{
-		name: name
-		type_: .integer
-		is_foreign: true
-		ref_table: ref_table
-		ref_column: 'id'
-		on_delete: 'CASCADE'
+		name:        name
+		type_:       .integer
+		is_foreign:  true
+		ref_table:   ref_table
+		ref_column:  'id'
+		on_delete:   'CASCADE'
 		is_nullable: false
 	}
 }
@@ -381,8 +430,8 @@ pub fn (mut t TableDef) unique_(columns []string, index_name string) {
 	}
 	// Also add an explicit index
 	t.indexes << IndexDef{
-		name: index_name
-		columns: columns.clone()
+		name:      index_name
+		columns:   columns.clone()
 		is_unique: true
 	}
 }
@@ -405,8 +454,8 @@ pub fn (mut t TableDef) timestamps() {
 // soft_deletes adds a deleted_at timestamp column (nullable).
 pub fn (mut t TableDef) soft_deletes() {
 	t.columns << ColumnDef{
-		name: 'deleted_at'
-		type_: .timestamp
+		name:        'deleted_at'
+		type_:       .timestamp
 		is_nullable: true
 	}
 }
@@ -414,8 +463,8 @@ pub fn (mut t TableDef) soft_deletes() {
 // index_ adds a regular index on columns.
 pub fn (mut t TableDef) index_(columns []string, index_name string) {
 	t.indexes << IndexDef{
-		name: index_name
-		columns: columns.clone()
+		name:      index_name
+		columns:   columns.clone()
 		is_unique: false
 	}
 }
@@ -430,7 +479,7 @@ pub fn (mut t TableDef) add_column(col ColumnDef) {
 // drop_column marks a column for removal (for ALTER TABLE).
 pub fn (mut t TableDef) drop_column(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:       name
 		is_dropped: true
 	}
 }
@@ -438,7 +487,7 @@ pub fn (mut t TableDef) drop_column(name string) {
 // rename_column marks a column for rename.
 pub fn (mut t TableDef) rename_column(old_name string, new_name string) {
 	t.columns << ColumnDef{
-		name: old_name
+		name:     old_name
 		new_name: new_name
 	}
 }
@@ -459,14 +508,14 @@ pub:
 // Generates SQL DDL statements for the configured database driver.
 pub struct Schema {
 pub mut:
-	driver      DriverType
-	statements  []string
+	driver     DriverType
+	statements []string
 }
 
 // new_schema creates a Schema builder for the given driver.
 pub fn new_schema(driver DriverType) &Schema {
 	return &Schema{
-		driver: driver
+		driver:     driver
 		statements: []string{}
 	}
 }
@@ -528,8 +577,8 @@ pub fn (mut s Schema) drop_column(table_name string, column_name string) {
 // create_index creates an index on one or more columns.
 pub fn (mut s Schema) create_index(table_name string, index_name string, columns []string, is_unique bool) {
 	s.statements << s.build_create_index(table_name, IndexDef{
-		name: index_name
-		columns: columns
+		name:      index_name
+		columns:   columns
 		is_unique: is_unique
 	})
 }
@@ -541,7 +590,11 @@ pub fn (mut s Schema) drop_index(index_name string) {
 
 // to_sql returns all generated SQL statements joined by semicolons.
 pub fn (s &Schema) to_sql() string {
-	return s.statements.join(';\n') + if s.statements.len > 0 { ';' } else { '' }
+	return s.statements.join(';\n') + if s.statements.len > 0 {
+		';'
+	} else {
+		''
+	}
 }
 
 // statements_count returns the number of generated SQL statements.
@@ -608,9 +661,9 @@ pub interface Migration {
 // AppliedMigration records a migration that has been applied.
 pub struct AppliedMigration {
 pub:
-	version  int
-	name     string
-	batch    int
+	version    int
+	name       string
+	batch      int
 	applied_at i64
 }
 
@@ -618,26 +671,26 @@ pub:
 @[heap]
 pub struct MigrationManager {
 pub mut:
-	manager          &OrmManager
-	migrations       []&Migration
-	db_name          string          = 'default'
-	migration_table  string         = 'schema_migrations'
-	in_memory        bool            // if true, track migrations in memory (for testing)
-	auto_schema      bool            // if true, use Schema builder for DDL
+	manager         &OrmManager
+	migrations      []&Migration
+	db_name         string = 'default'
+	migration_table string = 'schema_migrations'
+	in_memory       bool // if true, track migrations in memory (for testing)
+	auto_schema     bool // if true, use Schema builder for DDL
 mut:
-	applied_versions  []int
-	applied_records   []AppliedMigration
-	applied_batch     int
-	schema_cache      map[string]string // table_name → CREATE TABLE SQL
+	applied_versions []int
+	applied_records  []AppliedMigration
+	applied_batch    int
+	schema_cache     map[string]string // table_name → CREATE TABLE SQL
 }
 
 // new_migration_manager creates a new MigrationManager.
 pub fn new_migration_manager(manager &OrmManager) &MigrationManager {
 	return &MigrationManager{
-		manager: manager
+		manager:          manager
 		applied_versions: []int{}
-		applied_records: []AppliedMigration{}
-		schema_cache: map[string]string{}
+		applied_records:  []AppliedMigration{}
+		schema_cache:     map[string]string{}
 	}
 }
 
@@ -666,7 +719,7 @@ pub fn (mut mm MigrationManager) add(migration &Migration) {
 // initialize creates the migration tracking table.
 pub fn (mut mm MigrationManager) initialize() ! {
 	if mm.in_memory {
-		return // no-op in memory mode
+		return
 	}
 
 	// Create the schema_migrations table using Schema builder
@@ -702,9 +755,9 @@ pub fn (mut mm MigrationManager) migrate() ! {
 		// Record as applied
 		mm.applied_versions << migration.version()
 		mm.applied_records << AppliedMigration{
-			version: migration.version()
-			name: migration.name()
-			batch: mm.applied_batch
+			version:    migration.version()
+			name:       migration.name()
+			batch:      mm.applied_batch
 			applied_at: 0 // would be time.now().unix()
 		}
 		applied++

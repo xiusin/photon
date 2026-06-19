@@ -27,11 +27,11 @@ pub fn new_queue_work_command(runner &QueueCommandRunner) &QueueWorkCommand {
 	return unsafe {
 		&QueueWorkCommand{
 			BaseCommand: BaseCommand{
-				name: 'queue:work'
+				name:        'queue:work'
 				description: 'Start processing jobs from the queue'
-				sig: '[--queue=default] [--sleep=5]'
+				sig:         '[--queue=default] [--sleep=5]'
 			}
-			runner: runner
+			runner:      runner
 		}
 	}
 }
@@ -65,11 +65,11 @@ pub fn new_queue_list_command(runner &QueueCommandRunner) &QueueListCommand {
 	return unsafe {
 		&QueueListCommand{
 			BaseCommand: BaseCommand{
-				name: 'queue:list'
+				name:        'queue:list'
 				description: 'List pending jobs in the queue'
-				sig: '[--queue=default]'
+				sig:         '[--queue=default]'
 			}
-			runner: runner
+			runner:      runner
 		}
 	}
 }
@@ -80,9 +80,9 @@ pub fn (c &QueueListCommand) execute(input &CommandInput, output &CommandOutput)
 
 	output.writeln('')
 	if count == 0 {
-		output.info('Queue \"${queue_name}\" is empty.')
+		output.info("Queue \"${queue_name}\" is empty.")
 	} else {
-		output.info('Queue \"${queue_name}\": ${count} pending job(s)')
+		output.info("Queue \"${queue_name}\": ${count} pending job(s)")
 	}
 	return
 }
@@ -97,11 +97,11 @@ pub fn new_queue_clear_command(runner &QueueCommandRunner) &QueueClearCommand {
 	return unsafe {
 		&QueueClearCommand{
 			BaseCommand: BaseCommand{
-				name: 'queue:clear'
+				name:        'queue:clear'
 				description: 'Clear all jobs from the default queue'
-				sig: '[--queue=default]'
+				sig:         '[--queue=default]'
 			}
-			runner: runner
+			runner:      runner
 		}
 	}
 }

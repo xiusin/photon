@@ -5,7 +5,6 @@ module orm
 // Provides base entity traits with lifecycle hooks similar to JPA/Hibernate.
 // Entities can implement hooks: BeforeCreate, AfterCreate, BeforeUpdate,
 // AfterUpdate, BeforeDelete, AfterDelete, AfterFind.
-
 import time
 
 // Touchable is implemented by BaseEntity (and any struct embedding it).
@@ -68,10 +67,10 @@ pub interface AfterFindHook {
 // BaseEntity provides common fields for all entities
 pub struct BaseEntity {
 pub mut:
-	id         int    @[primary_key; sql: 'id'; sql_type: 'INTEGER']
-	created_at i64    @[sql: 'created_at'; sql_type: 'INTEGER']
-	updated_at i64    @[sql: 'updated_at'; sql_type: 'INTEGER']
-	version    int    @[sql: 'version'; sql_type: 'INTEGER']
+	id         int @[primary_key; sql: 'id'; sql_type: 'INTEGER']
+	created_at i64 @[sql: 'created_at'; sql_type: 'INTEGER']
+	updated_at i64 @[sql: 'updated_at'; sql_type: 'INTEGER']
+	version    int @[sql: 'version'; sql_type: 'INTEGER']
 }
 
 // id returns the entity ID

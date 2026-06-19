@@ -20,7 +20,6 @@ module security
 //     "mac": "<hex>",
 //     "tag": ""
 //   }
-
 import crypto.aes
 import crypto.hmac
 import crypto.sha256
@@ -35,7 +34,7 @@ import rand
 // AesCipher provides AES-256-CBC encryption with HMAC authentication.
 pub struct AesCipher {
 pub:
-	key []u8  // Must be 32 bytes for AES-256
+	key []u8 // Must be 32 bytes for AES-256
 }
 
 // new_aes_cipher creates an AesCipher with the given key.
@@ -70,10 +69,10 @@ pub fn (c &AesCipher) encrypt(plaintext string) !string {
 
 	// Build JSON payload
 	payload := EncryptedPayload{
-		iv: hex.encode(iv)
+		iv:    hex.encode(iv)
 		value: hex.encode(encrypted)
-		mac: hex.encode(mac_value)
-		tag: ''
+		mac:   hex.encode(mac_value)
+		tag:   ''
 	}
 
 	json_bytes := json.encode(payload)
@@ -96,15 +95,9 @@ pub fn (c &AesCipher) decrypt(payload_str string) !string {
 	}
 
 	// Decode hex values
-	iv := hex.decode(payload.iv) or {
-		return error('invalid IV hex')
-	}
-	encrypted := hex.decode(payload.value) or {
-		return error('invalid ciphertext hex')
-	}
-	mac_value := hex.decode(payload.mac) or {
-		return error('invalid MAC hex')
-	}
+	iv := hex.decode(payload.iv) or { return error('invalid IV hex') }
+	encrypted := hex.decode(payload.value) or { return error('invalid ciphertext hex') }
+	mac_value := hex.decode(payload.mac) or { return error('invalid MAC hex') }
 
 	// Verify HMAC (Encrypt-then-MAC)
 	expected_mac := compute_hmac(iv, encrypted, c.key)
@@ -116,9 +109,7 @@ pub fn (c &AesCipher) decrypt(payload_str string) !string {
 	decrypted_padded := aes_cbc_decrypt(encrypted, c.key, iv)
 
 	// Remove PKCS7 padding
-	decrypted := pkcs7_unpad(decrypted_padded) or {
-		return error('invalid PKCS7 padding')
-	}
+	decrypted := pkcs7_unpad(decrypted_padded) or { return error('invalid PKCS7 padding') }
 
 	return decrypted.bytestr()
 }
@@ -270,11 +261,11 @@ pub fn sha512_hash_with_salt(data string, salt string) string {
 // KeyDerivation provides password-based key derivation.
 pub struct KeyDerivation {
 pub:
-	iterations int = 10000
-	memory_kb  int = 65536  // 64MB
+	iterations  int = 10000
+	memory_kb   int = 65536 // 64MB
 	parallelism int = 4
-	key_len    int = 32
-	salt_len   int = 16
+	key_len     int = 32
+	salt_len    int = 16
 }
 
 // new_key_derivation creates a KeyDerivation with defaults.

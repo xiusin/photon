@@ -53,10 +53,10 @@ import json
 // ValidationError represents a single validation failure.
 pub struct ValidationError {
 pub:
-	field   string   // field name that failed
-	rule    string   // the rule that failed (e.g., 'required', 'email')
-	message string   // human-readable error message
-	value   string   // the actual value that was provided
+	field   string // field name that failed
+	rule    string // the rule that failed (e.g., 'required', 'email')
+	message string // human-readable error message
+	value   string // the actual value that was provided
 }
 
 // str returns a formatted validation error string.
@@ -158,7 +158,7 @@ pub struct CustomValidator {
 pub:
 	name           string
 	validator_func ValidatorFunc = unsafe { nil }
-	msg_func       MsgFunc = unsafe { nil } // (field, arg) -> error message
+	msg_func       MsgFunc       = unsafe { nil } // (field, arg) -> error message
 }
 
 // Global registry for custom validators
@@ -172,9 +172,9 @@ pub fn register_validator(name string, validator ValidatorFunc, msg MsgFunc) {
 		custom_validators = map[string]CustomValidator{}
 	}
 	custom_validators[name] = CustomValidator{
-		name: name
+		name:           name
 		validator_func: validator
-		msg_func: msg
+		msg_func:       msg
 	}
 }
 
@@ -193,11 +193,11 @@ pub fn clear_custom_validators() {
 // ValidationCondition defines when a rule should be applied.
 pub struct ValidationCondition {
 pub:
-	field_name    string // the field this condition applies to
-	rule_name     string // only apply if this rule is for this field
-	dep_field     string // dependent field name
-	dep_value     string // expected/excluded value
-	is_unless     bool   // true = required_unless, false = required_if
+	field_name string // the field this condition applies to
+	rule_name  string // only apply if this rule is for this field
+	dep_field  string // dependent field name
+	dep_value  string // expected/excluded value
+	is_unless  bool   // true = required_unless, false = required_if
 }
 
 // check evaluates the condition against the given params.
@@ -229,7 +229,7 @@ pub fn validate_with_conditions[T](ctx &veb.Context, conditions []ValidationCond
 						val = val[..val.len - 1]
 					}
 				}
-				validate_str = val.trim('\'').trim('"').trim_space()
+				validate_str = val.trim("'").trim('"').trim_space()
 			}
 		}
 
@@ -286,7 +286,6 @@ pub fn validate_with_conditions[T](ctx &veb.Context, conditions []ValidationCond
 			result.$(field.name) = val in ['1', 'true', 'on', 'yes']
 		}
 	}
-
 	return result, errors
 }
 
@@ -294,10 +293,10 @@ pub fn validate_with_conditions[T](ctx &veb.Context, conditions []ValidationCond
 pub fn required_if(dep_field string, dep_value string) ValidationCondition {
 	return ValidationCondition{
 		field_name: dep_field
-		rule_name: 'required'
-		dep_field: dep_field
-		dep_value: dep_value
-		is_unless: false
+		rule_name:  'required'
+		dep_field:  dep_field
+		dep_value:  dep_value
+		is_unless:  false
 	}
 }
 
@@ -305,10 +304,10 @@ pub fn required_if(dep_field string, dep_value string) ValidationCondition {
 pub fn required_unless(dep_field string, dep_value string) ValidationCondition {
 	return ValidationCondition{
 		field_name: dep_field
-		rule_name: 'required'
-		dep_field: dep_field
-		dep_value: dep_value
-		is_unless: true
+		rule_name:  'required'
+		dep_field:  dep_field
+		dep_value:  dep_value
+		is_unless:  true
 	}
 }
 
@@ -317,8 +316,8 @@ pub fn required_unless(dep_field string, dep_value string) ValidationCondition {
 // NestedValidationError represents an error in a nested object.
 pub struct NestedValidationError {
 pub:
-	path    string // dot-separated path to the field (e.g., "address.street")
-	errors  ValidationErrors
+	path   string // dot-separated path to the field (e.g., "address.street")
+	errors ValidationErrors
 }
 
 // NestedValidationErrors collects errors from nested validations.
@@ -378,7 +377,7 @@ pub fn validate_nested(nested_params map[string]string, prefix string, field_rul
 
 	if errors.has_errors() {
 		result << NestedValidationError{
-			path: prefix
+			path:   prefix
 			errors: errors
 		}
 	}
@@ -401,7 +400,8 @@ pub fn validate_uuid(value string) bool {
 	if parts.len != 5 {
 		return false
 	}
-	if parts[0].len != 8 || parts[1].len != 4 || parts[2].len != 4 || parts[3].len != 4 || parts[4].len != 12 {
+	if parts[0].len != 8 || parts[1].len != 4 || parts[2].len != 4 || parts[3].len != 4
+		|| parts[4].len != 12 {
 		return false
 	}
 	// Check version (4)
@@ -480,7 +480,8 @@ pub fn validate_phone(value string) bool {
 		return false
 	}
 	for ch in value {
-		if !((ch >= `0` && ch <= `9`) || ch == ` ` || ch == `-` || ch == `(` || ch == `)` || ch == `+`) {
+		if !((ch >= `0` && ch <= `9`) || ch == ` ` || ch == `-` || ch == `(`
+			|| ch == `)` || ch == `+`) {
 			return false
 		}
 	}
@@ -521,8 +522,8 @@ pub fn validate_password_strength(value string, arg string) bool {
 		}
 	}
 
-	return upper_count >= min_upper && lower_count >= min_lower &&
-		digit_count >= min_digit && special_count >= min_special
+	return upper_count >= min_upper && lower_count >= min_lower && digit_count >= min_digit
+		&& special_count >= min_special
 }
 
 // validate_confirmed checks if field has a matching {field}_confirmation value.
@@ -614,7 +615,9 @@ pub fn validate_email(value string) bool {
 	if value.len == 0 {
 		return true // empty passes (use required for emptiness)
 	}
-	return value.contains('@') && value.contains('.') && value.index('@') or { 0 } > 0 && value.index('.') or { 0 } > value.index('@') or { 0 }
+	return value.contains('@') && value.contains('.') && value.index('@') or { 0 } > 0 && value.index('.') or {
+		0
+	} > value.index('@') or { 0 }
 }
 
 // validate_url checks basic URL format.
@@ -644,7 +647,8 @@ pub fn validate_alpha_num(value string) bool {
 		return true
 	}
 	for ch in value {
-		if !((ch >= `a` && ch <= `z`) || (ch >= `A` && ch <= `Z`) || (ch >= `0` && ch <= `9`) || ch == `_`) {
+		if !((ch >= `a` && ch <= `z`) || (ch >= `A` && ch <= `Z`)
+			|| (ch >= `0` && ch <= `9`) || ch == `_`) {
 			return false
 		}
 	}
@@ -799,8 +803,8 @@ pub fn validate_vjson(value string) bool {
 	if value.len == 0 {
 		return true
 	}
-	return (value.starts_with('{') && value.ends_with('}')) ||
-		(value.starts_with('[') && value.ends_with(']'))
+	return (value.starts_with('{') && value.ends_with('}'))
+		|| (value.starts_with('[') && value.ends_with(']'))
 }
 
 // ── Rule Application ──
@@ -812,9 +816,7 @@ pub fn validate_vjson(value string) bool {
 // This is a convenience wrapper around apply_rule that avoids Option types
 // for simpler usage in tests and non-Result contexts.
 pub fn check_rule(field_name string, value string, rule string) (bool, string) {
-	apply_rule(field_name, value, rule) or {
-		return false, err.msg()
-	}
+	apply_rule(field_name, value, rule) or { return false, err.msg() }
 	return true, ''
 }
 
@@ -879,10 +881,10 @@ pub fn apply_rule_detail(field_name string, value string, rule string) ?Validati
 	apply_rule(field_name, value, rule) or {
 		rule_name, _ := parse_rule(rule)
 		return ValidationError{
-			field: field_name
-			rule: rule_name
+			field:   field_name
+			rule:    rule_name
 			message: err.msg()
-			value: value
+			value:   value
 		}
 	}
 	return none
@@ -912,13 +914,13 @@ pub fn default_error_message(field string, rule string, arg string) string {
 		'ends_with' { '${field} must end with "${arg}"' }
 		'digits' { '${field} must be exactly ${arg} digits' }
 		'ip' { '${field} must be a valid IP address' }
-	'vjson' { '${field} must be valid JSON' }
-	'uuid' { '${field} must be a valid UUID' }
-	'date' { '${field} must be a valid date (YYYY-MM-DD)' }
-	'timezone' { '${field} must be a valid timezone' }
-	'phone' { '${field} must be a valid phone number' }
-	'password_strength' { '${field} does not meet password strength requirements' }
-	else { '${field} failed validation: ${rule}' }
+		'vjson' { '${field} must be valid JSON' }
+		'uuid' { '${field} must be a valid UUID' }
+		'date' { '${field} must be a valid date (YYYY-MM-DD)' }
+		'timezone' { '${field} must be a valid timezone' }
+		'phone' { '${field} must be a valid phone number' }
+		'password_strength' { '${field} does not meet password strength requirements' }
+		else { '${field} failed validation: ${rule}' }
 	}
 }
 
@@ -951,7 +953,7 @@ pub fn validate[T](ctx &veb.Context) (T, ValidationErrors) {
 						val = val[..val.len - 1]
 					}
 				}
-				validate_str = val.trim('\'').trim('"').trim_space()
+				validate_str = val.trim("'").trim('"').trim_space()
 			}
 		}
 
@@ -993,7 +995,6 @@ pub fn validate[T](ctx &veb.Context) (T, ValidationErrors) {
 			result.$(field.name) = val in ['1', 'true', 'on', 'yes']
 		}
 	}
-
 	return result, errors
 }
 
@@ -1012,11 +1013,13 @@ pub fn validate_body[T](ctx &veb.Context) (T, ValidationErrors) {
 	result = json.decode(T, body) or {
 		// If JSON decode fails, try to validate individual fields
 		return result, ValidationErrors{
-			'_body': [ValidationError{
-				field: '_body'
-				rule: 'json'
-				message: 'invalid JSON body'
-			}]
+			_body: [
+				ValidationError{
+					field:   '_body'
+					rule:    'json'
+					message: 'invalid JSON body'
+				},
+			]
 		}
 	}
 
@@ -1034,7 +1037,7 @@ pub fn validate_body[T](ctx &veb.Context) (T, ValidationErrors) {
 						val = val[..val.len - 1]
 					}
 				}
-				validate_str = val.trim('\'').trim('"').trim_space()
+				validate_str = val.trim("'").trim('"').trim_space()
 			}
 		}
 
@@ -1063,7 +1066,6 @@ pub fn validate_body[T](ctx &veb.Context) (T, ValidationErrors) {
 			errors[field.name] = field_errors
 		}
 	}
-
 	return result, errors
 }
 

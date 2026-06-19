@@ -74,8 +74,8 @@ pub fn (ce &ConsoleEncoder) clone() &Encoder {
 // ============================================================
 
 const color_debug = '\x1b[90mDEBUG\x1b[0m'
-const color_info  = '\x1b[36mINFO\x1b[0m'
-const color_warn  = '\x1b[33mWARN\x1b[0m'
+const color_info = '\x1b[36mINFO\x1b[0m'
+const color_warn = '\x1b[33mWARN\x1b[0m'
 const color_error = '\x1b[31mERROR\x1b[0m'
 const color_fatal = '\x1b[31mFATAL\x1b[0m'
 
@@ -83,8 +83,8 @@ const color_fatal = '\x1b[31mFATAL\x1b[0m'
 fn colorize_level(level Level) string {
 	return match level {
 		.debug { color_debug }
-		.info  { color_info }
-		.warn  { color_warn }
+		.info { color_info }
+		.warn { color_warn }
 		.error { color_error }
 		.fatal { color_fatal }
 	}

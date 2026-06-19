@@ -7,7 +7,6 @@ module logger
 //   - Channel stacking (log to multiple targets simultaneously)
 //   - Sensitive data masking (auto-redact passwords, tokens, keys)
 //   - Request ID auto-injection into log output
-
 import time
 import os
 
@@ -23,7 +22,9 @@ pub:
 	name_str string = 'stderr'
 }
 
-pub fn (c &StderrChannel) name() string { return c.name_str }
+pub fn (c &StderrChannel) name() string {
+	return c.name_str
+}
 
 pub fn (c &StderrChannel) write(level Level, msg string, context map[string]string) {
 	mut line := format_log_line(level, msg, context)
@@ -40,7 +41,9 @@ pub:
 	filepath string
 }
 
-pub fn (c &FileChannel) name() string { return c.name_str }
+pub fn (c &FileChannel) name() string {
+	return c.name_str
+}
 
 pub fn (c &FileChannel) write(level Level, msg string, context map[string]string) {
 	mut line := format_log_line(level, msg, context)
@@ -50,9 +53,7 @@ pub fn (c &FileChannel) write(level Level, msg string, context map[string]string
 		eprintln('[LOG ERROR] Failed to open log file: ${c.filepath}')
 		return
 	}
-	f.writeln(line) or {
-		eprintln('[LOG ERROR] Failed to write to log file: ${c.filepath}')
-	}
+	f.writeln(line) or { eprintln('[LOG ERROR] Failed to write to log file: ${c.filepath}') }
 	f.close()
 }
 
@@ -63,7 +64,9 @@ pub:
 	facility string = 'user'
 }
 
-pub fn (c &SyslogChannel) name() string { return c.name_str }
+pub fn (c &SyslogChannel) name() string {
+	return c.name_str
+}
 
 pub fn (c &SyslogChannel) write(level Level, msg string, context map[string]string) {
 	mut line := format_log_line(level, msg, context)
@@ -84,7 +87,7 @@ pub mut:
 pub fn new_channel_logger() &ChannelLogger {
 	return &ChannelLogger{
 		channels: [StderrChannel{}]
-		context: map[string]string{}
+		context:  map[string]string{}
 	}
 }
 
@@ -114,11 +117,25 @@ pub fn (cl &ChannelLogger) log(level Level, msg string) {
 }
 
 // Convenience methods
-pub fn (cl &ChannelLogger) debug(msg string) { cl.log(.debug, msg) }
-pub fn (cl &ChannelLogger) info(msg string)  { cl.log(.info, msg) }
-pub fn (cl &ChannelLogger) warn(msg string)  { cl.log(.warn, msg) }
-pub fn (cl &ChannelLogger) error(msg string) { cl.log(.error, msg) }
-pub fn (cl &ChannelLogger) fatal(msg string) { cl.log(.fatal, msg) }
+pub fn (cl &ChannelLogger) debug(msg string) {
+	cl.log(.debug, msg)
+}
+
+pub fn (cl &ChannelLogger) info(msg string) {
+	cl.log(.info, msg)
+}
+
+pub fn (cl &ChannelLogger) warn(msg string) {
+	cl.log(.warn, msg)
+}
+
+pub fn (cl &ChannelLogger) error(msg string) {
+	cl.log(.error, msg)
+}
+
+pub fn (cl &ChannelLogger) fatal(msg string) {
+	cl.log(.fatal, msg)
+}
 
 // WithContext creates a copy with additional context (immutable pattern)
 pub fn (cl &ChannelLogger) with_context(key string, value string) &ChannelLogger {
@@ -126,8 +143,8 @@ pub fn (cl &ChannelLogger) with_context(key string, value string) &ChannelLogger
 	new_ctx[key] = value
 	return &ChannelLogger{
 		channels: cl.channels
-		context: new_ctx
-		level: cl.level
+		context:  new_ctx
+		level:    cl.level
 	}
 }
 

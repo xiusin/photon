@@ -19,7 +19,6 @@ module core
 //   - Container::tagged()        → CollectionInjection
 //   - Container::when()          → contextual binding hints
 //   - Container::build()         → DeferredProvider
-
 import sync
 
 // ── Method Injection ──
@@ -57,9 +56,9 @@ pub:
 //   handlers &[]EventHandler  // inject all EventHandler beans
 pub struct CollectionInjection {
 pub:
-	field_name    string   // V struct field name
-	interface_name string  // interface/trait type to match
-	tag           string   // optional tag filter (Laravel tagged binding)
+	field_name     string // V struct field name
+	interface_name string // interface/trait type to match
+	tag            string // optional tag filter (Laravel tagged binding)
 }
 
 // ── DeferredProvider ──
@@ -82,10 +81,10 @@ pub:
 pub struct DeferredProvider {
 pub mut:
 	type_name string
-	mutable  bool // if true, returns a new instance each time (prototype-like)
-	container  &Container = unsafe { nil}
-	resolved   bool
-	instance   voidptr = unsafe { nil}
+	mutable   bool // if true, returns a new instance each time (prototype-like)
+	container &Container = unsafe { nil }
+	resolved  bool
+	instance  voidptr = unsafe { nil }
 mut:
 	mu sync.RwMutex
 }
@@ -94,7 +93,7 @@ mut:
 pub fn new_deferred_provider(type_name string) &DeferredProvider {
 	return &DeferredProvider{
 		type_name: type_name
-		resolved: false
+		resolved:  false
 	}
 }
 
@@ -137,7 +136,7 @@ pub fn (mut dp DeferredProvider) get_or(default_val voidptr) voidptr {
 // is_resolved returns whether the bean has been resolved at least once.
 pub fn (mut dp DeferredProvider) is_resolved() bool {
 	dp.mu.rlock()
-	defer { dp.mu.runlock()}
+	defer { dp.mu.runlock() }
 	return dp.resolved
 }
 
@@ -145,8 +144,8 @@ pub fn (mut dp DeferredProvider) is_resolved() bool {
 // Called by the ApplicationContext during bean wiring.
 pub fn (mut dp DeferredProvider) set_container(c &Container) {
 	dp.mu.@lock()
-	defer { dp.mu.unlock()}
-	dp.container = unsafe { c}
+	defer { dp.mu.unlock() }
+	dp.container = unsafe { c }
 }
 
 // ── Bean Type Index ──
@@ -163,7 +162,7 @@ pub mut:
 	// Maps interface/trait name → list of bean type_names that implement it
 	type_to_beans map[string][]string
 	// Maps tag name → list of bean type_names with that tag
-	tag_to_beans  map[string][]string
+	tag_to_beans map[string][]string
 mut:
 	mu sync.RwMutex
 }
@@ -172,7 +171,7 @@ mut:
 pub fn new_bean_type_index() &BeanTypeIndex {
 	return &BeanTypeIndex{
 		type_to_beans: map[string][]string{}
-		tag_to_beans: map[string][]string{}
+		tag_to_beans:  map[string][]string{}
 	}
 }
 
@@ -180,7 +179,7 @@ pub fn new_bean_type_index() &BeanTypeIndex {
 // Spring equivalent: bean implements interface → autowire candidate
 pub fn (mut idx BeanTypeIndex) register_interface(bean_type_name string, interface_name string) {
 	idx.mu.@lock()
-	defer { idx.mu.unlock()}
+	defer { idx.mu.unlock() }
 	mut beans := idx.type_to_beans[interface_name] or { []string{} }
 	if bean_type_name !in beans {
 		beans << bean_type_name
@@ -192,7 +191,7 @@ pub fn (mut idx BeanTypeIndex) register_interface(bean_type_name string, interfa
 // Laravel equivalent: Container::tag()
 pub fn (mut idx BeanTypeIndex) register_tag(bean_type_name string, tag string) {
 	idx.mu.@lock()
-	defer { idx.mu.unlock()}
+	defer { idx.mu.unlock() }
 	mut beans := idx.tag_to_beans[tag] or { []string{} }
 	if bean_type_name !in beans {
 		beans << bean_type_name
@@ -204,7 +203,7 @@ pub fn (mut idx BeanTypeIndex) register_tag(bean_type_name string, tag string) {
 // Spring equivalent: ListableBeanFactory.getBeanNamesForType(MyInterface.class)
 pub fn (mut idx BeanTypeIndex) beans_for_interface(interface_name string) []string {
 	idx.mu.rlock()
-	defer { idx.mu.runlock()}
+	defer { idx.mu.runlock() }
 	beans := idx.type_to_beans[interface_name] or { []string{} }
 	return beans.clone()
 }
@@ -213,7 +212,7 @@ pub fn (mut idx BeanTypeIndex) beans_for_interface(interface_name string) []stri
 // Laravel equivalent: Container::tagged('cache')
 pub fn (mut idx BeanTypeIndex) beans_for_tag(tag string) []string {
 	idx.mu.rlock()
-	defer { idx.mu.runlock()}
+	defer { idx.mu.runlock() }
 	beans := idx.tag_to_beans[tag] or { []string{} }
 	return beans.clone()
 }
@@ -221,7 +220,7 @@ pub fn (mut idx BeanTypeIndex) beans_for_tag(tag string) []string {
 // has_interface checks if any bean implements the given interface.
 pub fn (mut idx BeanTypeIndex) has_interface(interface_name string) bool {
 	idx.mu.rlock()
-	defer { idx.mu.runlock()}
+	defer { idx.mu.runlock() }
 	beans := idx.type_to_beans[interface_name] or { []string{} }
 	return beans.len > 0
 }
@@ -229,7 +228,7 @@ pub fn (mut idx BeanTypeIndex) has_interface(interface_name string) bool {
 // has_tag checks if any bean has the given tag.
 pub fn (mut idx BeanTypeIndex) has_tag(tag string) bool {
 	idx.mu.rlock()
-	defer { idx.mu.runlock()}
+	defer { idx.mu.runlock() }
 	beans := idx.tag_to_beans[tag] or { []string{} }
 	return beans.len > 0
 }
@@ -275,14 +274,14 @@ pub fn (mut idx BeanTypeIndex) unregister_tag(bean_type_name string, tag string)
 // interface_count returns the number of registered interfaces.
 pub fn (mut idx BeanTypeIndex) interface_count() int {
 	idx.mu.rlock()
-	defer { idx.mu.runlock()}
+	defer { idx.mu.runlock() }
 	return idx.type_to_beans.len
 }
 
 // tag_count returns the number of registered tags.
 pub fn (mut idx BeanTypeIndex) tag_count() int {
 	idx.mu.rlock()
-	defer { idx.mu.runlock()}
+	defer { idx.mu.runlock() }
 	return idx.tag_to_beans.len
 }
 
@@ -291,7 +290,7 @@ pub fn (mut idx BeanTypeIndex) tag_count() int {
 // Rebuilds BOTH the interface index and the tag index.
 pub fn (mut idx BeanTypeIndex) rebuild(mut c Container) {
 	idx.mu.@lock()
-	defer { idx.mu.unlock()}
+	defer { idx.mu.unlock() }
 
 	// Clear existing
 	idx.type_to_beans = map[string][]string{}

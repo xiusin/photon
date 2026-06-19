@@ -3,6 +3,7 @@ module security
 // encryption.v - Encryption (Laravel Crypt inspired)
 
 // Encrypter provides symmetric encryption and decryption
+@[deprecated: 'use security.AesCipher instead']
 pub struct Encrypter {
 pub mut:
 	key    string
@@ -10,6 +11,7 @@ pub mut:
 }
 
 // new_encrypter creates an Encrypter with the given key
+@[deprecated: 'use security.AesCipher instead']
 pub fn new_encrypter(key string) &Encrypter {
 	return &Encrypter{
 		key: key
@@ -17,7 +19,9 @@ pub fn new_encrypter(key string) &Encrypter {
 }
 
 // encrypt encrypts a value using XOR cipher with hex encoding
+@[deprecated: 'use security.AesCipher instead']
 pub fn (e &Encrypter) encrypt(value string) !string {
+	eprintln('[deprecated] Encrypter uses XOR cipher, use security.AesCipher instead')
 	if value.len == 0 {
 		return ''
 	}
@@ -30,7 +34,9 @@ pub fn (e &Encrypter) encrypt(value string) !string {
 }
 
 // decrypt decrypts an encrypted payload
+@[deprecated: 'use security.AesCipher instead']
 pub fn (e &Encrypter) decrypt(payload string) !string {
+	eprintln('[deprecated] Encrypter uses XOR cipher, use security.AesCipher instead')
 	if payload.len == 0 {
 		return ''
 	}
@@ -41,9 +47,7 @@ pub fn (e &Encrypter) decrypt(payload string) !string {
 	mut i := 0
 	for i < payload.len {
 		hex_str := payload[i..i + 2]
-		b := hex_to_byte(hex_str) or {
-			return error('invalid hex in payload')
-		}
+		b := hex_to_byte(hex_str) or { return error('invalid hex in payload') }
 		result += (b ^ 0xAA).ascii_str()
 		i += 2
 	}

@@ -5,7 +5,6 @@ module web
 // Provides an event-driven HTTP kernel with standard lifecycle events:
 // kernel.request → kernel.controller → kernel.response →
 // kernel.exception → kernel.terminate.
-
 import sync
 
 // KernelEventType defines standard kernel events
@@ -29,6 +28,14 @@ fn kernel_event_name(evt KernelEventType) string {
 }
 
 pub type KernelListener = fn (event_name string, data voidptr)
+
+pub type HandlerFn = fn (ctx voidptr) !voidptr
+
+// HandlerResolver resolves a request to a handler function.
+// Spring equivalent: HandlerMapping + HandlerAdapter
+pub interface HandlerResolver {
+	resolve(ctx voidptr) !HandlerFn
+}
 
 // HttpKernel manages the HTTP request lifecycle with event hooks.
 // Thread-safe via sync.RwMutex.
@@ -71,6 +78,28 @@ pub fn (mut k HttpKernel) handle() ! {
 	k.dispatch(.controller, unsafe { nil })
 	// Process request here
 	k.dispatch(.response, unsafe { nil })
+}
+
+// handle_with processes a request through the kernel lifecycle with a real handler resolver.
+// Dispatches request → controller → response events, and exception on error.
+// Returns the handler's response.
+pub fn (mut k HttpKernel) handle_with(resolver HandlerResolver, ctx voidptr) !voidptr {
+	k.dispatch(.request, ctx)
+
+	handler := resolver.resolve(ctx) or {
+		k.dispatch(.exception, err)
+		return err
+	}
+
+	k.dispatch(.controller, ctx)
+
+	result := handler(ctx) or {
+		k.dispatch(.exception, err)
+		return err
+	}
+
+	k.dispatch(.response, result)
+	return result
 }
 
 // terminate runs post-response cleanup

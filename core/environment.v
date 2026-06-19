@@ -19,7 +19,6 @@ module core
 //   env.set_property('app.name', 'PhotonAPI')
 //   env.get_or('app.name', 'MyApp')  // → 'PhotonAPI'
 //   env.accepts_profile('dev')        // → true
-
 import sync
 
 // ── Environment ──
@@ -55,9 +54,9 @@ mut:
 // new_environment creates an empty Environment with sensible defaults.
 pub fn new_environment() &Environment {
 	return &Environment{
-		active_profiles: ['default']
+		active_profiles:  ['default']
 		default_profiles: ['default']
-		properties: map[string]string{}
+		properties:       map[string]string{}
 	}
 }
 
@@ -155,9 +154,7 @@ pub fn (mut env Environment) get_property_or(key string, default_val string) str
 pub fn (mut env Environment) get_property_int(key string) !int {
 	env.mu.rlock()
 	defer { env.mu.runlock() }
-	val := env.properties[key] or {
-		return error('property "${key}" not found')
-	}
+	val := env.properties[key] or { return error('property "${key}" not found') }
 	return val.int()
 }
 
@@ -173,9 +170,7 @@ pub fn (mut env Environment) get_property_int_or(key string, default_val int) in
 pub fn (mut env Environment) get_property_bool(key string) !bool {
 	env.mu.rlock()
 	defer { env.mu.runlock() }
-	val := env.properties[key] or {
-		return error('property "${key}" not found')
-	}
+	val := env.properties[key] or { return error('property "${key}" not found') }
 	return val.bool()
 }
 
@@ -422,9 +417,7 @@ pub fn (mut env Environment) source_count() int {
 pub fn (mut env Environment) get_property_f64(key string) !f64 {
 	env.mu.rlock()
 	defer { env.mu.runlock() }
-	val := env.properties[key] or {
-		return error('property "${key}" not found')
-	}
+	val := env.properties[key] or { return error('property "${key}" not found') }
 	return val.f64()
 }
 

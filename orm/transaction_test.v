@@ -38,8 +38,10 @@ fn test_transaction_required_creates_and_commits() {
 	mut tm := new_transaction_manager()
 	mut executed := false
 	mut ex := &executed
-	tm.execute(.required, fn [ex]() ! {
-		unsafe { *ex = true }
+	tm.execute(.required, fn [ex] () ! {
+		unsafe {
+			*ex = true
+		}
 	}) or { assert false }
 	assert unsafe { *ex } == true
 	// After execute completes, transaction should be committed (inactive)
@@ -52,11 +54,15 @@ fn test_transaction_required_nested_joins_existing() {
 	mut inner_ran := false
 	mut o_ran := &outer_ran
 	mut i_ran := &inner_ran
-	tm.execute(.required, fn [mut tm, o_ran, i_ran]() ! {
-		unsafe { *o_ran = true }
+	tm.execute(.required, fn [mut tm, o_ran, i_ran] () ! {
+		unsafe {
+			*o_ran = true
+		}
 		// Nested .required should join the existing transaction
-		tm.execute(.required, fn [i_ran]() ! {
-			unsafe { *i_ran = true }
+		tm.execute(.required, fn [i_ran] () ! {
+			unsafe {
+				*i_ran = true
+			}
 		}) or { assert false }
 	}) or { assert false }
 	assert unsafe { *o_ran } == true
@@ -70,8 +76,10 @@ fn test_transaction_requires_new() {
 
 	mut executed := false
 	mut ex := &executed
-	tm.execute(.requires_new, fn [ex]() ! {
-		unsafe { *ex = true }
+	tm.execute(.requires_new, fn [ex] () ! {
+		unsafe {
+			*ex = true
+		}
 	}) or { assert false }
 
 	assert unsafe { *ex } == true
@@ -128,8 +136,10 @@ fn test_transaction_not_supported() {
 fn test_transactional_convenience() {
 	mut ran := false
 	mut r := &ran
-	transactional(fn [r]() ! {
-		unsafe { *r = true }
+	transactional(fn [r] () ! {
+		unsafe {
+			*r = true
+		}
 	}) or { assert false }
 	assert unsafe { *r }
 }
@@ -153,8 +163,10 @@ fn test_transaction_required_nested_inner_failure() {
 	mut outer_ran := false
 	mut o_ran := &outer_ran
 	mut failed := false
-	tm.execute(.required, fn [mut tm, o_ran]() ! {
-		unsafe { *o_ran = true }
+	tm.execute(.required, fn [mut tm, o_ran] () ! {
+		unsafe {
+			*o_ran = true
+		}
 		tm.execute(.required, fn () ! {
 			return error('inner failure')
 		})!
@@ -173,11 +185,15 @@ fn test_transaction_requires_new_inside_required() {
 	mut inner_ran := false
 	mut o_ran := &outer_ran
 	mut i_ran := &inner_ran
-	tm.execute(.required, fn [mut tm, o_ran, i_ran]() ! {
-		unsafe { *o_ran = true }
+	tm.execute(.required, fn [mut tm, o_ran, i_ran] () ! {
+		unsafe {
+			*o_ran = true
+		}
 		// .requires_new suspends outer, creates independent tx
-		tm.execute(.requires_new, fn [i_ran]() ! {
-			unsafe { *i_ran = true }
+		tm.execute(.requires_new, fn [i_ran] () ! {
+			unsafe {
+				*i_ran = true
+			}
 		}) or { assert false }
 		// Verify outer tx was restored (mandatory requires active tx)
 		tm.execute(.mandatory, fn () ! {}) or { assert false }
@@ -195,8 +211,10 @@ fn test_transaction_requires_new_inside_required_inner_failure() {
 	mut outer_ran := false
 	mut o_ran := &outer_ran
 	mut failed := false
-	tm.execute(.required, fn [mut tm, o_ran]() ! {
-		unsafe { *o_ran = true }
+	tm.execute(.required, fn [mut tm, o_ran] () ! {
+		unsafe {
+			*o_ran = true
+		}
 		tm.execute(.requires_new, fn () ! {
 			return error('inner new tx failure')
 		})!
@@ -214,8 +232,10 @@ fn test_transaction_nested_savepoint_rollback() {
 	mut outer_ran := false
 	mut o_ran := &outer_ran
 	mut failed := false
-	tm.execute(.required, fn [mut tm, o_ran]() ! {
-		unsafe { *o_ran = true }
+	tm.execute(.required, fn [mut tm, o_ran] () ! {
+		unsafe {
+			*o_ran = true
+		}
 		tm.execute(.nested, fn () ! {
 			return error('savepoint failure')
 		})!
@@ -224,4 +244,103 @@ fn test_transaction_nested_savepoint_rollback() {
 	assert failed
 	assert tm.is_active() == false // outer rolled back
 	assert tm.savepoint_count == 0 // savepoint was decremented
+}
+
+// ── Real DB connection callback tests ──
+
+fn test_transaction_manager_with_conn_callbacks() {
+	mut begin_called := false
+	mut commit_called := false
+	mut rollback_called := false
+	mut b_called := &begin_called
+	mut c_called := &commit_called
+	mut r_called := &rollback_called
+
+	conn := unsafe { nil } // mock connection
+
+	begin_fn := fn [b_called] (c voidptr) ! {
+		unsafe {
+			*b_called = true
+		}
+	}
+	commit_fn := fn [c_called] (c voidptr) ! {
+		unsafe {
+			*c_called = true
+		}
+	}
+	rollback_fn := fn [r_called] (c voidptr) ! {
+		unsafe {
+			*r_called = true
+		}
+	}
+
+	mut tm := new_transaction_manager_with_conn(conn, begin_fn, commit_fn, rollback_fn)
+	assert tm.is_active() == false
+
+	tm.begin() or { assert false }
+	assert unsafe { *b_called } == true
+	assert tm.is_active()
+
+	tm.commit() or { assert false }
+	assert unsafe { *c_called } == true
+	assert tm.is_active() == false
+}
+
+fn test_transaction_manager_rollback_callback() {
+	mut rollback_called := false
+	mut r_called := &rollback_called
+
+	rollback_fn := fn [r_called] (c voidptr) ! {
+		unsafe {
+			*r_called = true
+		}
+	}
+
+	mut tm := new_transaction_manager_with_conn(unsafe { nil }, unsafe { nil }, unsafe { nil },
+		rollback_fn)
+	tm.begin() or { assert false }
+	tm.rollback() or { assert false }
+	assert unsafe { *r_called } == true
+	assert tm.is_active() == false
+}
+
+fn test_transaction_manager_no_callbacks_works() {
+	// Without callbacks, behaves as pure state machine (backward compat)
+	mut tm := new_transaction_manager()
+	tm.begin() or { assert false }
+	assert tm.is_active()
+	tm.commit() or { assert false }
+	assert tm.is_active() == false
+}
+
+fn test_transaction_execute_with_callbacks() {
+	mut begin_called := false
+	mut commit_called := false
+	mut b_called := &begin_called
+	mut c_called := &commit_called
+
+	begin_fn := fn [b_called] (c voidptr) ! {
+		unsafe {
+			*b_called = true
+		}
+	}
+	commit_fn := fn [c_called] (c voidptr) ! {
+		unsafe {
+			*c_called = true
+		}
+	}
+
+	mut tm := new_transaction_manager_with_conn(unsafe { nil }, begin_fn, commit_fn, unsafe { nil })
+	mut executed := false
+	mut ex := &executed
+	tm.execute(.required, fn [ex] () ! {
+		unsafe {
+			*ex = true
+		}
+	}) or { assert false }
+
+	assert unsafe { *ex } == true
+	assert unsafe { *b_called } == true
+	assert unsafe { *c_called } == true
+	assert tm.is_active() == false
 }

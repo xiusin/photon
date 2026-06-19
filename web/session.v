@@ -4,7 +4,6 @@ module web
 //
 // Provides server-side session management with pluggable backends.
 // Supports cookie-based session IDs and flash data.
-
 import veb
 import net.http
 import crypto.sha256
@@ -29,24 +28,24 @@ mut:
 // Session represents an HTTP session with get/set/flash operations.
 pub struct Session {
 pub mut:
-	id            string
-	data          map[string]string
-	flash_data    map[string]string
-	old_flash     map[string]string  // flash from previous request
-	is_new        bool
-	is_dirty      bool
-	ttl_seconds   int = 1800  // default 30 min
+	id          string
+	data        map[string]string
+	flash_data  map[string]string
+	old_flash   map[string]string // flash from previous request
+	is_new      bool
+	is_dirty    bool
+	ttl_seconds int = 1800 // default 30 min
 }
 
 // new_session creates a new Session with the given ID.
 pub fn new_session(id string) &Session {
 	return &Session{
-		id: id
-		data: map[string]string{}
+		id:         id
+		data:       map[string]string{}
 		flash_data: map[string]string{}
-		old_flash: map[string]string{}
-		is_new: true
-		is_dirty: false
+		old_flash:  map[string]string{}
+		is_new:     true
+		is_dirty:   false
 	}
 }
 
@@ -168,7 +167,7 @@ pub fn (mut s MemorySessionStore) write(session_id string, data map[string]strin
 	now_ := time.now().unix()
 	mut entry := s.sessions[session_id] or {
 		&MemorySessionEntry{
-			data: map[string]string{}
+			data:       map[string]string{}
 			flash_data: map[string]string{}
 			created_at: now_
 			updated_at: now_
@@ -207,13 +206,13 @@ pub fn (mut s MemorySessionStore) gc(max_age_seconds int) ! {
 // SessionManager manages session lifecycle with a pluggable store.
 pub struct SessionManager {
 pub mut:
-	store        &SessionStore = unsafe { nil }
-	cookie_name  string = 'PHOTON_SESSION'
-	ttl_seconds  int    = 1800
-	cookie_path  string = '/'
-	secure       bool
-	http_only    bool   = true
-	same_site    string = 'Lax'
+	store       &SessionStore = unsafe { nil }
+	cookie_name string        = 'PHOTON_SESSION'
+	ttl_seconds int           = 1800
+	cookie_path string        = '/'
+	secure      bool
+	http_only   bool   = true
+	same_site   string = 'Lax'
 }
 
 // new_session_manager creates a SessionManager with a given store.
@@ -230,7 +229,9 @@ pub fn (mut sm SessionManager) start(ctx &veb.Context) &Session {
 	mut session_id := ctx.get_cookie(sm.cookie_name) or { '' }
 
 	if session_id.len > 0 && !isnil(sm.store) {
-		data := sm.store.read(session_id) or { map[string]string{} }
+		data := sm.store.read(session_id) or {
+			map[string]string{}
+		}
 		if data.len > 0 {
 			mut sess := new_session(session_id)
 			sess.data = data.clone()
@@ -257,10 +258,10 @@ pub fn (mut sm SessionManager) save(mut ctx veb.Context, sess &Session) ! {
 		sm.store.write(sess.id, sess.data.clone(), sm.ttl_seconds)!
 	}
 	ctx.set_cookie(http.Cookie{
-		name: sm.cookie_name
-		value: sess.id
-		path: sm.cookie_path
-		secure: sm.secure
+		name:      sm.cookie_name
+		value:     sess.id
+		path:      sm.cookie_path
+		secure:    sm.secure
 		http_only: sm.http_only
 	})
 }
@@ -271,19 +272,19 @@ pub fn (mut sm SessionManager) destroy(mut ctx veb.Context, sess &Session) ! {
 		sm.store.destroy(sess.id)!
 	}
 	ctx.set_cookie(http.Cookie{
-		name: sm.cookie_name
-		value: ''
-		path: sm.cookie_path
-		secure: sm.secure
+		name:      sm.cookie_name
+		value:     ''
+		path:      sm.cookie_path
+		secure:    sm.secure
 		http_only: sm.http_only
-		max_age: -1
+		max_age:   -1
 	})
 }
 
 // ── Session Middleware ──
 
 // session_middleware is a middleware that starts and saves sessions.
-pub fn session_middleware(mut ctx &MiddlewareContext) !bool {
+pub fn session_middleware(mut ctx MiddlewareContext) !bool {
 	ctx.data['_session_active'] = 'true'
 	return true
 }

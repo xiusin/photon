@@ -17,7 +17,6 @@ module web
 //   }
 //   dto := web.bind[LoginDto](ctx) or { return app.text('invalid') }
 //   dto_json := web.bind_json[CreateUserDto](ctx) or { ... }
-
 import veb
 import json
 
@@ -68,7 +67,7 @@ pub fn bind[T](ctx &veb.Context) !T {
 			if val != '' {
 				if !is_numeric(val) {
 					return error('${field.name}: invalid integer value "${val}"')
-			}
+				}
 				result.$(field.name) = val.int()
 			}
 		} $else $if field.typ is i64 {
@@ -78,7 +77,7 @@ pub fn bind[T](ctx &veb.Context) !T {
 			if val != '' {
 				if !is_numeric(val) {
 					return error('${field.name}: invalid i64 value "${val}"')
-			}
+				}
 				result.$(field.name) = val.i64()
 			}
 		} $else $if field.typ is f64 {
@@ -88,14 +87,13 @@ pub fn bind[T](ctx &veb.Context) !T {
 			if val != '' {
 				if !is_numeric(val) {
 					return error('${field.name}: invalid f64 value "${val}"')
-			}
+				}
 				result.$(field.name) = val.f64()
 			}
 		} $else $if field.typ is bool {
 			result.$(field.name) = val == '1' || val == 'true' || val == 'on' || val == 'yes'
 		}
 	}
-
 	return result
 }
 

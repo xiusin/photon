@@ -4,14 +4,13 @@ module cli
 //
 // The CliApplication is the entry point for CLI-based Photon apps.
 // Inspired by Symfony Console's Application class.
-
 import os
 
 // CliApplication is the main CLI entry point
 pub struct CliApplication {
 pub:
-	name     string
-	version  string
+	name    string
+	version string
 pub mut:
 	commands []&Command
 }
@@ -19,7 +18,7 @@ pub mut:
 // new_application creates a new CLI application
 pub fn new_application(name string, version string) &CliApplication {
 	return &CliApplication{
-		name: name
+		name:    name
 		version: version
 	}
 }

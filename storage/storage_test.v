@@ -1,7 +1,6 @@
 module storage
 
 // storage_test.v - Tests for Photon Storage Module
-
 import os
 
 // ============================================================
@@ -202,13 +201,8 @@ fn test_s3_adapter_url() {
 }
 
 fn test_s3_adapter_compatible() {
-	adapter := new_s3_compatible_adapter(
-		'my-bucket',
-		'us-east-1',
-		'https://minio.example.com',
-		'AKIAIOSFODNN7EXAMPLE',
-		'secret-key',
-	)
+	adapter := new_s3_compatible_adapter('my-bucket', 'us-east-1', 'https://minio.example.com',
+		'AKIAIOSFODNN7EXAMPLE', 'secret-key')
 	assert adapter.endpoint == 'https://minio.example.com'
 	assert adapter.use_path_style == true
 }

@@ -22,20 +22,19 @@ module core
 //   app.refresh()!  // instantiate all eager singletons
 //   instance := app.resolve('UserService')!
 //   app.shutdown()
-
 import sync
 
 // ── ApplicationState ──
 
 // ApplicationState tracks the state of the application context.
 pub enum ApplicationState {
-	created      // context created, not yet refreshed
-	refreshing   // beans being instantiated and wired
-	ready        // all beans ready, application running (after refresh)
-	started      // explicitly started via start() — Spring Lifecycle
-	stopped      // explicitly stopped via stop() — Spring Lifecycle
-	closing      // shutdown in progress
-	closed       // fully shut down
+	created    // context created, not yet refreshed
+	refreshing // beans being instantiated and wired
+	ready      // all beans ready, application running (after refresh)
+	started    // explicitly started via start() — Spring Lifecycle
+	stopped    // explicitly stopped via stop() — Spring Lifecycle
+	closing    // shutdown in progress
+	closed     // fully shut down
 }
 
 // str returns a human-readable application state.
@@ -61,18 +60,18 @@ pub fn (as_ ApplicationState) str() string {
 @[heap]
 pub struct ApplicationContext {
 pub mut:
-	container                &Container                    = unsafe { nil }
-	event_bus                &EventBus                      = unsafe { nil }
-	lifecycle                &LifecycleManager              = unsafe { nil }
-	smart_lifecycle          &SmartLifecycleManager         = unsafe { nil }
-	environment              &Environment                   = unsafe { nil }
-	post_processors          []&BeanPostProcessor
-	factory_post_processors  []&BeanFactoryPostProcessor
-	auto_config_manager      &AutoConfigurationManager     = unsafe { nil }
-	provider_registry        &ProviderRegistry             = unsafe { nil } // ServiceProvider (Laravel)
-	runners                  []&ApplicationRunner
-	shutdown_hooks           &ShutdownHookManager          = unsafe { nil }
-	lifecycle_beans          []&Lifecycle                   // Spring Lifecycle beans
+	container               &Container             = unsafe { nil }
+	event_bus               &EventBus              = unsafe { nil }
+	lifecycle               &LifecycleManager      = unsafe { nil }
+	smart_lifecycle         &SmartLifecycleManager = unsafe { nil }
+	environment             &Environment           = unsafe { nil }
+	post_processors         []&BeanPostProcessor
+	factory_post_processors []&BeanFactoryPostProcessor
+	auto_config_manager     &AutoConfigurationManager = unsafe { nil }
+	provider_registry       &ProviderRegistry         = unsafe { nil } // ServiceProvider (Laravel)
+	runners                 []&ApplicationRunner
+	shutdown_hooks          &ShutdownHookManager = unsafe { nil }
+	lifecycle_beans         []&Lifecycle // Spring Lifecycle beans
 mut:
 	state ApplicationState = .created
 	mu    sync.RwMutex
@@ -82,19 +81,19 @@ mut:
 // with all subsystems wired together.
 pub fn new_application_context() &ApplicationContext {
 	mut ctx := &ApplicationContext{
-		container: new_container()
-		event_bus: new_event_bus()
-		lifecycle: new_lifecycle_manager()
-		smart_lifecycle: new_smart_lifecycle_manager()
-		environment: new_environment()
-		post_processors: []&BeanPostProcessor{}
+		container:               new_container()
+		event_bus:               new_event_bus()
+		lifecycle:               new_lifecycle_manager()
+		smart_lifecycle:         new_smart_lifecycle_manager()
+		environment:             new_environment()
+		post_processors:         []&BeanPostProcessor{}
 		factory_post_processors: []&BeanFactoryPostProcessor{}
-		auto_config_manager: new_auto_configuration_manager()
-		provider_registry: new_provider_registry()
-		runners: []&ApplicationRunner{}
-		shutdown_hooks: new_shutdown_hook_manager()
-		lifecycle_beans: []&Lifecycle{}
-		state: .created
+		auto_config_manager:     new_auto_configuration_manager()
+		provider_registry:       new_provider_registry()
+		runners:                 []&ApplicationRunner{}
+		shutdown_hooks:          new_shutdown_hook_manager()
+		lifecycle_beans:         []&Lifecycle{}
+		state:                   .created
 	}
 	// Wire the container's event bus to the application's event bus
 	// so bean lifecycle events (bean.created, bean.destroyed) are dispatched
@@ -179,7 +178,7 @@ pub fn (mut ctx ApplicationContext) register(def BeanDefinition) ! {
 		// Parse and evaluate any conditional attributes from tags
 		conditions := parse_conditions(def.tags, mut cond_ctx)
 		if !evaluate_conditions(conditions, mut cond_ctx) {
-			return // Condition not met — skip registration silently
+			return
 		}
 	}
 	ctx.container.register(def)!
@@ -463,9 +462,7 @@ pub fn (mut ctx ApplicationContext) shutdown() {
 	// 3.6. Stop Lifecycle beans
 	for bean in ctx.lifecycle_beans {
 		if !isnil(bean) && bean.is_running() {
-			bean.stop() or {
-				eprintln('[ApplicationContext] Lifecycle stop error: ${err}')
-			}
+			bean.stop() or { eprintln('[ApplicationContext] Lifecycle stop error: ${err}') }
 		}
 	}
 
@@ -501,9 +498,7 @@ pub fn (mut ctx ApplicationContext) start() ! {
 	// Start Lifecycle beans
 	for bean in ctx.lifecycle_beans {
 		if !isnil(bean) && !bean.is_running() {
-			bean.start() or {
-				eprintln('[ApplicationContext] Lifecycle start error: ${err}')
-			}
+			bean.start() or { eprintln('[ApplicationContext] Lifecycle start error: ${err}') }
 		}
 	}
 
@@ -550,9 +545,7 @@ pub fn (mut ctx ApplicationContext) stop() ! {
 	// Stop Lifecycle beans
 	for bean in ctx.lifecycle_beans {
 		if !isnil(bean) && bean.is_running() {
-			bean.stop() or {
-				eprintln('[ApplicationContext] Lifecycle stop error: ${err}')
-			}
+			bean.stop() or { eprintln('[ApplicationContext] Lifecycle stop error: ${err}') }
 		}
 	}
 
@@ -677,7 +670,11 @@ pub fn (mut ctx ApplicationContext) print_info() {
 	println('║ Smart Lifecycles:   ${ctx.smart_lifecycle.entry_count()}')
 	println('║ Lifecycle Beans:    ${ctx.lifecycle_beans.len}')
 	println('║ ApplicationRunners: ${ctx.runners.len}')
-	println('║ Shutdown Hooks:     ${if !isnil(ctx.shutdown_hooks) { ctx.shutdown_hooks.hook_count().str() } else { '0' }}')
+	println('║ Shutdown Hooks:     ${if !isnil(ctx.shutdown_hooks) {
+		ctx.shutdown_hooks.hook_count().str()
+	} else {
+		'0'
+	}}')
 	println('║ Event Types:        ${ctx.event_bus.listeners.len}')
 	println('║ Properties:         ${ctx.environment.property_count()}')
 	println('║ Property Sources:   ${ctx.environment.source_count()}')
@@ -855,16 +852,16 @@ pub fn (mut ctx ApplicationContext) resolve_typed_or[T](type_name string, defaul
 // Inspired by Spring's BeanDefinitionBuilder and Laravel's service container binding.
 pub struct BeanRegistrationOptions {
 pub:
-	scope          Scope        = .singleton
+	scope          Scope = .singleton
 	is_lazy        bool
 	qualifier      string
 	tags           []string
 	dependencies   []Dependency
 	init_method    string
 	destroy_method string
-	depends_on     []string     // @[depends_on] — explicit creation order
-	is_primary     bool         // @[primary] — prefer this bean when multiple candidates exist
-	parent_name    string       // parent bean definition for property inheritance
+	depends_on     []string // @[depends_on] — explicit creation order
+	is_primary     bool     // @[primary] — prefer this bean when multiple candidates exist
+	parent_name    string   // parent bean definition for property inheritance
 	// ── Enhanced DI fields ──
 	interfaces            []string              // interfaces this bean implements
 	method_injections     []MethodInjection     // @[autowired] on setter/method
@@ -875,7 +872,7 @@ pub:
 // ── Topological Sort Helper ──
 
 // topological_sort sorts bean names by dependency order using Kahn's algorithm.
-fn topological_sort(bean_names []string, mut container &Container) []string {
+fn topological_sort(bean_names []string, mut container Container) []string {
 	mut in_degree := map[string]int{}
 	mut adj := map[string][]string{}
 

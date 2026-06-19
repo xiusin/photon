@@ -108,14 +108,14 @@ pub fn (rh &RoleHierarchy) has_permission(user_roles []string, role_permissions 
 // AccessDecisionManager makes authorization decisions
 pub struct AccessDecisionManager {
 pub mut:
-	hierarchy         &RoleHierarchy
-	role_permissions  map[string][]string
+	hierarchy        &RoleHierarchy
+	role_permissions map[string][]string
 }
 
 // new_access_manager creates a new AccessDecisionManager
 pub fn new_access_manager(hierarchy &RoleHierarchy) &AccessDecisionManager {
 	return &AccessDecisionManager{
-		hierarchy: unsafe { hierarchy }
+		hierarchy:        unsafe { hierarchy }
 		role_permissions: map[string][]string{}
 	}
 }
@@ -163,9 +163,9 @@ pub fn build_default_hierarchy() &RoleHierarchy {
 // build_default_permissions creates standard CRUD permissions
 pub fn build_default_permissions() map[string][]string {
 	return {
-		'ADMIN':      ['*', 'user:read', 'user:write', 'user:delete', 'admin:settings', 'admin:users']
-		'MODERATOR':  ['user:read', 'user:write']
-		'USER':       ['user:read', 'self:write']
-		'GUEST':      ['public:read']
+		'ADMIN':     ['*', 'user:read', 'user:write', 'user:delete', 'admin:settings', 'admin:users']
+		'MODERATOR': ['user:read', 'user:write']
+		'USER':      ['user:read', 'self:write']
+		'GUEST':     ['public:read']
 	}
 }

@@ -1,6 +1,7 @@
 module security
 
 // encryption_test.v - Tests for Encrypter
+// NOTE: Encrypter is deprecated, use AesCipher (cipher.v) for production. Tests retained for backward compatibility.
 
 fn test_encrypter_new() {
 	e := new_encrypter('my-secret-key-32-bytes-long!!')

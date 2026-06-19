@@ -8,18 +8,17 @@ module cli
 //   secret()  - hidden input (password)
 //   choice()  - select from options
 //   anticipate() - autocomplete input
-
 import os
 
 // Question represents a question to ask the user
 pub struct Question {
 pub:
-	prompt        string
-	default_val   string
-	required      bool = true
-	hidden        bool
-	choices       []string
-	attempts      int = 3
+	prompt      string
+	default_val string
+	required    bool = true
+	hidden      bool
+	choices     []string
+	attempts    int = 3
 }
 
 // AskResult holds the user's answer
@@ -44,12 +43,20 @@ pub fn ask_with_default(prompt string, default_val string) AskResult {
 
 	input := os.input('')
 	if input.len == 0 && default_val.len > 0 {
-		return AskResult{answer: default_val, valid: true}
+		return AskResult{
+			answer: default_val
+			valid:  true
+		}
 	}
 	if input.len > 0 {
-		return AskResult{answer: input, valid: true}
+		return AskResult{
+			answer: input
+			valid:  true
+		}
 	}
-	return AskResult{valid: false}
+	return AskResult{
+		valid: false
+	}
 }
 
 // confirm asks a yes/no question

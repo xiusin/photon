@@ -8,18 +8,17 @@ module cache
 // Uses sync.RwMutex for optimized read concurrency:
 //   - get() uses read-lock (concurrent reads allowed)
 //   - set()/delete() use write-lock (exclusive writes)
-
 import time
 import sync
 
 // MemCacheEntry represents a cached item
 pub struct MemCacheEntry {
-	pub:
-	key         string
-	value       string
-	expires_at  i64
-	created_at  i64
-	pub mut:
+pub:
+	key        string
+	value      string
+	expires_at i64
+	created_at i64
+pub mut:
 	accessed_at i64
 	hit_count   int
 }
@@ -36,19 +35,19 @@ fn (e &MemCacheEntry) is_expired() bool {
 // Uses sync.RwMutex: get()/has()/keys()/size() use read-lock,
 // set()/delete()/clear() use write-lock.
 pub struct MemoryCache {
-	pub:
-	name       string
-	max_size   int = 10000
-	pub mut:
-	entries    map[string]MemCacheEntry
-	mut:
-	mu         sync.RwMutex
+pub:
+	name     string
+	max_size int = 10000
+pub mut:
+	entries map[string]MemCacheEntry
+mut:
+	mu sync.RwMutex
 }
 
 // new_memory_cache creates a new in-memory cache
 pub fn new_memory_cache(name string) &MemoryCache {
 	return &MemoryCache{
-		name: name
+		name:    name
 		entries: map[string]MemCacheEntry{}
 	}
 }
@@ -56,9 +55,9 @@ pub fn new_memory_cache(name string) &MemoryCache {
 // new_memory_cache_with_max creates a new in-memory cache with max size
 pub fn new_memory_cache_with_max(name string, max_size int) &MemoryCache {
 	return &MemoryCache{
-		name: name
+		name:     name
 		max_size: max_size
-		entries: map[string]MemCacheEntry{}
+		entries:  map[string]MemCacheEntry{}
 	}
 }
 
@@ -111,12 +110,12 @@ pub fn (mut mc MemoryCache) set(key string, value string, ttl_seconds int) ! {
 	expires_at := if ttl_seconds > 0 { now + ttl_seconds } else { i64(0) }
 
 	mc.entries[key] = MemCacheEntry{
-		key: key
-		value: value
-		expires_at: expires_at
-		created_at: now
+		key:         key
+		value:       value
+		expires_at:  expires_at
+		created_at:  now
 		accessed_at: now
-		hit_count:  0
+		hit_count:   0
 	}
 }
 
@@ -240,7 +239,7 @@ pub fn (mut mc MemoryCache) stats() CacheStats {
 
 // CacheStats holds cache statistics
 pub struct CacheStats {
-	pub:
+pub:
 	total_entries   int
 	expired_entries int
 	total_hits      int

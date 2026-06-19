@@ -10,7 +10,6 @@ module logger
 //   - EncoderConfig: Fine-grained control over output format
 //   - Level: Severity filtering (debug, info, warn, error, fatal)
 //   - MDC: Mapped Diagnostic Context for structured fields
-
 import time
 
 // Level represents the severity of a log message
@@ -26,8 +25,8 @@ pub enum Level {
 pub fn (l Level) str() string {
 	return match l {
 		.debug { 'DEBUG' }
-		.info  { 'INFO' }
-		.warn  { 'WARN' }
+		.info { 'INFO' }
+		.warn { 'WARN' }
 		.error { 'ERROR' }
 		.fatal { 'FATAL' }
 	}
@@ -37,8 +36,8 @@ pub fn (l Level) str() string {
 pub fn (l Level) short_str() string {
 	return match l {
 		.debug { 'DBUG' }
-		.info  { 'INFO' }
-		.warn  { 'WARN' }
+		.info { 'INFO' }
+		.warn { 'WARN' }
 		.error { 'ERRO' }
 		.fatal { 'FATA' }
 	}
@@ -54,7 +53,7 @@ pub enum TimeFormat {
 // fmt_time formats a Time according to TimeFormat
 pub fn fmt_time(t time.Time, format TimeFormat) string {
 	return match format {
-		.unix    { t.unix().str() }
+		.unix { t.unix().str() }
 		.rfc3339 { t.format_rfc3339() }
 		.iso8601 { t.format_ss() }
 	}
@@ -64,12 +63,12 @@ pub fn fmt_time(t time.Time, format TimeFormat) string {
 // Inspired by zap's EncoderConfig.
 pub struct EncoderConfig {
 pub:
-	time_key     string = 'timestamp'
-	level_key    string = 'level'
-	name_key     string = 'logger'
-	message_key  string = 'message'
-	caller_key   string = 'caller'
-	time_format  TimeFormat = .rfc3339
+	time_key    string     = 'timestamp'
+	level_key   string     = 'level'
+	name_key    string     = 'logger'
+	message_key string     = 'message'
+	caller_key  string     = 'caller'
+	time_format TimeFormat = .rfc3339
 }
 
 // LogEntry represents a complete log entry before encoding
@@ -247,11 +246,25 @@ pub fn (l &Logger) log(level Level, msg string) {
 
 // Convenience methods
 
-pub fn (l &Logger) debug(msg string) { l.log(.debug, msg) }
-pub fn (l &Logger) info(msg string)  { l.log(.info, msg) }
-pub fn (l &Logger) warn(msg string)  { l.log(.warn, msg) }
-pub fn (l &Logger) error(msg string) { l.log(.error, msg) }
-pub fn (l &Logger) fatal(msg string) { l.log(.fatal, msg) }
+pub fn (l &Logger) debug(msg string) {
+	l.log(.debug, msg)
+}
+
+pub fn (l &Logger) info(msg string) {
+	l.log(.info, msg)
+}
+
+pub fn (l &Logger) warn(msg string) {
+	l.log(.warn, msg)
+}
+
+pub fn (l &Logger) error(msg string) {
+	l.log(.error, msg)
+}
+
+pub fn (l &Logger) fatal(msg string) {
+	l.log(.fatal, msg)
+}
 
 // Formatted convenience methods
 

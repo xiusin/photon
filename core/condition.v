@@ -83,9 +83,9 @@ pub fn (c &OnProfileCondition) evaluate(mut ctx ConditionContext) bool {
 // OnPropertyCondition checks if a configuration property exists.
 pub struct OnPropertyCondition {
 pub:
-	key           string
-	having_value  string // if non-empty, property must equal this value
-	match_if_missing bool // if true, matches when property is absent
+	key              string
+	having_value     string // if non-empty, property must equal this value
+	match_if_missing bool   // if true, matches when property is absent
 }
 
 pub fn (c &OnPropertyCondition) evaluate(mut ctx ConditionContext) bool {
@@ -234,38 +234,65 @@ pub fn parse_conditions(attrs []string, mut ctx ConditionContext) []&Condition {
 	mut conditions := []&Condition{}
 
 	for attr in attrs {
-		if attr.starts_with('conditional_on_profile:') || attr.starts_with('conditional_on_profile(') {
+		if attr.starts_with('conditional_on_profile:')
+			|| attr.starts_with('conditional_on_profile(') {
 			profile := extract_conditional_arg(attr)
-			conditions << &Condition(&OnProfileCondition{profile: profile})
-		} else if attr.starts_with('conditional_on_property:') || attr.starts_with('conditional_on_property(') {
+			conditions << &Condition(&OnProfileCondition{
+				profile: profile
+			})
+		} else if attr.starts_with('conditional_on_property:')
+			|| attr.starts_with('conditional_on_property(') {
 			// Support: conditional_on_property('key') or conditional_on_property('key','value')
 			arg := extract_conditional_arg(attr)
 			parts := arg.split_nth(',', 2)
 			if parts.len == 2 {
-				key := parts[0].trim(' ').trim('\'').trim('"')
-				having_value := parts[1].trim(' ').trim('\'').trim('"')
-				conditions << &Condition(&OnPropertyCondition{key: key, having_value: having_value})
+				key := parts[0].trim(' ').trim("'").trim('"')
+				having_value := parts[1].trim(' ').trim("'").trim('"')
+				conditions << &Condition(&OnPropertyCondition{
+					key:          key
+					having_value: having_value
+				})
 			} else {
-				conditions << &Condition(&OnPropertyCondition{key: parts[0].trim(' ').trim('\'').trim('"')})
+				conditions << &Condition(&OnPropertyCondition{
+					key: parts[0].trim(' ').trim("'").trim('"')
+				})
 			}
-		} else if attr.starts_with('conditional_on_bean:') || attr.starts_with('conditional_on_bean(') {
+		} else if attr.starts_with('conditional_on_bean:')
+			|| attr.starts_with('conditional_on_bean(') {
 			bean_type := extract_conditional_arg(attr)
-			conditions << &Condition(&OnBeanCondition{bean_type: bean_type})
-		} else if attr.starts_with('conditional_on_missing_bean:') || attr.starts_with('conditional_on_missing_bean(') {
+			conditions << &Condition(&OnBeanCondition{
+				bean_type: bean_type
+			})
+		} else if attr.starts_with('conditional_on_missing_bean:')
+			|| attr.starts_with('conditional_on_missing_bean(') {
 			bean_type := extract_conditional_arg(attr)
-			conditions << &Condition(&OnMissingBeanCondition{bean_type: bean_type})
-		} else if attr.starts_with('conditional_on_expression:') || attr.starts_with('conditional_on_expression(') {
+			conditions << &Condition(&OnMissingBeanCondition{
+				bean_type: bean_type
+			})
+		} else if attr.starts_with('conditional_on_expression:')
+			|| attr.starts_with('conditional_on_expression(') {
 			expression := extract_conditional_arg(attr)
-			conditions << &Condition(&OnExpressionCondition{expression: expression})
-		} else if attr.starts_with('conditional_on_class:') || attr.starts_with('conditional_on_class(') {
+			conditions << &Condition(&OnExpressionCondition{
+				expression: expression
+			})
+		} else if attr.starts_with('conditional_on_class:')
+			|| attr.starts_with('conditional_on_class(') {
 			class_name := extract_conditional_arg(attr)
-			conditions << &Condition(&OnClassCondition{class_name: class_name})
-		} else if attr.starts_with('conditional_on_missing_class:') || attr.starts_with('conditional_on_missing_class(') {
+			conditions << &Condition(&OnClassCondition{
+				class_name: class_name
+			})
+		} else if attr.starts_with('conditional_on_missing_class:')
+			|| attr.starts_with('conditional_on_missing_class(') {
 			class_name := extract_conditional_arg(attr)
-			conditions << &Condition(&OnMissingClassCondition{class_name: class_name})
-		} else if attr.starts_with('conditional_on_cloud_platform:') || attr.starts_with('conditional_on_cloud_platform(') {
+			conditions << &Condition(&OnMissingClassCondition{
+				class_name: class_name
+			})
+		} else if attr.starts_with('conditional_on_cloud_platform:')
+			|| attr.starts_with('conditional_on_cloud_platform(') {
 			platform := extract_conditional_arg(attr)
-			conditions << &Condition(&OnCloudPlatformCondition{platform: platform})
+			conditions << &Condition(&OnCloudPlatformCondition{
+				platform: platform
+			})
 		}
 	}
 
@@ -304,14 +331,14 @@ fn extract_conditional_arg(attr string) string {
 		if val.ends_with(')') {
 			val = val[..val.len - 1]
 		}
-		return val.trim('\'').trim('"').trim_space()
+		return val.trim("'").trim('"').trim_space()
 	}
 	if paren_pos := attr.index('(') {
 		mut val := attr[paren_pos + 1..]
 		if val.ends_with(')') {
 			val = val[..val.len - 1]
 		}
-		return val.trim('\'').trim('"').trim_space()
+		return val.trim("'").trim('"').trim_space()
 	}
 	return ''
 }

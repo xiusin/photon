@@ -8,7 +8,6 @@ module main
 // Usage:
 //   v run docs/serve.v              # default port 8765
 //   v run docs/serve.v 3000         # custom port
-
 import os
 import veb
 import net.http
@@ -53,7 +52,7 @@ pub struct Context {
 // detect_mime returns the MIME type for a file based on its extension.
 fn detect_mime(path string) string {
 	ext := os.file_ext(path).to_lower()
-	return main.mime_types[ext] or { 'application/octet-stream' }
+	return mime_types[ext] or { 'application/octet-stream' }
 }
 
 // is_safe_path prevents path traversal attacks.
@@ -83,8 +82,7 @@ fn resolve_docs_dir() !string {
 	}
 
 	return error('Cannot find docs/ directory with index.html.\n' +
-		'  Please run from the photon project root:\n' +
-		'    v run docs/serve.v')
+		'  Please run from the photon project root:\n' + '    v run docs/serve.v')
 }
 
 // parse_port extracts port number from command line args.

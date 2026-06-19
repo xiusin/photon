@@ -25,7 +25,6 @@ module web
 //       }
 //       return ctx.json(user)
 //   }
-
 import json
 
 // ── HttpException ──
@@ -43,8 +42,8 @@ pub:
 pub fn new_http_exception(status_code int, message string) HttpException {
 	return HttpException{
 		status_code: status_code
-		message: message
-		details: map[string]string{}
+		message:     message
+		details:     map[string]string{}
 	}
 }
 
@@ -52,8 +51,8 @@ pub fn new_http_exception(status_code int, message string) HttpException {
 pub fn new_http_exception_with_details(status_code int, message string, details map[string]string) HttpException {
 	return HttpException{
 		status_code: status_code
-		message: message
-		details: details
+		message:     message
+		details:     details
 	}
 }
 
@@ -151,7 +150,7 @@ pub:
 // new_validation_exception creates a 422 Validation exception.
 pub fn new_validation_exception(message string, errors map[string][]string) ValidationException {
 	return ValidationException{
-		HttpException: new_http_exception(422, message)
+		HttpException:     new_http_exception(422, message)
 		validation_errors: errors
 	}
 }
@@ -200,7 +199,7 @@ pub type ExceptionHandlerFunc = fn (err IError) string
 // ExceptionHandlerRegistry maps error type names to handler functions.
 pub struct ExceptionHandlerRegistry {
 pub mut:
-	handlers       map[string]ExceptionHandlerFunc
+	handlers        map[string]ExceptionHandlerFunc
 	default_handler ExceptionHandlerFunc = unsafe { nil }
 }
 
@@ -335,7 +334,7 @@ pub:
 // text_response_for_error creates a JSON error response.
 fn text_response_for_error(status int, message string) string {
 	resp := ErrorResponse{
-		code: status
+		code:    status
 		message: message
 	}
 	return json.encode(resp)
@@ -345,7 +344,7 @@ fn text_response_for_error(status int, message string) string {
 pub fn error_json(code int, message string) string {
 	resp := ErrorResponse{
 		success: false
-		code: code
+		code:    code
 		message: message
 	}
 	return json.encode(resp)
@@ -355,7 +354,7 @@ pub fn error_json(code int, message string) string {
 pub fn error_json_with_details(code int, message string, details map[string]string) string {
 	resp := ErrorResponse{
 		success: false
-		code: code
+		code:    code
 		message: message
 		details: details
 	}
@@ -367,7 +366,7 @@ pub fn error_json_with_details(code int, message string, details map[string]stri
 // recover_exceptions is a middleware that catches panics and converts
 // them to proper HTTP error responses.
 // Place this as the FIRST middleware in your chain.
-pub fn recover_exceptions(mut ctx &MiddlewareContext) !bool {
+pub fn recover_exceptions(mut ctx MiddlewareContext) !bool {
 	// V doesn't have try/catch, but we can check for error conditions
 	// in the middleware data and handle them appropriately.
 	// This is a defensive marker — actual panic recovery depends on

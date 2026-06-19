@@ -21,11 +21,15 @@ fn (m &MockMigration) name() string {
 }
 
 fn (m &MockMigration) up(mut manager OrmManager) ! {
-	unsafe { m.up_called = true }
+	unsafe {
+		m.up_called = true
+	}
 }
 
 fn (m &MockMigration) down(mut manager OrmManager) ! {
-	unsafe { m.down_called = true }
+	unsafe {
+		m.down_called = true
+	}
 }
 
 fn new_mock_migration(version int, name string) &MockMigration {
@@ -99,7 +103,10 @@ fn test_migration_manager_add_preserves_order() {
 // --- Mock Migration Interface Tests ---
 
 fn test_mock_migration_implements_interface() {
-	mut m := MockMigration{ v: 5, n: 'test_migration' }
+	mut m := MockMigration{
+		v: 5
+		n: 'test_migration'
+	}
 	assert m.version() == 5
 	assert m.name() == 'test_migration'
 	assert m.up_called == false
@@ -183,7 +190,6 @@ fn test_migration_manager_in_memory_skips_applied() {
 		m1.up_called = false
 		m2.up_called = false
 	}
-
 	mm.migrate()!
 	assert m1.up_called == false // skipped
 	assert m2.up_called == false // skipped

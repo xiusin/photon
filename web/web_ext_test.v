@@ -9,7 +9,7 @@ module web
 @[heap]
 struct PipelineTracker {
 mut:
-	order []string
+	order  []string
 	called bool
 }
 
@@ -22,21 +22,21 @@ fn test_pipeline_through_then() {
 	mut p := new_pipeline()
 	mut tracker := &PipelineTracker{}
 
-	pipe1 := fn [mut tracker](passable voidptr, next fn (voidptr) voidptr) voidptr {
+	pipe1 := fn [mut tracker] (passable voidptr, next fn (voidptr) voidptr) voidptr {
 		tracker.order << 'pipe1_before'
 		result := next(passable)
 		tracker.order << 'pipe1_after'
 		return result
 	}
 
-	pipe2 := fn [mut tracker](passable voidptr, next fn (voidptr) voidptr) voidptr {
+	pipe2 := fn [mut tracker] (passable voidptr, next fn (voidptr) voidptr) voidptr {
 		tracker.order << 'pipe2_before'
 		result := next(passable)
 		tracker.order << 'pipe2_after'
 		return result
 	}
 
-	destination := fn [mut tracker](passable voidptr) voidptr {
+	destination := fn [mut tracker] (passable voidptr) voidptr {
 		tracker.order << 'destination'
 		return unsafe { nil }
 	}
@@ -56,7 +56,7 @@ fn test_pipeline_through_then() {
 fn test_pipeline_empty_through() {
 	mut p := new_pipeline()
 	mut tracker := &PipelineTracker{}
-	dest := fn [mut tracker](passable voidptr) voidptr {
+	dest := fn [mut tracker] (passable voidptr) voidptr {
 		tracker.called = true
 		return unsafe { nil }
 	}
@@ -69,7 +69,7 @@ fn test_pipeline_empty_through() {
 fn test_pipeline_single_pipe() {
 	mut p := new_pipeline()
 	mut tracker := &PipelineTracker{}
-	pipe := fn [mut tracker](passable voidptr, next fn (voidptr) voidptr) voidptr {
+	pipe := fn [mut tracker] (passable voidptr, next fn (voidptr) voidptr) voidptr {
 		tracker.called = true
 		return next(passable)
 	}
@@ -150,8 +150,8 @@ fn test_ratelimiter_clear_expired() {
 @[heap]
 struct KernelTracker {
 mut:
-	events []string
-	count  int
+	events     []string
+	count      int
 	terminated bool
 }
 
@@ -170,13 +170,13 @@ fn test_kernel_handle() {
 	mut k := new_http_kernel()
 	mut tracker := &KernelTracker{}
 
-	k.on(.request, fn [mut tracker](name string, data voidptr) {
+	k.on(.request, fn [mut tracker] (name string, data voidptr) {
 		tracker.events << 'request'
 	})
-	k.on(.controller, fn [mut tracker](name string, data voidptr) {
+	k.on(.controller, fn [mut tracker] (name string, data voidptr) {
 		tracker.events << 'controller'
 	})
-	k.on(.response, fn [mut tracker](name string, data voidptr) {
+	k.on(.response, fn [mut tracker] (name string, data voidptr) {
 		tracker.events << 'response'
 	})
 
@@ -191,7 +191,7 @@ fn test_kernel_handle() {
 fn test_kernel_terminate() {
 	mut k := new_http_kernel()
 	mut tracker := &KernelTracker{}
-	k.on(.terminate, fn [mut tracker](name string, data voidptr) {
+	k.on(.terminate, fn [mut tracker] (name string, data voidptr) {
 		tracker.terminated = true
 	})
 
@@ -211,10 +211,78 @@ fn test_kernel_multiple_listeners() {
 	mut k := new_http_kernel()
 	mut tracker := &KernelTracker{}
 
-	k.on(.request, fn [mut tracker](name string, data voidptr) { tracker.count++ })
-	k.on(.request, fn [mut tracker](name string, data voidptr) { tracker.count++ })
-	k.on(.request, fn [mut tracker](name string, data voidptr) { tracker.count++ })
+	k.on(.request, fn [mut tracker] (name string, data voidptr) {
+		tracker.count++
+	})
+	k.on(.request, fn [mut tracker] (name string, data voidptr) {
+		tracker.count++
+	})
+	k.on(.request, fn [mut tracker] (name string, data voidptr) {
+		tracker.count++
+	})
 
 	k.handle() or { assert false }
 	assert tracker.count == 3
+}
+
+// ── handle_with tests ──
+
+struct MockHandlerResolver {
+	success bool
+}
+
+fn (r MockHandlerResolver) resolve(ctx voidptr) !fn (ctx voidptr) !voidptr {
+	if r.success {
+		return fn (ctx voidptr) !voidptr {
+			return unsafe { nil }
+		}
+	}
+	return error('handler not found')
+}
+
+fn test_kernel_handle_with_success() {
+	mut k := new_http_kernel()
+	mut tracker := &KernelTracker{}
+
+	k.on(.request, fn [mut tracker] (name string, data voidptr) {
+		tracker.events << 'request'
+	})
+	k.on(.controller, fn [mut tracker] (name string, data voidptr) {
+		tracker.events << 'controller'
+	})
+	k.on(.response, fn [mut tracker] (name string, data voidptr) {
+		tracker.events << 'response'
+	})
+
+	resolver := MockHandlerResolver{
+		success: true
+	}
+	result := k.handle_with(resolver, unsafe { nil }) or {
+		assert false, 'should not error'
+		return
+	}
+	_ = result
+
+	assert tracker.events.len == 3
+	assert tracker.events[0] == 'request'
+	assert tracker.events[1] == 'controller'
+	assert tracker.events[2] == 'response'
+}
+
+fn test_kernel_handle_with_exception() {
+	mut k := new_http_kernel()
+	mut tracker := &KernelTracker{}
+
+	k.on(.exception, fn [mut tracker] (name string, data voidptr) {
+		tracker.events << 'exception'
+	})
+
+	resolver := MockHandlerResolver{
+		success: false
+	}
+	mut failed := false
+	k.handle_with(resolver, unsafe { nil }) or { failed = true }
+	assert failed
+	assert tracker.events.len == 1
+	assert tracker.events[0] == 'exception'
 }

@@ -19,7 +19,7 @@ pub:
 	name        string
 	description string
 pub mut:
-	sig         string // signature string
+	sig string // signature string
 }
 
 // name returns the command name
