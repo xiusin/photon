@@ -398,8 +398,12 @@ pub fn (mut t TableDef) default_(value string) {
 
 // timestamps adds created_at and updated_at timestamp columns.
 pub fn (mut t TableDef) timestamps() {
-	t.timestamp_('created_at').not_null().default_('CURRENT_TIMESTAMP')
-	t.timestamp_('updated_at').not_null().default_('CURRENT_TIMESTAMP')
+	t.timestamp_('created_at')
+	t.not_null()
+	t.default_('CURRENT_TIMESTAMP')
+	t.timestamp_('updated_at')
+	t.not_null()
+	t.default_('CURRENT_TIMESTAMP')
 }
 
 // soft_deletes adds a deleted_at timestamp column (nullable).
@@ -673,7 +677,8 @@ pub fn (mut mm MigrationManager) initialize() ! {
 	mut schema := new_schema(mm.driver_or_default())
 	migration_table_name := mm.migration_table
 	schema.create_table(migration_table_name, fn [migration_table_name] (mut t TableDef) {
-		t.integer('version').not_null()
+		t.integer('version')
+		t.not_null()
 		t.string_('name', 255)
 		t.integer('batch')
 		t.timestamp_('applied_at')

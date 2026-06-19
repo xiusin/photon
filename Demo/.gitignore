@@ -1,0 +1,27 @@
+# Binaries
+demo
+demo.exe
+*.exe
+
+# Database files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Storage uploads (runtime generated)
+storage/uploads/
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
