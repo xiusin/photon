@@ -37,90 +37,106 @@ pub fn slug(s string) string {
 	return buf[..end].bytestr()
 }
 
-// snake converts PascalCase or camelCase to snake_case
+// snake converts PascalCase or camelCase to snake_case.
+// Uses a []u8 buffer to avoid O(n²) string concatenation.
 pub fn snake(s string) string {
 	if s.len == 0 {
 		return ''
 	}
-	mut result := ''
+	mut buf := []u8{cap: s.len * 2}
 	for i, ch in s {
 		if is_upper_char(ch) && i > 0 {
-			result += '_'
+			buf << `_`
 		}
-		result += ch.ascii_str().to_lower()
+		mut c := ch
+		if is_upper_char(c) {
+			c += 32
+		}
+		buf << c
 	}
-	return result
+	return buf.bytestr()
 }
 
-// camel converts snake_case or kebab-case to camelCase
+// camel converts snake_case or kebab-case to camelCase.
+// Uses a []u8 buffer to avoid O(n²) string concatenation.
 pub fn camel(s string) string {
 	if s.len == 0 {
 		return ''
 	}
-	mut result := ''
+	mut buf := []u8{cap: s.len}
 	mut next_upper := false
 	for i, ch in s {
 		if ch == `_` || ch == `-` {
 			next_upper = true
 			continue
 		}
+		mut c := ch
 		if i == 0 {
-			result += ch.ascii_str().to_lower()
+			if c >= `A` && c <= `Z` {
+				c += 32
+			}
 		} else if next_upper {
-			result += ch.ascii_str().to_upper()
+			if c >= `a` && c <= `z` {
+				c -= 32
+			}
 			next_upper = false
-		} else {
-			result += ch.ascii_str()
 		}
+		buf << c
 	}
-	return result
+	return buf.bytestr()
 }
 
-// studly converts snake_case or kebab-case to PascalCase
+// studly converts snake_case or kebab-case to PascalCase.
+// Uses a []u8 buffer to avoid O(n²) string concatenation.
 pub fn studly(s string) string {
 	if s.len == 0 {
 		return ''
 	}
-	mut result := ''
+	mut buf := []u8{cap: s.len}
 	mut next_upper := true
 	for ch in s {
 		if ch == `_` || ch == `-` {
 			next_upper = true
 			continue
 		}
+		mut c := ch
 		if next_upper {
-			result += ch.ascii_str().to_upper()
+			if c >= `a` && c <= `z` {
+				c -= 32
+			}
 			next_upper = false
-		} else {
-			result += ch.ascii_str()
 		}
+		buf << c
 	}
-	return result
+	return buf.bytestr()
 }
 
-// kebab converts PascalCase or snake_case to kebab-case
+// kebab converts PascalCase or snake_case to kebab-case.
+// Uses a []u8 buffer to avoid O(n²) string concatenation.
 pub fn kebab(s string) string {
-	mut result := ''
+	mut buf := []u8{cap: s.len * 2}
 	mut last_was_sep := false
 	for i, ch in s {
-		mut cs := ch.ascii_str()
 		if is_upper_char(ch) && i > 0 {
 			if !last_was_sep {
-				result += '-'
+				buf << `-`
 			}
-			cs = cs.to_lower()
 		}
 		if ch == `_` || ch == `-` {
-			if !last_was_sep && result.len > 0 {
-				result += '-'
+			if !last_was_sep && buf.len > 0 {
+				buf << `-`
 				last_was_sep = true
 			}
 			continue
 		}
-		result += cs.to_lower()
+		mut c := ch
+		if is_upper_char(c) {
+			c += 32
+		}
+		buf << c
 		last_was_sep = false
 	}
-	return result.trim_right('-')
+	return buf.bytestr().trim_right('-')
 }
 
 // limit truncates a string to n characters and appends "..."
@@ -274,22 +290,27 @@ pub fn upper(s string) string {
 	return s.to_upper()
 }
 
-// title converts to Title Case
+// title converts to Title Case.
+// Uses a []u8 buffer to avoid O(n²) string concatenation.
 pub fn title(s string) string {
-	mut result := ''
+	mut buf := []u8{cap: s.len}
 	mut capitalize := true
 	for ch in s {
 		if ch == ` ` || ch == `_` || ch == `-` {
-			result += ' '
+			buf << ` `
 			capitalize = true
 		} else if capitalize {
-			result += ch.ascii_str().to_upper()
+			mut c := ch
+			if c >= `a` && c <= `z` {
+				c -= 32
+			}
+			buf << c
 			capitalize = false
 		} else {
-			result += ch.ascii_str()
+			buf << ch
 		}
 	}
-	return result
+	return buf.bytestr()
 }
 
 // repeat repeats s n times

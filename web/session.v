@@ -308,6 +308,12 @@ pub fn (mut sm SessionManager) destroy(mut ctx veb.Context, sess &Session) ! {
 // ── Session Middleware ──
 
 // session_middleware is a middleware that starts and saves sessions.
+//
+// Placeholder middleware. Actual session start/save lifecycle is handled by
+// the SessionManager and veb's request hooks. This middleware exists for API
+// compatibility with middleware chains that expect a session step. It only
+// marks that a session is active in the middleware data map; it does not
+// perform any session work.
 pub fn session_middleware(mut ctx MiddlewareContext) !bool {
 	ctx.data['_session_active'] = 'true'
 	return true

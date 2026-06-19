@@ -8,6 +8,7 @@ module cache
 //   - remember_forever: cache helper with callback fallback
 import time
 import sync
+import strings
 
 // ============================================================
 // Cache Tags
@@ -26,13 +27,14 @@ pub fn new_tag_set(tags []string) &TagSet {
 	}
 }
 
-// get_namespace returns a unique namespace key for this tag set
+// get_namespace returns a unique namespace key for this tag set.
+// Uses a strings.Builder to avoid O(n²) string concatenation.
 pub fn (ts &TagSet) get_namespace() string {
-	mut ns := ''
+	mut sb := strings.new_builder(64)
 	for tag in ts.tags {
-		ns += '${tag}:'
+		sb.write_string2(tag, ':')
 	}
-	return ns
+	return sb.str()
 }
 
 // TaggedCache wraps a cache with tag-based grouping.
@@ -128,13 +130,15 @@ pub fn (mut tc TaggedCache) flush() ! {
 	}
 }
 
-// tagged_key builds a cache key from tags
+// tagged_key builds a cache key from tags.
+// Uses a strings.Builder to avoid O(n²) string concatenation.
 fn tagged_key(tags []string, key string) string {
-	mut prefix := ''
+	mut sb := strings.new_builder(64)
 	for tag in tags {
-		prefix += '${tag}:'
+		sb.write_string2(tag, ':')
 	}
-	return '${prefix}${key}'
+	sb.write_string(key)
+	return sb.str()
 }
 
 // ============================================================

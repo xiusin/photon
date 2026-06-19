@@ -18,58 +18,56 @@ pub interface DistributedLock {
 
 // LocalMutex provides a real mutual exclusion lock.
 // V 0.5.1's sync.Mutex.try_lock() is broken (always returns false),
-// so we use sync.Mutex as a short-lived spin-guard protecting a boolean flag.
+// so we use a buffered channel as a binary semaphore:
+//   - lock()     blocks on send when the channel is full (mutex held)
+//   - try_lock() non-blocking send via select
+//   - unlock()   non-blocking receive via select
+// The OS-level channel implementation parks blocked goroutines
+// efficiently, avoiding CPU-wasting spin loops.
 pub struct LocalMutex {
 mut:
-	guard  sync.Mutex
-	locked bool
+	ch chan bool = chan bool{cap: 1}
 }
 
 // new_mutex creates a new LocalMutex
 pub fn new_mutex() &LocalMutex {
-	return &LocalMutex{}
+	return &LocalMutex{
+		ch: chan bool{cap: 1}
+	}
 }
 
-// lock acquires the mutex (blocking, with exponential backoff).
-// Starts at 100us backoff and doubles each iteration up to 50ms cap,
-// balancing low latency for short waits with reduced CPU waste for long waits.
+// lock acquires the mutex (blocking).
+// The channel send blocks (with OS-level parking) when the mutex is held,
+// so there is no CPU-wasting spin loop.
 pub fn (mut m LocalMutex) lock() {
-	mut backoff_us := i64(100)
-
-	for {
-		m.guard.@lock()
-		if !m.locked {
-			m.locked = true
-			m.guard.unlock()
-			return
-		}
-		m.guard.unlock()
-
-		// Exponential backoff: 100us → 200us → 400us → ... → cap 50ms
-		time.sleep(backoff_us * time.microsecond)
-		if backoff_us < 50_000 {
-			backoff_us *= 2
-		}
-	}
+	m.ch <- true
 }
 
-// unlock releases the mutex
+// unlock releases the mutex.
+// Panics if the mutex is not currently held.
 pub fn (mut m LocalMutex) unlock() {
-	m.guard.@lock()
-	m.locked = false
-	m.guard.unlock()
+	select {
+		_ := <-m.ch {}
+		else {
+			panic('unlock of unlocked LocalMutex')
+		}
+	}
 }
 
-// try_lock attempts to acquire without blocking
+// try_lock attempts to acquire without blocking.
+// Returns true if acquired, false if the mutex is already held.
+// Uses a non-blocking channel send via `select` with an `else` branch
+// (V's `ch <- v or { }` is blocking — it only handles closed channels,
+// not "would block" — so `select` is required for a true try-lock).
 pub fn (mut m LocalMutex) try_lock() bool {
-	m.guard.@lock()
-	if m.locked {
-		m.guard.unlock()
-		return false
+	mut acquired := false
+	select {
+		m.ch <- true {
+			acquired = true
+		}
+		else {}
 	}
-	m.locked = true
-	m.guard.unlock()
-	return true
+	return acquired
 }
 
 // LockManager provides unified lock operations (local + distributed)
@@ -129,12 +127,9 @@ pub fn (mut lm LockManager) lock_with_timeout(key string, timeout_ms int) !bool 
 	start := time.now().unix_milli()
 	mut poll_us := i64(100) // start at 100us
 
-	for {
+	for time.now().unix_milli() - start <= timeout_ms {
 		if mu.try_lock() {
 			return true
-		}
-		if time.now().unix_milli() - start > timeout_ms {
-			return false
 		}
 
 		// Exponential backoff poll: 100us → 200us → 400us → ... → cap 1ms

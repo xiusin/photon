@@ -61,9 +61,10 @@ pub fn new_memory_cache_with_max(name string, max_size int) &MemoryCache {
 	}
 }
 
-// get retrieves a value from cache using read-lock for concurrent reads.
-// Optimized compared to the previous write-locked version — multiple
-// goroutines can read concurrently without serialization.
+// get retrieves a value from cache using read-lock only.
+// Optimized: no write-lock for metadata update — accessed_at is updated
+// only on set(), making get() a pure read operation with zero write-lock
+// contention. hit_count is updated under read-lock (race-tolerant for stats).
 pub fn (mut mc MemoryCache) get(key string) !string {
 	mc.mu.@rlock()
 	entry := mc.entries[key] or {
@@ -80,18 +81,16 @@ pub fn (mut mc MemoryCache) get(key string) !string {
 		return error('cache miss: key "${key}" expired')
 	}
 
+	// Update hit_count under read-lock (race-tolerant for stats, avoids
+	// write-lock serialization that would negate RwMutex read concurrency).
+	// accessed_at is NOT updated here — LRU is based on set time, which is
+	// acceptable for most cache workloads and eliminates the double-lock.
+	unsafe {
+		mc.entries[key].hit_count++
+	}
+
 	value := entry.value
 	mc.mu.runlock()
-
-	// Update access metadata under write lock (fire-and-forget)
-	mc.mu.@lock()
-	if existing := mc.entries[key] {
-		mut updated := existing
-		updated.accessed_at = time.now().unix()
-		updated.hit_count++
-		mc.entries[key] = updated
-	}
-	mc.mu.unlock()
 
 	return value
 }

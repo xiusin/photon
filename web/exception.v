@@ -366,6 +366,12 @@ pub fn error_json_with_details(code int, message string, details map[string]stri
 // recover_exceptions is a middleware that catches panics and converts
 // them to proper HTTP error responses.
 // Place this as the FIRST middleware in your chain.
+//
+// Placeholder middleware. Actual panic recovery is handled by veb's built-in
+// recover mechanism. This middleware exists for API compatibility with
+// middleware chains that expect an exception-handling step. It only marks
+// that the exception handler is active in the middleware data map; it does
+// not perform any recovery work.
 pub fn recover_exceptions(mut ctx MiddlewareContext) !bool {
 	// V doesn't have try/catch, but we can check for error conditions
 	// in the middleware data and handle them appropriately.

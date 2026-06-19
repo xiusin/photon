@@ -80,6 +80,12 @@ pub type OrmExecExists = fn (conn voidptr, id int) bool
 //
 // No closures are used in the method bodies — V 0.5.1 does
 // not support generic type parameters in closure signatures.
+//
+// NOTE: The exec_* fields default to `unsafe { nil }` because V
+// requires an explicit default for function-pointer field types.
+// In practice these are always set by new_repository / new_derived_repository,
+// so the nil state is never observed through the public API. The
+// isnil() guards in each method are retained as defense-in-depth.
 pub struct BaseRepository[T] {
 pub mut:
 	adapter       &OrmAdapter[T]
@@ -92,10 +98,59 @@ pub mut:
 	exec_exists   OrmExecExists     = unsafe { nil }
 }
 
+// RepositoryConfig[T] bundles all ORM execution callbacks for
+// BaseRepository[T] into a single struct, making construction less
+// error-prone than passing 7 positional parameters to new_repository.
+//
+// Use with new_repository_with_config[T]():
+//
+//   cfg := orm.RepositoryConfig[User]{
+//       exec_find:     fn [om] (conn voidptr, id int) !User { ... }
+//       exec_find_all: fn [om] (conn voidptr) ![]User { ... }
+//       exec_insert:   fn [om] (conn voidptr, u User) ! { ... }
+//       exec_update:   fn [om] (conn voidptr, u User) ! { ... }
+//       exec_delete:   fn [om] (conn voidptr, id int) ! { ... }
+//       exec_count:    fn [om] (conn voidptr) !int { ... }
+//       exec_exists:   fn [om] (conn voidptr, id int) bool { ... }
+//   }
+//   repo := orm.new_repository_with_config[User](om, 'default', cfg)!
+pub struct RepositoryConfig[T] {
+pub:
+	exec_find     OrmExecFind[T]    = unsafe { nil }
+	exec_find_all OrmExecFindAll[T] = unsafe { nil }
+	exec_insert   OrmExecInsert[T]  = unsafe { nil }
+	exec_update   OrmExecUpdate[T]  = unsafe { nil }
+	exec_delete   OrmExecDelete     = unsafe { nil }
+	exec_count    OrmExecCount      = unsafe { nil }
+	exec_exists   OrmExecExists     = unsafe { nil }
+}
+
+// new_repository_with_config creates a BaseRepository backed by the
+// named connection in the OrmManager, with all ORM execution callbacks
+// supplied via a RepositoryConfig[T] struct.
+//
+// This is the preferred constructor — it avoids the 7 positional
+// parameters of new_repository, reducing the risk of argument
+// misordering.
+pub fn new_repository_with_config[T](manager &OrmManager, db_name string, config RepositoryConfig[T]) !&BaseRepository[T] {
+	mut adapter := new_orm_adapter[T](manager, db_name)!
+	return &BaseRepository[T]{
+		adapter:       adapter
+		exec_find:     config.exec_find
+		exec_find_all: config.exec_find_all
+		exec_insert:   config.exec_insert
+		exec_update:   config.exec_update
+		exec_delete:   config.exec_delete
+		exec_count:    config.exec_count
+		exec_exists:   config.exec_exists
+	}
+}
+
 // new_repository creates a BaseRepository backed by the named
 // connection in the OrmManager, with all ORM execution callbacks.
 //
 // All callback fields must be provided.
+@[deprecated: 'use new_repository_with_config instead']
 pub fn new_repository[T](manager &OrmManager, db_name string, exec_find OrmExecFind[T], exec_find_all OrmExecFindAll[T], exec_insert OrmExecInsert[T], exec_update OrmExecUpdate[T], exec_delete OrmExecDelete, exec_count OrmExecCount, exec_exists OrmExecExists) !&BaseRepository[T] {
 	mut adapter := new_orm_adapter[T](manager, db_name)!
 	return &BaseRepository[T]{
@@ -286,9 +341,54 @@ pub mut:
 	exec_derived_delete OrmExecDerivedDelete  = unsafe { nil }
 }
 
+// DerivedRepositoryConfig[T] bundles all callbacks for
+// DerivedRepository[T] (the 7 BaseRepository callbacks plus 4
+// derived-query executors) into a single struct, avoiding the 11
+// positional parameters of new_derived_repository.
+//
+// Use with new_derived_repository_with_config[T]():
+//
+//   cfg := orm.DerivedRepositoryConfig[User]{
+//       base: orm.RepositoryConfig[User]{
+//           exec_find:     fn [om] (conn voidptr, id int) !User { ... }
+//           // ...other base callbacks...
+//       }
+//       exec_derived_find:   fn [om] (conn voidptr, parts orm.QueryParts, params []voidptr) ![]User { ... }
+//       exec_derived_count:  fn [om] (conn voidptr, parts orm.QueryParts, params []voidptr) !int { ... }
+//       exec_derived_exists: fn [om] (conn voidptr, parts orm.QueryParts, params []voidptr) bool { ... }
+//       exec_derived_delete: fn [om] (conn voidptr, parts orm.QueryParts, params []voidptr) ! { ... }
+//   }
+//   dr := orm.new_derived_repository_with_config[User](om, 'default', cfg)!
+pub struct DerivedRepositoryConfig[T] {
+pub:
+	base                RepositoryConfig[T]
+	exec_derived_find   OrmExecDerivedFind[T] = unsafe { nil }
+	exec_derived_count  OrmExecDerivedCount   = unsafe { nil }
+	exec_derived_exists OrmExecDerivedExists  = unsafe { nil }
+	exec_derived_delete OrmExecDerivedDelete  = unsafe { nil }
+}
+
+// new_derived_repository_with_config creates a DerivedRepository
+// backed by the named connection, with all callbacks supplied via a
+// DerivedRepositoryConfig[T] struct.
+//
+// This is the preferred constructor — it avoids the 11 positional
+// parameters of new_derived_repository.
+pub fn new_derived_repository_with_config[T](manager &OrmManager, db_name string, config DerivedRepositoryConfig[T]) !&DerivedRepository[T] {
+	mut repo := new_repository_with_config[T](manager, db_name, config.base)!
+	return &DerivedRepository[T]{
+		repo:                repo
+		exec_derived_find:   config.exec_derived_find
+		exec_derived_count:  config.exec_derived_count
+		exec_derived_exists: config.exec_derived_exists
+		exec_derived_delete: config.exec_derived_delete
+	}
+}
+
 // new_derived_repository creates a DerivedRepository backed by the
 // named connection.  Requires all BaseRepository callbacks plus
 // four derived-query executor callbacks.
+@[deprecated: 'use new_derived_repository_with_config instead']
 pub fn new_derived_repository[T](manager &OrmManager,
 	db_name string,
 	exec_find OrmExecFind[T],

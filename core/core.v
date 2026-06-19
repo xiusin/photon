@@ -414,14 +414,14 @@ pub fn new_container() &Container {
 // container's event dispatching to the application's EventBus.
 // Spring equivalent: AbstractApplicationContext's lifecycle event publishing
 pub fn (mut c Container) set_event_bus(bus &EventBus) {
-	c.event_bus = unsafe { bus }
+	c.event_bus = bus
 }
 
 // register adds a BeanDefinition to the container.
 // Returns an error if a bean with the same type_name is already registered.
 pub fn (mut c Container) register(def BeanDefinition) ! {
-	c.mu.@lock()
-	defer { c.mu.unlock() }
+	c.sharded_mu.@lock(def.type_name)
+	defer { c.sharded_mu.unlock(def.type_name) }
 
 	if def.type_name in c.definitions {
 		return error('bean "${def.type_name}" already registered')
@@ -451,8 +451,8 @@ pub fn (mut c Container) register(def BeanDefinition) ! {
 // The alias can then be used to resolve the bean.
 // Spring equivalent: ConfigurableBeanFactory.registerAlias()
 pub fn (mut c Container) register_alias(alias string, canonical_name string) ! {
-	c.mu.@lock()
-	defer { c.mu.unlock() }
+	c.sharded_mu.@lock(alias)
+	defer { c.sharded_mu.unlock(alias) }
 
 	if alias in c.aliases {
 		return error('alias "${alias}" already registered')
@@ -465,15 +465,15 @@ pub fn (mut c Container) register_alias(alias string, canonical_name string) ! {
 
 // remove_alias removes a registered alias.
 pub fn (mut c Container) remove_alias(alias string) {
-	c.mu.@lock()
-	defer { c.mu.unlock() }
+	c.sharded_mu.@lock(alias)
+	defer { c.sharded_mu.unlock(alias) }
 	c.aliases.delete(alias)
 }
 
 // has_alias checks if an alias is registered.
 pub fn (mut c Container) has_alias(alias string) bool {
-	c.mu.rlock()
-	defer { c.mu.runlock() }
+	c.sharded_mu.rlock(alias)
+	defer { c.sharded_mu.runlock(alias) }
 	return alias in c.aliases
 }
 
@@ -484,8 +484,8 @@ pub fn (mut c Container) has_alias(alias string) bool {
 //
 // Spring equivalent: ConfigurableBeanFactory.canonicalName()
 pub fn (mut c Container) canonical_name(name string) string {
-	c.mu.rlock()
-	defer { c.mu.runlock() }
+	c.sharded_mu.rlock(name)
+	defer { c.sharded_mu.runlock(name) }
 	return c.resolve_alias_chain(name, 0)
 }
 
@@ -513,8 +513,8 @@ pub fn (mut c Container) set_parent(parent &Container) {
 // register_instance registers a pre-created instance as a singleton bean.
 // Useful for registering external services (database connections, etc.).
 pub fn (mut c Container) register_instance(type_name string, instance voidptr) ! {
-	c.mu.@lock()
-	defer { c.mu.unlock() }
+	c.sharded_mu.@lock(type_name)
+	defer { c.sharded_mu.unlock(type_name) }
 
 	if type_name in c.instances {
 		return error('bean instance "${type_name}" already registered')
@@ -557,22 +557,22 @@ pub fn (mut c Container) register_factory(factory_type_name string, factory &Fac
 // only upgrading to write lock when a new bean needs to be instantiated.
 pub fn (mut c Container) resolve(type_name string) !voidptr {
 	// Fast path: read lock for alias chain resolution + singleton cache lookup
-	c.mu.rlock()
+	c.sharded_mu.rlock(type_name)
 	resolved_name := c.resolve_alias_chain(type_name, 0)
 	if inst := c.instances[resolved_name] {
 		if inst.state == .instantiating {
-			c.mu.runlock()
+			c.sharded_mu.runlock(type_name)
 			return error('circular dependency detected for bean "${resolved_name}"')
 		}
 		result := inst.instance
-		c.mu.runlock()
+		c.sharded_mu.runlock(type_name)
 		return result
 	}
-	c.mu.runlock()
+	c.sharded_mu.runlock(type_name)
 
 	// Slow path: need write lock for potential state mutation
-	c.mu.@lock()
-	defer { c.mu.unlock() }
+	c.sharded_mu.@lock(type_name)
+	defer { c.sharded_mu.unlock(type_name) }
 
 	// Double-check after acquiring write lock (another thread may have resolved it)
 	if inst := c.instances[resolved_name] {
@@ -691,25 +691,25 @@ fn (mut c Container) resolve_unlocked(type_name string) !voidptr {
 // Uses the same read-lock-fast-path / write-lock-slow-path pattern as resolve().
 pub fn (mut c Container) resolve_by_qualifier(qualifier string) !voidptr {
 	// Fast path: read lock for qualifier → type_name resolution + singleton cache
-	c.mu.rlock()
+	c.sharded_mu.rlock(qualifier)
 	type_name := c.qualifiers[qualifier] or {
-		c.mu.runlock()
+		c.sharded_mu.runlock(qualifier)
 		return error('no bean with qualifier "${qualifier}" found')
 	}
 	if inst := c.instances[type_name] {
 		if inst.state == .instantiating {
-			c.mu.runlock()
+			c.sharded_mu.runlock(qualifier)
 			return error('circular dependency detected for bean "${type_name}"')
 		}
 		result := inst.instance
-		c.mu.runlock()
+		c.sharded_mu.runlock(qualifier)
 		return result
 	}
-	c.mu.runlock()
+	c.sharded_mu.runlock(qualifier)
 
 	// Slow path: write lock
-	c.mu.@lock()
-	defer { c.mu.unlock() }
+	c.sharded_mu.@lock(qualifier)
+	defer { c.sharded_mu.unlock(qualifier) }
 
 	// Double-check
 	if inst := c.instances[type_name] {
@@ -725,8 +725,8 @@ pub fn (mut c Container) resolve_by_qualifier(qualifier string) !voidptr {
 // has checks if a bean definition exists (including aliases and FactoryBean-produced beans).
 // Also checks the parent container if available.
 pub fn (mut c Container) has(type_name string) bool {
-	c.mu.rlock()
-	defer { c.mu.runlock() }
+	c.sharded_mu.rlock(type_name)
+	defer { c.sharded_mu.runlock(type_name) }
 	// Resolve alias chain
 	resolved := c.resolve_alias_chain(type_name, 0)
 	if resolved in c.definitions {
@@ -745,8 +745,8 @@ pub fn (mut c Container) has(type_name string) bool {
 
 // has_qualifier checks if a qualifier is registered.
 pub fn (mut c Container) has_qualifier(qualifier string) bool {
-	c.mu.rlock()
-	defer { c.mu.runlock() }
+	c.sharded_mu.rlock(qualifier)
+	defer { c.sharded_mu.runlock(qualifier) }
 	return qualifier in c.qualifiers
 }
 
@@ -939,8 +939,8 @@ fn merge_bean_definitions(parent BeanDefinition, child BeanDefinition) BeanDefin
 
 // get_definition returns a copy of a bean definition.
 pub fn (mut c Container) get_definition(type_name string) !BeanDefinition {
-	c.mu.rlock()
-	defer { c.mu.runlock() }
+	c.sharded_mu.rlock(type_name)
+	defer { c.sharded_mu.runlock(type_name) }
 	return c.definitions[type_name] or { return error('bean "${type_name}" not found') }
 }
 
@@ -967,8 +967,8 @@ pub fn (mut c Container) singleton_count() int {
 
 // dependencies_of returns the dependencies for a given bean.
 pub fn (mut c Container) dependencies_of(type_name string) []Dependency {
-	c.mu.rlock()
-	defer { c.mu.runlock() }
+	c.sharded_mu.rlock(type_name)
+	defer { c.sharded_mu.runlock(type_name) }
 	def := c.definitions[type_name] or { return []Dependency{} }
 	return def.dependencies.clone()
 }
@@ -985,8 +985,8 @@ pub fn (mut c Container) dependencies_of(type_name string) []Dependency {
 //
 // Spring equivalent: DefaultSingletonBeanRegistry.addSingleton()
 pub fn (mut c Container) set_instance(type_name string, instance voidptr) {
-	c.mu.@lock()
-	defer { c.mu.unlock() }
+	c.sharded_mu.@lock(type_name)
+	defer { c.sharded_mu.unlock(type_name) }
 
 	c.instances[type_name] = &BeanInstance{
 		definition: unsafe { nil }
@@ -1017,8 +1017,8 @@ pub fn (mut c Container) set_instance(type_name string, instance voidptr) {
 
 // mark_ready marks a bean as fully initialized.
 pub fn (mut c Container) mark_ready(type_name string) ! {
-	c.mu.@lock()
-	defer { c.mu.unlock() }
+	c.sharded_mu.@lock(type_name)
+	defer { c.sharded_mu.unlock(type_name) }
 
 	mut def := c.definitions[type_name] or { return error('bean "${type_name}" not found') }
 	def.state = .ready
@@ -1027,8 +1027,8 @@ pub fn (mut c Container) mark_ready(type_name string) ! {
 
 // destroy removes a singleton instance and calls its pre_destroy method.
 pub fn (mut c Container) destroy(type_name string) ! {
-	c.mu.@lock()
-	defer { c.mu.unlock() }
+	c.sharded_mu.@lock(type_name)
+	defer { c.sharded_mu.unlock(type_name) }
 
 	if type_name !in c.instances {
 		return error('bean instance "${type_name}" not found')
@@ -1566,13 +1566,13 @@ pub fn (mut c Container) resolve_lookup(type_name string, qualifier string) !voi
 //
 // Spring equivalent: AbstractBeanFactory.resolveDependency() for @Lookup methods
 pub fn (mut c Container) resolve_lookup_for_bean(type_name string) !map[string]voidptr {
-	c.mu.rlock()
+	c.sharded_mu.rlock(type_name)
 	def := c.definitions[type_name] or {
-		c.mu.runlock()
+		c.sharded_mu.runlock(type_name)
 		return map[string]voidptr{}
 	}
 	lookups := def.lookup_injections.clone()
-	c.mu.runlock()
+	c.sharded_mu.runlock(type_name)
 
 	mut result := map[string]voidptr{}
 	for li in lookups {

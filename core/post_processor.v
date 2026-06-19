@@ -55,6 +55,11 @@ pub fn (bp &BasePostProcessor) post_process_after_initialization(bean_name strin
 // AutowiredAnnotationPostProcessor processes @[autowired] annotations on bean fields.
 // It resolves dependencies from the container and injects them.
 //
+// Marker post-processor. Actual autowiring is performed by comptime-generated
+// code in core/scanner.v. This struct exists only for registration and
+// discovery purposes; its post_process_* methods return the bean unchanged
+// to satisfy the BeanPostProcessor interface contract.
+//
 // Spring equivalent: AutowiredAnnotationBeanPostProcessor
 pub struct AutowiredAnnotationPostProcessor {
 pub:
@@ -75,6 +80,11 @@ pub fn (pp &AutowiredAnnotationPostProcessor) post_process_after_initialization(
 
 // ValueAnnotationPostProcessor processes @[value('config.key')] annotations.
 // It resolves configuration values from the Environment and binds them to fields.
+//
+// Marker post-processor. Actual value-injection is performed by comptime-generated
+// code in core/scanner.v. This struct exists only for registration and
+// discovery purposes; its post_process_* methods return the bean unchanged
+// to satisfy the BeanPostProcessor interface contract.
 //
 // Spring equivalent: CustomAutowireConfigurer + ValueAnnotationBeanPostProcessor
 pub struct ValueAnnotationPostProcessor {
@@ -97,6 +107,11 @@ pub fn (pp &ValueAnnotationPostProcessor) post_process_after_initialization(bean
 // LifecycleAnnotationPostProcessor detects @[post_construct] and @[pre_destroy]
 // methods and registers them with the LifecycleManager.
 //
+// Marker post-processor. Actual lifecycle method invocation is performed by
+// comptime-generated code in core/scanner.v. This struct exists only for
+// registration and discovery purposes; its post_process_* methods return the
+// bean unchanged to satisfy the BeanPostProcessor interface contract.
+//
 // Spring equivalent: InitDestroyAnnotationBeanPostProcessor
 pub struct LifecycleAnnotationPostProcessor {
 pub:
@@ -116,6 +131,11 @@ pub fn (pp &LifecycleAnnotationPostProcessor) post_process_after_initialization(
 
 // EventListenerPostProcessor scans beans for methods annotated with
 // @[event_listener] and auto-registers them with the EventBus.
+//
+// Marker post-processor. Actual event-binding is performed by comptime-generated
+// code in core/scanner.v. This struct exists only for registration and
+// discovery purposes; its post_process_* methods return the bean unchanged
+// to satisfy the BeanPostProcessor interface contract.
 //
 // Spring equivalent: EventListenerMethodProcessor
 // Laravel equivalent: Event service provider auto-discovery

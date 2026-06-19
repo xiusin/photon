@@ -130,6 +130,11 @@ pub fn auth_middleware(mut ctx &MiddlewareContext) !bool {
 // Place this BEFORE middleware that may produce errors, and AFTER the
 // middleware that should run regardless.
 //
+// Placeholder middleware. Actual panic recovery is handled by veb's built-in
+// recover mechanism. This middleware exists for API compatibility with
+// middleware chains that expect a recover step. It only marks that recovery
+// is active in the middleware data map; it does not perform any recovery work.
+//
 // In V, panic recovery is handled by the runtime; this middleware
 // provides a structured error-handling layer.
 //

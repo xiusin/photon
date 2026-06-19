@@ -75,9 +75,9 @@ pub fn (mut p Pool) initialize() ! {
 // acquire gets an object from the pool
 pub fn (mut p Pool) acquire() !voidptr {
 	p.mu.@lock()
-	defer { p.mu.unlock() }
 
 	if p.closed {
+		p.mu.unlock()
 		return error('pool "${p.name}" is closed')
 	}
 
@@ -86,23 +86,37 @@ pub fn (mut p Pool) acquire() !voidptr {
 		if !entry.in_use {
 			entry.in_use = true
 			entry.last_used_at = time.now().unix()
-			return entry.object
+			obj := entry.object
+			p.mu.unlock()
+			return obj
 		}
 	}
 
 	// No idle object, create new if under max
 	if p.active_count < p.max_size {
-		obj := p.factory()!
+		// Reserve a slot under the lock, then release it so the factory
+		// call (which may do network I/O) runs without holding the lock.
+		p.active_count++
+		p.mu.unlock()
+		obj := p.factory() or {
+			// Factory failed: release the reserved slot under the lock.
+			p.mu.@lock()
+			p.active_count--
+			p.mu.unlock()
+			return err
+		}
+		p.mu.@lock()
 		p.objects << PoolEntry{
 			object:       obj
 			created_at:   time.now().unix()
 			last_used_at: time.now().unix()
 			in_use:       true
 		}
-		p.active_count++
+		p.mu.unlock()
 		return obj
 	}
 
+	p.mu.unlock()
 	return error('pool "${p.name}" exhausted (max=${p.max_size}, active=${p.active_count})')
 }
 

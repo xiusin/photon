@@ -475,6 +475,10 @@ pub fn new_chunk_manager() &UploadChunkManager {
 // init_upload initializes a new chunked upload.
 pub fn (mut cm UploadChunkManager) init_upload(file_name string, total_chunks int, total_size int) string {
 	upload_id := generate_upload_id()
+	chunk_dir := os.join_path(cm.temp_dir, upload_id)
+	// Do disk I/O BEFORE acquiring the write lock so the lock is only
+	// held for the map insertion.
+	os.mkdir_all(chunk_dir, os.MkdirParams{}) or {}
 	cm.mu.@lock()
 	defer { cm.mu.unlock() }
 	cm.chunks[upload_id] = &ChunkInfo{
@@ -484,10 +488,8 @@ pub fn (mut cm UploadChunkManager) init_upload(file_name string, total_chunks in
 		file_name:       file_name
 		total_size:      total_size
 		received_chunks: []bool{len: total_chunks, init: false}
-		chunk_dir:       os.join_path(cm.temp_dir, upload_id)
+		chunk_dir:       chunk_dir
 	}
-	entry := cm.chunks[upload_id] or { unsafe { nil } }
-	os.mkdir_all(entry.chunk_dir, os.MkdirParams{}) or {}
 	return upload_id
 }
 
@@ -527,11 +529,17 @@ pub fn (mut cm UploadChunkManager) is_complete(upload_id string) bool {
 // assemble combines all chunks into the final file.
 // Uses os.write_bytes for binary-safe assembly.
 pub fn (mut cm UploadChunkManager) assemble(upload_id string, dest_path string) ! {
+	// Lock only to extract the ChunkInfo and remove the session entry,
+	// then release the lock before doing any file I/O.
 	cm.mu.@lock()
-	defer { cm.mu.unlock() }
-	info := cm.chunks[upload_id] or { return error('upload session not found: ${upload_id}') }
+	info := cm.chunks[upload_id] or {
+		cm.mu.unlock()
+		return error('upload session not found: ${upload_id}')
+	}
+	cm.chunks.delete(upload_id)
+	cm.mu.unlock()
 
-	// Read and concatenate all chunks as binary
+	// Read and concatenate all chunks as binary (no lock held)
 	mut content := []u8{}
 	for i in 0 .. info.total_chunks {
 		chunk_path := os.join_path(info.chunk_dir, '${i:08d}.part')
@@ -544,7 +552,6 @@ pub fn (mut cm UploadChunkManager) assemble(upload_id string, dest_path string) 
 
 	// Clean up chunks
 	os.rmdir_all(info.chunk_dir) or {}
-	cm.chunks.delete(upload_id)
 }
 
 // ── Helpers ──

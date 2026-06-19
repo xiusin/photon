@@ -1,5 +1,7 @@
 module orm
 
+import strings
+
 // derive.v - Derived Repository Queries (Spring Data inspired)
 //
 // Parses Spring Data-style method names into query components
@@ -116,17 +118,16 @@ pub fn parse_method_name(method string) !QueryParts {
 	// Parse conditions (split by camelCase)
 	if remaining.len > 0 {
 		mut conds := []string{}
-		mut current := ''
+		mut sb := strings.new_builder(64)
 		for ch in remaining {
-			if ch.is_capital() && current.len > 0 {
-				conds << current
-				current = ch.ascii_str()
-			} else {
-				current += ch.ascii_str()
+			if ch.is_capital() && sb.len > 0 {
+				conds << sb.str()
+				sb = strings.new_builder(64)
 			}
+			sb.write_byte(ch)
 		}
-		if current.len > 0 {
-			conds << current
+		if sb.len > 0 {
+			conds << sb.str()
 		}
 
 		mut i := 0
@@ -170,18 +171,18 @@ pub fn (qp QueryParts) to_where_cond() string {
 	if qp.conditions.len == 0 {
 		return ''
 	}
-	mut cond := ''
+	mut sb := strings.new_builder(64)
 	for i, c in qp.conditions {
 		if i > 0 {
-			cond += ' ${c.logic} '
+			sb.write_string(' ${c.logic} ')
 		}
 		if c.operator == '=' {
-			cond += '${c.property} = ?'
+			sb.write_string('${c.property} = ?')
 		} else {
-			cond += '${c.property} ${c.operator} ?'
+			sb.write_string('${c.property} ${c.operator} ?')
 		}
 	}
-	return cond
+	return sb.str()
 }
 
 // to_where_params returns the number of `?` placeholders
@@ -216,15 +217,16 @@ pub fn (qp QueryParts) to_order_field() string {
 
 // camel_to_snake converts CamelCase to snake_case.
 // Example: "CreatedAt" → "created_at"
+// Uses a strings.Builder to avoid O(n²) string concatenation.
 fn camel_to_snake(s string) string {
-	mut result := ''
+	mut sb := strings.new_builder(s.len * 2)
 	for i, ch in s {
 		if ch.is_capital() && i > 0 {
-			result += '_'
+			sb.write_string('_')
 		}
-		result += ch.ascii_str().to_lower()
+		sb.write_string(ch.ascii_str().to_lower())
 	}
-	return result
+	return sb.str()
 }
 
 // to_limit returns the limit value (0 = no limit).

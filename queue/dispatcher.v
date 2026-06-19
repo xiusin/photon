@@ -4,11 +4,19 @@ module queue
 import time
 import sync
 
-// get_dispatcher returns the global queue singleton (thread-safe)
+// get_dispatcher returns the global queue singleton (thread-safe).
+// Uses double-checked locking so the mutex is only contended during
+// the very first initialization; subsequent calls take a lock-free fast path.
 fn get_dispatcher() &QueueDispatcher {
+	// Fast path: return the already-initialized dispatcher without locking.
 	unsafe {
-		dispatcher_mu.@lock()
-		defer { dispatcher_mu.unlock() }
+		if global_dispatcher != nil {
+			return global_dispatcher
+		}
+	}
+	dispatcher_mu.@lock()
+	defer { dispatcher_mu.unlock() }
+	unsafe {
 		if global_dispatcher == nil {
 			global_dispatcher = new_dispatcher(new_memory_driver())
 		}
@@ -26,7 +34,7 @@ pub struct QueueDispatcher {
 pub:
 	default_queue string = 'default'
 pub mut:
-	driver &MemoryDriver = new_memory_driver()
+	driver &QueueDriver = new_memory_driver()
 }
 
 // new_dispatcher creates a QueueDispatcher

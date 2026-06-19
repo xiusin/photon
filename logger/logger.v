@@ -99,13 +99,16 @@ pub interface Encoder {
 // Logger
 // ============================================================
 
-// Logger provides structured, leveled logging with pluggable encoders
+// Logger provides structured, leveled logging with pluggable encoders.
+// The encoder field defaults to a ConsoleEncoder sentinel so it is never nil;
+// all constructors (new, new_with_encoder, new_with_level) and with_fields
+// propagate a concrete encoder, guaranteeing log() can always call encode().
 @[heap]
 pub struct Logger {
 pub mut:
 	level        Level    = .info
 	output_label string   = 'photon'
-	encoder      &Encoder = unsafe { nil }
+	encoder      &Encoder = &ConsoleEncoder{} // sentinel — never nil (ConsoleEncoder implements Encoder)
 mut:
 	context &map[string]string = unsafe { nil } // MDC context (heap-allocated, shared by reference with LogEntries)
 }
@@ -240,12 +243,8 @@ pub fn (l &Logger) log(level Level, msg string) {
 		return
 	}
 
-	// Guard against nil encoder (defensive: could happen if Logger not created via new())
-	if isnil(l.encoder) {
-		eprintln('[${fmt_time(time.now(), .rfc3339)}] [${level.str()}] [${l.output_label}] ${msg}')
-		return
-	}
-
+	// encoder is guaranteed non-nil: the field defaults to &ConsoleEncoder{}
+	// and every constructor / with_fields propagates a concrete encoder.
 	entry := &LogEntry{
 		timestamp:   time.now()
 		level:       level
