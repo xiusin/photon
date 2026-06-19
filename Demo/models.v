@@ -194,7 +194,7 @@ pub:
 	title       string @[required]
 	content     string @[required]
 	summary     string
-	author_id   int    @[required]
+	author_id   int
 	category_id int
 	status      string = 'draft'
 }
@@ -224,8 +224,8 @@ pub:
 // CreateCommentDto — 创建评论请求
 pub struct CreateCommentDto {
 pub:
-	post_id   int    @[required]
-	user_id   int    @[required]
+	post_id   int
+	user_id   int
 	content   string @[required]
 	parent_id int
 }

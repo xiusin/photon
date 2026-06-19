@@ -66,11 +66,88 @@ fn (mut ctx Context) send_err(status http.Status, code int, message string) veb.
 // parse_body 解析 JSON 请求体到指定类型，失败时返回错误
 // 调用方使用 or 块处理错误（空体或解析失败）
 fn (mut ctx Context) parse_body[T]() !T {
+	// veb 框架中，JSON body 通过 ctx.req.data 获取
+	// 但某些情况下 req.data 为空，需要回退到 form 参数
 	body := ctx.req.data
-	if body.len == 0 {
-		return error('empty body / 请求体为空')
+	if body.len > 0 {
+		return json.decode(T, body) or { error('invalid JSON: ${err}') }
 	}
-	return json.decode(T, body)
+	return error('empty body / 请求体为空')
+}
+
+// parse_body_or_form 解析 JSON body，失败时从 form 参数构建
+// 这是为了兼容 veb 框架中 ctx.req.data 可能为空的情况
+fn (mut ctx Context) parse_body_or_form[T](form_builder fn (mut ctx Context) !T) !T {
+	body := ctx.req.data
+	if body.len > 0 {
+		return json.decode(T, body) or { form_builder(mut ctx) }
+	}
+	return form_builder(mut ctx)
+}
+
+// form_builder 函数：从 ctx.form 参数构建 DTO，作为 JSON body 解析失败时的回退
+
+fn build_create_user_dto(mut ctx Context) !CreateUserDto {
+	return CreateUserDto{
+		username: ctx.form['username'] or { '' }
+		email: ctx.form['email'] or { '' }
+		password: ctx.form['password'] or { '' }
+		nickname: ctx.form['nickname'] or { '' }
+		role: ctx.form['role'] or { 'USER' }
+	}
+}
+
+fn build_login_dto(mut ctx Context) !LoginDto {
+	return LoginDto{
+		username: ctx.form['username'] or { '' }
+		password: ctx.form['password'] or { '' }
+	}
+}
+
+fn build_update_user_dto(mut ctx Context) !UpdateUserDto {
+	return UpdateUserDto{
+		email: ctx.form['email'] or { '' }
+		nickname: ctx.form['nickname'] or { '' }
+		avatar: ctx.form['avatar'] or { '' }
+		status: (ctx.form['status'] or { '0' }).int()
+		role: ctx.form['role'] or { '' }
+	}
+}
+
+fn build_create_post_dto(mut ctx Context) !CreatePostDto {
+	return CreatePostDto{
+		title: ctx.form['title'] or { '' }
+		content: ctx.form['content'] or { '' }
+		summary: ctx.form['summary'] or { '' }
+		author_id: (ctx.form['author_id'] or { '0' }).int()
+		category_id: (ctx.form['category_id'] or { '0' }).int()
+		status: ctx.form['status'] or { 'draft' }
+	}
+}
+
+fn build_update_post_dto(mut ctx Context) !UpdatePostDto {
+	return UpdatePostDto{
+		title: ctx.form['title'] or { '' }
+		content: ctx.form['content'] or { '' }
+		summary: ctx.form['summary'] or { '' }
+		category_id: (ctx.form['category_id'] or { '0' }).int()
+		status: ctx.form['status'] or { '' }
+	}
+}
+
+fn build_create_category_dto(mut ctx Context) !CreateCategoryDto {
+	return CreateCategoryDto{
+		name: ctx.form['name'] or { '' }
+		slug: ctx.form['slug'] or { '' }
+		description: ctx.form['description'] or { '' }
+	}
+}
+
+fn build_create_tag_dto(mut ctx Context) !CreateTagDto {
+	return CreateTagDto{
+		name: ctx.form['name'] or { '' }
+		slug: ctx.form['slug'] or { '' }
+	}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -128,22 +205,8 @@ pub fn (mut app App) stats(mut ctx Context) veb.Result {
 @['/api/v1/auth/register']
 pub fn (mut app App) post_auth_register(mut ctx Context) veb.Result {
 	// 解析请求体
-	dto := ctx.parse_body[CreateUserDto]() or {
-		// 回退到表单参数
-		username := ctx.form['username'] or { '' }
-		email := ctx.form['email'] or { '' }
-		password := ctx.form['password'] or { '' }
-		if username.len == 0 || email.len == 0 || password.len == 0 {
-			return ctx.send_err(.bad_request, 400, 'username, email, password required / 用户名、邮箱、密码为必填项')
-		}
-		create_dto := CreateUserDto{
-			username: username
-			email: email
-			password: password
-			nickname: ctx.form['nickname'] or { '' }
-			role: ctx.form['role'] or { 'USER' }
-		}
-		return app.do_register(mut ctx, create_dto)
+	dto := ctx.parse_body_or_form[CreateUserDto](build_create_user_dto) or {
+		return ctx.send_err(.bad_request, 400, err.msg())
 	}
 	return app.do_register(mut ctx, dto)
 }
@@ -171,18 +234,8 @@ fn (mut app App) do_register(mut ctx Context, dto CreateUserDto) veb.Result {
 @['/api/v1/auth/login']
 pub fn (mut app App) post_auth_login(mut ctx Context) veb.Result {
 	// 解析请求体
-	dto := ctx.parse_body[LoginDto]() or {
-		// 回退到表单参数
-		username := ctx.form['username'] or { '' }
-		password := ctx.form['password'] or { '' }
-		if username.len == 0 || password.len == 0 {
-			return ctx.send_err(.bad_request, 400, 'username and password required / 用户名和密码为必填项')
-		}
-		login_dto := LoginDto{
-			username: username
-			password: password
-		}
-		return app.do_login(mut ctx, login_dto)
+	dto := ctx.parse_body_or_form[LoginDto](build_login_dto) or {
+		return ctx.send_err(.bad_request, 400, err.msg())
 	}
 	return app.do_login(mut ctx, dto)
 }
@@ -378,16 +431,8 @@ pub fn (mut app App) post_user(mut ctx Context) veb.Result {
 	}
 
 	// 解析请求体
-	dto := ctx.parse_body[CreateUserDto]() or {
-		// 回退到表单参数
-		create_dto := CreateUserDto{
-			username: ctx.form['username'] or { '' }
-			email: ctx.form['email'] or { '' }
-			password: ctx.form['password'] or { '' }
-			nickname: ctx.form['nickname'] or { '' }
-			role: ctx.form['role'] or { 'USER' }
-		}
-		return app.do_admin_create_user(mut ctx, create_dto)
+	dto := ctx.parse_body_or_form[CreateUserDto](build_create_user_dto) or {
+		return ctx.send_err(.bad_request, 400, err.msg())
 	}
 	return app.do_admin_create_user(mut ctx, dto)
 }
@@ -426,16 +471,8 @@ pub fn (mut app App) put_user(mut ctx Context, id string) veb.Result {
 	}
 
 	// 解析请求体
-	dto := ctx.parse_body[UpdateUserDto]() or {
-		// 回退到表单参数
-		update_dto := UpdateUserDto{
-			email: ctx.form['email'] or { '' }
-			nickname: ctx.form['nickname'] or { '' }
-			avatar: ctx.form['avatar'] or { '' }
-			status: (ctx.form['status'] or { '0' }).int()
-			role: ctx.form['role'] or { '' }
-		}
-		return app.do_update_user(mut ctx, user_id, update_dto)
+	dto := ctx.parse_body_or_form[UpdateUserDto](build_update_user_dto) or {
+		return ctx.send_err(.bad_request, 400, err.msg())
 	}
 	return app.do_update_user(mut ctx, user_id, dto)
 }
@@ -649,26 +686,36 @@ pub fn (mut app App) post_post(mut ctx Context) veb.Result {
 		return ctx.send_err(.unauthorized, 401, 'user not found / 用户不存在')
 	}
 
-	// 解析请求体
-	dto := ctx.parse_body[CreatePostDto]() or {
-		// 回退到表单参数
-		create_dto := CreatePostDto{
-			title: ctx.form['title'] or { '' }
-			content: ctx.form['content'] or { '' }
-			summary: ctx.form['summary'] or { '' }
-			author_id: user.id
-			category_id: (ctx.form['category_id'] or { '0' }).int()
-			status: ctx.form['status'] or { 'draft' }
-		}
-		return app.do_create_post(mut ctx, create_dto)
+	// 解析请求体 — 先尝试从 form 参数获取，再尝试 JSON body
+	// veb 框架中 req.data 可能为空，form 参数更可靠
+	title := ctx.form['title'] or { '' }
+	content := ctx.form['content'] or { '' }
+	mut dto := CreatePostDto{
+		title: title
+		content: content
+		summary: ctx.form['summary'] or { '' }
+		author_id: user.id
+		category_id: (ctx.form['category_id'] or { '0' }).int()
+		status: ctx.form['status'] or { 'draft' }
 	}
 
-	// 确保作者 ID 为当前用户
-	final_dto := CreatePostDto{
-		...dto
-		author_id: user.id
+	// 如果 form 参数为空，尝试解析 JSON body
+	if dto.title.len == 0 || dto.content.len == 0 {
+		body := ctx.req.data
+		if body.len > 0 {
+			json_dto := json.decode(CreatePostDto, body) or {
+				return ctx.send_err(.bad_request, 400, 'invalid JSON: ${err}')
+			}
+			if json_dto.title.len > 0 {
+				dto = CreatePostDto{
+					...json_dto
+					author_id: user.id
+				}
+			}
+		}
 	}
-	return app.do_create_post(mut ctx, final_dto)
+
+	return app.do_create_post(mut ctx, dto)
 }
 
 // do_create_post 执行文章创建（内部辅助方法）
@@ -704,16 +751,8 @@ pub fn (mut app App) put_post(mut ctx Context, id string) veb.Result {
 	}
 
 	// 解析请求体
-	dto := ctx.parse_body[UpdatePostDto]() or {
-		// 回退到表单参数
-		update_dto := UpdatePostDto{
-			title: ctx.form['title'] or { '' }
-			content: ctx.form['content'] or { '' }
-			summary: ctx.form['summary'] or { '' }
-			category_id: (ctx.form['category_id'] or { '0' }).int()
-			status: ctx.form['status'] or { '' }
-		}
-		return app.do_update_post(mut ctx, post_id, update_dto)
+	dto := ctx.parse_body_or_form[UpdatePostDto](build_update_post_dto) or {
+		return ctx.send_err(.bad_request, 400, err.msg())
 	}
 	return app.do_update_post(mut ctx, post_id, dto)
 }
@@ -927,14 +966,8 @@ pub fn (mut app App) post_category(mut ctx Context) veb.Result {
 	}
 
 	// 解析请求体
-	dto := ctx.parse_body[CreateCategoryDto]() or {
-		// 回退到表单参数
-		create_dto := CreateCategoryDto{
-			name: ctx.form['name'] or { '' }
-			slug: ctx.form['slug'] or { '' }
-			description: ctx.form['description'] or { '' }
-		}
-		return app.do_create_category(mut ctx, create_dto)
+	dto := ctx.parse_body_or_form[CreateCategoryDto](build_create_category_dto) or {
+		return ctx.send_err(.bad_request, 400, err.msg())
 	}
 	return app.do_create_category(mut ctx, dto)
 }
@@ -979,13 +1012,8 @@ pub fn (mut app App) post_tag(mut ctx Context) veb.Result {
 	}
 
 	// 解析请求体
-	dto := ctx.parse_body[CreateTagDto]() or {
-		// 回退到表单参数
-		create_dto := CreateTagDto{
-			name: ctx.form['name'] or { '' }
-			slug: ctx.form['slug'] or { '' }
-		}
-		return app.do_create_tag(mut ctx, create_dto)
+	dto := ctx.parse_body_or_form[CreateTagDto](build_create_tag_dto) or {
+		return ctx.send_err(.bad_request, 400, err.msg())
 	}
 	return app.do_create_tag(mut ctx, dto)
 }

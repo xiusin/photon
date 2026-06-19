@@ -151,7 +151,7 @@ fn generate_request_id() string {
 // ═══════════════════════════════════════════════════════════
 
 pub struct RateLimitMiddleware {
-pub:
+pub mut:
 	max_requests int = 60 // 每分钟最大请求数
 	window_secs  int = 60 // 滑动窗口大小（秒）
 mut:

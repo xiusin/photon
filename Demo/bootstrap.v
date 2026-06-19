@@ -105,6 +105,12 @@ pub fn new_bootstrap(cfg AppConfig) !&Bootstrap {
 	orm_mgr := init_database(cfg.database)!
 	log.info('OrmManager initialized — ${cfg.database.driver} (${cfg.database.path})')
 
+	// ── 5b. 自动执行迁移 ──
+	mm := new_migration_manager(orm_mgr)!
+	log.info('Running database migrations...')
+	run_migrations(mm)!
+	log.info('Database migrations applied')
+
 	// ── 6. LockManager ──
 	lock_mgr := locking.new_lock_manager()
 	log.info('LockManager initialized — local mutex driver')

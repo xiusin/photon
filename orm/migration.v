@@ -371,13 +371,18 @@ pub fn (mut t TableDef) not_null() {
 	}
 }
 
-// unique_ marks the last added column as UNIQUE, or creates a composite unique index.
+// unique_ marks the specified column as UNIQUE, or creates a composite unique index.
 pub fn (mut t TableDef) unique_(columns []string, index_name string) {
 	if columns.len == 1 && t.columns.len > 0 {
-		// Mark column as unique
-		mut col := t.columns[t.columns.len - 1]
-		col.is_unique = true
-		t.columns[t.columns.len - 1] = col
+		// Find the column by name and mark it as unique
+		for i in 0 .. t.columns.len {
+			if t.columns[i].name == columns[0] {
+				mut col := t.columns[i]
+				col.is_unique = true
+				t.columns[i] = col
+				break
+			}
+		}
 	}
 	// Also add an explicit index
 	t.indexes << IndexDef{
@@ -480,6 +485,11 @@ pub fn (mut s Schema) create_table(table_name string, builder fn (mut t TableDef
 	mut t := new_table_def(table_name)
 	builder(mut t)
 	s.statements << s.build_create_table(t)
+	// Generate CREATE INDEX statements for table indexes
+	for idx in t.indexes {
+		unique_kw := if idx.is_unique { 'UNIQUE ' } else { '' }
+		s.statements << 'CREATE ${unique_kw}INDEX IF NOT EXISTS ${idx.name} ON ${table_name} (${idx.columns.join(', ')})'
+	}
 }
 
 // drop_table generates a DROP TABLE statement.

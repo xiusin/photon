@@ -13,38 +13,40 @@ module main
 
 import photon.core
 
+// SharedState 用于在闭包间共享可变状态（V 闭包捕获限制的 workaround）
+struct SharedState {
+mut:
+	value string
+	count int
+}
+
 fn test_event_bus_basic_dispatch() {
 	mut bus := core.new_event_bus()
-	mut called := false
 
-	bus.on('test.event', fn (e &core.Event) {
-		called = true
-	})
+	bus.on('test.event', fn (e &core.Event) {})
 
-	bus.dispatch(core.new_event('test.event', 'payload'))
-	assert called == true
+	called := bus.dispatch(core.new_event('test.event', 'payload'))
+	assert called == 1
 }
 
 fn test_event_bus_payload() {
 	mut bus := core.new_event_bus()
-	mut received := ''
+	mut state := &SharedState{}
 
-	bus.on('payload.test', fn (e &core.Event) {
-		received = e.payload_str
+	bus.on('payload.test', fn [mut state] (e &core.Event) {
+		state.value = e.payload_str
 	})
 
 	bus.dispatch(core.new_event('payload.test', 'hello'))
-	assert received == 'hello'
+	assert state.value == 'hello'
 }
 
 fn test_event_bus_data_map() {
 	mut bus := core.new_event_bus()
-	mut user_id := ''
-	mut username := ''
+	mut state := &SharedState{}
 
-	bus.on('data.test', fn (e &core.Event) {
-		user_id = e.data['user_id']
-		username = e.data['username']
+	bus.on('data.test', fn [mut state] (e &core.Event) {
+		state.value = e.data['user_id'] + '|' + e.data['username']
 	})
 
 	event := core.new_event_with_data('data.test', 'payload', {
@@ -53,24 +55,17 @@ fn test_event_bus_data_map() {
 	})
 	bus.dispatch(event)
 
-	assert user_id == '42'
-	assert username == 'alice'
+	assert state.value == '42|alice'
 }
 
 fn test_event_bus_multiple_listeners() {
 	mut bus := core.new_event_bus()
-	mut count := 0
 
-	bus.on('multi.test', fn (e &core.Event) {
-		count++
-	})
+	bus.on('multi.test', fn (e &core.Event) {})
+	bus.on('multi.test', fn (e &core.Event) {})
 
-	bus.on('multi.test', fn (e &core.Event) {
-		count++
-	})
-
-	bus.dispatch(core.new_event('multi.test', 'payload'))
-	assert count == 2
+	called := bus.dispatch(core.new_event('multi.test', 'payload'))
+	assert called == 2
 }
 
 fn test_event_bus_no_listeners() {
@@ -104,33 +99,31 @@ fn test_event_bus_has_listeners() {
 
 fn test_event_bus_off() {
 	mut bus := core.new_event_bus()
-	mut called := false
 
-	bus.on('off.test', fn (e &core.Event) {
-		called = true
-	})
+	bus.on('off.test', fn (e &core.Event) {})
 
+	assert bus.has_listeners('off.test') == true
 	bus.off('off.test')
-	bus.dispatch(core.new_event('off.test', 'payload'))
-	assert called == false
+	assert bus.has_listeners('off.test') == false
+
+	called := bus.dispatch(core.new_event('off.test', 'payload'))
+	assert called == 0
 }
 
 fn test_event_bus_stop_propagation() {
 	mut bus := core.new_event_bus()
-	mut second_called := false
 
-	bus.on('stop.test', fn (e &core.Event) {
+	// 第一个监听器停止传播
+	bus.on('stop.test', fn (mut e core.Event) {
 		e.stop_propagation()
 	})
 
-	bus.on('stop.test', fn (e &core.Event) {
-		second_called = true
-	})
+	// 第二个监听器不应被调用
+	bus.on('stop.test', fn (e &core.Event) {})
 
-	bus.dispatch(core.new_event('stop.test', 'payload'))
-	// 注意：EventBus 的 dispatch 按优先级排序后顺序调用，
-	// stop_propagation 可能不会阻止同优先级的后续监听器
-	// 因为两个监听器都是 normal 优先级，行为取决于实现
+	// dispatch 应只调用第一个监听器
+	called := bus.dispatch(core.new_event('stop.test', 'payload'))
+	assert called == 1
 }
 
 fn test_event_constants() {
