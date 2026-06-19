@@ -888,10 +888,10 @@ fn test_event_bus_listener_count_for() {
 fn test_event_bus_off_listener() {
 	mut bus := new_event_bus()
 	listener := fn (e &Event) {}
-	bus.on('test.event', listener)
+	id := bus.on('test.event', listener)
 	assert bus.listener_count_for('test.event') == 1
 
-	bus.off_listener('test.event', listener)
+	bus.off_listener(id)
 	assert bus.listener_count_for('test.event') == 0
 }
 

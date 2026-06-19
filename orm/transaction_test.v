@@ -7,7 +7,7 @@ module orm
 
 fn test_transaction_manager_new() {
 	tm := new_transaction_manager()
-	assert tm.active == false
+	assert tm.active_count == 0
 	assert tm.is_active() == false
 }
 

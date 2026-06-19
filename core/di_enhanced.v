@@ -100,12 +100,22 @@ pub fn new_deferred_provider(type_name string) &DeferredProvider {
 // get resolves the bean on first access and caches it (unless mutable).
 // Spring equivalent: ObjectProvider.getObject()
 // Laravel equivalent: Container::make() (lazy)
+//
+// Thread-safety (H4): all reads of `resolved`/`instance` are performed under
+// at least a read lock. A bare `if dp.resolved` check has no memory barrier on
+// weak-memory architectures (ARM, Apple Silicon), so another goroutine's write
+// may not be visible — leading to duplicate resolution or returning a stale
+// nil instance. The write path uses a write lock with a double-check so that
+// only one goroutine performs the actual resolution.
 pub fn (mut dp DeferredProvider) get() !voidptr {
-	if dp.resolved && !dp.mutable {
-		dp.mu.rlock()
-		result := dp.instance
-		dp.mu.runlock()
-		return result
+	// Fast path: read cached state under read lock for memory visibility.
+	dp.mu.rlock()
+	resolved := dp.resolved
+	mutable := dp.mutable
+	cached := dp.instance
+	dp.mu.runlock()
+	if resolved && !mutable {
+		return cached
 	}
 
 	if isnil(dp.container) {
@@ -116,8 +126,15 @@ pub fn (mut dp DeferredProvider) get() !voidptr {
 		return error('deferred provider: failed to resolve "${dp.type_name}": ${err}')
 	}
 
-	if !dp.mutable {
+	if !mutable {
+		// Slow path: write lock with double-check. Another goroutine may
+		// have resolved the bean while we were waiting for the lock.
 		dp.mu.@lock()
+		if dp.resolved {
+			existing := dp.instance
+			dp.mu.unlock()
+			return existing
+		}
 		dp.instance = instance
 		dp.resolved = true
 		dp.mu.unlock()

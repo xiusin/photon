@@ -450,6 +450,7 @@ pub:
 	chunk_index  int
 	file_name    string
 	total_size   int
+	created_at   i64 // unix timestamp — used by GC to detect abandoned uploads
 pub mut:
 	received_chunks []bool
 	chunk_dir       string
@@ -457,18 +458,123 @@ pub mut:
 
 // UploadChunkManager manages chunked/resumable uploads.
 // Thread-safe via sync.RwMutex.
+// Starts a background GC goroutine that periodically removes abandoned
+// upload directories (uploads that haven't been assembled within 1 hour).
+// Call close() to stop the GC goroutine.
 pub struct UploadChunkManager {
 pub mut:
 	chunks   map[string]&ChunkInfo // upload_id -> chunk info
 	temp_dir string = '/tmp/photon_uploads'
 mut:
-	mu sync.RwMutex
+	mu         sync.RwMutex
+	stop_gc    chan bool = chan bool{cap: 1}
+	gc_started bool
+	wg         sync.WaitGroup
 }
 
-// new_chunk_manager creates an UploadChunkManager.
+// new_chunk_manager creates an UploadChunkManager and starts the GC goroutine.
 pub fn new_chunk_manager() &UploadChunkManager {
-	return &UploadChunkManager{
+	mut cm := &UploadChunkManager{
 		chunks: map[string]&ChunkInfo{}
+	}
+	cm.start_gc()
+	return cm
+}
+
+// start_gc launches the background GC goroutine that periodically removes
+// abandoned chunked uploads (uploads older than 1 hour that haven't been
+// assembled). Safe to call multiple times; only the first call starts the
+// goroutine. Called automatically by new_chunk_manager().
+fn (mut cm UploadChunkManager) start_gc() {
+	cm.mu.@lock()
+	if cm.gc_started {
+		cm.mu.unlock()
+		return
+	}
+	cm.gc_started = true
+	cm.stop_gc = chan bool{cap: 1}
+	sig := cm.stop_gc
+	temp_dir := cm.temp_dir
+	cm.mu.unlock()
+
+	cm.wg.add(1)
+	spawn fn (gcm &UploadChunkManager, stop_sig chan bool, temp_dir string) {
+		defer {
+			unsafe { gcm.wg.done() }
+		}
+		mut elapsed := 0
+		for {
+			// Sleep in 100ms increments so close() can stop us promptly.
+			time.sleep(100 * time.millisecond)
+			elapsed += 100
+
+			// Non-blocking check for stop signal.
+			mut should_stop := false
+			select {
+				_ := <-stop_sig {
+					should_stop = true
+				}
+				else {}
+			}
+			if should_stop {
+				break
+			}
+
+			// Sweep every 60 seconds — remove uploads older than 1 hour
+			if elapsed >= 60000 {
+				elapsed = 0
+				unsafe {
+					mut m := gcm
+					m.gc_abandoned_uploads(3600, temp_dir)
+				}
+			}
+		}
+	}(cm, sig, temp_dir)
+}
+
+// close stops the background GC goroutine and waits for it to exit.
+// Safe to call multiple times.
+pub fn (mut cm UploadChunkManager) close() {
+	cm.mu.@lock()
+	if !cm.gc_started {
+		cm.mu.unlock()
+		return
+	}
+	cm.gc_started = false
+	sig := cm.stop_gc
+	cm.mu.unlock()
+
+	select {
+		sig <- true {}
+		else {}
+	}
+	cm.wg.wait()
+}
+
+// gc_abandoned_uploads removes chunked uploads older than max_age_seconds.
+// Deletes the chunk directory on disk and removes the session entry.
+fn (mut cm UploadChunkManager) gc_abandoned_uploads(max_age_seconds i64, _temp_dir string) {
+	cm.mu.@lock()
+	now := time.now().unix()
+	mut to_remove := []string{}
+	for upload_id, info in cm.chunks {
+		if now - info.created_at > max_age_seconds {
+			to_remove << upload_id
+		}
+	}
+	// Extract chunk_dirs before releasing the lock for disk I/O
+	mut dirs_to_clean := []string{}
+	for upload_id in to_remove {
+		if info := cm.chunks[upload_id] {
+			dirs_to_clean << info.chunk_dir
+		}
+		cm.chunks.delete(upload_id)
+	}
+	cm.mu.unlock()
+
+	// Clean up directories on disk (no lock held)
+	for dir in dirs_to_clean {
+		os.rmdir_all(dir) or {}
 	}
 }
 
@@ -487,6 +593,7 @@ pub fn (mut cm UploadChunkManager) init_upload(file_name string, total_chunks in
 		chunk_index:     0
 		file_name:       file_name
 		total_size:      total_size
+		created_at:      time.now().unix()
 		received_chunks: []bool{len: total_chunks, init: false}
 		chunk_dir:       chunk_dir
 	}

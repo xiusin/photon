@@ -177,7 +177,9 @@ pub fn (mut b TaskBuilder) name(n string) &TaskBuilder {
 // ── Scheduler ──
 
 // Scheduler manages and executes scheduled tasks.
-// Thread-safe via sync.RwMutex.
+// Thread-safe via sync.RwMutex. The background goroutine lifecycle is
+// controlled via stop_signal and tracked with wg so that stop() can guarantee
+// the goroutine has fully exited.
 @[heap]
 pub struct Scheduler {
 pub mut:
@@ -185,13 +187,16 @@ pub mut:
 	is_running           bool
 	default_name_counter int
 	mu                   sync.RwMutex
+	stop_signal          chan bool
+	wg                   sync.WaitGroup
 }
 
 // new_task_scheduler creates a new Scheduler for scheduled tasks.
 // Named differently from bucket.v's new_scheduler() to avoid conflict.
 pub fn new_task_scheduler() &Scheduler {
 	return &Scheduler{
-		tasks: []&ScheduledTask{}
+		tasks:       []&ScheduledTask{}
+		stop_signal: chan bool{cap: 1}
 	}
 }
 
@@ -265,23 +270,62 @@ pub fn (mut s Scheduler) start() {
 		return
 	}
 	s.is_running = true
+	sig := s.stop_signal
 	s.mu.unlock()
 
-	spawn fn (sc &Scheduler) {
-		for sc.is_running {
+	s.wg.add(1)
+	spawn fn (sc &Scheduler, stop_sig chan bool) {
+		defer {
+			unsafe {
+				sc.wg.done()
+			}
+		}
+		for {
+			// Non-blocking check for stop signal at the top of each iteration.
+			mut should_stop := false
+			select {
+				_ := <-stop_sig {
+					should_stop = true
+				}
+				else {}
+			}
+			if should_stop {
+				break
+			}
+
+			// Check is_running under read lock for memory visibility on
+			// weak architectures (fixes H2).
+			sc.mu.rlock()
+			running := sc.is_running
+			sc.mu.runlock()
+			if !running {
+				break
+			}
+
 			unsafe { sc.tick() }
 			time.sleep(1 * time.second)
 		}
-	}(s)
+	}(s, sig)
 }
 
-// stop gracefully shuts down the scheduler.
+// stop gracefully shuts down the scheduler. Blocks until the background
+// goroutine has fully exited (via wg.wait()).
 pub fn (mut s Scheduler) stop() {
 	s.mu.@lock()
-	defer {
+	if !s.is_running {
 		s.mu.unlock()
+		return
 	}
 	s.is_running = false
+	s.mu.unlock()
+
+	// Non-blocking send to wake the goroutine from its sleep.
+	select {
+		s.stop_signal <- true {}
+		else {}
+	}
+	// Wait for the goroutine to fully exit before returning.
+	s.wg.wait()
 }
 
 // tick checks and executes due tasks. Called automatically by start(),
@@ -356,11 +400,19 @@ pub fn (mut s Scheduler) tick() {
 
 // task_count returns the number of registered tasks.
 pub fn (mut s Scheduler) task_count() int {
+	s.mu.rlock()
+	defer {
+		s.mu.runlock()
+	}
 	return s.tasks.len
 }
 
 // enabled_count returns the number of enabled tasks.
 pub fn (mut s Scheduler) enabled_count() int {
+	s.mu.rlock()
+	defer {
+		s.mu.runlock()
+	}
 	mut count := 0
 	for task in s.tasks {
 		if task.enabled {

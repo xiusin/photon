@@ -154,11 +154,16 @@ pub fn (mut s Session) regenerate() {
 // ── MemorySessionStore ──
 
 // MemorySessionStore is an in-memory session store for development.
+// Starts a background GC goroutine that periodically removes expired
+// sessions. Call close() to stop the GC goroutine.
 pub struct MemorySessionStore {
 pub mut:
 	sessions map[string]&MemorySessionEntry
 mut:
-	mu sync.RwMutex
+	mu         sync.RwMutex
+	stop_gc    chan bool = chan bool{cap: 1}
+	gc_started bool
+	wg         sync.WaitGroup
 }
 
 struct MemorySessionEntry {
@@ -169,11 +174,83 @@ pub mut:
 	updated_at i64
 }
 
-// new_memory_session_store creates a new MemorySessionStore.
+// new_memory_session_store creates a new MemorySessionStore and starts
+// the background GC goroutine.
 pub fn new_memory_session_store() &MemorySessionStore {
-	return &MemorySessionStore{
+	mut s := &MemorySessionStore{
 		sessions: map[string]&MemorySessionEntry{}
 	}
+	s.start_gc()
+	return s
+}
+
+// start_gc launches the background GC goroutine that periodically removes
+// expired sessions. Safe to call multiple times; only the first call starts
+// the goroutine. Called automatically by new_memory_session_store().
+fn (mut s MemorySessionStore) start_gc() {
+	s.mu.@lock()
+	if s.gc_started {
+		s.mu.unlock()
+		return
+	}
+	s.gc_started = true
+	s.stop_gc = chan bool{cap: 1}
+	sig := s.stop_gc
+	s.mu.unlock()
+
+	s.wg.add(1)
+	spawn fn (gs &MemorySessionStore, stop_sig chan bool) {
+		defer {
+			unsafe { gs.wg.done() }
+		}
+		mut elapsed := 0
+		for {
+			// Sleep in 100ms increments so close() can stop us promptly.
+			time.sleep(100 * time.millisecond)
+			elapsed += 100
+
+			// Non-blocking check for stop signal.
+			mut should_stop := false
+			select {
+				_ := <-stop_sig {
+					should_stop = true
+				}
+				else {}
+			}
+			if should_stop {
+				break
+			}
+
+			// Sweep every 60 seconds (max_age = 1800s default session TTL)
+			if elapsed >= 60000 {
+				elapsed = 0
+				unsafe {
+					mut m := gs
+					m.gc(1800) or {}
+				}
+			}
+		}
+	}(s, sig)
+}
+
+// close stops the background GC goroutine and waits for it to exit.
+// Safe to call multiple times. After close(), expired sessions are no
+// longer swept automatically (but gc() can still be called manually).
+pub fn (mut s MemorySessionStore) close() {
+	s.mu.@lock()
+	if !s.gc_started {
+		s.mu.unlock()
+		return
+	}
+	s.gc_started = false
+	sig := s.stop_gc
+	s.mu.unlock()
+
+	select {
+		sig <- true {}
+		else {}
+	}
+	s.wg.wait()
 }
 
 // read reads session data from memory.

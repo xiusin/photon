@@ -156,6 +156,7 @@ pub mut:
 	method_injections     []MethodInjection     // @[autowired] on setter/method (Spring method injection)
 	collection_injections []CollectionInjection // inject all beans of a type (Spring List<T> injection)
 	lookup_injections     []LookupInjection     // @[lookup] method injection (Spring @Lookup)
+	conditions            []&Condition          // @[conditional] — conditions that must pass for registration
 }
 
 // new_bean_definition creates a BeanDefinition with defaults.
@@ -170,6 +171,7 @@ pub fn new_bean_definition(type_name string) BeanDefinition {
 		method_injections:     []MethodInjection{}
 		collection_injections: []CollectionInjection{}
 		lookup_injections:     []LookupInjection{}
+		conditions:            []&Condition{}
 	}
 }
 
@@ -203,6 +205,7 @@ pub mut:
 	method_injections_     []MethodInjection
 	collection_injections_ []CollectionInjection
 	lookup_injections_     []LookupInjection
+	conditions_            []&Condition
 }
 
 // new_bean_definition_builder creates a builder for the given type.
@@ -217,6 +220,7 @@ pub fn new_bean_definition_builder(type_name string) BeanDefinitionBuilder {
 		method_injections_:     []MethodInjection{}
 		collection_injections_: []CollectionInjection{}
 		lookup_injections_:     []LookupInjection{}
+		conditions_:            []&Condition{}
 	}
 }
 
@@ -311,6 +315,16 @@ pub fn (mut b BeanDefinitionBuilder) add_lookup_injection(li LookupInjection) &B
 	return unsafe { b }
 }
 
+// set_conditions sets the conditions that must be satisfied for the bean to be
+// registered. If any condition returns false during register(), the bean is
+// silently skipped (Spring @Conditional behavior).
+//
+// Spring equivalent: @Conditional
+pub fn (mut b BeanDefinitionBuilder) set_conditions(conditions []&Condition) &BeanDefinitionBuilder {
+	b.conditions_ = conditions
+	return unsafe { b }
+}
+
 // build constructs the final BeanDefinition.
 pub fn (b &BeanDefinitionBuilder) build() BeanDefinition {
 	return BeanDefinition{
@@ -329,6 +343,7 @@ pub fn (b &BeanDefinitionBuilder) build() BeanDefinition {
 		method_injections:     b.method_injections_.clone()
 		collection_injections: b.collection_injections_.clone()
 		lookup_injections:     b.lookup_injections_.clone()
+		conditions:            b.conditions_.clone()
 	}
 }
 
@@ -363,47 +378,66 @@ pub mut:
 // Container is the Photon IoC container — the central registry for all beans.
 // It manages bean definitions, instantiation, dependency injection, and lifecycle.
 //
-// Thread-safety: operations are protected by a ShardedRwMutex for fine-grained
-// concurrency. Per-bean locking ensures safe singleton instantiation without
-// global contention.
+// Thread-safety: all map operations are protected by a single sync.RwMutex (`mu`).
+// Read operations use rlock/runlock; write operations use @lock/unlock.
+// A single global RwMutex is used (instead of sharded locking) to eliminate the
+// dual-lock data race that occurred when `sharded_mu` and `mu` protected the
+// SAME maps with different lock strategies. Correctness is preferred over
+// fine-grained concurrency here.
 //
 // Features:
 //   - Bean alias support (Spring bean alias)
 //   - Parent container for hierarchical contexts (Spring HierarchicalApplicationContext)
 //   - Type-based bean lookup (Spring ListableBeanFactory)
 //   - Bean type indexing for efficient interface-based queries
-//   - Sharded locking for high-concurrency performance
 //   - Per-bean locking for safe singleton instantiation
+//   - DisposableBean destroy callback support (Spring DisposableBean)
 @[heap]
 pub struct Container {
 pub mut:
-	definitions      map[string]BeanDefinition // type_name → definition
-	instances        map[string]&BeanInstance  // type_name → singleton instance
-	qualifiers       map[string]string         // qualifier → type_name
-	aliases          map[string]string         // alias → canonical type_name
-	profiles         []string                  // active profiles
-	factory_registry &FactoryBeanRegistry = unsafe { nil } // FactoryBean support
-	parent           &Container           = unsafe { nil } // parent container (hierarchical context)
-	type_index       &BeanTypeIndex       = unsafe { nil } // type-based bean lookup index
-	event_bus        &EventBus            = unsafe { nil } // optional event bus for bean lifecycle events
+	definitions       map[string]BeanDefinition // type_name → definition
+	instances         map[string]&BeanInstance  // type_name → singleton instance
+	qualifiers        map[string]string         // qualifier → type_name
+	aliases           map[string]string         // alias → canonical type_name
+	profiles          []string                  // active profiles
+	factory_registry  &FactoryBeanRegistry = unsafe { nil } // FactoryBean support
+	parent            &Container           = unsafe { nil } // parent container (hierarchical context)
+	type_index        &BeanTypeIndex       = unsafe { nil } // type-based bean lookup index
+	event_bus         &EventBus            = unsafe { nil } // optional event bus for bean lifecycle events
+	environment       &Environment         = unsafe { nil } // optional environment for condition evaluation
+	destroy_callbacks map[string]DestroyCallback // type_name → DisposableBean destroy callback
+	init_callbacks    map[string]InitCallback    // type_name → InitializingBean init callback
 mut:
-	sharded_mu ShardedRwMutex // fine-grained sharded lock (replaces global RwMutex)
-	bean_lock  &BeanLock      // per-bean lock for safe singleton instantiation
-	mu         sync.RwMutex   // fallback global lock for bulk operations (destroy_all, etc.)
+	bean_lock &BeanLock    // per-bean lock for safe singleton instantiation
+	mu        sync.RwMutex // single global lock for ALL map/pointer-field operations
 }
+
+// DestroyCallback wraps a function that calls destroy() on a DisposableBean.
+// The comptime-generated code registers these callbacks so that destroy_all()
+// can invoke DisposableBean.destroy() on each bean without runtime reflection.
+pub type DestroyCallback = fn (instance voidptr) !
+
+// InitCallback wraps a function that calls after_properties_set() on an
+// InitializingBean. The comptime-generated code registers these callbacks so
+// that refresh() can invoke InitializingBean.after_properties_set() on each
+// bean without runtime reflection.
+//
+// Spring equivalent: InitializingBean.afterPropertiesSet() invocation by the container
+pub type InitCallback = fn (instance voidptr) !
 
 // new_container creates an empty Container.
 pub fn new_container() &Container {
 	return &Container{
-		definitions:      map[string]BeanDefinition{}
-		instances:        map[string]&BeanInstance{}
-		qualifiers:       map[string]string{}
-		aliases:          map[string]string{}
-		profiles:         []string{}
-		factory_registry: new_factory_bean_registry()
-		type_index:       new_bean_type_index()
-		sharded_mu:       new_sharded_rw_mutex()
-		bean_lock:        new_bean_lock()
+		definitions:       map[string]BeanDefinition{}
+		instances:         map[string]&BeanInstance{}
+		qualifiers:        map[string]string{}
+		aliases:           map[string]string{}
+		profiles:          []string{}
+		destroy_callbacks: map[string]DestroyCallback{}
+		init_callbacks:    map[string]InitCallback{}
+		factory_registry:  new_factory_bean_registry()
+		type_index:        new_bean_type_index()
+		bean_lock:         new_bean_lock()
 	}
 }
 
@@ -413,15 +447,78 @@ pub fn new_container() &Container {
 // Called by ApplicationContext during initialization to wire the
 // container's event dispatching to the application's EventBus.
 // Spring equivalent: AbstractApplicationContext's lifecycle event publishing
+//
+// Thread-safety: the `event_bus` pointer field is protected by `mu` to prevent
+// a data race when a reader thread accesses it concurrently with this setter.
 pub fn (mut c Container) set_event_bus(bus &EventBus) {
+	c.mu.@lock()
 	c.event_bus = bus
+	c.mu.unlock()
+}
+
+// get_event_bus returns the current EventBus, or nil if none is set.
+// Thread-safety: protected by `mu` read lock.
+pub fn (mut c Container) get_event_bus() &EventBus {
+	c.mu.rlock()
+	bus := c.event_bus
+	c.mu.runlock()
+	return bus
+}
+
+// set_environment links an Environment to the container so that condition
+// evaluation during register() can access configuration properties.
+// When set, register() includes environment properties in the ConditionContext.
+//
+// Thread-safety: the `environment` pointer field is protected by `mu`.
+pub fn (mut c Container) set_environment(env &Environment) {
+	c.mu.@lock()
+	defer { c.mu.unlock() }
+	c.environment = unsafe { env }
+}
+
+// get_environment returns the linked Environment, or nil if none is set.
+// Thread-safety: protected by `mu` read lock.
+pub fn (mut c Container) get_environment() &Environment {
+	c.mu.rlock()
+	env := c.environment
+	c.mu.runlock()
+	return env
 }
 
 // register adds a BeanDefinition to the container.
 // Returns an error if a bean with the same type_name is already registered.
+//
+// If the definition carries `conditions` (@[conditional]), they are evaluated
+// before registration. If any condition returns false, the bean is silently
+// skipped (Spring @Conditional behavior) and no error is returned.
 pub fn (mut c Container) register(def BeanDefinition) ! {
-	c.sharded_mu.@lock(def.type_name)
-	defer { c.sharded_mu.unlock(def.type_name) }
+	// Evaluate attached conditions before registering.
+	// Build a ConditionContext from the container's profiles and (optionally)
+	// the linked environment's properties. Conditions are evaluated WITHOUT
+	// holding the container write lock — they acquire their own read locks
+	// internally — so there is no risk of deadlock or lock imbalance.
+	if def.conditions.len > 0 {
+		c.mu.rlock()
+		profiles := c.profiles.clone()
+		has_env := !isnil(c.environment)
+		env_ptr := c.environment
+		c.mu.runlock()
+
+		mut cond_ctx := new_condition_context()
+		cond_ctx = cond_ctx.with_container(unsafe { c })
+		cond_ctx = cond_ctx.with_profiles(profiles)
+		if has_env {
+			mut env := unsafe { env_ptr }
+			cond_ctx = cond_ctx.with_properties(env.properties_snapshot())
+		}
+
+		if !evaluate_conditions(def.conditions, mut cond_ctx) {
+			return
+		}
+	}
+
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 
 	if def.type_name in c.definitions {
 		return error('bean "${def.type_name}" already registered')
@@ -451,8 +548,8 @@ pub fn (mut c Container) register(def BeanDefinition) ! {
 // The alias can then be used to resolve the bean.
 // Spring equivalent: ConfigurableBeanFactory.registerAlias()
 pub fn (mut c Container) register_alias(alias string, canonical_name string) ! {
-	c.sharded_mu.@lock(alias)
-	defer { c.sharded_mu.unlock(alias) }
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 
 	if alias in c.aliases {
 		return error('alias "${alias}" already registered')
@@ -465,15 +562,15 @@ pub fn (mut c Container) register_alias(alias string, canonical_name string) ! {
 
 // remove_alias removes a registered alias.
 pub fn (mut c Container) remove_alias(alias string) {
-	c.sharded_mu.@lock(alias)
-	defer { c.sharded_mu.unlock(alias) }
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 	c.aliases.delete(alias)
 }
 
 // has_alias checks if an alias is registered.
 pub fn (mut c Container) has_alias(alias string) bool {
-	c.sharded_mu.rlock(alias)
-	defer { c.sharded_mu.runlock(alias) }
+	c.mu.rlock()
+	defer { c.mu.runlock() }
 	return alias in c.aliases
 }
 
@@ -484,8 +581,8 @@ pub fn (mut c Container) has_alias(alias string) bool {
 //
 // Spring equivalent: ConfigurableBeanFactory.canonicalName()
 pub fn (mut c Container) canonical_name(name string) string {
-	c.sharded_mu.rlock(name)
-	defer { c.sharded_mu.runlock(name) }
+	c.mu.rlock()
+	defer { c.mu.runlock() }
 	return c.resolve_alias_chain(name, 0)
 }
 
@@ -504,6 +601,8 @@ fn (c &Container) resolve_alias_chain(name string, depth int) string {
 
 // set_parent sets the parent container for hierarchical context support.
 // Spring equivalent: HierarchicalBeanFactory.setParentBeanFactory()
+//
+// Thread-safety: the `parent` pointer field is protected by `mu`.
 pub fn (mut c Container) set_parent(parent &Container) {
 	c.mu.@lock()
 	defer { c.mu.unlock() }
@@ -513,8 +612,8 @@ pub fn (mut c Container) set_parent(parent &Container) {
 // register_instance registers a pre-created instance as a singleton bean.
 // Useful for registering external services (database connections, etc.).
 pub fn (mut c Container) register_instance(type_name string, instance voidptr) ! {
-	c.sharded_mu.@lock(type_name)
-	defer { c.sharded_mu.unlock(type_name) }
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 
 	if type_name in c.instances {
 		return error('bean instance "${type_name}" already registered')
@@ -538,7 +637,11 @@ pub fn (mut c Container) register_instance(type_name string, instance voidptr) !
 // register_factory registers a FactoryBean with the container.
 // The factory will produce beans on demand when resolved.
 // Laravel equivalent: Container::bind('name', fn() => new Service())
+//
+// Thread-safety: the `factory_registry` pointer field is protected by `mu`.
 pub fn (mut c Container) register_factory(factory_type_name string, factory &FactoryBean) ! {
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 	if isnil(c.factory_registry) {
 		c.factory_registry = new_factory_bean_registry()
 	}
@@ -557,22 +660,22 @@ pub fn (mut c Container) register_factory(factory_type_name string, factory &Fac
 // only upgrading to write lock when a new bean needs to be instantiated.
 pub fn (mut c Container) resolve(type_name string) !voidptr {
 	// Fast path: read lock for alias chain resolution + singleton cache lookup
-	c.sharded_mu.rlock(type_name)
+	c.mu.rlock()
 	resolved_name := c.resolve_alias_chain(type_name, 0)
 	if inst := c.instances[resolved_name] {
 		if inst.state == .instantiating {
-			c.sharded_mu.runlock(type_name)
+			c.mu.runlock()
 			return error('circular dependency detected for bean "${resolved_name}"')
 		}
 		result := inst.instance
-		c.sharded_mu.runlock(type_name)
+		c.mu.runlock()
 		return result
 	}
-	c.sharded_mu.runlock(type_name)
+	c.mu.runlock()
 
 	// Slow path: need write lock for potential state mutation
-	c.sharded_mu.@lock(type_name)
-	defer { c.sharded_mu.unlock(type_name) }
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 
 	// Double-check after acquiring write lock (another thread may have resolved it)
 	if inst := c.instances[resolved_name] {
@@ -691,25 +794,25 @@ fn (mut c Container) resolve_unlocked(type_name string) !voidptr {
 // Uses the same read-lock-fast-path / write-lock-slow-path pattern as resolve().
 pub fn (mut c Container) resolve_by_qualifier(qualifier string) !voidptr {
 	// Fast path: read lock for qualifier → type_name resolution + singleton cache
-	c.sharded_mu.rlock(qualifier)
+	c.mu.rlock()
 	type_name := c.qualifiers[qualifier] or {
-		c.sharded_mu.runlock(qualifier)
+		c.mu.runlock()
 		return error('no bean with qualifier "${qualifier}" found')
 	}
 	if inst := c.instances[type_name] {
 		if inst.state == .instantiating {
-			c.sharded_mu.runlock(qualifier)
+			c.mu.runlock()
 			return error('circular dependency detected for bean "${type_name}"')
 		}
 		result := inst.instance
-		c.sharded_mu.runlock(qualifier)
+		c.mu.runlock()
 		return result
 	}
-	c.sharded_mu.runlock(qualifier)
+	c.mu.runlock()
 
 	// Slow path: write lock
-	c.sharded_mu.@lock(qualifier)
-	defer { c.sharded_mu.unlock(qualifier) }
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 
 	// Double-check
 	if inst := c.instances[type_name] {
@@ -725,8 +828,8 @@ pub fn (mut c Container) resolve_by_qualifier(qualifier string) !voidptr {
 // has checks if a bean definition exists (including aliases and FactoryBean-produced beans).
 // Also checks the parent container if available.
 pub fn (mut c Container) has(type_name string) bool {
-	c.sharded_mu.rlock(type_name)
-	defer { c.sharded_mu.runlock(type_name) }
+	c.mu.rlock()
+	defer { c.mu.runlock() }
 	// Resolve alias chain
 	resolved := c.resolve_alias_chain(type_name, 0)
 	if resolved in c.definitions {
@@ -745,9 +848,31 @@ pub fn (mut c Container) has(type_name string) bool {
 
 // has_qualifier checks if a qualifier is registered.
 pub fn (mut c Container) has_qualifier(qualifier string) bool {
-	c.sharded_mu.rlock(qualifier)
-	defer { c.sharded_mu.runlock(qualifier) }
+	c.mu.rlock()
+	defer { c.mu.runlock() }
 	return qualifier in c.qualifiers
+}
+
+// has_definition checks if a bean definition is registered in THIS container
+// (excluding aliases, FactoryBean registry, and parent container).
+// This is a stricter check than has() and is used by condition evaluators
+// (e.g. OnClassCondition) to verify "class existence".
+//
+// Spring equivalent: BeanDefinitionRegistry.containsBeanDefinition()
+pub fn (mut c Container) has_definition(type_name string) bool {
+	c.mu.rlock()
+	defer { c.mu.runlock() }
+	return type_name in c.definitions
+}
+
+// has_instance checks if a singleton instance has been instantiated in THIS
+// container (excluding the parent container).
+//
+// Spring equivalent: SingletonBeanRegistry.containsSingleton()
+pub fn (mut c Container) has_instance(type_name string) bool {
+	c.mu.rlock()
+	defer { c.mu.runlock() }
+	return type_name in c.instances
 }
 
 // ── @Primary Support ──
@@ -939,8 +1064,8 @@ fn merge_bean_definitions(parent BeanDefinition, child BeanDefinition) BeanDefin
 
 // get_definition returns a copy of a bean definition.
 pub fn (mut c Container) get_definition(type_name string) !BeanDefinition {
-	c.sharded_mu.rlock(type_name)
-	defer { c.sharded_mu.runlock(type_name) }
+	c.mu.rlock()
+	defer { c.mu.runlock() }
 	return c.definitions[type_name] or { return error('bean "${type_name}" not found') }
 }
 
@@ -967,8 +1092,8 @@ pub fn (mut c Container) singleton_count() int {
 
 // dependencies_of returns the dependencies for a given bean.
 pub fn (mut c Container) dependencies_of(type_name string) []Dependency {
-	c.sharded_mu.rlock(type_name)
-	defer { c.sharded_mu.runlock(type_name) }
+	c.mu.rlock()
+	defer { c.mu.runlock() }
 	def := c.definitions[type_name] or { return []Dependency{} }
 	return def.dependencies.clone()
 }
@@ -985,8 +1110,8 @@ pub fn (mut c Container) dependencies_of(type_name string) []Dependency {
 //
 // Spring equivalent: DefaultSingletonBeanRegistry.addSingleton()
 pub fn (mut c Container) set_instance(type_name string, instance voidptr) {
-	c.sharded_mu.@lock(type_name)
-	defer { c.sharded_mu.unlock(type_name) }
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 
 	c.instances[type_name] = &BeanInstance{
 		definition: unsafe { nil }
@@ -1017,24 +1142,95 @@ pub fn (mut c Container) set_instance(type_name string, instance voidptr) {
 
 // mark_ready marks a bean as fully initialized.
 pub fn (mut c Container) mark_ready(type_name string) ! {
-	c.sharded_mu.@lock(type_name)
-	defer { c.sharded_mu.unlock(type_name) }
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 
 	mut def := c.definitions[type_name] or { return error('bean "${type_name}" not found') }
 	def.state = .ready
 	c.definitions[type_name] = def
 }
 
-// destroy removes a singleton instance and calls its pre_destroy method.
+// register_destroy_callback registers a DisposableBean destroy callback for a bean.
+// The comptime-generated code calls this for beans implementing the DisposableBean
+// interface, so that destroy_all() can invoke destroy() without runtime reflection.
+//
+// Spring equivalent: DisposableBean.destroy() invocation by the container
+pub fn (mut c Container) register_destroy_callback(type_name string, callback DestroyCallback) {
+	c.mu.@lock()
+	defer { c.mu.unlock() }
+	c.destroy_callbacks[type_name] = callback
+}
+
+// has_destroy_callback checks if a bean has a registered DisposableBean destroy callback.
+pub fn (mut c Container) has_destroy_callback(type_name string) bool {
+	c.mu.rlock()
+	defer { c.mu.runlock() }
+	return type_name in c.destroy_callbacks
+}
+
+// register_init_callback registers an InitializingBean init callback for a bean.
+// The comptime-generated code calls this for beans implementing the InitializingBean
+// interface, so that refresh() can invoke after_properties_set() without runtime
+// reflection.
+//
+// Spring equivalent: InitializingBean.afterPropertiesSet() invocation by the container
+pub fn (mut c Container) register_init_callback(type_name string, callback InitCallback) {
+	c.mu.@lock()
+	defer { c.mu.unlock() }
+	c.init_callbacks[type_name] = callback
+}
+
+// has_init_callback checks if a bean has a registered InitializingBean init callback.
+pub fn (mut c Container) has_init_callback(type_name string) bool {
+	c.mu.rlock()
+	defer { c.mu.runlock() }
+	return type_name in c.init_callbacks
+}
+
+// invoke_init_callback invokes the InitializingBean.after_properties_set() callback
+// for the given bean, passing the resolved instance. If no callback is registered,
+// this is a no-op (the bean does not implement InitializingBean).
+//
+// Thread-safety: acquires read lock to look up the callback, then releases the lock
+// before invoking the callback (so user code does not run under the container lock).
+pub fn (mut c Container) invoke_init_callback(type_name string, instance voidptr) ! {
+	c.mu.rlock()
+	callback := c.init_callbacks[type_name] or {
+		c.mu.runlock()
+		return
+	}
+	c.mu.runlock()
+
+	callback(instance) or { return error('after_properties_set failed for "${type_name}": ${err}') }
+}
+
+// destroy removes a singleton instance and invokes its DisposableBean destroy callback.
+// The @[pre_destroy] callback is NOT invoked here — that is handled by the
+// LifecycleManager (called from ApplicationContext.shutdown() before destroy_all()).
+// This method only handles the DisposableBean.destroy() programmatic callback.
 pub fn (mut c Container) destroy(type_name string) ! {
-	c.sharded_mu.@lock(type_name)
-	defer { c.sharded_mu.unlock(type_name) }
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 
 	if type_name !in c.instances {
 		return error('bean instance "${type_name}" not found')
 	}
-	mut inst := unsafe { c.instances[type_name] }
-	inst.state = .destroying
+	inst := unsafe { c.instances[type_name] }
+	instance_ptr := inst.instance
+	mut inst2 := unsafe { c.instances[type_name] }
+	inst2.state = .destroying
+
+	// Invoke DisposableBean destroy callback if registered
+	if cb := c.destroy_callbacks[type_name] {
+		cb(instance_ptr) or {
+			eprintln('[Container] DisposableBean.destroy() error for "${type_name}": ${err}')
+		}
+		c.destroy_callbacks.delete(type_name)
+	}
+
+	// Clear InitializingBean init callback (if any) since the bean is being destroyed
+	c.init_callbacks.delete(type_name)
+
 	c.instances.delete(type_name)
 
 	mut def := c.definitions[type_name] or { return }
@@ -1104,17 +1300,51 @@ pub fn (mut c Container) remove_definition(type_name string) ! {
 	c.definitions.delete(type_name)
 }
 
-// destroy_all removes all singleton instances (shutdown hook).
+// destroy_all removes all singleton instances and invokes DisposableBean destroy
+// callbacks for each bean. After destruction, all reference maps are cleared to
+// allow the garbage collector to reclaim memory.
+//
+// NOTE: @[pre_destroy] callbacks are NOT invoked here — they are handled by the
+// LifecycleManager.invoke_all_pre_destroy() call in ApplicationContext.shutdown()
+// which runs BEFORE this method. This separation mirrors Spring's
+// AbstractApplicationContext.destroyBeans() + close() pattern.
+//
+// Spring equivalent: DefaultSingletonBeanRegistry.destroySingletons()
 pub fn (mut c Container) destroy_all() {
 	c.mu.@lock()
 	defer { c.mu.unlock() }
 
-	for type_name, _ in c.instances {
-		c.instances.delete(type_name)
-		mut def := c.definitions[type_name] or { continue }
-		def.state = .registered
-		c.definitions[type_name] = def
+	// Invoke DisposableBean destroy callbacks for each instantiated bean.
+	// Collect names first to avoid mutating the map while iterating.
+	mut names := []string{}
+	for name, _ in c.instances {
+		names << name
 	}
+	for name in names {
+		// Invoke DisposableBean destroy callback if registered
+		if cb := c.destroy_callbacks[name] {
+			inst := unsafe { c.instances[name] }
+			instance_ptr := inst.instance
+			cb(instance_ptr) or {
+				eprintln('[Container] DisposableBean.destroy() error for "${name}": ${err}')
+			}
+		}
+		c.instances.delete(name)
+		c.destroy_callbacks.delete(name)
+
+		mut def := c.definitions[name] or { continue }
+		def.state = .registered
+		c.definitions[name] = def
+	}
+
+	// Clear all reference maps to allow GC to reclaim memory.
+	// (SubTask 4.6 — shutdown() must clear reference slices/maps after destroying.)
+	c.instances = {}
+	c.destroy_callbacks = {}
+	c.init_callbacks = {}
+	c.definitions = {}
+	c.qualifiers = {}
+	c.aliases = {}
 }
 
 // ── Profile ──
@@ -1566,13 +1796,13 @@ pub fn (mut c Container) resolve_lookup(type_name string, qualifier string) !voi
 //
 // Spring equivalent: AbstractBeanFactory.resolveDependency() for @Lookup methods
 pub fn (mut c Container) resolve_lookup_for_bean(type_name string) !map[string]voidptr {
-	c.sharded_mu.rlock(type_name)
+	c.mu.rlock()
 	def := c.definitions[type_name] or {
-		c.sharded_mu.runlock(type_name)
+		c.mu.runlock()
 		return map[string]voidptr{}
 	}
 	lookups := def.lookup_injections.clone()
-	c.sharded_mu.runlock(type_name)
+	c.mu.runlock()
 
 	mut result := map[string]voidptr{}
 	for li in lookups {
@@ -1591,6 +1821,11 @@ pub fn (mut c Container) resolve_lookup_for_bean(type_name string) !map[string]v
 // Unlike resolve_all_by_interface() which only uses the type_index,
 // this method also scans bean type_names for an exact match,
 // making it useful when beans don't explicitly declare their interfaces.
+//
+// Lock-safety: the definitions scan builds a candidate-name list while holding
+// the read lock, then releases the lock BEFORE calling resolve() (which acquires
+// its own lock). This avoids the lock imbalance that previously occurred when
+// early `continue` paths skipped the re-lock step after `runlock()`.
 //
 // Spring equivalent: ListableBeanFactory.getBeansOfType(Class<T>)
 // Laravel equivalent: Container::tagged() with implicit type matching
@@ -1625,6 +1860,10 @@ pub fn (mut c Container) resolve_all_by_type(type_name string) ![]voidptr {
 	}
 
 	// 3. Try exact type_name match (slow path — scan definitions)
+	// Build a candidate-name list while holding the read lock, then resolve
+	// each candidate AFTER releasing the lock. This guarantees the lock is
+	// acquired and released exactly once (no imbalance on any return path).
+	mut candidates := []string{}
 	c.mu.rlock()
 	for name, def in c.definitions {
 		// Skip if already resolved via interface or tag
@@ -1650,22 +1889,22 @@ pub fn (mut c Container) resolve_all_by_type(type_name string) ![]voidptr {
 
 		// Check exact type_name match
 		if name == type_name || def.type_name == type_name {
-			c.mu.runlock()
-			instance := c.resolve(name) or { continue }
-			instances << instance
-			c.mu.rlock()
+			candidates << name
 			continue
 		}
 
 		// Check if type_name appears in the interfaces list
 		if type_name in def.interfaces {
-			c.mu.runlock()
-			instance := c.resolve(name) or { continue }
-			instances << instance
-			c.mu.rlock()
+			candidates << name
 		}
 	}
 	c.mu.runlock()
+
+	// Resolve candidates outside the lock — resolve() has its own locking.
+	for name in candidates {
+		instance := c.resolve(name) or { continue }
+		instances << instance
+	}
 
 	return instances
 }

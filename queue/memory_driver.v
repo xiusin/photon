@@ -98,9 +98,10 @@ pub fn (mut d MemoryDriver) pop(queue_name string) !string {
 }
 
 // count returns the approximate number of pending jobs.
-// This is an eventually-consistent snapshot — for exact counts,
-// use a separate locking mechanism at the caller level.
-pub fn (d &MemoryDriver) count(queue_name string) int {
+// Acquires the mutex for a consistent snapshot of the map.
+pub fn (mut d MemoryDriver) count(queue_name string) int {
+	d.mu.@lock()
+	defer { d.mu.unlock() }
 	qb := d.jobs[queue_name] or { return 0 }
 	return qb.len()
 }

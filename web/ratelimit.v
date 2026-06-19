@@ -16,6 +16,10 @@ import support
 // Must be a power of 2 for fast modulo via bitwise AND.
 const shard_count = 64
 
+// max_attempts_per_key bounds the attempts slice per key to prevent
+// unbounded memory growth from high-traffic keys.
+const max_attempts_per_key = 10000
+
 // RateLimiter implements rate limiting with attempt tracking (thread-safe).
 // Uses sharded locking for high-concurrency performance.
 @[heap]
@@ -75,6 +79,7 @@ pub fn (mut r RateLimiter) too_many_attempts(key string, max_attempts int, decay
 
 // hit records an attempt for the given key.
 // Only locks the shard for this key.
+// Bounds the attempts slice to prevent unbounded memory growth.
 pub fn (mut r RateLimiter) hit(key string) {
 	idx := r.shard_for(key)
 	r.shards[idx].@lock()
@@ -83,6 +88,10 @@ pub fn (mut r RateLimiter) hit(key string) {
 	now := time.now().unix()
 	mut attempts := r.attempts[key] or { []i64{} }
 	attempts << now
+	// Bound the slice: trim oldest entries if over threshold
+	if attempts.len > max_attempts_per_key {
+		attempts = attempts[attempts.len - max_attempts_per_key..]
+	}
 	r.attempts[key] = attempts
 }
 
@@ -197,6 +206,7 @@ pub fn (mut r RateLimiter) key_count() int {
 
 // hit_and_record records a hit and checks if the limit is exceeded in one operation.
 // More efficient than separate hit() + too_many_attempts() — only acquires the shard lock once.
+// Bounds the attempts slice to prevent unbounded memory growth.
 pub fn (mut r RateLimiter) hit_and_record(key string, max_attempts int, decay_seconds i64) bool {
 	idx := r.shard_for(key)
 	r.shards[idx].@lock()
@@ -207,6 +217,10 @@ pub fn (mut r RateLimiter) hit_and_record(key string, max_attempts int, decay_se
 	// Record the hit
 	mut attempts := r.attempts[key] or { []i64{} }
 	attempts << now
+	// Bound the slice: trim oldest entries if over threshold
+	if attempts.len > max_attempts_per_key {
+		attempts = attempts[attempts.len - max_attempts_per_key..]
+	}
 	r.attempts[key] = attempts
 
 	// Check if limit exceeded (filter expired)
@@ -268,12 +282,16 @@ fn (fw &FixedWindowLimiter) shard_for(key string) int {
 	return int(support.fnv1a_str(key) & u64(shard_count - 1))
 }
 
+// max_windows bounds the windows map size to prevent unbounded memory
+// growth from unique keys. When exceeded, expired entries are cleaned up.
+const max_windows = 10000
+
 // check returns true if the request is allowed within the rate limit.
 // Only locks the shard for this key.
+// Performs lazy cleanup of expired windows when the map exceeds max_windows.
 pub fn (mut fw FixedWindowLimiter) check(key string, max_requests int, window_seconds i64) bool {
 	idx := fw.shard_for(key)
 	fw.shards[idx].@lock()
-	defer { fw.shards[idx].unlock() }
 
 	now := time.now().unix()
 	mut entry := fw.windows[key] or { FixedWindowEntry{} }
@@ -285,9 +303,43 @@ pub fn (mut fw FixedWindowLimiter) check(key string, max_requests int, window_se
 	}
 
 	entry.count++
+	result := entry.count <= max_requests
 	fw.windows[key] = entry
 
-	return entry.count <= max_requests
+	// Check if lazy cleanup is needed (without holding the shard lock)
+	need_cleanup := fw.windows.len > max_windows
+
+	fw.shards[idx].unlock()
+
+	// Lazy cleanup: remove expired entries when map is too large.
+	// Done outside the single-shard lock to avoid deadlock with cleanup_expired()
+	// which acquires all shard locks.
+	if need_cleanup {
+		fw.cleanup_expired()
+	}
+
+	return result
+}
+
+// cleanup_expired removes all expired window entries.
+// Acquires all shard locks in order to prevent deadlock.
+pub fn (mut fw FixedWindowLimiter) cleanup_expired() {
+	for i in 0 .. shard_count {
+		fw.shards[i].@lock()
+	}
+	now := time.now().unix()
+	mut keys_to_remove := []string{}
+	for key, entry in fw.windows {
+		if now >= entry.expires {
+			keys_to_remove << key
+		}
+	}
+	for key in keys_to_remove {
+		fw.windows.delete(key)
+	}
+	for i in 0 .. shard_count {
+		fw.shards[shard_count - 1 - i].unlock()
+	}
 }
 
 // get_remaining returns the remaining requests in the current window.

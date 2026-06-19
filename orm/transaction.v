@@ -37,9 +37,24 @@ pub enum Isolation {
 
 // TransactionManager manages transaction lifecycle.
 // Wraps V's official orm.Connection or orm.TransactionalConnection.
+//
+// Concurrency model:
+//   `active_count` replaces the former single `active bool` flag.
+//   Each begin (direct or via .requires_new) increments the count;
+//   each commit/rollback decrements it.  This correctly handles
+//   nested .requires_new propagation in the SAME goroutine without
+//   corrupting the outer transaction's state (the previous global
+//   bool toggle was CRITICAL #3 — concurrent / nested requires_new
+//   calls clobbered each other).
+//
+//   All state mutations are serialized by `mu` (a sync.RwMutex).
+//   `is_active()` takes a READ lock; begin/commit/rollback/execute
+//   take WRITE locks.  For truly concurrent transactions across
+//   goroutines, give each goroutine its own TransactionManager —
+//   a shared manager serializes correctly but does not parallelise.
 pub struct TransactionManager {
 pub mut:
-	active          bool
+	active_count    int
 	savepoint_count int
 	propagation     Propagation = .required
 	isolation       Isolation   = .default_
@@ -49,7 +64,7 @@ pub mut:
 	commit_fn       fn (voidptr) ! = unsafe { nil } // 真实 commit 回调
 	rollback_fn     fn (voidptr) ! = unsafe { nil } // 真实 rollback 回调
 mut:
-	mu sync.Mutex
+	mu sync.RwMutex
 }
 
 // new_transaction_manager creates a TransactionManager.
@@ -68,15 +83,29 @@ pub fn new_transaction_manager_with_conn(conn voidptr, begin_fn fn (voidptr) !, 
 	}
 }
 
-// begin_locked starts a transaction. Caller MUST hold tm.mu.
+// begin_locked starts a transaction. Caller MUST hold tm.mu (write).
+// Errors if a transaction is already active on this manager — use
+// begin_new_locked() for .requires_new propagation which always
+// pushes a fresh nesting level.
 fn (mut tm TransactionManager) begin_locked() ! {
-	if tm.active {
+	if tm.active_count > 0 {
 		return error('transaction already active')
 	}
 	if !isnil(tm.begin_fn) {
 		tm.begin_fn(tm.conn)!
 	}
-	tm.active = true
+	tm.active_count++
+}
+
+// begin_new_locked starts a new transaction nesting level
+// unconditionally.  Used by .requires_new propagation so the outer
+// transaction's count is preserved (the outer level remains on the
+// logical stack).  Caller MUST hold tm.mu (write).
+fn (mut tm TransactionManager) begin_new_locked() ! {
+	if !isnil(tm.begin_fn) {
+		tm.begin_fn(tm.conn)!
+	}
+	tm.active_count++
 }
 
 // begin starts a transaction on the provided connection.
@@ -90,15 +119,15 @@ pub fn (mut tm TransactionManager) begin() ! {
 	tm.begin_locked()!
 }
 
-// commit_locked commits the current transaction. Caller MUST hold tm.mu.
+// commit_locked commits the current transaction. Caller MUST hold tm.mu (write).
 fn (mut tm TransactionManager) commit_locked() ! {
-	if !tm.active {
+	if tm.active_count == 0 {
 		return error('no active transaction')
 	}
 	if !isnil(tm.commit_fn) {
 		tm.commit_fn(tm.conn)!
 	}
-	tm.active = false
+	tm.active_count--
 }
 
 // commit commits the current transaction.
@@ -110,15 +139,15 @@ pub fn (mut tm TransactionManager) commit() ! {
 	tm.commit_locked()!
 }
 
-// rollback_locked rolls back the current transaction. Caller MUST hold tm.mu.
+// rollback_locked rolls back the current transaction. Caller MUST hold tm.mu (write).
 fn (mut tm TransactionManager) rollback_locked() ! {
-	if !tm.active {
+	if tm.active_count == 0 {
 		return error('no active transaction')
 	}
 	if !isnil(tm.rollback_fn) {
 		tm.rollback_fn(tm.conn)!
 	}
-	tm.active = false
+	tm.active_count--
 }
 
 // rollback rolls back the current transaction.
@@ -131,12 +160,14 @@ pub fn (mut tm TransactionManager) rollback() ! {
 }
 
 // is_active checks if a transaction is in progress.
+// Uses a READ lock (M2 fix) — this is a read-only check and must
+// not block concurrent readers.
 pub fn (tm &TransactionManager) is_active() bool {
-	tm.mu.@lock()
+	tm.mu.rlock()
 	defer {
-		tm.mu.unlock()
+		tm.mu.runlock()
 	}
-	return tm.active
+	return tm.active_count > 0
 }
 
 // execute runs a function within a transaction with propagation support.
@@ -154,7 +185,7 @@ pub fn (mut tm TransactionManager) execute(propagation Propagation, f fn () !) !
 	match propagation {
 		.required {
 			tm.mu.@lock()
-			was_inactive := !tm.active
+			was_inactive := tm.active_count == 0
 			if was_inactive {
 				tm.begin_locked() or {
 					tm.mu.unlock()
@@ -180,10 +211,12 @@ pub fn (mut tm TransactionManager) execute(propagation Propagation, f fn () !) !
 			tm.mu.unlock()
 		}
 		.requires_new {
+			// CRITICAL #3 fix: always push a fresh nesting level via
+			// begin_new_locked() instead of toggling a global bool.
+			// The outer transaction's active_count is left untouched —
+			// commit/rollback below only decrements the level we pushed.
 			tm.mu.@lock()
-			was_active := tm.active
-			tm.active = false
-			tm.begin_locked() or {
+			tm.begin_new_locked() or {
 				tm.mu.unlock()
 				return err
 			}
@@ -194,7 +227,6 @@ pub fn (mut tm TransactionManager) execute(propagation Propagation, f fn () !) !
 					tm.mu.unlock()
 					return err
 				}
-				tm.active = was_active
 				tm.mu.unlock()
 				return err
 			}
@@ -203,12 +235,11 @@ pub fn (mut tm TransactionManager) execute(propagation Propagation, f fn () !) !
 				tm.mu.unlock()
 				return err
 			}
-			tm.active = was_active
 			tm.mu.unlock()
 		}
 		.nested {
 			tm.mu.@lock()
-			if !tm.active {
+			if tm.active_count == 0 {
 				tm.mu.unlock()
 				return error('no active transaction for nested propagation')
 			}
@@ -226,7 +257,7 @@ pub fn (mut tm TransactionManager) execute(propagation Propagation, f fn () !) !
 		}
 		.mandatory {
 			tm.mu.@lock()
-			if !tm.active {
+			if tm.active_count == 0 {
 				tm.mu.unlock()
 				return error('no active transaction for mandatory propagation')
 			}
@@ -235,7 +266,7 @@ pub fn (mut tm TransactionManager) execute(propagation Propagation, f fn () !) !
 		}
 		.never {
 			tm.mu.@lock()
-			if tm.active {
+			if tm.active_count > 0 {
 				tm.mu.unlock()
 				return error('existing transaction for never propagation')
 			}
@@ -243,18 +274,20 @@ pub fn (mut tm TransactionManager) execute(propagation Propagation, f fn () !) !
 			f()!
 		}
 		.not_supported {
+			// Suspend the current transaction(s): save the count,
+			// zero it so f() runs without a tx, then restore.
 			tm.mu.@lock()
-			was_active := tm.active
-			tm.active = false
+			saved_count := tm.active_count
+			tm.active_count = 0
 			tm.mu.unlock()
 			f() or {
 				tm.mu.@lock()
-				tm.active = was_active
+				tm.active_count = saved_count
 				tm.mu.unlock()
 				return err
 			}
 			tm.mu.@lock()
-			tm.active = was_active
+			tm.active_count = saved_count
 			tm.mu.unlock()
 		}
 		.supports {

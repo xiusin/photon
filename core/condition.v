@@ -149,8 +149,10 @@ pub fn (c &OnExpressionCondition) evaluate(mut ctx ConditionContext) bool {
 }
 
 // OnClassCondition checks if a class/struct type is available.
-// Since V is compiled, this is effectively a no-op at runtime,
-// but the condition can be used by the comptime scanner.
+// V is a compiled language with no runtime class loading, so "class existence"
+// is evaluated by checking whether a bean of that type is registered in the
+// container (the practical approach noted in the framework spec). This makes
+// the condition perform a real check instead of unconditionally returning true.
 //
 // Spring equivalent: @ConditionalOnClass
 pub struct OnClassCondition {
@@ -159,14 +161,17 @@ pub:
 }
 
 pub fn (c &OnClassCondition) evaluate(mut ctx ConditionContext) bool {
-	// At runtime, if this code exists, the class exists (V is compiled)
-	// The real check happens at comptime by the scanner
-	return true
+	// Real class existence check: query the container for a bean of that type.
+	// If no container is available, the condition cannot be verified → false.
+	if isnil(ctx.container) {
+		return false
+	}
+	return ctx.container.has_definition(c.class_name) || ctx.container.has_instance(c.class_name)
 }
 
 // OnMissingClassCondition checks if a class/struct type is NOT available.
-// Since V is compiled, this always returns false at runtime.
-// The real check happens at comptime by the scanner.
+// This is the negation of OnClassCondition: it returns true when no bean of
+// the given type is registered in the container.
 //
 // Spring equivalent: @ConditionalOnMissingClass
 pub struct OnMissingClassCondition {
@@ -175,8 +180,10 @@ pub:
 }
 
 pub fn (c &OnMissingClassCondition) evaluate(mut ctx ConditionContext) bool {
-	// At runtime, if this code exists, the class exists (V is compiled)
-	return false
+	if isnil(ctx.container) {
+		return true // no container → cannot confirm class exists → treat as missing
+	}
+	return !(ctx.container.has_definition(c.class_name) || ctx.container.has_instance(c.class_name))
 }
 
 // OnCloudPlatformCondition checks if running on a specific cloud platform.

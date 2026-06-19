@@ -219,7 +219,7 @@ pub fn (mut ti TransactionalInterceptor) begin_if_needed(attr TransactionAttribu
 
 	return match attr.propagation {
 		.required {
-			if !ti.tx_manager.active {
+			if !ti.tx_manager.is_active() {
 				ti.tx_manager.begin()!
 				true
 			} else {
@@ -228,14 +228,14 @@ pub fn (mut ti TransactionalInterceptor) begin_if_needed(attr TransactionAttribu
 		}
 		.requires_new {
 			// If existing tx, commit/rollback it first, then start new
-			if ti.tx_manager.active {
+			if ti.tx_manager.is_active() {
 				ti.tx_manager.commit() or { ti.tx_manager.rollback() or {} }
 			}
 			ti.tx_manager.begin()!
 			true
 		}
 		.nested {
-			if ti.tx_manager.active {
+			if ti.tx_manager.is_active() {
 				// Use savepoint_count to track nesting
 				ti.tx_manager.savepoint_count++
 				false
@@ -248,20 +248,20 @@ pub fn (mut ti TransactionalInterceptor) begin_if_needed(attr TransactionAttribu
 			false
 		}
 		.not_supported {
-			if ti.tx_manager.active {
+			if ti.tx_manager.is_active() {
 				ti.tx_manager.commit() or {}
 			}
 			false
 		}
 		.mandatory {
-			if !ti.tx_manager.active {
+			if !ti.tx_manager.is_active() {
 				error('no existing transaction found for MANDATORY propagation')
 			} else {
 				false
 			}
 		}
 		.never {
-			if ti.tx_manager.active {
+			if ti.tx_manager.is_active() {
 				error('existing transaction found for NEVER propagation')
 			} else {
 				false
@@ -272,14 +272,14 @@ pub fn (mut ti TransactionalInterceptor) begin_if_needed(attr TransactionAttribu
 
 // commit_if_needed commits the transaction if it was started by this interceptor.
 pub fn (mut ti TransactionalInterceptor) commit_if_needed(started bool) ! {
-	if started && !isnil(ti.tx_manager) && ti.tx_manager.active {
+	if started && !isnil(ti.tx_manager) && ti.tx_manager.is_active() {
 		ti.tx_manager.commit()!
 	}
 }
 
 // rollback_if_needed rolls back the transaction on error.
 pub fn (mut ti TransactionalInterceptor) rollback_if_needed(started bool) {
-	if started && !isnil(ti.tx_manager) && ti.tx_manager.active {
+	if started && !isnil(ti.tx_manager) && ti.tx_manager.is_active() {
 		ti.tx_manager.rollback() or { return }
 	}
 }

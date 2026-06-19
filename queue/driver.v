@@ -4,8 +4,8 @@ module queue
 
 // QueueDriver is the backend interface for queue storage
 pub interface QueueDriver {
-	count(queue_name string) int
 mut:
+	count(queue_name string) int
 	push(queue_name string, payload string) !
 	pop(queue_name string) !string
 	clear(queue_name string) !

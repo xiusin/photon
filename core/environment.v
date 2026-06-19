@@ -210,6 +210,16 @@ pub fn (mut env Environment) property_count() int {
 	return env.properties.len
 }
 
+// properties_snapshot returns a thread-safe clone of all properties.
+// Used by the container when building a ConditionContext during register()
+// so that condition evaluators (e.g. OnPropertyCondition) can read property
+// values without racing with concurrent writers.
+pub fn (mut env Environment) properties_snapshot() map[string]string {
+	env.mu.rlock()
+	defer { env.mu.runlock() }
+	return env.properties.clone()
+}
+
 // ── Property Placeholder Resolution ──
 
 // resolve_placeholders resolves ${...} placeholders in a string.
@@ -517,25 +527,10 @@ pub fn (mut env Environment) prefix_count(prefix string) int {
 
 // bind_to binds all properties with a given prefix into a target map.
 // The prefix is stripped from the keys in the resulting map.
-// This is the Photon equivalent of Spring's @ConfigurationProperties annotation.
 //
-// Unlike get_subtree(), this method also:
-//   - Validates that at least one property exists for the prefix
-//   - Supports nested prefix binding (e.g., 'app.db' matches 'app.db.host')
-//   - Returns an error if no properties match the prefix
-//
-// Spring equivalent: @ConfigurationProperties(prefix = "app.database")
-//   - Binds properties with the given prefix into a configuration class
-// Laravel equivalent: config('database') → returns all config under 'database' key
-//
-// Example:
-//   // Properties: { 'app.db.host': 'localhost', 'app.db.port': '5432' }
-//   config := env.bind_to('app.db.') or { return }
-//   // config = { 'host': 'localhost', 'port': '5432' }
-//
-//   // Also works without trailing dot:
-//   config2 := env.bind_to('app.db') or { return }
-//   // config2 = { 'host': 'localhost', 'port': '5432' }  (same result with auto-dot handling)
+// Deprecated: use bind_to_struct[T] for type-safe binding to structs.
+@[deprecated('use bind_to_struct[T] for type-safe binding to structs')]
+@[deprecated_after: '2026-06-01']
 pub fn (mut env Environment) bind_to(prefix string) !map[string]string {
 	env.mu.rlock()
 	defer { env.mu.runlock() }
@@ -633,4 +628,171 @@ pub fn (mut env Environment) validate_prefix(prefix string, required_keys []stri
 	if missing.len > 0 {
 		return error('missing required properties under \'${prefix}\': ${missing.join(', ')}')
 	}
+}
+
+// ── Type-Safe @ConfigurationProperties Binding (Spring Boot inspired) ──
+
+// extract_config_field_key extracts the custom key from a @[config_field: 'key']
+// or @[config_field('key')] attribute. Returns empty string if not present.
+//
+// Both attribute forms normalize to the string `config_field: 'value'` in V's
+// comptime `field.attrs` list.
+//
+// Example:
+//   struct C { host string @[config_field: 'hostname'] }
+//   // extract_config_field_key(field.attrs) -> 'hostname'
+pub fn extract_config_field_key(attrs []string) string {
+	for attr in attrs {
+		if attr.starts_with('config_field:') {
+			rest := attr['config_field:'.len..].trim_space()
+			// Strip surrounding single quotes
+			if rest.len >= 2 && rest[0] == `'` && rest[rest.len - 1] == `'` {
+				return rest[1..rest.len - 1]
+			}
+			// Strip surrounding double quotes
+			if rest.len >= 2 && rest[0] == `"` && rest[rest.len - 1] == `"` {
+				return rest[1..rest.len - 1]
+			}
+			return rest
+		}
+	}
+	return ''
+}
+
+// bind_to_struct binds all properties with a given prefix into a typed struct T.
+// This is the Photon equivalent of Spring Boot's @ConfigurationProperties annotation,
+// providing compile-time type-safe binding via V's comptime facilities.
+//
+// Supported field types:
+//   - Primitive: string, int, i64, f32, f64, bool
+//   - Arrays: []string, []int, []f64, []bool (comma-separated values)
+//   - Nested structs: recursively bound with prefix.field_name
+//
+// Field attributes:
+//   @[config_field: 'custom_key']  — use 'custom_key' instead of field name for lookup
+//   @[config_field('custom_key')]  — alternative syntax (same effect)
+//
+// Fields not present in the environment remain at their zero/default values.
+//
+// Spring Boot equivalent: @ConfigurationProperties(prefix = "app.database")
+//
+// Example:
+//   struct DatabaseConfig {
+//       host     string
+//       port     int
+//       timeout  f64
+//       ssl      bool
+//       replicas []string
+//   }
+//   env.set_property('app.db.host', 'localhost')
+//   env.set_property('app.db.port', '5432')
+//   env.set_property('app.db.replicas', 'r1,r2,r3')
+//   config := core.bind_to_struct[DatabaseConfig](env, 'app.db')!
+//   // config.host == 'localhost', config.port == 5432, config.replicas == ['r1','r2','r3']
+pub fn bind_to_struct[T](mut env &Environment, prefix string) !T {
+	// The `&T{}` dummy instance is used for type inference of nested struct fields.
+	return bind_to_struct_impl[T](mut env, prefix, &T{})
+}
+
+// bind_to_struct_impl is the internal helper that carries a `&T` dummy instance
+// for recursive type inference. The `typ` parameter is only used to help V infer
+// the generic type of nested struct fields via `typ.$(field.name)` — it is never
+// read for its values.
+//
+// This pattern is inspired by V's toml/json decoder implementations.
+fn bind_to_struct_impl[T](mut env &Environment, prefix string, typ &T) !T {
+	mut config := T{}
+
+	$for field in T.fields {
+		// Determine the lookup key: use @[config_field] custom key if present,
+		// otherwise use the field name.
+		field_key := extract_config_field_key(field.attrs)
+		effective_key := if field_key.len > 0 { field_key } else { field.name }
+
+		// Build the full property key: prefix.effective_key (or just effective_key if no prefix)
+		full_key := if prefix.len > 0 { '${prefix}.${effective_key}' } else { effective_key }
+
+		// Bind based on field type — primitive types first, then arrays, then nested structs
+		$if field.typ is string {
+			if env.has_property(full_key) {
+				config.$(field.name) = env.get_property(full_key)
+			}
+		} $else $if field.typ is int {
+			if env.has_property(full_key) {
+				config.$(field.name) = env.get_property(full_key).int()
+			}
+		} $else $if field.typ is i64 {
+			if env.has_property(full_key) {
+				config.$(field.name) = env.get_property(full_key).i64()
+			}
+		} $else $if field.typ is f32 {
+			if env.has_property(full_key) {
+				config.$(field.name) = f32(env.get_property(full_key).f64())
+			}
+		} $else $if field.typ is f64 {
+			if env.has_property(full_key) {
+				config.$(field.name) = env.get_property(full_key).f64()
+			}
+		} $else $if field.typ is bool {
+			if env.has_property(full_key) {
+				val := env.get_property(full_key)
+				config.$(field.name) = val == 'true' || val == '1' || val == 'yes' || val == 'on'
+			}
+		} $else $if field.typ is []string {
+			if env.has_property(full_key) {
+				raw := env.get_property(full_key)
+				if raw.len > 0 {
+					mut arr := []string{}
+					for part in raw.split(',') {
+						arr << part.trim_space()
+					}
+					config.$(field.name) = arr
+				}
+			}
+		} $else $if field.typ is []int {
+			if env.has_property(full_key) {
+				raw := env.get_property(full_key)
+				if raw.len > 0 {
+					mut arr := []int{}
+					for part in raw.split(',') {
+						arr << part.trim_space().int()
+					}
+					config.$(field.name) = arr
+				}
+			}
+		} $else $if field.typ is []f64 {
+			if env.has_property(full_key) {
+				raw := env.get_property(full_key)
+				if raw.len > 0 {
+					mut arr := []f64{}
+					for part in raw.split(',') {
+						arr << part.trim_space().f64()
+					}
+					config.$(field.name) = arr
+				}
+			}
+		} $else $if field.typ is []bool {
+			if env.has_property(full_key) {
+				raw := env.get_property(full_key)
+				if raw.len > 0 {
+					mut arr := []bool{}
+					for part in raw.split(',') {
+						p := part.trim_space()
+						arr << p == 'true' || p == '1' || p == 'yes' || p == 'on'
+					}
+					config.$(field.name) = arr
+				}
+			}
+		} $else $if field.is_struct {
+			// Recursively bind nested struct fields.
+			// The `typ.$(field.name)` trick provides V with the field's type
+			// for generic type inference of the recursive call.
+			// Note: `continue` is not allowed in comptime $for loops, so we use
+			// `or { typ_ }` to fall back to the zero-value instance on error.
+			typ_ := typ.$(field.name)
+			nested := bind_to_struct_impl(mut env, full_key, &typ_) or { typ_ }
+			config.$(field.name) = nested
+		}
+	}
+	return config
 }

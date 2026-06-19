@@ -47,6 +47,19 @@ pub fn (mut cm CacheRegistry) register(name string, c &Cache) {
 	cm.caches[name] = c
 }
 
+// unregister removes a named cache from the registry under write lock.
+// Returns true if the cache was found and removed, false otherwise.
+// The default cache cannot be unregistered.
+pub fn (mut cm CacheRegistry) unregister(name string) bool {
+	cm.mu.@lock()
+	defer { cm.mu.unlock() }
+	if name !in cm.caches {
+		return false
+	}
+	cm.caches.delete(name)
+	return true
+}
+
 // get_cache retrieves a named cache or returns the default
 pub fn (cm &CacheRegistry) get_cache(name string) &Cache {
 	cm.mu.rlock()

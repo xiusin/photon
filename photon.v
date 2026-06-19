@@ -147,6 +147,8 @@ pub type ConflictException = web.ConflictException
 pub type ValidationException = web.ValidationException
 pub type InternalServerErrorException = web.InternalServerErrorException
 pub type ExceptionHandlerRegistry = web.ExceptionHandlerRegistry
+pub type ExceptionHandler = web.ExceptionHandler
+pub type ExceptionResolver = web.ExceptionResolver
 
 // Re-export CLI interactive & make commands
 pub type AskResult = cli.AskResult

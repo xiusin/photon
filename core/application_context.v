@@ -23,6 +23,7 @@ module core
 //   instance := app.resolve('UserService')!
 //   app.shutdown()
 import sync
+import time
 
 // ── ApplicationState ──
 
@@ -70,7 +71,8 @@ pub mut:
 	auto_config_manager     &AutoConfigurationManager = unsafe { nil }
 	provider_registry       &ProviderRegistry         = unsafe { nil } // ServiceProvider (Laravel)
 	runners                 []&ApplicationRunner
-	shutdown_hooks          &ShutdownHookManager = unsafe { nil }
+	shutdown_hooks          &ShutdownHookManager    = unsafe { nil }
+	ordered_shutdown        &OrderedShutdownManager = unsafe { nil } // Task 16: ordered module shutdown
 	lifecycle_beans         []&Lifecycle // Spring Lifecycle beans
 mut:
 	state ApplicationState = .created
@@ -92,6 +94,7 @@ pub fn new_application_context() &ApplicationContext {
 		provider_registry:       new_provider_registry()
 		runners:                 []&ApplicationRunner{}
 		shutdown_hooks:          new_shutdown_hook_manager()
+		ordered_shutdown:        new_ordered_shutdown_manager()
 		lifecycle_beans:         []&Lifecycle{}
 		state:                   .created
 	}
@@ -99,6 +102,9 @@ pub fn new_application_context() &ApplicationContext {
 	// so bean lifecycle events (bean.created, bean.destroyed) are dispatched
 	// through the application's event system.
 	ctx.container.set_event_bus(ctx.event_bus)
+	// Wire the environment to the container so that condition evaluation
+	// during container.register() can access configuration properties.
+	ctx.container.set_environment(ctx.environment)
 	return ctx
 }
 
@@ -202,6 +208,7 @@ pub fn (mut ctx ApplicationContext) register_bean(type_name string, opts BeanReg
 	def.method_injections = opts.method_injections
 	def.collection_injections = opts.collection_injections
 	def.lookup_injections = opts.lookup_injections
+	def.conditions = opts.conditions
 	ctx.register(def)!
 }
 
@@ -307,12 +314,20 @@ pub fn (mut ctx ApplicationContext) set_parent(parent &ApplicationContext) {
 //   3. Check for circular dependencies
 //   4. Set state to refreshing
 //   5. Instantiate all non-lazy singletons in dependency order
-//   6. Run BeanPostProcessors on each bean
+//   6. Apply BeanPostProcessor.before on each bean
 //   7. Invoke all @[post_construct] callbacks
-//   8. Start SmartLifecycle beans (in ascending phase order)
-//   9. Dispatch ContextRefreshedEvent
-//  10. Execute ApplicationRunners
-//  11. Set state to ready
+//   8. Invoke InitializingBean.after_properties_set() callbacks
+//   9. Apply BeanPostProcessor.after on each bean
+//  10. Start SmartLifecycle beans (in ascending phase order)
+//  11. Dispatch ContextRefreshedEvent
+//  12. Execute ApplicationRunners
+//  13. Set state to ready
+//
+// Lifecycle order (Spring-aligned, SubTask 8.2):
+//   before → @post_construct → afterPropertiesSet → after
+//
+// On failure (SubTask 8.1): already-created beans are destroyed in reverse
+// order, the state is reset to .created, and the original error is returned.
 pub fn (mut ctx ApplicationContext) refresh() ! {
 	ctx.mu.@lock()
 	if ctx.state == .refreshing {
@@ -363,6 +378,11 @@ pub fn (mut ctx ApplicationContext) refresh() ! {
 	mut bean_names := ctx.container.bean_names()
 	mut sorted_beans := topological_sort(bean_names, mut ctx.container)
 
+	// Track successfully created beans for rollback on failure (SubTask 8.1).
+	// If any bean fails to create or initialize, already-created beans are
+	// destroyed in reverse order to leave the context in a clean state.
+	mut created_beans := []string{}
+
 	for name in sorted_beans {
 		def := ctx.container.get_definition(name) or { continue }
 		if def.is_lazy || def.scope == .prototype {
@@ -373,18 +393,51 @@ pub fn (mut ctx ApplicationContext) refresh() ! {
 		}
 
 		// Resolve (instantiate) the bean
-		instance := ctx.container.resolve(name) or { continue }
+		instance := ctx.container.resolve(name) or {
+			// Rollback: destroy already-created beans in reverse order (SubTask 8.1)
+			ctx.rollback_created_beans(mut created_beans)
+			ctx.mu.@lock()
+			ctx.state = .created
+			ctx.mu.unlock()
+			return error('refresh failed: bean "${name}" could not be created: ${err}')
+		}
 
-		// 6. Apply BeanPostProcessors
+		// Track successfully created bean for rollback
+		created_beans << name
+
+		// 6. Apply BeanPostProcessor.before (post_process_before_initialization)
+		//    Lifecycle order (Spring-aligned, SubTask 8.2):
+		//      before → @post_construct → afterPropertiesSet → after
 		mut processed_instance := instance
 		for pp in ctx.post_processors {
 			processed_instance = pp.post_process_before_initialization(name, processed_instance)
-			processed_instance = pp.post_process_after_initialization(name, processed_instance)
 		}
 
-		// 7. Invoke @[post_construct]
+		// 7. Invoke @[post_construct] (annotation-based)
 		ctx.lifecycle.invoke_post_construct(name) or {
-			eprintln('[ApplicationContext] post_construct error for "${name}": ${err}')
+			// Rollback on lifecycle failure (SubTask 8.1)
+			ctx.rollback_created_beans(mut created_beans)
+			ctx.mu.@lock()
+			ctx.state = .created
+			ctx.mu.unlock()
+			return error('refresh failed: post_construct error for bean "${name}": ${err}')
+		}
+
+		// 8. Invoke InitializingBean.after_properties_set() (interface-based, SubTask 8.3)
+		//    This must happen AFTER @post_construct and BEFORE BeanPostProcessor.after,
+		//    matching Spring's lifecycle order.
+		ctx.container.invoke_init_callback(name, processed_instance) or {
+			// Rollback on lifecycle failure (SubTask 8.1)
+			ctx.rollback_created_beans(mut created_beans)
+			ctx.mu.@lock()
+			ctx.state = .created
+			ctx.mu.unlock()
+			return error('refresh failed: after_properties_set error for bean "${name}": ${err}')
+		}
+
+		// 9. Apply BeanPostProcessor.after (post_process_after_initialization)
+		for pp in ctx.post_processors {
+			processed_instance = pp.post_process_after_initialization(name, processed_instance)
 		}
 	}
 
@@ -423,15 +476,51 @@ pub fn (mut ctx ApplicationContext) refresh() ! {
 	ctx.mu.unlock()
 }
 
+// rollback_created_beans destroys the given beans in reverse order (LIFO).
+// Used by refresh() to clean up partially-created state when a bean fails
+// to create or initialize. (SubTask 8.1)
+//
+// For each bean, this invokes:
+//   1. @[pre_destroy] callback (via LifecycleManager.invoke_pre_destroy)
+//   2. DisposableBean.destroy() callback (via Container.destroy)
+//   3. Removes the singleton instance
+//
+// Errors from individual destroy operations are swallowed so that rollback
+// continues for all remaining beans — we want to clean up as much as possible.
+fn (mut ctx ApplicationContext) rollback_created_beans(mut created_beans []string) {
+	// Destroy beans in reverse order (last created → first created)
+	mut reversed := created_beans.reverse()
+	for name in reversed {
+		// Invoke @pre_destroy callback if registered
+		ctx.lifecycle.invoke_pre_destroy(name) or {}
+		// Invoke DisposableBean.destroy() and remove instance
+		ctx.container.destroy(name) or {}
+	}
+	created_beans.clear()
+}
+
 // shutdown gracefully shuts down the application context.
 // This is the Spring equivalent of AbstractApplicationContext.close().
 //
-// Steps:
+// Unified shutdown order (Task 16):
 //   1. Dispatch ContextClosedEvent
 //   2. Stop SmartLifecycle beans (in descending phase order)
-//   3. Invoke all @[pre_destroy] callbacks in reverse order
-//   4. Destroy all singleton instances
-//   5. Set state to closed
+//   3. Run ordered shutdown stages (Task 16) — each with a 5-second timeout:
+//        web → queue → ticker → schedule → event → cache → orm → pool
+//      Only registered stages are run; unregistered modules are skipped.
+//   4. Invoke all @[pre_destroy] callbacks in reverse order (SubTask 4.4)
+//      — handled by LifecycleManager.invoke_all_pre_destroy()
+//   5. Run shutdown hooks (Spring addShutdownHook)
+//   6. Stop Lifecycle beans
+//   7. Destroy all singletons (core stage) — Container.destroy_all() now:
+//        a. Invokes DisposableBean.destroy() callbacks (SubTask 4.5)
+//        b. Clears all reference maps (instances, definitions, aliases,
+//           qualifiers, destroy_callbacks, init_callbacks) to allow GC
+//           reclamation (SubTask 4.6 / 8.5)
+//   8. Set state to closed
+//
+// The shutdown is idempotent — calling it twice is safe (the second call
+// returns immediately because the state is already .closed).
 pub fn (mut ctx ApplicationContext) shutdown() {
 	ctx.mu.@lock()
 	if ctx.state == .closed || ctx.state == .closing {
@@ -451,28 +540,79 @@ pub fn (mut ctx ApplicationContext) shutdown() {
 		ctx.smart_lifecycle.stop_all()
 	}
 
-	// 3. Invoke all @[pre_destroy] in reverse order
+	// 3. Run ordered shutdown stages (Task 16)
+	//    Stages are executed in descending priority order:
+	//    web → queue → ticker → schedule → event → cache → orm → pool
+	//    Each stage has a 5-second timeout — if a stage doesn't complete in
+	//    5 seconds, a warning is logged and shutdown continues to the next
+	//    stage. Only registered stages are run.
+	if !isnil(ctx.ordered_shutdown) {
+		stages := ctx.ordered_shutdown.stages_sorted()
+		for stage in stages {
+			ctx.shutdown_stage(stage.name, stage.hook)
+		}
+	}
+
+	// 4. Invoke all @[pre_destroy] in reverse order (SubTask 4.4)
+	//    The LifecycleManager holds callbacks registered by comptime-generated
+	//    code for beans with @[pre_destroy] annotated methods. This mirrors
+	//    the @[post_construct] invocation pattern used during refresh().
 	ctx.lifecycle.invoke_all_pre_destroy() or {}
 
-	// 3.5. Run shutdown hooks (Spring addShutdownHook)
+	// 5. Run shutdown hooks (Spring addShutdownHook)
 	if !isnil(ctx.shutdown_hooks) {
 		ctx.shutdown_hooks.run_hooks()
 	}
 
-	// 3.6. Stop Lifecycle beans
+	// 6. Stop Lifecycle beans
 	for bean in ctx.lifecycle_beans {
 		if !isnil(bean) && bean.is_running() {
 			bean.stop() or { eprintln('[ApplicationContext] Lifecycle stop error: ${err}') }
 		}
 	}
 
-	// 4. Destroy all singletons
+	// 7. Destroy all singletons (core stage, SubTask 4.5 + 4.6 + 8.5)
+	//    Container.destroy_all() invokes DisposableBean.destroy() callbacks
+	//    for each bean, then clears ALL reference maps (instances, definitions,
+	//    aliases, qualifiers, destroy_callbacks, init_callbacks) to allow GC
+	//    reclamation.
 	ctx.container.destroy_all()
 
-	// 5. Set state to closed
+	// 8. Set state to closed
 	ctx.mu.@lock()
 	ctx.state = .closed
 	ctx.mu.unlock()
+}
+
+// shutdown_stage runs a single shutdown stage function with a 5-second timeout.
+// If the stage doesn't complete in 5 seconds, a warning is logged and the
+// method returns (the stage's background goroutine may continue running —
+// this is the standard trade-off when there is no cancellation mechanism).
+// Errors from the stage function are logged but do not abort shutdown.
+fn (mut ctx ApplicationContext) shutdown_stage(name string, stage_fn fn () !) {
+	done := chan bool{cap: 1}
+	spawn fn (sf fn () !, d chan bool) {
+		sf() or { eprintln('[ApplicationContext] shutdown stage error: ${err}') }
+		d <- true
+	}(stage_fn, done)
+
+	// Poll for completion with a 5-second deadline. V's `select` with `else`
+	// is non-blocking, so we sleep briefly between checks (same pattern as
+	// SmartLifecycleManager.stop_all()).
+	deadline_ns := time.now().unix_nano() + i64(5 * time.second)
+	for {
+		select {
+			_ := <-done {
+				return
+			}
+			else {}
+		}
+		if time.now().unix_nano() >= deadline_ns {
+			eprintln('[ApplicationContext] shutdown stage "${name}" timed out after 5s, continuing')
+			return
+		}
+		time.sleep(50 * time.millisecond)
+	}
 }
 
 // ── Spring Lifecycle: start / stop / close ──
@@ -579,6 +719,56 @@ pub fn (mut ctx ApplicationContext) add_shutdown_hook(hook ShutdownHook) {
 		ctx.shutdown_hooks = new_shutdown_hook_manager()
 	}
 	ctx.shutdown_hooks.add_hook(hook)
+}
+
+// ── Ordered Shutdown Stage (Task 16) ──
+
+// add_shutdown_stage registers an ordered shutdown stage.
+// Stages are executed in descending priority order during shutdown
+// (highest priority first). Each stage has a 5-second timeout — if a stage
+// doesn't complete in 5 seconds, a warning is logged and shutdown continues
+// to the next stage.
+//
+// Standard priority constants (defined in lifecycle.v):
+//   - shutdown_priority_web (100)      — stop accepting new requests
+//   - shutdown_priority_queue (90)     — stop workers, wait for in-flight jobs
+//   - shutdown_priority_ticker (80)    — stop scheduler goroutines
+//   - shutdown_priority_schedule (70)  — stop scheduled tasks
+//   - shutdown_priority_event (60)     — wait for async event dispatch
+//   - shutdown_priority_cache (50)     — close caches, stop GC goroutines
+//   - shutdown_priority_orm (40)       — close all DB connections
+//   - shutdown_priority_pool (30)      — close all object pools
+//   - shutdown_priority_core (10)      — destroy all beans (implicit)
+//
+// If a stage with the same name already exists, it is replaced.
+//
+// Usage:
+//   app.add_shutdown_stage('web', core.shutdown_priority_web, fn () ! {
+//       // stop web server
+//   })
+pub fn (mut ctx ApplicationContext) add_shutdown_stage(name string, priority int, hook fn () !) {
+	if isnil(ctx.ordered_shutdown) {
+		ctx.ordered_shutdown = new_ordered_shutdown_manager()
+	}
+	ctx.ordered_shutdown.add_stage(name, priority, hook)
+}
+
+// ordered_shutdown_stage_count returns the number of registered ordered
+// shutdown stages.
+pub fn (mut ctx ApplicationContext) ordered_shutdown_stage_count() int {
+	if isnil(ctx.ordered_shutdown) {
+		return 0
+	}
+	return ctx.ordered_shutdown.stage_count()
+}
+
+// has_shutdown_stage checks if an ordered shutdown stage with the given name
+// is registered.
+pub fn (mut ctx ApplicationContext) has_shutdown_stage(name string) bool {
+	if isnil(ctx.ordered_shutdown) {
+		return false
+	}
+	return ctx.ordered_shutdown.has_stage(name)
 }
 
 // ── Lifecycle Bean Registration ──
@@ -725,8 +915,57 @@ pub fn (mut ctx ApplicationContext) prefix_count(prefix string) int {
 // bind_to binds all properties with a given prefix into a map.
 // The prefix is stripped from keys. Returns error if no properties match.
 // Spring equivalent: @ConfigurationProperties(prefix = "app.database")
+//
+// Deprecated: use bind_to_struct[T] for type-safe binding to structs.
+@[deprecated('use bind_to_struct[T] for type-safe binding to structs')]
+@[deprecated_after: '2026-06-01']
 pub fn (mut ctx ApplicationContext) bind_to(prefix string) !map[string]string {
 	return ctx.environment.bind_to(prefix)
+}
+
+// bind_to_struct binds all properties with a given prefix into a typed struct T.
+// This is the type-safe equivalent of Spring Boot's @ConfigurationProperties.
+//
+// See core.bind_to_struct for full documentation.
+//
+// Example:
+//   struct DbConfig { host string; port int }
+//   ctx.set_property('app.db.host', 'localhost')
+//   ctx.set_property('app.db.port', '5432')
+//   config := ctx.bind_to_struct[DbConfig]('app.db')!
+//   // config.host == 'localhost', config.port == 5432
+pub fn (mut ctx ApplicationContext) bind_to_struct[T](prefix string) !T {
+	return bind_to_struct[T](mut ctx.environment, prefix)
+}
+
+// register_configuration_properties binds environment properties to a struct T
+// and registers the result as a singleton bean. This is the Photon equivalent of
+// Spring Boot's @ConfigurationProperties + @Bean combination.
+//
+// The bean is registered under `type_name` and can be resolved via ctx.resolve().
+// The `prefix` determines which properties are bound (e.g., 'app.database').
+//
+// Spring Boot equivalent:
+//   @ConfigurationProperties(prefix = "app.database")
+//   @Bean
+//   public DatabaseConfig databaseConfig() { ... }
+//
+// Example:
+//   struct DatabaseConfig {
+//       host string
+//       port int
+//   }
+//   ctx.set_property('app.db.host', 'localhost')
+//   ctx.set_property('app.db.port', '5432')
+//   config := ctx.register_configuration_properties[DatabaseConfig]('DatabaseConfig', 'app.db')!
+//   // config is now registered as a singleton bean and can be resolved:
+//   resolved := ctx.resolve('DatabaseConfig')!
+pub fn (mut ctx ApplicationContext) register_configuration_properties[T](type_name string, prefix string) !&T {
+	config := bind_to_struct[T](mut ctx.environment, prefix)!
+	// V escapes `config` to the heap when we take a reference that outlives the function.
+	config_ptr := &config
+	ctx.register_instance(type_name, config_ptr)!
+	return config_ptr
 }
 
 // bind_to_with_defaults binds properties with a prefix, merging with defaults.
@@ -867,6 +1106,7 @@ pub:
 	method_injections     []MethodInjection     // @[autowired] on setter/method
 	collection_injections []CollectionInjection // inject all beans of a type
 	lookup_injections     []LookupInjection     // @[lookup] method injection (Spring @Lookup)
+	conditions            []&Condition          // @[conditional] — conditions that must pass for registration
 }
 
 // ── Topological Sort Helper ──

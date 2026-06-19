@@ -708,3 +708,205 @@ fn count_json_array_elements(s string) int {
 	}
 	return count
 }
+
+// ============================================================
+// MockMvc — Spring-style HTTP Request Simulation
+// ============================================================
+//
+// Provides a MockMvc test tool inspired by Spring's MockMvc.
+// Simulates the full HTTP request lifecycle without actual
+// network I/O. Register handlers with get()/post()/etc., then
+// call perform() to dispatch a MockRequest and assert on the
+// MockResult.
+//
+// Since Photon's routing is compile-time via veb, MockMvc holds
+// handler functions directly (keyed by "METHOD /path") for
+// runtime dispatch in tests.
+//
+// Usage:
+//   mut mvc := web.new_mockmvc()
+//   mvc.get('/users', fn (req web.MockRequest) !web.MockResult {
+//       return web.MockResult{
+//           status:  200
+//           body:    '{"name":"Alice"}'
+//           headers: {'Content-Type': 'application/json'}
+//       }
+//   })
+//   result := mvc.perform(web.MockRequest{method: 'GET', path: '/users'})!
+//   result.assert_status(200)!
+//   result.assert_json_contains('name', 'Alice')!
+
+// MockRequest represents a simulated HTTP request for testing.
+pub struct MockRequest {
+pub mut:
+	method  string            // HTTP method: GET, POST, PUT, DELETE, PATCH
+	path    string            // Request path: /users/123
+	headers map[string]string // Request headers
+	body    string            // Request body (raw string)
+	query   map[string]string // Query parameters
+}
+
+// MockResult represents a simulated HTTP response.
+pub struct MockResult {
+pub mut:
+	status  int               // HTTP status code
+	body    string            // Response body
+	headers map[string]string // Response headers
+}
+
+// MockHandler processes a MockRequest and returns a MockResult.
+pub type MockHandler = fn (req MockRequest) !MockResult
+
+// MockMvc simulates Spring's MockMvc for testing HTTP request
+// handling without actual network I/O.
+pub struct MockMvc {
+pub mut:
+	handlers map[string]MockHandler // key: "METHOD /path"
+}
+
+// new_mockmvc creates a new MockMvc instance.
+pub fn new_mockmvc() &MockMvc {
+	return &MockMvc{
+		handlers: map[string]MockHandler{}
+	}
+}
+
+// mock_request creates a new MockRequest with initialized maps.
+pub fn mock_request(method string, path string) MockRequest {
+	return MockRequest{
+		method:  method
+		path:    path
+		headers: map[string]string{}
+		query:   map[string]string{}
+	}
+}
+
+// route registers a handler for a method+path combination.
+// Returns self for chaining.
+pub fn (mut m MockMvc) route(method string, path string, handler MockHandler) &MockMvc {
+	key := '${method} ${path}'
+	m.handlers[key] = handler
+	return m
+}
+
+// get registers a GET handler.
+pub fn (mut m MockMvc) get(path string, handler MockHandler) &MockMvc {
+	return m.route('GET', path, handler)
+}
+
+// post registers a POST handler.
+pub fn (mut m MockMvc) post(path string, handler MockHandler) &MockMvc {
+	return m.route('POST', path, handler)
+}
+
+// put registers a PUT handler.
+pub fn (mut m MockMvc) put(path string, handler MockHandler) &MockMvc {
+	return m.route('PUT', path, handler)
+}
+
+// delete registers a DELETE handler.
+pub fn (mut m MockMvc) delete(path string, handler MockHandler) &MockMvc {
+	return m.route('DELETE', path, handler)
+}
+
+// patch registers a PATCH handler.
+pub fn (mut m MockMvc) patch(path string, handler MockHandler) &MockMvc {
+	return m.route('PATCH', path, handler)
+}
+
+// perform dispatches a MockRequest through the registered handlers.
+// Returns a 404 MockResult if no handler matches the method+path.
+// Simulates the full request lifecycle without network I/O.
+pub fn (m &MockMvc) perform(req MockRequest) !MockResult {
+	key := '${req.method} ${req.path}'
+	handler := m.handlers[key] or {
+		return MockResult{
+			status:  404
+			body:    '{"error":"Not Found","path":"${req.path}"}'
+			headers: {
+				'Content-Type': 'application/json'
+			}
+		}
+	}
+	return handler(req)!
+}
+
+// mock_result_from_result converts a Photon Result to a MockResult.
+// Useful for writing handlers that return Photon Result values.
+// For success results, uses the data field as the body; for error results
+// (where data is empty), uses the message field.
+pub fn mock_result_from_result(r Result) MockResult {
+	body := if r.data.len > 0 { r.data } else { r.message }
+	return MockResult{
+		status:  r.code
+		body:    body
+		headers: {
+			'Content-Type': 'application/json'
+		}
+	}
+}
+
+// ============================================================
+// MockResult Assertion Methods
+// ============================================================
+//
+// These methods return errors (via `!`) instead of using `assert`,
+// so failures can be propagated with `!` or handled explicitly.
+
+// assert_status asserts the response status code matches expected.
+pub fn (r MockResult) assert_status(expected int) ! {
+	if r.status != expected {
+		return error('expected status ${expected}, got ${r.status}')
+	}
+}
+
+// assert_header asserts a response header value matches expected.
+pub fn (r MockResult) assert_header(key string, expected string) ! {
+	actual := r.headers[key] or { return error('header ${key} not found') }
+	if actual != expected {
+		return error('expected header ${key}=${expected}, got ${actual}')
+	}
+}
+
+// assert_json_contains navigates the JSON body to the given dot-notation
+// path and asserts the value matches expected.
+//
+// Path examples:
+//   'name'              → root.name
+//   'user.email'        → root.user.email
+//   'data.items.0.id'   → root.data.items[0].id
+pub fn (r MockResult) assert_json_contains(path string, expected string) ! {
+	value := json_path_get(r.body, path)
+	if value != expected {
+		return error('expected JSON path "${path}" to be "${expected}", got "${value}"')
+	}
+}
+
+// assert_body_contains asserts the body contains the given substring.
+pub fn (r MockResult) assert_body_contains(substr string) ! {
+	if !r.body.contains(substr) {
+		return error('body does not contain "${substr}". Body: ${r.body}')
+	}
+}
+
+// assert_body asserts the body equals the expected string exactly.
+pub fn (r MockResult) assert_body(expected string) ! {
+	if r.body != expected {
+		return error('expected body "${expected}", got "${r.body}"')
+	}
+}
+
+// assert_ok asserts the status is 200 OK.
+pub fn (r MockResult) assert_ok() ! {
+	return r.assert_status(200)
+}
+
+// assert_created asserts the status is 201 Created.
+pub fn (r MockResult) assert_created() ! {
+	return r.assert_status(201)
+}
+
+// assert_not_found asserts the status is 404 Not Found.
+pub fn (r MockResult) assert_not_found() ! {
+	return r.assert_status(404)
+}

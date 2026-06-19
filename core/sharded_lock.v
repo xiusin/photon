@@ -35,6 +35,10 @@ pub mut:
 
 // new_sharded_rw_mutex creates a ShardedRwMutex with the configured number of shards.
 pub fn new_sharded_rw_mutex() &ShardedRwMutex {
+	// shard_count MUST be a power of 2 so that `& (shard_count - 1)` is
+	// equivalent to `% shard_count` (see shard_index). This assert catches
+	// accidental changes to a non-power-of-2 value at startup.
+	assert shard_count > 0 && (shard_count & (shard_count - 1)) == 0
 	mut shards := []sync.RwMutex{len: int(shard_count)}
 	return &ShardedRwMutex{
 		shards: shards
@@ -43,9 +47,14 @@ pub fn new_sharded_rw_mutex() &ShardedRwMutex {
 
 // shard_index returns the shard index for a given key.
 // Uses a simple hash to distribute keys across shards.
+//
+// L4: uses bitwise AND `& (shard_count - 1)` instead of modulo
+// `% shard_count`. This is equivalent when shard_count is a power of 2 (enforced
+// by new_sharded_rw_mutex) but avoids the expensive integer division on every
+// lock acquisition — a measurable win on hot paths like container bean lookups.
 fn (sm &ShardedRwMutex) shard_index(key string) int {
 	// FNV-1a 64-bit hash, zero-allocation via support.fnv1a_str
-	return int(support.fnv1a_str(key) % u64(shard_count))
+	return int(support.fnv1a_str(key) & u64(shard_count - 1))
 }
 
 // rlock acquires a read lock on the shard for the given key.

@@ -43,16 +43,22 @@ pub fn (ts &TagSet) get_namespace() string {
 // whole store for each tag prefix.
 //
 // The reverse index uses `[]string` (deduplicated on insert) as the per-tag
-// key set. V forbids copying map values, so a nested `map[string]bool` cannot
+// key set. V forbids copying map value, so a nested `map[string]bool` cannot
 // be extracted into a local variable (which `v fmt` does when desugaring
 // chained map access). Arrays can be copied freely, making the index safe to
 // mutate through the extract/modify/reassign pattern.
+//
+// Concurrency (C6 fix): tag_to_keys is protected by mu (RwMutex). All reads
+// use rlock, all writes use @lock. The store is accessed OUTSIDE tc.mu to
+// avoid holding the index lock during potentially slow store operations.
 @[heap]
 pub struct TaggedCache {
 pub mut:
 	store       &Cache
 	tags        []string
 	tag_to_keys map[string][]string
+mut:
+	mu sync.RwMutex
 }
 
 // new_tagged_cache creates a TaggedCache for the given tags
@@ -72,11 +78,13 @@ pub fn (mut tc TaggedCache) get(key string) !string {
 	return tc.store.get(full_key)
 }
 
-// set stores a tagged value
+// set stores a tagged value and updates the reverse index under write lock.
 pub fn (mut tc TaggedCache) set(key string, value string, ttl_seconds int) ! {
 	full_key := tagged_key(tc.tags, key)
 	tc.store.set(full_key, value, ttl_seconds)!
 	// Maintain reverse index (tag -> set of keys) for O(k) flush.
+	tc.mu.@lock()
+	defer { tc.mu.unlock() }
 	for tag in tc.tags {
 		if tag !in tc.tag_to_keys {
 			tc.tag_to_keys[tag] = []string{}
@@ -95,11 +103,13 @@ pub fn (mut tc TaggedCache) has(key string) bool {
 	return tc.store.has(full_key)
 }
 
-// delete removes a tagged key
+// delete removes a tagged key and updates the reverse index under write lock.
 pub fn (mut tc TaggedCache) delete(key string) ! {
 	full_key := tagged_key(tc.tags, key)
 	tc.store.delete(full_key)!
 	// Keep reverse index in sync: remove the key from every tag's set.
+	tc.mu.@lock()
+	defer { tc.mu.unlock() }
 	for tag in tc.tags {
 		if tag in tc.tag_to_keys {
 			mut key_set := tc.tag_to_keys[tag] or { []string{} }
@@ -117,17 +127,71 @@ pub fn (mut tc TaggedCache) delete(key string) ! {
 // flush invalidates ALL keys belonging to any of the tags.
 // Uses the reverse index for O(k) lookup (k = tagged keys) instead of
 // scanning every key in the store for each tag prefix.
+//
+// The index is updated under write lock; store deletions happen after the
+// lock is released to avoid holding tc.mu during store I/O.
 pub fn (mut tc TaggedCache) flush() ! {
+	// Collect keys to delete and clear the index under write lock.
+	tc.mu.@lock()
+	mut keys_to_delete := []string{}
 	for tag in tc.tags {
 		if tag !in tc.tag_to_keys {
 			continue
 		}
 		keys := tc.tag_to_keys[tag] or { []string{} }
-		for key in keys {
-			tc.store.delete(key) or {}
-		}
+		keys_to_delete << keys
 		tc.tag_to_keys.delete(tag)
 	}
+	tc.mu.unlock()
+
+	// Delete from store without holding tc.mu.
+	for key in keys_to_delete {
+		tc.store.delete(key) or {}
+	}
+}
+
+// cleanup_stale removes keys from the reverse index that no longer exist in
+// the backing store (e.g. expired via TTL and swept by the store's GC).
+//
+// This is the periodic-scan approach for SubTask 5.5: since MemoryCache's GC
+// does not call back into TaggedCache, the index is reconciled on demand.
+// Call this periodically (or after a GC sweep) to keep tag_to_keys tight.
+pub fn (mut tc TaggedCache) cleanup_stale() ! {
+	tc.mu.@lock()
+	defer { tc.mu.unlock() }
+
+	mut tags_to_delete := []string{}
+	mut tags_to_update := map[string][]string{}
+
+	for tag, keys in tc.tag_to_keys {
+		mut new_keys := []string{}
+		for key in keys {
+			if tc.store.has(key) {
+				new_keys << key
+			}
+		}
+		if new_keys.len == 0 {
+			tags_to_delete << tag
+		} else if new_keys.len != keys.len {
+			tags_to_update[tag] = new_keys
+		}
+	}
+
+	for tag in tags_to_delete {
+		tc.tag_to_keys.delete(tag)
+	}
+	for tag, keys in tags_to_update {
+		tc.tag_to_keys[tag] = keys
+	}
+}
+
+// tag_key_count returns the number of keys indexed under the given tag.
+// Intended for testing and diagnostics.
+pub fn (tc &TaggedCache) tag_key_count(tag string) int {
+	tc.mu.rlock()
+	defer { tc.mu.runlock() }
+	keys := tc.tag_to_keys[tag] or { []string{} }
+	return keys.len
 }
 
 // tagged_key builds a cache key from tags.

@@ -31,6 +31,14 @@ pub type KernelListener = fn (event_name string, data voidptr)
 
 pub type HandlerFn = fn (ctx voidptr) !voidptr
 
+// KernelListenerEntry wraps a KernelListener with a unique id for
+// fine-grained removal via off(listener_id).
+struct KernelListenerEntry {
+pub:
+	id       int
+	listener KernelListener
+}
+
 // HandlerResolver resolves a request to a handler function.
 // Spring equivalent: HandlerMapping + HandlerAdapter
 pub interface HandlerResolver {
@@ -44,29 +52,69 @@ pub interface HandlerResolver {
 // start serving requests via handle()/handle_with(), which auto-freezes on
 // the first call) to snapshot the listener table. Once frozen, dispatch()
 // reads the immutable snapshot directly — no per-request locking or cloning.
+//
+// The frozen flag is protected by mu to ensure memory visibility across
+// goroutines. unfreeze() can be used to thaw the kernel and modify listeners
+// again; off(id) removes a specific listener by its registration id.
 pub struct HttpKernel {
 pub mut:
-	listeners        map[string][]KernelListener
-	frozen_listeners map[string][]KernelListener
+	listeners        map[string][]KernelListenerEntry
+	frozen_listeners map[string][]KernelListenerEntry
 mut:
-	mu     sync.RwMutex
-	frozen bool
+	mu      sync.RwMutex
+	frozen  bool
+	next_id int
 }
 
 // new_http_kernel creates a new HttpKernel
 pub fn new_http_kernel() &HttpKernel {
 	return &HttpKernel{
-		listeners:        map[string][]KernelListener{}
-		frozen_listeners: map[string][]KernelListener{}
+		listeners:        map[string][]KernelListenerEntry{}
+		frozen_listeners: map[string][]KernelListenerEntry{}
 	}
 }
 
-// on registers a listener for a kernel event
-pub fn (mut k HttpKernel) on(event_type KernelEventType, listener KernelListener) {
+// on registers a listener for a kernel event and returns its unique id.
+// The id can be passed to off(id) to remove this specific listener later.
+pub fn (mut k HttpKernel) on(event_type KernelEventType, listener KernelListener) int {
 	k.mu.@lock()
 	defer { k.mu.unlock() }
 	name := kernel_event_name(event_type)
-	k.listeners[name] << listener
+	k.next_id++
+	id := k.next_id
+	k.listeners[name] << KernelListenerEntry{
+		id:       id
+		listener: listener
+	}
+	return id
+}
+
+// off removes a listener by its registration id (returned by on()).
+// Searches all event types. Safe to call after freeze_listeners() —
+// updates both the live and frozen listener tables.
+pub fn (mut k HttpKernel) off(listener_id int) {
+	k.mu.@lock()
+	defer { k.mu.unlock() }
+	// Remove from live listeners
+	for event_name, entries in k.listeners {
+		mut new_entries := []KernelListenerEntry{}
+		for entry in entries {
+			if entry.id != listener_id {
+				new_entries << entry
+			}
+		}
+		k.listeners[event_name] = new_entries
+	}
+	// Remove from frozen listeners (if frozen)
+	for event_name, entries in k.frozen_listeners {
+		mut new_entries := []KernelListenerEntry{}
+		for entry in entries {
+			if entry.id != listener_id {
+				new_entries << entry
+			}
+		}
+		k.frozen_listeners[event_name] = new_entries
+	}
 }
 
 // freeze_listeners snapshots all registered listeners into frozen_listeners.
@@ -92,35 +140,59 @@ pub fn (mut k HttpKernel) freeze_listeners() {
 	k.frozen = true
 }
 
+// unfreeze thaws the kernel, allowing listeners to be modified again.
+// Clears the frozen snapshot and sets frozen = false under the write lock.
+// Subsequent dispatch() calls will use the slow path (live listeners) until
+// freeze_listeners() is called again.
+pub fn (mut k HttpKernel) unfreeze() {
+	k.mu.@lock()
+	defer { k.mu.unlock() }
+	k.frozen = false
+	k.frozen_listeners = map[string][]KernelListenerEntry{}
+}
+
 // dispatch fires all listeners for an event.
 //
-// Fast path (frozen): reads the immutable snapshot directly — no lock, no clone.
-// The slice header is immutable after freezing, so concurrent reads are safe.
+// Fast path (frozen): reads the frozen flag under rlock for memory visibility,
+// then reads the immutable snapshot. The snapshot slice is cloned under rlock
+// to safely handle concurrent unfreeze()/off() calls.
 //
 // Slow path (not frozen): clones the listener slice under a read lock to avoid
 // concurrent modification during iteration.
 fn (mut k HttpKernel) dispatch(event_type KernelEventType, data voidptr) {
 	name := kernel_event_name(event_type)
-	// Fast path: frozen snapshot is read-only after freezing.
+	// Read frozen flag under rlock for memory visibility across goroutines.
+	k.mu.rlock()
 	if k.frozen {
-		listeners := k.frozen_listeners[name] or { return }
-		for listener in listeners {
-			listener(name, data)
+		entries := k.frozen_listeners[name] or {
+			k.mu.runlock()
+			return
+		}
+		listeners_copy := entries.clone()
+		k.mu.runlock()
+		for entry in listeners_copy {
+			if !isnil(entry.listener) {
+				entry.listener(name, data)
+			}
 		}
 		return
 	}
 	// Slow path: not yet frozen — clone under read lock.
-	k.mu.rlock()
-	listeners := k.listeners[name].clone()
+	entries := k.listeners[name].clone()
 	k.mu.runlock()
-	for listener in listeners {
-		listener(name, data)
+	for entry in entries {
+		if !isnil(entry.listener) {
+			entry.listener(name, data)
+		}
 	}
 }
 
 // handle processes a request through the kernel lifecycle
 pub fn (mut k HttpKernel) handle() ! {
-	if !k.frozen {
+	k.mu.rlock()
+	frozen := k.frozen
+	k.mu.runlock()
+	if !frozen {
 		k.freeze_listeners()
 	}
 	k.dispatch(.request, unsafe { nil })
@@ -133,7 +205,10 @@ pub fn (mut k HttpKernel) handle() ! {
 // Dispatches request → controller → response events, and exception on error.
 // Returns the handler's response.
 pub fn (mut k HttpKernel) handle_with(resolver HandlerResolver, ctx voidptr) !voidptr {
-	if !k.frozen {
+	k.mu.rlock()
+	frozen := k.frozen
+	k.mu.runlock()
+	if !frozen {
 		k.freeze_listeners()
 	}
 	k.dispatch(.request, ctx)

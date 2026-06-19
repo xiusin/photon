@@ -564,10 +564,18 @@ pub:
 // connections and routes queries to the right one.  It does NOT
 // build SQL or execute queries directly; that's delegated to
 // the OrmAdapter and V's official orm.QueryBuilder[T].
+//
+// `close_fns` holds optional driver-specific closers keyed by
+// connection name.  remove_connection() / close_all() invoke them
+// to release the underlying DB handle — preventing connection
+// leaks (CRITICAL #4).  Storing closers in a SEPARATE map (rather
+// than inside OrmConnection) sidesteps V's unreliable `isnil()`
+// on function pointers recovered from map values.
 @[heap]
 pub struct OrmManager {
 pub mut:
 	connections map[string]OrmConnection
+	close_fns   map[string]fn (voidptr) !
 	default     string
 mut:
 	mu sync.RwMutex
@@ -580,6 +588,7 @@ mut:
 pub fn new_orm_manager() &OrmManager {
 	return &OrmManager{
 		connections: map[string]OrmConnection{}
+		close_fns:   map[string]fn (voidptr) !{}
 	}
 }
 
@@ -591,6 +600,11 @@ pub fn new_orm_manager() &OrmManager {
 //
 // If no default is set yet, the first registered connection
 // becomes the default.
+//
+// NOTE: the connection is registered WITHOUT a close callback —
+// remove_connection() / close_all() will simply drop the entry.
+// To enable automatic resource cleanup, use
+// register_connection_with_close() instead.
 pub fn (mut om OrmManager) register_connection(name string, driver DriverType, db voidptr) ! {
 	om.mu.@lock()
 	defer {
@@ -603,6 +617,35 @@ pub fn (mut om OrmManager) register_connection(name string, driver DriverType, d
 		db:     db
 		driver: driver
 	}
+	if om.default.len == 0 {
+		om.default = name
+	}
+}
+
+// register_connection_with_close registers a database connection
+// together with a driver-specific `close_fn` that
+// remove_connection() / close_all() invoke to release the
+// underlying DB handle — preventing connection leaks (CRITICAL #4).
+//
+// Example:
+//   db := sqlite.connect(':memory:')!
+//   om.register_connection_with_close('default', .sqlite, voidptr(db),
+//       fn (c voidptr) ! {
+//           unsafe { (&sqlite.DB(c)).close()! }
+//       })!
+pub fn (mut om OrmManager) register_connection_with_close(name string, driver DriverType, db voidptr, close_fn fn (voidptr) !) ! {
+	om.mu.@lock()
+	defer {
+		om.mu.unlock()
+	}
+	if name in om.connections {
+		return error('connection "${name}" already registered')
+	}
+	om.connections[name] = OrmConnection{
+		db:     db
+		driver: driver
+	}
+	om.close_fns[name] = close_fn
 	if om.default.len == 0 {
 		om.default = name
 	}
@@ -683,6 +726,11 @@ pub fn (om &OrmManager) connection_names() []string {
 }
 
 // remove_connection removes a connection by name.
+//
+// If the connection was registered with a `close_fn`, that callback
+// is invoked on the underlying `db` pointer BEFORE the entry is
+// removed from the registry — preventing connection leaks.  A close
+// error is returned to the caller (the entry is still removed).
 pub fn (mut om OrmManager) remove_connection(name string) ! {
 	om.mu.@lock()
 	defer {
@@ -691,7 +739,14 @@ pub fn (mut om OrmManager) remove_connection(name string) ! {
 	if name !in om.connections {
 		return error('connection "${name}" not registered')
 	}
+	// CRITICAL #4 fix: invoke the close callback BEFORE deleting
+	// the entry so the underlying DB handle is released.
+	if close_fn := om.close_fns[name] {
+		conn := om.connections[name] or { return error('connection "${name}" not registered') }
+		close_fn(conn.db)!
+	}
 	om.connections.delete(name)
+	om.close_fns.delete(name)
 	if om.default == name {
 		om.default = ''
 		// Pick first remaining as default
@@ -700,6 +755,57 @@ pub fn (mut om OrmManager) remove_connection(name string) ! {
 			break
 		}
 	}
+}
+
+// close_all closes every registered connection and clears the
+// registry.  Connections registered without a `close_fn` are
+// simply dropped from the map (the caller retains ownership of
+// the underlying handle).
+//
+// All connections are attempted even if some fail — the first
+// error encountered is returned after the sweep completes.
+// This is invoked by destroy() during container shutdown —
+// implementors of core.DisposableBean delegate here.
+pub fn (mut om OrmManager) close_all() ! {
+	om.mu.@lock()
+	defer {
+		om.mu.unlock()
+	}
+	mut first_err_msg := ''
+	// Iterate over a snapshot of keys — V's map iteration over
+	// function-pointer values is unreliable, so we look up each
+	// closer by name (same pattern as remove_connection).
+	names := om.close_fns.keys()
+	for name in names {
+		if close_fn := om.close_fns[name] {
+			if conn := om.connections[name] {
+				close_fn(conn.db) or {
+					if first_err_msg.len == 0 {
+						first_err_msg = err.msg()
+					}
+				}
+			}
+		}
+	}
+	om.connections.clear()
+	om.close_fns.clear()
+	om.default = ''
+	if first_err_msg.len > 0 {
+		return error('close_all failed: ${first_err_msg}')
+	}
+}
+
+// destroy implements the core.DisposableBean interface
+// (`destroy() !`).  It is invoked by the Photon container during
+// shutdown to release every registered DB connection.
+//
+// NOTE: photon/orm does NOT import photon/core (to keep the ORM
+// module decoupled and avoid any chance of a circular dependency).
+// The method signature matches core.DisposableBean structurally,
+// so a bean registered as `&OrmManager` satisfies the interface
+// whenever the consuming module imports both `core` and `orm`.
+pub fn (mut om OrmManager) destroy() ! {
+	om.close_all()!
 }
 
 // ── Convenience: multi-driver connection helpers ──

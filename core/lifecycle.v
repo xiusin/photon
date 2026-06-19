@@ -8,6 +8,7 @@ module core
 // Lifecycle hooks are detected at compile time via comptime $for
 // scanning for @[post_construct] and @[pre_destroy] attributes.
 import sync
+import time
 
 // ── LifecyclePhase ──
 
@@ -192,9 +193,16 @@ pub:
 
 // SmartLifecycleManager manages SmartLifecycle beans, starting them
 // in ascending phase order and stopping them in descending phase order.
+//
+// Thread-safety (M9): all reads/writes of `entries` are protected by
+// sync.RwMutex. Registration uses write lock; iteration/count uses read
+// lock. Callbacks (start/stop) are invoked OUTSIDE the lock to avoid
+// deadlock if a callback re-enters the manager.
 pub struct SmartLifecycleManager {
 pub mut:
 	entries []SmartLifecycleEntry
+mut:
+	mu sync.RwMutex
 }
 
 // new_smart_lifecycle_manager creates an empty SmartLifecycleManager.
@@ -207,6 +215,8 @@ pub fn new_smart_lifecycle_manager() &SmartLifecycleManager {
 // register adds a SmartLifecycle bean to the manager.
 pub fn (mut m SmartLifecycleManager) register(type_name string, bean &SmartLifecycle) {
 	phase := bean.phase()
+	m.mu.@lock()
+	defer { m.mu.unlock() }
 	m.entries << SmartLifecycleEntry{
 		type_name: type_name
 		bean:      unsafe { bean }
@@ -216,7 +226,9 @@ pub fn (mut m SmartLifecycleManager) register(type_name string, bean &SmartLifec
 
 // start_all starts all SmartLifecycle beans in ascending phase order.
 pub fn (mut m SmartLifecycleManager) start_all() ! {
-	// Sort by phase (ascending — lower starts first)
+	// Under write lock: sort and clone entries so callbacks run outside the
+	// lock (avoids deadlock if a callback re-enters the manager).
+	m.mu.@lock()
 	m.entries.sort_with_compare(fn (a &SmartLifecycleEntry, b &SmartLifecycleEntry) int {
 		if a.phase_ < b.phase_ {
 			return -1
@@ -225,7 +237,10 @@ pub fn (mut m SmartLifecycleManager) start_all() ! {
 		}
 		return 0
 	})
-	for entry in m.entries {
+	entries_copy := m.entries.clone()
+	m.mu.unlock()
+
+	for entry in entries_copy {
 		if !isnil(entry.bean) && !entry.bean.is_running() {
 			entry.bean.start() or {
 				eprintln('[SmartLifecycle] start failed for "${entry.type_name}": ${err}')
@@ -235,8 +250,16 @@ pub fn (mut m SmartLifecycleManager) start_all() ! {
 }
 
 // stop_all stops all SmartLifecycle beans in descending phase order.
+//
+// Thread-safety (M26): runs the stop callbacks in a background goroutine and
+// waits up to 5 seconds for completion. If a callback hangs, stop_all returns
+// after the timeout so the shutdown sequence is not blocked indefinitely. The
+// background goroutine may continue running after the timeout — this is the
+// standard trade-off when there is no cancellation/context mechanism.
 pub fn (mut m SmartLifecycleManager) stop_all() {
-	// Sort by phase (descending — higher phase stops first)
+	// Under write lock: sort and clone entries so callbacks run outside the
+	// lock (avoids deadlock if a callback re-enters the manager).
+	m.mu.@lock()
 	m.entries.sort_with_compare(fn (a &SmartLifecycleEntry, b &SmartLifecycleEntry) int {
 		if a.phase_ > b.phase_ {
 			return -1
@@ -245,17 +268,47 @@ pub fn (mut m SmartLifecycleManager) stop_all() {
 		}
 		return 0
 	})
-	for entry in m.entries {
-		if !isnil(entry.bean) && entry.bean.is_running() {
-			entry.bean.stop() or {
-				eprintln('[SmartLifecycle] stop failed for "${entry.type_name}": ${err}')
+	entries_copy := m.entries.clone()
+	m.mu.unlock()
+
+	// Nothing to stop — skip spawning a goroutine.
+	if entries_copy.len == 0 {
+		return
+	}
+
+	done := chan bool{cap: 1}
+	spawn fn (entries []core.SmartLifecycleEntry, d chan bool) {
+		for entry in entries {
+			if !isnil(entry.bean) && entry.bean.is_running() {
+				entry.bean.stop() or {
+					eprintln('[SmartLifecycle] stop failed for "${entry.type_name}": ${err}')
+				}
 			}
 		}
+		d <- true
+	}(entries_copy, done)
+
+	// Poll for completion with a 5-second deadline. V's `select` with `else`
+	// is non-blocking, so we sleep briefly between checks.
+	deadline_ns := time.now().unix_nano() + i64(5 * time.second)
+	for {
+		select {
+			_ := <-done {
+				return
+			}
+			else {}
+		}
+		if time.now().unix_nano() >= deadline_ns {
+			return
+		}
+		time.sleep(50 * time.millisecond)
 	}
 }
 
 // entry_count returns the number of registered SmartLifecycle beans.
-pub fn (m &SmartLifecycleManager) entry_count() int {
+pub fn (mut m SmartLifecycleManager) entry_count() int {
+	m.mu.rlock()
+	defer { m.mu.runlock() }
 	return m.entries.len
 }
 
@@ -348,6 +401,118 @@ pub fn (mut m ShutdownHookManager) run_hooks() {
 // hook_count returns the number of registered shutdown hooks.
 pub fn (m &ShutdownHookManager) hook_count() int {
 	return m.hooks.len
+}
+
+// ── Ordered Shutdown Stages (Task 16) ──
+//
+// Provides a priority-ordered shutdown mechanism for coordinating shutdown
+// across multiple modules (web, queue, ticker, schedule, event, cache, orm,
+// pool, core). Each module registers a shutdown stage with a priority; during
+// shutdown, stages are executed in descending priority order (highest first).
+//
+// This prevents errors caused by modules shutting down independently — e.g.,
+// the web server stopping after ORM connections have already been closed.
+//
+// Standard shutdown order (highest priority first):
+//   web(100) → queue(90) → ticker(80) → schedule(70) → event(60)
+//   → cache(50) → orm(40) → pool(30) → core(10)
+
+// Shutdown stage priority constants for standard modules.
+// Higher priority stages run first during shutdown.
+pub const shutdown_priority_web = 100
+pub const shutdown_priority_queue = 90
+pub const shutdown_priority_ticker = 80
+pub const shutdown_priority_schedule = 70
+pub const shutdown_priority_event = 60
+pub const shutdown_priority_cache = 50
+pub const shutdown_priority_orm = 40
+pub const shutdown_priority_pool = 30
+pub const shutdown_priority_core = 10
+
+// ShutdownStage represents a named shutdown stage with a priority.
+// Higher priority stages run first during shutdown.
+pub struct ShutdownStage {
+pub:
+	name     string
+	priority int
+	@[required]
+	hook     fn () !
+}
+
+// OrderedShutdownManager manages ordered shutdown stages.
+// Stages are executed in descending priority order during shutdown.
+//
+// Thread-safety: all mutable operations are protected by sync.RwMutex.
+pub struct OrderedShutdownManager {
+pub mut:
+	stages []ShutdownStage
+mut:
+	mu sync.RwMutex
+}
+
+// new_ordered_shutdown_manager creates an empty OrderedShutdownManager.
+pub fn new_ordered_shutdown_manager() &OrderedShutdownManager {
+	return &OrderedShutdownManager{
+		stages: []ShutdownStage{}
+	}
+}
+
+// add_stage registers a shutdown stage.
+// If a stage with the same name already exists, it is replaced.
+pub fn (mut m OrderedShutdownManager) add_stage(name string, priority int, hook fn () !) {
+	m.mu.@lock()
+	defer { m.mu.unlock() }
+	for i, stage in m.stages {
+		if stage.name == name {
+			m.stages[i] = ShutdownStage{
+				name:     name
+				priority: priority
+				hook:     hook
+			}
+			return
+		}
+	}
+	m.stages << ShutdownStage{
+		name:     name
+		priority: priority
+		hook:     hook
+	}
+}
+
+// stages_sorted returns a copy of stages sorted by priority descending
+// (highest priority first).
+pub fn (mut m OrderedShutdownManager) stages_sorted() []ShutdownStage {
+	m.mu.rlock()
+	defer { m.mu.runlock() }
+	mut sorted_stages := m.stages.clone()
+	sorted_stages.sort_with_compare(fn (a &ShutdownStage, b &ShutdownStage) int {
+		if a.priority > b.priority {
+			return -1
+		} else if a.priority < b.priority {
+			return 1
+		}
+		return 0
+	})
+	return sorted_stages
+}
+
+// stage_count returns the number of registered shutdown stages.
+pub fn (mut m OrderedShutdownManager) stage_count() int {
+	m.mu.rlock()
+	defer { m.mu.runlock() }
+	return m.stages.len
+}
+
+// has_stage checks if a stage with the given name is registered.
+pub fn (mut m OrderedShutdownManager) has_stage(name string) bool {
+	m.mu.rlock()
+	defer { m.mu.runlock() }
+	for stage in m.stages {
+		if stage.name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // ── Lifecycle Interface (Spring Lifecycle) ──
