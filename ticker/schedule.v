@@ -21,6 +21,7 @@ module ticker
 //   }).name('morning_report')
 //   sched.start()  // runs in background
 //   sched.stop()   // graceful shutdown
+import sync
 import time
 
 // ── TaskSchedule ──
@@ -183,6 +184,7 @@ pub mut:
 	tasks                []&ScheduledTask
 	is_running           bool
 	default_name_counter int
+	mu                   sync.RwMutex
 }
 
 // new_task_scheduler creates a new Scheduler for scheduled tasks.
@@ -230,6 +232,10 @@ pub fn (mut s Scheduler) register(b &TaskBuilder) {
 	if isnil(b.task_fn) {
 		return
 	}
+	s.mu.@lock()
+	defer {
+		s.mu.unlock()
+	}
 	task_name := if b.name_.len > 0 { b.name_ } else { 'task_${s.default_name_counter}' }
 	s.default_name_counter++
 
@@ -253,10 +259,13 @@ pub fn (mut s Scheduler) register(b &TaskBuilder) {
 
 // start begins executing scheduled tasks in a background goroutine.
 pub fn (mut s Scheduler) start() {
+	s.mu.@lock()
 	if s.is_running {
+		s.mu.unlock()
 		return
 	}
 	s.is_running = true
+	s.mu.unlock()
 
 	spawn fn (sc &Scheduler) {
 		for sc.is_running {
@@ -268,6 +277,10 @@ pub fn (mut s Scheduler) start() {
 
 // stop gracefully shuts down the scheduler.
 pub fn (mut s Scheduler) stop() {
+	s.mu.@lock()
+	defer {
+		s.mu.unlock()
+	}
 	s.is_running = false
 }
 
@@ -276,7 +289,10 @@ pub fn (mut s Scheduler) stop() {
 pub fn (mut s Scheduler) tick() {
 	now := time.now()
 
-	for mut task in s.tasks {
+	// Phase 1: under read lock, determine which tasks are due (read-only checks).
+	s.mu.rlock()
+	mut due_tasks := []&ScheduledTask{}
+	for task in s.tasks {
 		if !task.enabled {
 			continue
 		}
@@ -309,16 +325,29 @@ pub fn (mut s Scheduler) tick() {
 		}
 
 		if is_due {
-			task.is_running = true
-			task.task_fn() or { eprintln('[Scheduler] task "${task.name}" failed: ${err}') }
-			task.last_run = now.unix_nano()
-			task.run_count++
-			task.is_running = false
+			due_tasks << task
+		}
+	}
+	s.mu.runlock()
 
-			// Disable one-shot tasks after execution
-			if task.schedule_type in [.one_shot_at, .one_shot_delay] {
-				task.enabled = false
-			}
+	// Phase 2: under write lock, execute due tasks and update their fields.
+	s.mu.@lock()
+	defer {
+		s.mu.unlock()
+	}
+	for mut task in due_tasks {
+		if !task.enabled {
+			continue
+		}
+		task.is_running = true
+		task.task_fn() or { eprintln('[Scheduler] task "${task.name}" failed: ${err}') }
+		task.last_run = now.unix_nano()
+		task.run_count++
+		task.is_running = false
+
+		// Disable one-shot tasks after execution
+		if task.schedule_type in [.one_shot_at, .one_shot_delay] {
+			task.enabled = false
 		}
 	}
 }

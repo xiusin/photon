@@ -35,20 +35,31 @@ pub fn (ts &TagSet) get_namespace() string {
 	return ns
 }
 
-// TaggedCache wraps a cache with tag-based grouping
+// TaggedCache wraps a cache with tag-based grouping.
+// Maintains a reverse index (tag -> set of keys) so that flush() is O(k)
+// in the number of keys actually tagged, instead of O(n*m) scanning the
+// whole store for each tag prefix.
+//
+// The reverse index uses `[]string` (deduplicated on insert) as the per-tag
+// key set. V forbids copying map values, so a nested `map[string]bool` cannot
+// be extracted into a local variable (which `v fmt` does when desugaring
+// chained map access). Arrays can be copied freely, making the index safe to
+// mutate through the extract/modify/reassign pattern.
 @[heap]
 pub struct TaggedCache {
 pub mut:
-	store &Cache
-	tags  []string
+	store       &Cache
+	tags        []string
+	tag_to_keys map[string][]string
 }
 
 // new_tagged_cache creates a TaggedCache for the given tags
 pub fn new_tagged_cache(store &Cache, tags []string) &TaggedCache {
 	return unsafe {
 		&TaggedCache{
-			store: store
-			tags:  tags
+			store:       store
+			tags:        tags
+			tag_to_keys: map[string][]string{}
 		}
 	}
 }
@@ -63,6 +74,17 @@ pub fn (mut tc TaggedCache) get(key string) !string {
 pub fn (mut tc TaggedCache) set(key string, value string, ttl_seconds int) ! {
 	full_key := tagged_key(tc.tags, key)
 	tc.store.set(full_key, value, ttl_seconds)!
+	// Maintain reverse index (tag -> set of keys) for O(k) flush.
+	for tag in tc.tags {
+		if tag !in tc.tag_to_keys {
+			tc.tag_to_keys[tag] = []string{}
+		}
+		mut key_set := tc.tag_to_keys[tag] or { []string{} }
+		if full_key !in key_set {
+			key_set << full_key
+		}
+		tc.tag_to_keys[tag] = key_set
+	}
 }
 
 // has checks if a tagged key exists
@@ -75,18 +97,34 @@ pub fn (mut tc TaggedCache) has(key string) bool {
 pub fn (mut tc TaggedCache) delete(key string) ! {
 	full_key := tagged_key(tc.tags, key)
 	tc.store.delete(full_key)!
+	// Keep reverse index in sync: remove the key from every tag's set.
+	for tag in tc.tags {
+		if tag in tc.tag_to_keys {
+			mut key_set := tc.tag_to_keys[tag] or { []string{} }
+			mut new_set := []string{cap: key_set.len}
+			for k in key_set {
+				if k != full_key {
+					new_set << k
+				}
+			}
+			tc.tag_to_keys[tag] = new_set
+		}
+	}
 }
 
-// flush invalidates ALL keys belonging to any of the tags
+// flush invalidates ALL keys belonging to any of the tags.
+// Uses the reverse index for O(k) lookup (k = tagged keys) instead of
+// scanning every key in the store for each tag prefix.
 pub fn (mut tc TaggedCache) flush() ! {
-	// For memory cache: iterate and delete keys matching any tag prefix
 	for tag in tc.tags {
-		prefix := '${tag}:'
-		for key in tc.store.keys() {
-			if key.starts_with(prefix) {
-				tc.store.delete(key) or {}
-			}
+		if tag !in tc.tag_to_keys {
+			continue
 		}
+		keys := tc.tag_to_keys[tag] or { []string{} }
+		for key in keys {
+			tc.store.delete(key) or {}
+		}
+		tc.tag_to_keys.delete(tag)
 	}
 }
 

@@ -1,5 +1,7 @@
 module orm
 
+import sync
+
 // ═══════════════════════════════════════════════════════════════════
 // photon/orm — The Lifecycle & Routing Layer on Top of V's ORM
 // ═══════════════════════════════════════════════════════════════════
@@ -567,6 +569,8 @@ pub struct OrmManager {
 pub mut:
 	connections map[string]OrmConnection
 	default     string
+mut:
+	mu sync.RwMutex
 }
 
 // new_orm_manager creates an empty OrmManager.
@@ -588,6 +592,10 @@ pub fn new_orm_manager() &OrmManager {
 // If no default is set yet, the first registered connection
 // becomes the default.
 pub fn (mut om OrmManager) register_connection(name string, driver DriverType, db voidptr) ! {
+	om.mu.@lock()
+	defer {
+		om.mu.unlock()
+	}
 	if name in om.connections {
 		return error('connection "${name}" already registered')
 	}
@@ -602,14 +610,19 @@ pub fn (mut om OrmManager) register_connection(name string, driver DriverType, d
 
 // set_default changes the default connection name.
 pub fn (mut om OrmManager) set_default(name string) ! {
+	om.mu.@lock()
+	defer {
+		om.mu.unlock()
+	}
 	if name !in om.connections {
 		return error('connection "${name}" not registered')
 	}
 	om.default = name
 }
 
-// connection returns the OrmConnection by name (or default).
-pub fn (om &OrmManager) connection(name string) !OrmConnection {
+// connection_locked returns the OrmConnection by name (or default).
+// Caller MUST hold om.mu (read or write lock).
+fn (om &OrmManager) connection_locked(name string) !OrmConnection {
 	db_name := if name.len > 0 { name } else { om.default }
 	if db_name.len == 0 {
 		return error('no default connection set')
@@ -617,9 +630,22 @@ pub fn (om &OrmManager) connection(name string) !OrmConnection {
 	return om.connections[db_name] or { return error('connection "${db_name}" not registered') }
 }
 
+// connection returns the OrmConnection by name (or default).
+pub fn (om &OrmManager) connection(name string) !OrmConnection {
+	om.mu.rlock()
+	defer {
+		om.mu.runlock()
+	}
+	return om.connection_locked(name)
+}
+
 // get_conn returns the raw connection pointer by name (or default).
 pub fn (om &OrmManager) get_conn(name string) !voidptr {
-	conn := om.connection(name)!
+	om.mu.rlock()
+	defer {
+		om.mu.runlock()
+	}
+	conn := om.connection_locked(name)!
 	return conn.db
 }
 
@@ -630,22 +656,38 @@ pub fn (om &OrmManager) default_conn() !voidptr {
 
 // driver returns the DriverType for a connection.
 pub fn (om &OrmManager) driver(name string) !DriverType {
-	conn := om.connection(name)!
+	om.mu.rlock()
+	defer {
+		om.mu.runlock()
+	}
+	conn := om.connection_locked(name)!
 	return conn.driver
 }
 
 // has_connection checks if a named connection exists.
 pub fn (om &OrmManager) has_connection(name string) bool {
+	om.mu.rlock()
+	defer {
+		om.mu.runlock()
+	}
 	return name in om.connections
 }
 
 // connection_names returns all registered connection names.
 pub fn (om &OrmManager) connection_names() []string {
+	om.mu.rlock()
+	defer {
+		om.mu.runlock()
+	}
 	return om.connections.keys()
 }
 
 // remove_connection removes a connection by name.
 pub fn (mut om OrmManager) remove_connection(name string) ! {
+	om.mu.@lock()
+	defer {
+		om.mu.unlock()
+	}
 	if name !in om.connections {
 		return error('connection "${name}" not registered')
 	}

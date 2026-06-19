@@ -2,8 +2,13 @@ module apidoc
 
 // storage.v — Thread-safe API Documentation Store
 //
-// Stores entries by reference (map[string]&ApiDocEntry) to support
-// mutable access patterns required by the example controllers.
+// Entries are stored by reference (map[string]&ApiDocEntry). Mutable access is
+// only exposed through the with_entry / with_or_create_entry callbacks, which
+// invoke the caller's logic while the store lock is held. This guarantees that
+// every field modification is atomic with respect to other store methods
+// (lock_endpoint, unlock_endpoint, delete_entry, ...) and eliminates the data
+// race that existed when mutable references were returned after unlock.
+// Read-only access is provided by get_entry, which returns a value copy.
 import sync
 import json
 
@@ -77,7 +82,7 @@ pub fn get_store() &ApiDocStore {
 }
 
 // get_entries returns all entries as copies
-pub fn (mut s ApiDocStore) get_entries() []ApiDocEntry {
+pub fn (mut s ApiDocStore) get_entries() []apidoc.ApiDocEntry {
 	s.mu.@lock()
 	mut result := []ApiDocEntry{cap: s.entries.len}
 	for _, ep in s.entries {
@@ -87,44 +92,42 @@ pub fn (mut s ApiDocStore) get_entries() []ApiDocEntry {
 	return result
 }
 
-// get_entry returns a mutable reference to an entry by ID
-pub fn (mut s ApiDocStore) get_entry(id string) !&ApiDocEntry {
+// get_entry returns a value copy of an entry by ID (read-only, thread-safe).
+// Callers that need to mutate an entry must use with_entry / with_or_create_entry
+// so that all modifications happen while the store lock is held.
+pub fn (mut s ApiDocStore) get_entry(id string) !ApiDocEntry {
 	s.mu.@lock()
-	ep := s.entries[id] or {
-		s.mu.unlock()
-		return error('entry not found: ${id}')
-	}
-	s.mu.unlock()
-	return ep
+	defer { s.mu.unlock() }
+	ep := s.entries[id] or { return error('entry not found: ${id}') }
+	return *ep
 }
 
-// get_or_create_entry returns existing mutable entry or creates a new one
-pub fn (mut s ApiDocStore) get_or_create_entry(method string, path string) !&ApiDocEntry {
+// with_entry looks up an entry by ID and invokes f with a mutable reference
+// to it while holding the store lock. All modifications performed inside f
+// are atomic with respect to other store methods (e.g. lock_endpoint).
+pub fn (mut s ApiDocStore) with_entry(id string, f fn (mut entry ApiDocEntry) !) ! {
 	s.mu.@lock()
+	defer { s.mu.unlock() }
+	mut entry := s.entries[id] or { return error('entry not found: ${id}') }
+	f(mut entry)!
+}
+
+// with_or_create_entry returns an existing entry (or creates a new one) and
+// invokes f with a mutable reference to it while holding the store lock.
+pub fn (mut s ApiDocStore) with_or_create_entry(method string, path string, f fn (mut entry ApiDocEntry) !) ! {
+	s.mu.@lock()
+	defer { s.mu.unlock() }
 	id := method.to_upper() + '::' + path
-	if ep := s.entries[id] {
-		s.mu.unlock()
-		return ep
+	mut entry := s.entries[id] or {
+		e := &ApiDocEntry{
+			id:     id
+			method: method.to_upper()
+			path:   path
+		}
+		s.entries[id] = e
+		e
 	}
-	entry := &ApiDocEntry{
-		id:     id
-		method: method.to_upper()
-		path:   path
-	}
-	s.entries[id] = entry
-	s.mu.unlock()
-	return entry
-}
-
-// update_entry updates an existing entry (no-op since entries are stored by reference)
-pub fn (mut s ApiDocStore) update_entry(id string, entry &ApiDocEntry) ! {
-	s.mu.@lock()
-	if id !in s.entries {
-		s.mu.unlock()
-		return error('entry not found')
-	}
-	// Entry is already stored by reference — mutation is already reflected
-	s.mu.unlock()
+	f(mut entry)!
 }
 
 // delete_entry removes an entry

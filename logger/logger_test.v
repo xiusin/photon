@@ -284,7 +284,7 @@ fn test_json_encoder_basic() {
 		level:       .info
 		message:     'test message'
 		logger_name: 'photon'
-		fields:      map[string]string{}
+		fields:      &map[string]string{}
 	}
 	output := je.encode(entry)
 	assert output.contains('"level":"INFO"')
@@ -303,7 +303,7 @@ fn test_json_encoder_with_fields() {
 		level:       .warn
 		message:     'warning test'
 		logger_name: 'app'
-		fields:      fields
+		fields:      &fields
 	}
 	output := je.encode(entry)
 	assert output.contains('"request_id":"abc-123"')
@@ -317,7 +317,7 @@ fn test_json_encoder_escapes_quotes() {
 		level:       .error
 		message:     'hello "world"'
 		logger_name: 'test'
-		fields:      map[string]string{}
+		fields:      &map[string]string{}
 	}
 	output := je.encode(entry)
 	assert output.contains('\\"')
@@ -334,7 +334,7 @@ fn test_console_encoder_basic() {
 		level:       .info
 		message:     'test message'
 		logger_name: 'photon'
-		fields:      map[string]string{}
+		fields:      &map[string]string{}
 	}
 	output := ce.encode(entry)
 	assert output.contains('[INFO]')
@@ -352,7 +352,7 @@ fn test_console_encoder_with_context() {
 		level:       .info
 		message:     'user action'
 		logger_name: 'photon'
-		fields:      fields
+		fields:      &fields
 	}
 	output := ce.encode(entry)
 	assert output.contains('user=admin')
@@ -366,7 +366,7 @@ fn test_console_encoder_colored() {
 		level:       .error
 		message:     'error test'
 		logger_name: 'photon'
-		fields:      map[string]string{}
+		fields:      &map[string]string{}
 	}
 	output := ce.encode(entry)
 	assert output.contains('\x1b[31m')

@@ -39,34 +39,35 @@ pub fn (mut c Collector) collect(mut ctx veb.Context) {
 	}
 
 	method := ctx.req.method.str()
-	id := method.to_upper() + '::' + normalize_path(path)
+	npath := normalize_path(path)
+	id := method.to_upper() + '::' + npath
 
-	mut entry := c.store.get_or_create_entry(method, normalize_path(path)) or {
-		eprintln('[apidoc] collect — get_or_create_entry failed: ${err}')
+	// Mutate the entry under the store lock via the with_or_create_entry callback
+	// so that modifications are atomic with respect to lock_endpoint / unlock_endpoint.
+	c.store.with_or_create_entry(method, npath, fn [method, npath, mut ctx] (mut entry ApiDocEntry) ! {
+		unsafe {
+			entry.method = method.to_upper()
+			entry.path = npath
+			entry.hit_count++
+		}
+		// Capture query params
+		parse_and_merge_params(mut entry, ctx.req.url)
+
+		// Capture form params for POST/PUT/PATCH
+		if ctx.req.method == .post || ctx.req.method == .put || ctx.req.method == .patch {
+			parse_and_merge_form_params(mut entry, ctx)
+		}
+
+		// Capture headers
+		parse_and_merge_headers(mut entry, ctx)
+	}) or {
+		eprintln('[apidoc] collect — with_or_create_entry failed: ${err}')
 		return
 	}
 
-	// Update method/path
-	unsafe {
-		entry.method = method.to_upper()
-		entry.path = normalize_path(path)
-		entry.hit_count++
-	}
-	// Capture query params
-	parse_and_merge_params(mut entry, ctx.req.url)
-
-	// Capture form params for POST/PUT/PATCH
-	if ctx.req.method == .post || ctx.req.method == .put || ctx.req.method == .patch {
-		parse_and_merge_form_params(mut entry, ctx)
-	}
-
-	// Capture headers
-	parse_and_merge_headers(mut entry, ctx)
-
-	// Save
-	c.store.update_entry(id, entry) or {}
-
-	eprintln('[apidoc] collect — ${id} hits=${entry.hit_count} params=${entry.parameters.len}')
+	// Read back a snapshot for debug logging (mutations were persisted under the lock)
+	snap := c.store.get_entry(id) or { return }
+	eprintln('[apidoc] collect — ${id} hits=${snap.hit_count} params=${snap.parameters.len}')
 }
 
 // collect_response captures response metadata (called from after_middleware)
@@ -79,30 +80,30 @@ pub fn (mut c Collector) collect_response(mut ctx veb.Context) {
 	method := ctx.req.method.str()
 	id := method.to_upper() + '::' + normalize_path(path)
 
-	mut entry := c.store.get_entry(id) or { return }
-
 	body := ctx.res.body
 	ct := ctx.res.header.get(.content_type) or { 'application/json' }
 	status := ctx.res.status_code
 
-	unsafe {
-		entry.response.content_type = ct
-		entry.response.status_code = status
-		// Store a sample of the response body (truncated)
-		if body.len > 0 {
-			if body.len > 2048 {
-				entry.response.body_sample = body[..2048] + '...'
-			} else {
-				entry.response.body_sample = body
+	// Mutate the entry under the store lock via the with_entry callback so that
+	// response metadata is written atomically with respect to other store methods.
+	c.store.with_entry(id, fn [body, ct, status] (mut entry ApiDocEntry) ! {
+		unsafe {
+			entry.response.content_type = ct
+			entry.response.status_code = status
+			// Store a sample of the response body (truncated)
+			if body.len > 0 {
+				if body.len > 2048 {
+					entry.response.body_sample = body[..2048] + '...'
+				} else {
+					entry.response.body_sample = body
+				}
 			}
 		}
-	}
-	// Parse JSON response body to extract property schema
-	if ct.contains('json') && body.len > 0 {
-		parse_json_response(mut entry, body)
-	}
-
-	c.store.update_entry(id, entry) or {}
+		// Parse JSON response body to extract property schema
+		if ct.contains('json') && body.len > 0 {
+			parse_json_response(mut entry, body)
+		}
+	}) or { return }
 }
 
 fn normalize_path(path string) string {

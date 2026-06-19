@@ -5,6 +5,7 @@ module ticker
 // Uses 64 buckets to reduce lock contention, inspired by Go's runtime timer design.
 // Uses a simple polling approach compatible with V's threading model.
 // Timers are checked lazily when the user blocks on a channel receive.
+import sync
 import time
 
 const num_buckets = 64
@@ -21,6 +22,7 @@ mut:
 	buckets [num_buckets]Bucket
 	running bool
 	counter u64
+	mu      sync.Mutex
 }
 
 fn new_scheduler() &TimerScheduler {
@@ -32,6 +34,10 @@ fn new_scheduler() &TimerScheduler {
 }
 
 fn get_scheduler() &TimerScheduler {
+	scheduler_mu.@lock()
+	defer {
+		scheduler_mu.unlock()
+	}
 	if global_scheduler == unsafe { nil } {
 		global_scheduler = new_scheduler()
 		spawn scheduler_run()
@@ -41,6 +47,7 @@ fn get_scheduler() &TimerScheduler {
 
 __global (
 	global_scheduler &TimerScheduler
+	scheduler_mu     sync.Mutex
 )
 
 // scheduler_run is the background scheduling loop
@@ -107,8 +114,10 @@ fn scheduler_run() {
 }
 
 fn (mut s TimerScheduler) add_entry(entry TimerEntry) int {
+	s.mu.@lock()
 	idx := int(s.counter % num_buckets)
 	s.counter++
+	s.mu.unlock()
 	mut bucket := &s.buckets[idx]
 	bucket.heap.mu.@lock()
 	bucket.heap.push(entry)

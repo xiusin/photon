@@ -1,5 +1,7 @@
 module cache
 
+import sync
+
 // cache.v - Photon Cache Module
 //
 // Provides a unified cache abstraction with pluggable backends.
@@ -25,6 +27,8 @@ pub mut:
 	caches        map[string]&Cache
 	default_cache &Cache        = new_memory_cache('default')
 	singleflight  &Singleflight = new_singleflight()
+mut:
+	mu sync.RwMutex
 }
 
 // new_cache_registry creates a new CacheRegistry
@@ -38,16 +42,22 @@ pub fn new_cache_registry() &CacheRegistry {
 // register adds a named cache
 @[unsafe]
 pub fn (mut cm CacheRegistry) register(name string, c &Cache) {
+	cm.mu.@lock()
+	defer { cm.mu.unlock() }
 	cm.caches[name] = c
 }
 
 // get_cache retrieves a named cache or returns the default
 pub fn (cm &CacheRegistry) get_cache(name string) &Cache {
+	cm.mu.rlock()
+	defer { cm.mu.runlock() }
 	return cm.caches[name] or { cm.default_cache }
 }
 
 // get_cache_names returns the names of all registered caches.
 pub fn (cm &CacheRegistry) get_cache_names() []string {
+	cm.mu.rlock()
+	defer { cm.mu.runlock() }
 	mut names := []string{}
 	for k, _ in cm.caches {
 		names << k

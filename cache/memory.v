@@ -67,12 +67,12 @@ pub fn new_memory_cache_with_max(name string, max_size int) &MemoryCache {
 pub fn (mut mc MemoryCache) get(key string) !string {
 	mc.mu.@rlock()
 	entry := mc.entries[key] or {
-		mc.mu.unlock()
+		mc.mu.runlock()
 		return error('cache miss: key "${key}" not found')
 	}
 
 	if entry.is_expired() {
-		mc.mu.unlock()
+		mc.mu.runlock()
 		// Take write lock to evict expired entry
 		mc.mu.@lock()
 		mc.entries.delete(key)
@@ -81,7 +81,7 @@ pub fn (mut mc MemoryCache) get(key string) !string {
 	}
 
 	value := entry.value
-	mc.mu.unlock()
+	mc.mu.runlock()
 
 	// Update access metadata under write lock (fire-and-forget)
 	mc.mu.@lock()
@@ -133,7 +133,7 @@ pub fn (mut mc MemoryCache) delete(key string) ! {
 // has checks if a key exists and is not expired (read-locked)
 pub fn (mut mc MemoryCache) has(key string) bool {
 	mc.mu.@rlock()
-	defer { mc.mu.unlock() }
+	defer { mc.mu.runlock() }
 
 	entry := mc.entries[key] or { return false }
 	return !entry.is_expired()
@@ -150,7 +150,7 @@ pub fn (mut mc MemoryCache) clear() ! {
 // keys returns all non-expired cache keys (read-locked)
 pub fn (mut mc MemoryCache) keys() []string {
 	mc.mu.@rlock()
-	defer { mc.mu.unlock() }
+	defer { mc.mu.runlock() }
 
 	mut result := []string{cap: mc.entries.len}
 	for key, entry in mc.entries {
@@ -164,7 +164,7 @@ pub fn (mut mc MemoryCache) keys() []string {
 // size returns the total number of entries (read-locked)
 pub fn (mut mc MemoryCache) size() int {
 	mc.mu.@rlock()
-	defer { mc.mu.unlock() }
+	defer { mc.mu.runlock() }
 
 	return mc.entries.len
 }
@@ -218,7 +218,7 @@ pub fn (mut mc MemoryCache) evict_expired() int {
 // stats returns cache statistics (read-locked snapshot)
 pub fn (mut mc MemoryCache) stats() CacheStats {
 	mc.mu.@rlock()
-	defer { mc.mu.unlock() }
+	defer { mc.mu.runlock() }
 
 	mut total_hits := 0
 	mut expired := 0

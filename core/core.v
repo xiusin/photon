@@ -1185,9 +1185,10 @@ pub fn (mut c Container) check_circular_dependencies() ! {
 	}
 
 	mut sorted := []string{}
-	for queue.len > 0 {
-		node := queue[0]
-		queue.delete(0)
+	mut head := 0
+	for head < queue.len {
+		node := queue[head]
+		head++
 		sorted << node
 
 		for neighbor in adj[node] {

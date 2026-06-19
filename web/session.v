@@ -35,6 +35,8 @@ pub mut:
 	is_new      bool
 	is_dirty    bool
 	ttl_seconds int = 1800 // default 30 min
+mut:
+	mu sync.RwMutex
 }
 
 // new_session creates a new Session with the given ID.
@@ -51,6 +53,8 @@ pub fn new_session(id string) &Session {
 
 // get retrieves a value from the session.
 pub fn (s &Session) get(key string) !string {
+	s.mu.rlock()
+	defer { s.mu.runlock() }
 	if val := s.data[key] {
 		return val
 	}
@@ -62,29 +66,39 @@ pub fn (s &Session) get(key string) !string {
 
 // set stores a value in the session.
 pub fn (mut s Session) set(key string, value string) {
+	s.mu.@lock()
+	defer { s.mu.unlock() }
 	s.data[key] = value
 	s.is_dirty = true
 }
 
 // has checks if a key exists in the session.
 pub fn (s &Session) has(key string) bool {
+	s.mu.rlock()
+	defer { s.mu.runlock() }
 	return key in s.data || key in s.old_flash
 }
 
 // delete removes a key from the session.
 pub fn (mut s Session) delete(key string) {
+	s.mu.@lock()
+	defer { s.mu.unlock() }
 	s.data.delete(key)
 	s.is_dirty = true
 }
 
 // flash stores a value that will only be available on the next request.
 pub fn (mut s Session) flash(key string, value string) {
+	s.mu.@lock()
+	defer { s.mu.unlock() }
 	s.flash_data[key] = value
 	s.is_dirty = true
 }
 
 // get_flash retrieves a flash value from the previous request.
 pub fn (s &Session) get_flash(key string) !string {
+	s.mu.rlock()
+	defer { s.mu.runlock() }
 	if val := s.old_flash[key] {
 		return val
 	}
@@ -93,11 +107,15 @@ pub fn (s &Session) get_flash(key string) !string {
 
 // has_flash checks if a flash key exists from the previous request.
 pub fn (s &Session) has_flash(key string) bool {
+	s.mu.rlock()
+	defer { s.mu.runlock() }
 	return key in s.old_flash
 }
 
 // all returns all session data.
 pub fn (s &Session) all() map[string]string {
+	s.mu.rlock()
+	defer { s.mu.runlock() }
 	mut result := map[string]string{}
 	for key, val in s.data {
 		result[key] = val
@@ -107,12 +125,16 @@ pub fn (s &Session) all() map[string]string {
 
 // clear removes all session data.
 pub fn (mut s Session) clear() {
+	s.mu.@lock()
+	defer { s.mu.unlock() }
 	s.data = map[string]string{}
 	s.is_dirty = true
 }
 
 // invalidate regenerates the session ID and clears all data.
 pub fn (mut s Session) invalidate() {
+	s.mu.@lock()
+	defer { s.mu.unlock() }
 	s.id = generate_session_id()
 	s.data = map[string]string{}
 	s.flash_data = map[string]string{}
@@ -123,6 +145,8 @@ pub fn (mut s Session) invalidate() {
 
 // regenerate generates a new session ID while keeping data.
 pub fn (mut s Session) regenerate() {
+	s.mu.@lock()
+	defer { s.mu.unlock() }
 	s.id = generate_session_id()
 	s.is_dirty = true
 }

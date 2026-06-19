@@ -71,14 +71,19 @@ pub:
 	time_format TimeFormat = .rfc3339
 }
 
-// LogEntry represents a complete log entry before encoding
+// LogEntry represents a complete log entry before encoding.
+// `fields` is a shared reference to the Logger's MDC context map.
+// This avoids cloning the map on every log entry (Copy-On-Write:
+// `with_fields` creates a new map, so the referenced map is never
+// mutated after being shared with a LogEntry). LogEntries are
+// consumed synchronously by encoders, so sharing is safe.
 pub struct LogEntry {
 pub:
 	timestamp   time.Time
 	level       Level
 	message     string
 	logger_name string
-	fields      map[string]string
+	fields      &map[string]string = unsafe { nil }
 }
 
 // Encoder is the trait for log entry serialization.
@@ -102,22 +107,24 @@ pub mut:
 	output_label string   = 'photon'
 	encoder      &Encoder = unsafe { nil }
 mut:
-	context map[string]string // MDC context
+	context &map[string]string = unsafe { nil } // MDC context (heap-allocated, shared by reference with LogEntries)
 }
 
 // new creates a new Logger with default console encoder
 pub fn new() &Logger {
+	ctx := map[string]string{}
 	return &Logger{
 		encoder: new_console_encoder()
-		context: map[string]string{}
+		context: &ctx
 	}
 }
 
 // new_with_encoder creates a Logger with a custom encoder (e.g., JSONEncoder)
 pub fn new_with_encoder(encoder &Encoder) &Logger {
+	ctx := map[string]string{}
 	return &Logger{
 		encoder: unsafe { encoder }
-		context: map[string]string{}
+		context: &ctx
 	}
 }
 
@@ -177,12 +184,14 @@ pub fn (mut l Logger) set_output_label(label string) {
 
 // put adds a context key-value pair (MDC)
 pub fn (mut l Logger) put(key string, value string) {
-	l.context[key] = value
+	unsafe {
+		l.context[key] = value
+	}
 }
 
 // get retrieves a context value
 pub fn (l &Logger) get(key string) string {
-	return l.context[key] or { '' }
+	return unsafe { l.context[key] or { '' } }
 }
 
 // remove removes a context key
@@ -196,8 +205,13 @@ pub fn (mut l Logger) clear_context() {
 }
 
 // with_fields creates a copy of the logger with additional context (immutable pattern).
+// Copy-On-Write: creates a NEW map so the original Logger's context is never mutated,
+// allowing `log()` to safely share the context reference with LogEntries.
 pub fn (l &Logger) with_fields(fields map[string]string) &Logger {
-	mut new_ctx := l.context.clone()
+	mut new_ctx := map[string]string{}
+	for k, v in l.context {
+		new_ctx[k] = v
+	}
 	for k, v in fields {
 		new_ctx[k] = v
 	}
@@ -205,7 +219,7 @@ pub fn (l &Logger) with_fields(fields map[string]string) &Logger {
 		level:        l.level
 		output_label: l.output_label
 		encoder:      l.encoder
-		context:      new_ctx
+		context:      &new_ctx
 	}
 }
 
@@ -237,7 +251,7 @@ pub fn (l &Logger) log(level Level, msg string) {
 		level:       level
 		message:     msg
 		logger_name: l.output_label
-		fields:      l.context.clone()
+		fields:      l.context // share reference — no clone (COW: with_fields creates new maps)
 	}
 
 	output := l.encoder.encode(entry)

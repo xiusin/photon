@@ -10,6 +10,7 @@ module web
 //     but complete in O(1) without iterating the full map.
 import time
 import sync
+import support
 
 // shard_count is the default number of lock shards.
 // Must be a power of 2 for fast modulo via bitwise AND.
@@ -38,13 +39,8 @@ pub fn new_rate_limiter() &RateLimiter {
 // Uses FNV-1a hash for fast, uniform distribution.
 @[inline]
 fn (r &RateLimiter) shard_for(key string) int {
-	// FNV-1a 32-bit hash
-	mut h := u32(2166136261)
-	for b in key.bytes() {
-		h ^= u32(b)
-		h *= u32(16777619)
-	}
-	return int(h & (shard_count - 1))
+	// FNV-1a 64-bit hash, zero-allocation via support.fnv1a_str
+	return int(support.fnv1a_str(key) & u64(shard_count - 1))
 }
 
 // too_many_attempts checks if the key has exceeded the max attempts
@@ -269,12 +265,7 @@ pub fn new_fixed_window_limiter() &FixedWindowLimiter {
 // shard_for returns the shard index for a given key.
 @[inline]
 fn (fw &FixedWindowLimiter) shard_for(key string) int {
-	mut h := u32(2166136261)
-	for b in key.bytes() {
-		h ^= u32(b)
-		h *= u32(16777619)
-	}
-	return int(h & (shard_count - 1))
+	return int(support.fnv1a_str(key) & u64(shard_count - 1))
 }
 
 // check returns true if the request is allowed within the rate limit.

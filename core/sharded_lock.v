@@ -18,6 +18,7 @@ module core
 //   - Per-bean locking for safe singleton instantiation
 //   - Lock auto-cleanup to prevent memory leaks
 import sync
+import support
 
 // shard_count is the number of lock segments.
 // 16 is a good balance between concurrency and memory overhead.
@@ -43,13 +44,8 @@ pub fn new_sharded_rw_mutex() &ShardedRwMutex {
 // shard_index returns the shard index for a given key.
 // Uses a simple hash to distribute keys across shards.
 fn (sm &ShardedRwMutex) shard_index(key string) int {
-	// FNV-1a inspired hash — fast and good distribution
-	mut hash := u64(2166136261)
-	for c in key.bytes() {
-		hash ^= u64(c)
-		hash *= u64(16777619)
-	}
-	return int(hash % u64(shard_count))
+	// FNV-1a 64-bit hash, zero-allocation via support.fnv1a_str
+	return int(support.fnv1a_str(key) % u64(shard_count))
 }
 
 // rlock acquires a read lock on the shard for the given key.
