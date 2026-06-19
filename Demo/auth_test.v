@@ -12,18 +12,8 @@ module main
 // test_setup 为所有测试文件共享的辅助函数，创建独立的内存数据库 Bootstrap。
 
 // ═══════════════════════════════════════════════════════════
-// 共享测试辅助函数
+// test_setup 已移至 test_helpers.v（非测试文件），所有测试文件共享
 // ═══════════════════════════════════════════════════════════
-
-// test_setup 创建测试用 Bootstrap（使用内存数据库 + 运行迁移）
-// 所有测试文件共享此函数，确保每个测试使用独立的内存数据库
-fn test_setup() !&Bootstrap {
-	cfg := load_config('test')!
-	boot := new_bootstrap(cfg)!
-	mm := new_migration_manager(boot.orm_mgr)!
-	run_migrations(mm)!
-	return boot
-}
 
 // ═══════════════════════════════════════════════════════════
 // 用户注册测试
