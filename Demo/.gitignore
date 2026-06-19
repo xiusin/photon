@@ -2,6 +2,8 @@
 demo
 demo.exe
 *.exe
+bin/
+!bin/.gitkeep
 
 # Database files
 *.db
@@ -9,12 +11,25 @@ demo.exe
 *.db-wal
 *.db-shm
 
+# Environment files (keep .example templates)
+.env
+.env.prod
+.env.dev
+.env.testing
+!.env.example
+!.env.prod.example
+!.env.testing
+
 # Storage uploads (runtime generated)
 storage/uploads/
+storage/logs/*.log
 
 # Logs
 logs/
 *.log
+
+# Generated API docs
+docs/api/
 
 # OS files
 .DS_Store
@@ -25,3 +40,8 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Test artifacts
+test_storage/
+*.out
+coverage.txt
