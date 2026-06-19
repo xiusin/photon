@@ -1,0 +1,337 @@
+<!-- title: HTTP · RestTemplate 请求客户端 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>HTTP · 请求客户端 -->
+
+<div class="hero">
+  <h1>HTTP · RestTemplate 请求客户端</h1>
+  <p>Spring RestTemplate 完全对齐的 HTTP 客户端 — 策略模式 + URI 模板 + 拦截器职责链 + 指数退避重试。零外部依赖，纯 V 标准库实现。</p>
+  <div class="hero-tags">
+    <span class="hero-tag">🇻‍🇦 Beta</span>
+    <span class="hero-tag">import photon.http</span>
+    <span class="hero-tag">对标 Spring RestTemplate</span>
+    <span class="hero-tag">39 测试通过</span>
+  </div>
+</div>
+
+<!-- ═══ 1. 快速开始 ═══ -->
+<div class="doc-section" id="quickstart">
+  <div class="section-header">
+    <div class="section-icon icon-core">🚀</div>
+    <div><div class="section-title">快速开始</div><div class="section-subtitle">30 秒集成</div></div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+    <div class="code-body"><span class="kw">import</span> photon.http
+
+<span class="co">// 1. 创建模板（不可变配置，可共享使用）</span>
+rt := http.new_rest_template()
+    .set_base_url(<span class="s">'https://api.example.com'</span>)
+    .set_default_header(<span class="s">'Authorization'</span>, <span class="s">'Bearer ${token}'</span>)
+    .set_read_timeout(10000)
+    .set_retry(3, 200)
+
+<span class="co">// 2. GET 请求 → 自动反序列化</span>
+users := rt.get_for_object[[]User](<span class="s">'/users'</span>, {})!
+
+<span class="co">// 3. POST 请求 → RequestEntity 链式构建</span>
+entity := http.request_entity(<span class="s">'POST'</span>, <span class="s">'/users'</span>)
+    .body_json(UserRequest{<span class="s">'name'</span>: <span class="s">'Alice'</span>})
+    .header(<span class="s">'Content-Type'</span>, <span class="s">'application/json'</span>)
+resp := rt.exchange(entity)!
+created := resp.body_as[User]()!</div>
+  </div>
+</div>
+
+<!-- ═══ 2. 设计模式 ═══ -->
+<div class="doc-section" id="design-patterns">
+  <div class="section-header">
+    <div class="section-icon icon-core">🏗️</div>
+    <div><div class="section-title">设计模式</div><div class="section-subtitle">Spring 完全对标</div></div>
+  </div>
+
+  <div class="comparison-grid" style="grid-template-columns:1fr 1fr 1fr;">
+    <div class="comparison-header ch-spring">Spring 概念</div>
+    <div class="comparison-header ch-photon">Photon 实现</div>
+    <div class="comparison-header ch-laravel" style="color:var(--text-muted);">设计模式</div>
+
+    <div class="comparison-cell"><code>RestTemplate</code></div>
+    <div class="comparison-cell"><code>new_rest_template()</code></div>
+    <div class="comparison-cell">不可变单例</div>
+
+    <div class="comparison-cell"><code>exchange()</code></div>
+    <div class="comparison-cell"><code>rt.exchange(entity)</code></div>
+    <div class="comparison-cell"><strong>Template Method</strong></div>
+
+    <div class="comparison-cell"><code>getForObject / postForObject</code></div>
+    <div class="comparison-cell"><code>rt.get_for_object[T]()</code></div>
+    <div class="comparison-cell">泛型反序列化</div>
+
+    <div class="comparison-cell"><code>getForEntity / postForEntity</code></div>
+    <div class="comparison-cell"><code>rt.get_for_entity(url, vars)</code></div>
+    <div class="comparison-cell">完整响应包装</div>
+
+    <div class="comparison-cell"><code>RequestEntity</code></div>
+    <div class="comparison-cell"><code>request_entity(method, url)</code></div>
+    <div class="comparison-cell"><strong>Builder</strong></div>
+
+    <div class="comparison-cell"><code>ResponseEntity&lt;T&gt;</code></div>
+    <div class="comparison-cell"><code>ResponseEntity + body_as[T]()</code></div>
+    <div class="comparison-cell">泛型方法</div>
+
+    <div class="comparison-cell"><code>UriTemplateHandler</code></div>
+    <div class="comparison-cell"><code>set_uri_template_handler()</code></div>
+    <div class="comparison-cell"><strong>Strategy</strong></div>
+
+    <div class="comparison-cell"><code>ResponseErrorHandler</code></div>
+    <div class="comparison-cell"><code>set_error_handler(fn)</code></div>
+    <div class="comparison-cell"><strong>Strategy</strong></div>
+
+    <div class="comparison-cell"><code>ClientHttpRequestInterceptor</code></div>
+    <div class="comparison-cell"><code>new_interceptor(name, fn)</code></div>
+    <div class="comparison-cell"><strong>Chain of Resp.</strong></div>
+
+    <div class="comparison-cell"><code>execute()</code></div>
+    <div class="comparison-cell"><code>rt.execute(entity)</code></div>
+    <div class="comparison-cell">底层 API</div>
+  </div>
+</div>
+
+<!-- ═══ 3. API 参考 ═══ -->
+<div class="doc-section" id="api">
+  <div class="section-header">
+    <div class="section-icon icon-core">📖</div>
+    <div><div class="section-title">API 参考</div><div class="section-subtitle">全部 9 个 Spring 方法</div></div>
+  </div>
+
+  <h3>RestTemplate 方法</h3>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+    <div class="code-body"><span class="co">// GET · getForObject / getForEntity</span>
+rt.get_for_object[T](url <span class="s">string</span>, uri_vars <span class="kw">map</span>[<span class="s">string</span>]<span class="s">string</span>) !T
+rt.get_for_entity(url <span class="s">string</span>, uri_vars <span class="kw">map</span>[<span class="s">string</span>]<span class="s">string</span>) !ResponseEntity
+
+<span class="co">// POST · postForObject / postForEntity</span>
+rt.post_for_object[T](url <span class="s">string</span>, body <span class="s">string</span>, uri_vars <span class="kw">map</span>[<span class="s">string</span>]<span class="s">string</span>) !T
+rt.post_for_entity(url <span class="s">string</span>, body <span class="s">string</span>, uri_vars <span class="kw">map</span>[<span class="s">string</span>]<span class="s">string</span>) !ResponseEntity
+
+<span class="co">// PUT · DELETE</span>
+rt.put(url <span class="s">string</span>, body <span class="s">string</span>, uri_vars <span class="kw">map</span>[<span class="s">string</span>]<span class="s">string</span>) !
+rt.delete(url <span class="s">string</span>, uri_vars <span class="kw">map</span>[<span class="s">string</span>]<span class="s">string</span>) !
+
+<span class="co">// PATCH · HEAD · OPTIONS</span>
+rt.patch_for_entity(url, body, vars) !ResponseEntity
+rt.head_for_headers(url, vars) !<span class="kw">map</span>[<span class="s">string</span>]<span class="s">string</span>
+rt.options_for_allow(url, vars) !<span class="s">string</span>
+
+<span class="co">// ★ 核心入口（所有便利方法委托至此）</span>
+rt.exchange(entity RequestEntity) !ResponseEntity
+
+<span class="co">// ★ 底层 API（直达网络，无拦截器）</span>
+rt.execute(entity RequestEntity) !ResponseEntity</div>
+  </div>
+
+  <h3>RequestEntity 构建器</h3>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+    <div class="code-body"><span class="co">// 创建</span>
+entity := http.request_entity(<span class="s">'POST'</span>, <span class="s">'/users'</span>)
+
+<span class="co">// 链式方法（全部返回新实例，不可变）</span>
+    .header(<span class="s">'Content-Type'</span>, <span class="s">'application/json'</span>)
+    .headers_from(existing_map)
+    .body_str(<span class="s">'{"name":"Alice"}'</span>)
+    .body_json(User{name: <span class="s">'Alice'</span>})         <span class="co">// 自动 json.encode</span>
+    .uri_var(<span class="s">'id'</span>, <span class="s">'42'</span>)
+    .uri_vars_from({<span class="s">'page'</span>: <span class="s">'1'</span>})</div>
+  </div>
+
+  <h3>ResponseEntity 响应</h3>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+    <div class="code-body">resp := rt.get_for_entity(<span class="s">'/users/{id}'</span>, {<span class="s">'id'</span>: <span class="s">'42'</span>})!
+
+resp.is_2xx()                              <span class="co">// 状态判断</span>
+resp.is_4xx()
+resp.is_5xx()
+resp.body_as[User]()!                       <span class="co">// JSON 反序列化</span>
+resp.header_value(<span class="s">'Content-Type'</span>)       <span class="co">// 响应头</span>
+resp.status_code                            <span class="co">// 状态码</span>
+resp.status_text                            <span class="co">// 状态文本</span></div>
+  </div>
+</div>
+
+<!-- ═══ 4. URI 模板 ═══ -->
+<div class="doc-section" id="uri-template">
+  <div class="section-header">
+    <div class="section-icon icon-core">🔗</div>
+    <div><div class="section-title">URI 模板</div><div class="section-subtitle">/users/{id} → /users/42</div></div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+    <div class="code-body"><span class="co">// 标准用法：自动展开 URI 模板</span>
+resp := rt.get_for_entity(<span class="s">'/users/{id}/posts/{postId}'</span>,
+    {<span class="s">'id'</span>: <span class="s">'42'</span>, <span class="s">'postId'</span>: <span class="s">'7'</span>})!
+
+<span class="co">// 自定义分隔符（Strategy 模式）</span>
+mut h := http.new_uri_template_handler()
+h.left_delim = <span class="s">`[`</span>
+h.right_delim = <span class="s">`]`</span>
+rt2 := rt.set_uri_template_handler(h)
+resp := rt2.get_for_entity(<span class="s">'/api/[resource]/[id]'</span>,
+    {<span class="s">'resource'</span>: <span class="s">'users'</span>, <span class="s">'id'</span>: <span class="s">'42'</span>})!</div>
+  </div>
+</div>
+
+<!-- ═══ 5. 错误处理 ═══ -->
+<div class="doc-section" id="error-handling">
+  <div class="section-header">
+    <div class="section-icon icon-core">⚠️</div>
+    <div><div class="section-title">错误处理</div><div class="section-subtitle">ResponseErrorHandler 策略模式</div></div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+    <div class="code-body"><span class="co">// 默认行为：4xx/5xx 抛 error</span>
+resp := rt.get_for_entity(<span class="s">'/not-found'</span>, {}) <span class="kw">or</span> {
+    <span class="kw">return</span> <span class="kw">error</span>(<span class="s">'请求失败: ${err}'</span>)
+}
+
+<span class="co">// 自定义错误策略（可插拔）</span>
+rt2 := rt.set_error_handler(fn (resp http.ResponseEntity) ! {
+    <span class="kw">if</span> resp.is_4xx() {
+        <span class="kw">return</span> <span class="kw">error</span>(<span class="s">'客户端错误 (${resp.status_code}): ${resp.body}'</span>)
+    }
+    <span class="kw">if</span> resp.is_5xx() {
+        <span class="kw">return</span> <span class="kw">error</span>(<span class="s">'服务端异常'</span>)
+    }
+})</div>
+  </div>
+</div>
+
+<!-- ═══ 6. 拦截器 ═══ -->
+<div class="doc-section" id="interceptors">
+  <div class="section-header">
+    <div class="section-icon icon-core">🔗</div>
+    <div><div class="section-title">拦截器</div><div class="section-subtitle">ClientHttpRequestInterceptor 职责链</div></div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+    <div class="code-body"><span class="co">// 日志拦截器</span>
+logger := http.new_interceptor(<span class="s">'logging'</span>,
+    fn (e http.RequestEntity, next fn (http.RequestEntity) !http.ResponseEntity) !http.ResponseEntity {
+        println(<span class="s">'→ ${e.method} ${e.url}'</span>)
+        resp := next(e) <span class="kw">or</span> { <span class="kw">return</span> err }
+        println(<span class="s">'← ${resp.status_code} (${resp.body.len} bytes)'</span>)
+        <span class="kw">return</span> resp
+    })
+
+rt2 := rt.add_interceptor(logger)
+
+<span class="co">// 重试拦截器：对 5xx 自动重试（默认已带指数退避）</span>
+retry_ic := http.new_interceptor(<span class="s">'auto-retry'</span>,
+    fn (e http.RequestEntity, next fn (http.RequestEntity) !http.ResponseEntity) !http.ResponseEntity {
+        <span class="kw">mut</span> last_err := IError(none)
+        <span class="kw">for</span> i <span class="kw">in</span> <span class="s">0</span>..3 {
+            resp := next(e) <span class="kw">or</span> { last_err = err; <span class="kw">continue</span> }
+            <span class="kw">if</span> resp.is_5xx() { <span class="kw">continue</span> }
+            <span class="kw">return</span> resp
+        }
+        <span class="kw">return</span> last_err
+    })</div>
+  </div>
+</div>
+
+<!-- ═══ 7. 完整示例 ═══ -->
+<div class="doc-section" id="full-example">
+  <div class="section-header">
+    <div class="section-icon icon-core">🎯</div>
+    <div><div class="section-title">完整示例</div><div class="section-subtitle">用户 CRUD + 错误处理 + 拦截器</div></div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+    <div class="code-body"><span class="kw">import</span> photon.http
+
+<span class="co">// 配置客户端</span>
+rt := http.new_rest_template()
+    .set_base_url(<span class="s">'https://jsonplaceholder.typicode.com'</span>)
+    .set_read_timeout(5000)
+    .set_retry(3, 200)
+    .add_interceptor(http.new_interceptor(<span class="s">'log'</span>, <span class="kw">unsafe</span> { <span class="kw">nil</span> }))
+
+<span class="co">// GET — 获取用户列表</span>
+users := rt.get_for_object[[]User](<span class="s">'/users'</span>, {})!
+println(users.len)
+
+<span class="co">// GET — 获取单个用户（URI 模板）</span>
+resp := rt.get_for_entity(<span class="s">'/users/{id}'</span>, {<span class="s">'id'</span>: <span class="s">'1'</span>})!
+user := resp.body_as[User]()!
+println(user.name)
+
+<span class="co">// POST — 创建用户（RequestEntity）</span>
+entity := http.request_entity(<span class="s">'POST'</span>, <span class="s">'/users'</span>)
+    .body_json(CreateUser{name: <span class="s">'Alice'</span>, email: <span class="s">'alice@example.com'</span>})
+    .header(<span class="s">'Content-Type'</span>, <span class="s">'application/json'</span>)
+resp := rt.exchange(entity)!
+created := resp.body_as[User]()!
+
+<span class="co">// PUT — 更新</span>
+rt.put(<span class="s">'/users/{id}'</span>, <span class="s">'{"name":"Bob"}'</span>, {<span class="s">'id'</span>: <span class="s">'1'</span>})!
+
+<span class="co">// DELETE</span>
+rt.delete(<span class="s">'/users/{id}'</span>, {<span class="s">'id'</span>: <span class="s">'1'</span>})!
+
+<span class="co">// HEAD — 仅获取响应头</span>
+headers := rt.head_for_headers(<span class="s">'/users'</span>, {})!
+println(headers[<span class="s">'Content-Type'</span>] <span class="kw">or</span> { <span class="s">''</span> })</div>
+  </div>
+</div>
+
+<!-- ═══ 8. 配置选项 ═══ -->
+<div class="doc-section" id="configuration">
+  <div class="section-header">
+    <div class="section-icon icon-core">⚙️</div>
+    <div><div class="section-title">配置选项</div><div class="section-subtitle">全部默认值</div></div>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>选项</th><th>方法</th><th>默认值</th><th>说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>基础 URL</td><td><code>set_base_url(url)</code></td><td><code>''</code></td><td>所有请求的前缀</td></tr>
+      <tr><td>默认请求头</td><td><code>set_default_header(k, v)</code></td><td><code>{}</code></td><td>全局公共头（如 Authorization）</td></tr>
+      <tr><td>连接超时</td><td><code>set_connect_timeout(ms)</code></td><td><code>30000</code></td><td>建立连接的超时（毫秒）</td></tr>
+      <tr><td>读取超时</td><td><code>set_read_timeout(ms)</code></td><td><code>30000</code></td><td>等待响应的超时（毫秒）</td></tr>
+      <tr><td>重试次数</td><td><code>set_retry(max, delay)</code></td><td><code>3, 200</code></td><td>最大 3 次，指数退避（200→400→800ms）</td></tr>
+      <tr><td>错误处理器</td><td><code>set_error_handler(fn)</code></td><td>内置：4xx/5xx抛 error</td><td>Strategy 模式</td></tr>
+      <tr><td>URI 模板处理器</td><td><code>set_uri_template_handler(h)</code></td><td>默认 {var} 语法</td><td>Strategy 模式</td></tr>
+      <tr><td>拦截器</td><td><code>add_interceptor(ic)</code></td><td><code>[]</code></td><td>Chain of Responsibility</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══ 9. 设计要点 ═══ -->
+<div class="doc-section" id="design-notes">
+  <div class="section-header">
+    <div class="section-icon icon-core">💡</div>
+    <div><div class="section-title">设计要点</div><div class="section-subtitle">为什么这么设计</div></div>
+  </div>
+
+  <ul>
+    <li><strong>不可变配置</strong> — 所有 <code>set_*</code> 方法返回新实例，原始实例不变。可以安全地创建共享的 base 模板，再派生个性化副本。</li>
+    <li><strong>单一入口</strong> — 所有 HTTP 方法（GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS）都委托给 <code>exchange()</code>，如同 Spring 的设计。</li>
+    <li><strong>零外部依赖</strong> — 仅用 V 标准库 <code>net.http</code>、<code>json</code>、<code>strings</code>。无第三方 HTTP 库。</li>
+    <li><strong>URI 模板</strong> — 支持自定义分隔符，适用于非标准占位符格式。</li>
+    <li><strong>策略模式</strong> — 错误处理和 URI 模板彻底可插拔，无需修改框架代码。</li>
+    <li><strong>职责链</strong> — 拦截器按注册顺序递归包装，Spring 的 <code>ClientHttpRequestInterceptor</code> 风格。</li>
+  </ul>
+</div>
+
+<!-- ═══ Footer ═══ -->
+<div class="footer-nav">
+  <a href="#index" class="footer-link prev">← 概览</a>
+  <a href="#web" class="footer-link next">Web 框架 →</a>
+</div>

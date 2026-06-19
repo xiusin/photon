@@ -4,6 +4,9 @@ module security
 //
 // Provides password hashing abstractions with BCrypt and Argon2 support.
 
+import crypto.pbkdf2
+import crypto.sha256
+import encoding.hex
 import rand
 
 // Hasher is the interface for password hashing drivers

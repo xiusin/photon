@@ -43,6 +43,7 @@ function photonApp() {
         { label: 'Core · 核心容器', page: 'core', icon: '⚡', badge: 'GA' },
         { label: 'Config · 配置管理', page: 'config', icon: '⚙️', badge: 'GA' },
         { label: 'Web · Web框架', page: 'web', icon: '🌐', badge: 'GA' },
+        { label: 'HTTP · 请求客户端', page: 'http', icon: '📡', badge: 'Beta' },
         { label: 'ORM · 对象映射', page: 'orm', icon: '🗄️', badge: 'Beta' },
       ]},
       { title: '中间件', items: [

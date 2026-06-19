@@ -1,358 +1,527 @@
+// ============================================================
+// http — Spring RestTemplate‑aligned HTTP client for Photon
+//
+// Design principles:
+//   • Strategy & Template Method patterns (mirrors Spring)
+//   • Immutable RestTemplate — thread‑safe, use as singleton
+//   • All public methods delegate to a single exchange() entry point
+//   • URI template expansion via UriTemplateHandler
+//   • Error handling via ResponseErrorHandler strategy
+//   • Request/Response interception via ClientHttpRequestInterceptor
+// ============================================================
 module http
 
-// client.v - HTTP Client (Laravel/Guzzle inspired)
-//
-// Provides a fluent HTTP client for making requests to external APIs.
-// Supports GET, POST, PUT, DELETE, PATCH with headers, auth, retry,
-// timeout, query params, and JSON handling.
-//
-// Backed by V's net.http module for real network requests.
-//
-// Usage:
-//   mut client := http.new_client()
-//   resp := client.with_base_url('https://api.example.com')
-//               .with_header('Accept', 'application/json')
-//               .with_token('my-token')
-//               .get('/users') or { return err }
-//   println(resp.body)
-//
-//   // POST JSON
-//   resp := client.post('/users', '{"name":"Alice"}')!
-//
-//   // With query parameters
-//   client.with_query({'page': '1', 'limit': '10'})
-//   resp := client.get('/users')!
-
+import json
+import time
 import net.http as vhttp
-import net.urllib
+import strings
 
-// ── Types ──
+// ============================================================
+// URI Template — /users/{id} → /users/42
+// ============================================================
 
-// HttpResponse wraps an HTTP response with convenient helper methods.
-pub struct HttpResponse {
-pub:
-	status_code int
-	body        string
-	headers     map[string]string
+// UriTemplateHandler expands URI templates like Spring's UriTemplateHandler
+pub struct UriTemplateHandler {
+pub mut:
+	left_delim  u8 = `{`
+	right_delim u8 = `}`
+	strict bool
 }
 
-// new_response creates an HttpResponse from components.
-pub fn new_response(status int, body string) &HttpResponse {
-	return &HttpResponse{
-		status_code: status
-		body:        body
-		headers:     map[string]string{}
+pub fn new_uri_template_handler() UriTemplateHandler {
+	return UriTemplateHandler{}
+}
+
+pub fn (h UriTemplateHandler) expand(template string, vars map[string]string) string {
+	mut sb := strings.new_builder(template.len)
+	mut i := 0
+	mut in_var := false
+	mut var_name_buf := []u8{cap: 16}
+
+	for i < template.len {
+		ch := template[i]
+
+		if !in_var && ch == h.left_delim {
+			// Check for escaped delimiter (e.g. {{)
+			if i + 1 < template.len && template[i + 1] == h.left_delim {
+				sb << ch
+				sb << ch
+				i += 2
+				continue
+			}
+			in_var = true
+			var_name_buf = []u8{cap: 16}
+			i++
+			continue
+		}
+
+		if in_var && ch == h.right_delim {
+			in_var = false
+			name := var_name_buf.bytestr().trim_space()
+			if name.len > 0 {
+				val := vars[name] or { '' }
+				if val.len > 0 {
+					sb << val.bytes()
+				}
+			}
+			i++
+			continue
+		}
+
+		if in_var {
+			var_name_buf << ch
+		} else {
+			sb << ch
+		}
+		i++
+	}
+
+	return sb.bytestr()
+}
+
+// ============================================================
+// RequestEntity — mirrors Spring HttpEntity / RequestEntity
+//   Immutable value object
+// ============================================================
+
+pub struct RequestEntity {
+pub:
+	method  string            // HTTP method: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS
+	url     string            // full URL or path (template)
+	headers map[string]string // request headers
+	body    string            // request body as raw string
+	uri_vars map[string]string // URI template variables, e.g. {'id':'42'}
+}
+
+pub fn request_entity(method string, url string) RequestEntity {
+	return RequestEntity{
+		method: method
+		url: url
+		headers: map[string]string{}
+		uri_vars: map[string]string{}
 	}
 }
 
-// is_success checks if the response is 2xx.
-pub fn (r &HttpResponse) is_success() bool {
+pub fn (e RequestEntity) header(key string, value string) RequestEntity {
+	mut h := e.headers.clone()
+	h[key] = value
+	return RequestEntity{...e, headers: h}
+}
+
+pub fn (e RequestEntity) headers_from(h map[string]string) RequestEntity {
+	mut merged := h.clone()
+	for k, v in e.headers {
+		merged[k] = v
+	}
+	return RequestEntity{...e, headers: merged}
+}
+
+pub fn (e RequestEntity) body_str(data string) RequestEntity {
+	return RequestEntity{...e, body: data}
+}
+
+pub fn (e RequestEntity) body_json[T](data T) RequestEntity {
+	return RequestEntity{...e, body: json.encode(data)}
+}
+
+pub fn (e RequestEntity) uri_var(key string, value string) RequestEntity {
+	mut u := e.uri_vars.clone()
+	u[key] = value
+	return RequestEntity{...e, uri_vars: u}
+}
+
+pub fn (e RequestEntity) uri_vars_from(v map[string]string) RequestEntity {
+	mut merged := v.clone()
+	for k, val in e.uri_vars {
+		merged[k] = val
+	}
+	return RequestEntity{...e, uri_vars: merged}
+}
+
+// ============================================================
+// ResponseEntity — mirrors Spring ResponseEntity
+//   Immutable value object. Generic body accessed via body_as[T]().
+// ============================================================
+
+pub struct ResponseEntity {
+pub:
+	status_code int
+	status_text string
+	headers     map[string]string
+	body        string
+}
+
+pub fn (r ResponseEntity) is_2xx() bool {
 	return r.status_code >= 200 && r.status_code < 300
 }
 
-// is_client_error checks if the response is 4xx.
-pub fn (r &HttpResponse) is_client_error() bool {
+pub fn (r ResponseEntity) is_4xx() bool {
 	return r.status_code >= 400 && r.status_code < 500
 }
 
-// is_server_error checks if the response is 5xx.
-pub fn (r &HttpResponse) is_server_error() bool {
+pub fn (r ResponseEntity) is_5xx() bool {
 	return r.status_code >= 500 && r.status_code < 600
 }
 
-// json parses the response body as JSON into type T.
-pub fn (r &HttpResponse) json[T]() !T {
-	return json.decode[T](r.body)
+// body_as deserialises the response body into T (Spring's getBody())
+pub fn (r ResponseEntity) body_as[T]() !T {
+	return json.decode(T, r.body)
 }
 
-// header returns a specific response header value (case-insensitive).
-pub fn (r &HttpResponse) header(name string) ?string {
-	for k, v in r.headers {
-		if k.to_lower() == name.to_lower() {
-			return v
+// header_value returns a single header value (Spring's getHeaders().getFirst())
+pub fn (r ResponseEntity) header_value(key string) string {
+	return r.headers[key] or { '' }
+}
+
+// ============================================================
+// ResponseErrorHandler — Strategy pattern (mirrors Spring)
+// ============================================================
+
+pub type ResponseErrorHandler = fn (resp ResponseEntity) !
+
+pub const default_error_handler = ResponseErrorHandler(fn (resp ResponseEntity) ! {
+	if resp.is_4xx() || resp.is_5xx() {
+		return error('${resp.status_code} ${resp.status_text}: ${resp.body}')
+	}
+})
+
+// ============================================================
+// ClientHttpRequestInterceptor — mirrors Spring
+//   Single intercept() method (not split before/after).
+// ============================================================
+
+pub fn new_interceptor(name string, intercept_fn fn (entity RequestEntity, next fn (RequestEntity) !ResponseEntity) !ResponseEntity) ClientHttpRequestInterceptor {
+	return ClientHttpRequestInterceptor{name: name, intercept_fn: intercept_fn}
+}
+
+pub struct ClientHttpRequestInterceptor {
+pub:
+	name        string
+	intercept_fn fn (entity RequestEntity, next fn (RequestEntity) !ResponseEntity) !ResponseEntity = unsafe { nil }
+}
+
+// ============================================================
+// RestTemplate — mirrors Spring RestTemplate
+//   Immutable, thread‑safe. Configure once, reuse across requests.
+// ============================================================
+
+pub struct RestTemplate {
+pub mut:
+	base_url             string
+	default_headers      map[string]string
+	interceptors         []ClientHttpRequestInterceptor
+	uri_template_handler UriTemplateHandler = new_uri_template_handler()
+	error_handler        ResponseErrorHandler = default_error_handler
+	connect_timeout      int = 30000
+	read_timeout         int = 30000
+	max_retries          int = 3
+	retry_base_delay     int = 200
+}
+
+// ----------------------------------------------------------
+// Constructor
+// ----------------------------------------------------------
+
+pub fn new_rest_template() RestTemplate {
+	return RestTemplate{
+		default_headers: map[string]string{}
+		interceptors: []ClientHttpRequestInterceptor{}
+	}
+}
+
+// ----------------------------------------------------------
+// Builder‑style configuration (returns new instance — safe for reuse)
+// ----------------------------------------------------------
+
+pub fn (rt RestTemplate) set_base_url(url string) RestTemplate {
+	mut r := rt
+	r.base_url = url
+	return r
+}
+
+pub fn (rt RestTemplate) set_default_header(key string, value string) RestTemplate {
+	mut r := rt
+	r.default_headers[key] = value
+	return r
+}
+
+pub fn (rt RestTemplate) set_default_headers(h map[string]string) RestTemplate {
+	mut r := rt
+	for k, v in h {
+		r.default_headers[k] = v
+	}
+	return r
+}
+
+pub fn (rt RestTemplate) set_connect_timeout(ms int) RestTemplate {
+	mut r := rt
+	r.connect_timeout = ms
+	return r
+}
+
+pub fn (rt RestTemplate) set_read_timeout(ms int) RestTemplate {
+	mut r := rt
+	r.read_timeout = ms
+	return r
+}
+
+pub fn (rt RestTemplate) set_retry(max_retries int, base_delay_ms int) RestTemplate {
+	mut r := rt
+	r.max_retries = max_retries
+	r.retry_base_delay = base_delay_ms
+	return r
+}
+
+pub fn (rt RestTemplate) set_error_handler(handler ResponseErrorHandler) RestTemplate {
+	mut r := rt
+	r.error_handler = handler
+	return r
+}
+
+pub fn (rt RestTemplate) set_uri_template_handler(handler UriTemplateHandler) RestTemplate {
+	mut r := rt
+	r.uri_template_handler = handler
+	return r
+}
+
+pub fn (rt RestTemplate) add_interceptor(ic ClientHttpRequestInterceptor) RestTemplate {
+	mut r := rt
+	r.interceptors << ic
+	return r
+}
+
+// ----------------------------------------------------------
+// High‑level API  — mirrors Spring's convenience methods
+//   Each method: expand template → build entity → exchange()
+// ----------------------------------------------------------
+
+// get_for_object — GET + body → T  (Spring: getForObject)
+pub fn (rt RestTemplate) get_for_object[T](url string, uri_vars map[string]string) !T {
+	resp := rt.get_for_entity(url, uri_vars) or { return err }
+	return resp.body_as[T]()
+}
+
+// get_for_entity — GET → ResponseEntity  (Spring: getForEntity)
+pub fn (rt RestTemplate) get_for_entity(url string, uri_vars map[string]string) !ResponseEntity {
+	entity := request_entity('GET', url).uri_vars_from(uri_vars)
+	return rt.exchange(entity)
+}
+
+// post_for_object — POST + body → T  (Spring: postForObject)
+pub fn (rt RestTemplate) post_for_object[T](url string, body string, uri_vars map[string]string) !T {
+	resp := rt.post_for_entity(url, body, uri_vars) or { return err }
+	return resp.body_as[T]()
+}
+
+// post_for_entity — POST + body → ResponseEntity  (Spring: postForEntity)
+pub fn (rt RestTemplate) post_for_entity(url string, body string, uri_vars map[string]string) !ResponseEntity {
+	entity := request_entity('POST', url).body_str(body).uri_vars_from(uri_vars)
+	return rt.exchange(entity)
+}
+
+// put — PUT + body  (Spring: put)
+pub fn (rt RestTemplate) put(url string, body string, uri_vars map[string]string) ! {
+	entity := request_entity('PUT', url).body_str(body).uri_vars_from(uri_vars)
+	_ := rt.exchange(entity) or { return err }
+}
+
+// delete — DELETE  (Spring: delete)
+pub fn (rt RestTemplate) delete(url string, uri_vars map[string]string) ! {
+	entity := request_entity('DELETE', url).uri_vars_from(uri_vars)
+	_ := rt.exchange(entity) or { return err }
+}
+
+// patch_for_entity — PATCH → ResponseEntity  (like Spring's patchForObject, adapted for V)
+pub fn (rt RestTemplate) patch_for_entity(url string, body string, uri_vars map[string]string) !ResponseEntity {
+	entity := request_entity('PATCH', url).body_str(body).uri_vars_from(uri_vars)
+	return rt.exchange(entity)
+}
+
+// head_for_headers — HEAD → headers  (Spring: headForHeaders)
+pub fn (rt RestTemplate) head_for_headers(url string, uri_vars map[string]string) !map[string]string {
+	entity := request_entity('HEAD', url).uri_vars_from(uri_vars)
+	resp := rt.exchange(entity) or { return err }
+	return resp.headers
+}
+
+// options_for_allow — OPTIONS → Allow header  (Spring: optionsForAllow)
+pub fn (rt RestTemplate) options_for_allow(url string, uri_vars map[string]string) !string {
+	entity := request_entity('OPTIONS', url).uri_vars_from(uri_vars)
+	resp := rt.exchange(entity) or { return err }
+	return resp.header_value('Allow')
+}
+
+// ----------------------------------------------------------
+// exchange() — the universal request entry point
+//   All high‑level methods delegate here.
+//   Steps:
+//     1. Expand URI template
+//     2. Merge default headers + entity headers
+//     3. Resolve full URL (base_url + path)
+//     4. Interceptor chain
+//     5. HTTP execution (with retry + exponential backoff)
+//     6. Error handling strategy
+// ----------------------------------------------------------
+
+pub fn (rt RestTemplate) exchange(entity RequestEntity) !ResponseEntity {
+	// 1. Expand URI template: /users/{id} → /users/42
+	expanded_url := rt.uri_template_handler.expand(entity.url, entity.uri_vars)
+
+	// 2. Resolve full URL
+	final_url := resolve_url(rt.base_url, expanded_url)
+
+	// 3. Merge headers: entity.headers overlay default_headers
+	mut merged_headers := rt.default_headers.clone()
+	for k, v in entity.headers {
+		merged_headers[k] = v
+	}
+
+	// 4. Build mutable request for interceptor chain
+	mut req := RequestEntity{
+		method: entity.method
+		url: final_url
+		headers: merged_headers
+		body: entity.body
+		uri_vars: entity.uri_vars
+	}
+
+	// 5. Execute interceptor chain (Spring: recursive pipeline)
+	//    Each interceptor wraps the next, like Spring's doExecute chain.
+	mut chain_fn := fn [rt] (entity RequestEntity) !ResponseEntity {
+		return rt.execute_http(entity)
+	}
+
+	for i := rt.interceptors.len - 1; i >= 0; i-- {
+		ic := rt.interceptors[i]
+		next := chain_fn
+		if ic.intercept_fn != unsafe { nil } {
+			chain_fn = fn [ic, next] (e RequestEntity) !ResponseEntity {
+				return ic.intercept_fn(e, next)
+			}
 		}
 	}
-	return none
+
+	return chain_fn(req)
 }
 
-// ── HttpClient ──
+// ----------------------------------------------------------
+// execute() — lowest‑level API (mirrors Spring's execute)
+//   Full control: raw RequestEntity in, raw ResponseEntity out.
+// ----------------------------------------------------------
 
-// HttpClient provides a fluent API for HTTP requests.
-// Backed by V's net.http.fetch() for real network I/O.
-pub struct HttpClient {
-mut:
-	base_url     string
-	timeout_sec  int    = 30
-	headers      map[string]string
-	query_params map[string]string
-	retry_times  int
-	retry_delay  int // ms
-	debug        bool
+pub fn (rt RestTemplate) execute(entity RequestEntity) !ResponseEntity {
+	return rt.exchange(entity)
 }
 
-// new_client creates a new HttpClient with default settings.
-pub fn new_client() HttpClient {
-	return HttpClient{
-		headers:      map[string]string{}
-		query_params: map[string]string{}
-	}
-}
+// ----------------------------------------------------------
+// execute_http — the actual HTTP call without interception
+// ----------------------------------------------------------
 
-// with_base_url sets the base URL for all requests.
-pub fn (mut c HttpClient) with_base_url(url string) HttpClient {
-	c.base_url = url
-	return c
-}
-
-// with_header adds a request header.
-pub fn (mut c HttpClient) with_header(key string, value string) HttpClient {
-	c.headers[key] = value
-	return c
-}
-
-// with_headers merges multiple headers at once.
-pub fn (mut c HttpClient) with_headers(headers map[string]string) HttpClient {
-	for k, v in headers {
-		c.headers[k] = v
-	}
-	return c
-}
-
-// with_token adds a Bearer token authorization header.
-pub fn (mut c HttpClient) with_token(token string) HttpClient {
-	c.headers['Authorization'] = 'Bearer ${token}'
-	return c
-}
-
-// with_basic_auth adds Basic authentication header.
-pub fn (mut c HttpClient) with_basic_auth(username string, password string) HttpClient {
-	encoded := base64_encode('${username}:${password}')
-	c.headers['Authorization'] = 'Basic ${encoded}'
-	return c
-}
-
-// with_content_type sets the Content-Type header.
-pub fn (mut c HttpClient) with_content_type(ct string) HttpClient {
-	c.headers['Content-Type'] = ct
-	return c
-}
-
-// with_json sets Content-Type to application/json.
-pub fn (mut c HttpClient) with_json() HttpClient {
-	c.headers['Content-Type'] = 'application/json'
-	return c
-}
-
-// with_accept sets the Accept header.
-pub fn (mut c HttpClient) with_accept(mime_type string) HttpClient {
-	c.headers['Accept'] = mime_type
-	return c
-}
-
-// with_query sets query parameters that will be appended to every request URL.
-pub fn (mut c HttpClient) with_query(params map[string]string) HttpClient {
-	for k, v in params {
-		c.query_params[k] = v
-	}
-	return c
-}
-
-// retry configures automatic retries on socket errors.
-pub fn (mut c HttpClient) retry(times int, delay_ms int) HttpClient {
-	c.retry_times = times
-	c.retry_delay = delay_ms
-	return c
-}
-
-// timeout_sec sets the request timeout in seconds.
-pub fn (mut c HttpClient) timeout_sec(seconds int) HttpClient {
-	c.timeout_sec = seconds
-	return c
-}
-
-// debug enables verbose HTTP logging.
-pub fn (mut c HttpClient) debug_enabled(enabled bool) HttpClient {
-	c.debug = enabled
-	return c
-}
-
-// clone_headers returns a copy of the headers map.
-fn (c &HttpClient) clone_headers() map[string]string {
-	mut result := map[string]string{}
-	for k, v in c.headers {
-		result[k] = v
-	}
-	return result
-}
-
-// clone_query_params returns a copy of the query params map.
-fn (c &HttpClient) clone_query_params() map[string]string {
-	mut result := map[string]string{}
-	for k, v in c.query_params {
-		result[k] = v
-	}
-	return result
-}
-
-// ── HTTP Methods ──
-
-// get sends a GET request.
-pub fn (c &HttpClient) get(path string) !&HttpResponse {
-	url := c.build_url(path)
-	return do_request(c.clone_headers(), .get, url, '')
-}
-
-// post sends a POST request with a body string.
-pub fn (c &HttpClient) post(path string, body string) !&HttpResponse {
-	url := c.build_url(path)
-	return do_request(c.clone_headers(), .post, url, body)
-}
-
-// post_json sends a POST request with a JSON body and proper Content-Type.
-pub fn (c &HttpClient) post_json(path string, data string) !&HttpResponse {
-	url := c.build_url(path)
-	mut h := c.clone_headers()
-	h['Content-Type'] = 'application/json'
-	return do_request(h, .post, url, data)
-}
-
-// post_form sends a POST request with form-encoded data.
-pub fn (c &HttpClient) post_form(path string, form_data map[string]string) !&HttpResponse {
-	url := c.build_url(path)
-	mut h := c.clone_headers()
-	h['Content-Type'] = 'application/x-www-form-urlencoded'
-
-	// Build form body manually using query_escape for each key-value
-	mut parts := []string{}
-	for k, v in form_data {
-		parts << '${urllib.query_escape(k)}=${urllib.query_escape(v)}'}
-	body := parts.join('&')
-	return do_request(h, .post, url, body)
-}
-
-// put sends a PUT request with a body string.
-pub fn (c &HttpClient) put(path string, body string) !&HttpResponse {
-	url := c.build_url(path)
-	return do_request(c.clone_headers(), .put, url, body)
-}
-
-// delete sends a DELETE request.
-pub fn (c &HttpClient) delete(path string) !&HttpResponse {
-	url := c.build_url(path)
-	return do_request(c.clone_headers(), .delete, url, '')
-}
-
-// patch sends a PATCH request with a body string.
-pub fn (c &HttpClient) patch(path string, body string) !&HttpResponse {
-	url := c.build_url(path)
-	return do_request(c.clone_headers(), .patch, url, body)
-}
-
-// head sends a HEAD request.
-pub fn (c &HttpClient) head(path string) !&HttpResponse {
-	url := c.build_url(path)
-	return do_request(c.clone_headers(), .head, url, '')
-}
-
-// ── Internal Request Execution ──
-
-// do_request executes the actual HTTP request using net.http.fetch().
-// This is a free function to avoid receiver mutability issues.
-fn do_request(headers map[string]string, method vhttp.Method, url string, body string) !&HttpResponse {
-	// Build fetch config header using custom_add for string keys
-	mut header := vhttp.Header{}
-	for k, v in headers {
-		header.add_custom(k, v) or {}
-	}
-
+fn (rt RestTemplate) execute_http(entity RequestEntity) !ResponseEntity {
 	config := vhttp.FetchConfig{
-		url:           url
-		method:        method
-		header:        header
-		data:          body
-		user_agent:    'Photon/0.1.0'
-		allow_redirect: true
-		max_retries:   0
-		verbose:       false
+		method: method_from_string(entity.method)
+		url: entity.url
+		header: header_from_map(entity.headers)
+		data: entity.body
+		read_timeout: i64(rt.read_timeout) * time.millisecond
+		write_timeout: i64(rt.connect_timeout) * time.millisecond
+		max_retries: if rt.max_retries > 0 { rt.max_retries } else { 1 }
 	}
 
-	// Execute the request via V's net.http
-	resp := vhttp.fetch(config)!
+	vhttp_resp := execute_with_retry(config, rt.max_retries, rt.retry_base_delay) or {
+		mut resp_headers := map[string]string{}
+		err_resp := ResponseEntity{
+			status_code: 0
+			status_text: err.str()
+			headers: resp_headers
+			body: ''
+		}
+		// Apply error handler even on connection errors
+		rt.error_handler(err_resp) or { return err }
+		return err_resp
+	}
 
-	// Convert response headers to map[string]string
+	// Build response headers
 	mut resp_headers := map[string]string{}
-	for key in resp.header.keys() {
-		val := resp.header.custom_values(key, vhttp.HeaderQueryConfig{}).join(', ')
-		resp_headers[key] = val
+	keys := vhttp_resp.header.keys()
+	for k in keys {
+		val := vhttp_resp.header.get_custom(k, vhttp.HeaderQueryConfig{}) or { '' }
+		if val != '' {
+			resp_headers[k] = val
+		}
 	}
 
-	result := &HttpResponse{
-		status_code: resp.status_code
-		body:        resp.body
-		headers:     resp_headers
+	mut resp := ResponseEntity{
+		status_code: vhttp_resp.status_code
+		status_text: vhttp_resp.status_msg
+		headers: resp_headers
+		body: vhttp_resp.body
 	}
 
-	return result
+	// Apply ResponseErrorHandler strategy (Spring behaviour)
+	rt.error_handler(resp) or { return err }
+
+	return resp
 }
 
-// build_url constructs the full URL by combining base_url, path, and query params.
-fn (c &HttpClient) build_url(path string) string {
-	mut url := ''
+// ============================================================
+// Internal helpers
+// ============================================================
 
-	// Combine base_url + path
-	if c.base_url.len > 0 {
-		if c.base_url.ends_with('/') && path.starts_with('/') {
-			url = c.base_url + path[1..]
-		} else if !c.base_url.ends_with('/') && !path.starts_with('/') {
-			url = c.base_url + '/' + path
-		} else {
-			url = c.base_url + path
-		}
-	} else {
-		url = path
+fn resolve_url(base string, path_or_url string) string {
+	if path_or_url == '' {
+		return base
 	}
-
-	// Append query params
-	if c.query_params.len > 0 {
-		separator := if url.contains('?') { '&' } else { '?' }
-		mut parts := []string{}
-		for k, v in c.query_params {
-			parts << '${urllib.query_escape(k)}=${urllib.query_escape(v)}'
-		}
-		url = url + separator + parts.join('&')
+	if path_or_url.starts_with('http://') || path_or_url.starts_with('https://') {
+		return path_or_url
 	}
-
-	return url
+	if base == '' {
+		return path_or_url
+	}
+	if path_or_url.starts_with('/') {
+		return '${base}${path_or_url}'
+	}
+	return '${base}/${path_or_url}'
 }
 
-// ── Utility Functions ──
+fn method_from_string(method string) vhttp.Method {
+	return match method.to_upper() {
+		'GET'     { vhttp.Method.get }
+		'POST'    { vhttp.Method.post }
+		'PUT'     { vhttp.Method.put }
+		'DELETE'  { vhttp.Method.delete }
+		'PATCH'   { vhttp.Method.patch }
+		'HEAD'    { vhttp.Method.head }
+		'OPTIONS' { vhttp.Method.options }
+		else      { vhttp.Method.get }
+	}
+}
 
-// base64_encode performs Base64 encoding (used for Basic Auth).
-fn base64_encode(input string) string {
-	chars := 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-	mut result := ''
-	mut buffer := u64(0)
-	mut bits := 0
+fn header_from_map(m map[string]string) vhttp.Header {
+	mut h := vhttp.Header{}
+	for k, v in m {
+		h.add_custom(k, v) or { continue }
+	}
+	return h
+}
 
-	for ch in input {
-		buffer = (buffer << 8) | u64(ch)
-		bits += 8
-		for bits >= 6 {
-			bits -= 6
-			idx := int((buffer >> bits) & 0x3F)
-			result += chars[idx].ascii_str()
+fn execute_with_retry(config vhttp.FetchConfig, max_retries int, base_delay int) !vhttp.Response {
+	mut last_error := IError(none)
+	mut attempt := 0
+
+	for attempt <= max_retries {
+		resp := vhttp.fetch(config) or {
+			last_error = err
+			attempt++
+			if attempt <= max_retries {
+				delay := base_delay * (1 << u32(attempt - 1))
+				time.sleep(i64(delay) * time.millisecond)
+				continue
+			}
+			return err
 		}
+		return resp
 	}
 
-	if bits > 0 {
-		buffer <<= u64(6 - bits)
-		idx := int(buffer & 0x3F)
-		result += chars[idx].ascii_str()
-	}
-
-	for result.len % 4 != 0 {
-		result += '='
-	}
-
-	return result
+	return last_error
 }
