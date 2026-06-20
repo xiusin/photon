@@ -1,13 +1,9 @@
 module resources
 
 // app/Http/Resources/category_tag_resource.v — 分类与标签 API Resource
-//
-// 将 Category/Tag 实体转换为 API 响应格式。
-// 时间戳格式化为 ISO 8601 字符串。
-//
-// Laravel 等价：App\Http\Resources\CategoryResource / TagResource
 
 import json
+import models
 
 // ═══════════════════════════════════════════════════════════
 // CategoryResource — 分类 API Resource
@@ -23,8 +19,7 @@ pub:
 	updated_at  string
 }
 
-// new_category_resource 从 Category 实体创建 CategoryResource
-pub fn new_category_resource(c &Category) CategoryResource {
+pub fn new_category_resource(c &models.Category) CategoryResource {
 	return CategoryResource{
 		id:          c.id
 		name:        c.name
@@ -35,20 +30,17 @@ pub fn new_category_resource(c &Category) CategoryResource {
 	}
 }
 
-// to_json 序列化为 JSON 字符串
 pub fn (r CategoryResource) to_json() string {
 	return json.encode(r)
 }
 
-// CategoryResourceCollection 分类集合
 pub struct CategoryResourceCollection {
 pub:
 	data []CategoryResource
 	meta ResourceMeta
 }
 
-// new_category_resource_collection 从 Category 实体列表创建集合
-pub fn new_category_resource_collection(categories []Category, total int, page int, page_size int) CategoryResourceCollection {
+pub fn new_category_resource_collection(categories []models.Category, total int, page int, page_size int) CategoryResourceCollection {
 	mut resources := []CategoryResource{}
 	for c in categories {
 		resources << new_category_resource(&c)
@@ -59,7 +51,6 @@ pub fn new_category_resource_collection(categories []Category, total int, page i
 	}
 }
 
-// to_json 序列化为 JSON 字符串
 pub fn (c CategoryResourceCollection) to_json() string {
 	return json.encode(c)
 }
@@ -77,8 +68,7 @@ pub:
 	updated_at string
 }
 
-// new_tag_resource 从 Tag 实体创建 TagResource
-pub fn new_tag_resource(t &Tag) TagResource {
+pub fn new_tag_resource(t &models.Tag) TagResource {
 	return TagResource{
 		id:         t.id
 		name:       t.name
@@ -88,20 +78,17 @@ pub fn new_tag_resource(t &Tag) TagResource {
 	}
 }
 
-// to_json 序列化为 JSON 字符串
 pub fn (r TagResource) to_json() string {
 	return json.encode(r)
 }
 
-// TagResourceCollection 标签集合
 pub struct TagResourceCollection {
 pub:
 	data []TagResource
 	meta ResourceMeta
 }
 
-// new_tag_resource_collection 从 Tag 实体列表创建集合
-pub fn new_tag_resource_collection(tags []Tag, total int, page int, page_size int) TagResourceCollection {
+pub fn new_tag_resource_collection(tags []models.Tag, total int, page int, page_size int) TagResourceCollection {
 	mut resources := []TagResource{}
 	for t in tags {
 		resources << new_tag_resource(&t)
@@ -112,7 +99,6 @@ pub fn new_tag_resource_collection(tags []Tag, total int, page int, page_size in
 	}
 }
 
-// to_json 序列化为 JSON 字符串
 pub fn (c TagResourceCollection) to_json() string {
 	return json.encode(c)
 }

@@ -24,8 +24,13 @@ module main
 
 import photon.cli
 import photon.web
+import photon.orm as phorm
 import time
 import os
+import bootstrap
+import database
+import services
+import database.seeders
 
 // ═══════════════════════════════════════════════════════════
 // ServeCommand — 启动 Web 服务
@@ -33,11 +38,11 @@ import os
 
 pub struct ServeCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
 // new_serve_command 创建启动 Web 服务的命令
-pub fn new_serve_command(boot &Bootstrap) &ServeCommand {
+pub fn new_serve_command(boot &bootstrap.Bootstrap) &ServeCommand {
 	return &ServeCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'serve'
@@ -69,10 +74,10 @@ pub fn (c &ServeCommand) execute(input &cli.CommandInput, output &cli.CommandOut
 
 pub struct MigrateCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_migrate_command(boot &Bootstrap) &MigrateCommand {
+pub fn new_migrate_command(boot &bootstrap.Bootstrap) &MigrateCommand {
 	return &MigrateCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'migrate'
@@ -86,8 +91,8 @@ pub fn new_migrate_command(boot &Bootstrap) &MigrateCommand {
 pub fn (c &MigrateCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Running database migrations')
 
-	mm := new_migration_manager(c.bootstrap.orm_mgr)!
-	run_migrations(mm) or {
+	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)!
+	database.run_migrations(mm) or {
 		output.error('Migration failed: ${err}')
 		return
 	}
@@ -102,10 +107,10 @@ pub fn (c &MigrateCommand) execute(input &cli.CommandInput, output &cli.CommandO
 
 pub struct MigrateRollbackCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_migrate_rollback_command(boot &Bootstrap) &MigrateRollbackCommand {
+pub fn new_migrate_rollback_command(boot &bootstrap.Bootstrap) &MigrateRollbackCommand {
 	return &MigrateRollbackCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'migrate:rollback'
@@ -119,8 +124,8 @@ pub fn new_migrate_rollback_command(boot &Bootstrap) &MigrateRollbackCommand {
 pub fn (c &MigrateRollbackCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Rolling back database migrations')
 
-	mm := new_migration_manager(c.bootstrap.orm_mgr)!
-	rollback_migrations(mm) or {
+	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)!
+	database.rollback_migrations(mm) or {
 		output.error('Rollback failed: ${err}')
 		return
 	}
@@ -135,10 +140,10 @@ pub fn (c &MigrateRollbackCommand) execute(input &cli.CommandInput, output &cli.
 
 pub struct MigrateStatusCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_migrate_status_command(boot &Bootstrap) &MigrateStatusCommand {
+pub fn new_migrate_status_command(boot &bootstrap.Bootstrap) &MigrateStatusCommand {
 	return &MigrateStatusCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'migrate:status'
@@ -152,8 +157,8 @@ pub fn new_migrate_status_command(boot &Bootstrap) &MigrateStatusCommand {
 pub fn (c &MigrateStatusCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Migration Status')
 
-	mm := new_migration_manager(c.bootstrap.orm_mgr)!
-	migration_status(mm) or {
+	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)!
+	database.migration_status(mm) or {
 		output.error('Failed to get migration status: ${err}')
 		return
 	}
@@ -169,10 +174,10 @@ pub fn (c &MigrateStatusCommand) execute(input &cli.CommandInput, output &cli.Co
 
 pub struct MigrateFreshCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_migrate_fresh_command(boot &Bootstrap) &MigrateFreshCommand {
+pub fn new_migrate_fresh_command(boot &bootstrap.Bootstrap) &MigrateFreshCommand {
 	return &MigrateFreshCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'migrate:fresh'
@@ -186,8 +191,8 @@ pub fn new_migrate_fresh_command(boot &Bootstrap) &MigrateFreshCommand {
 pub fn (c &MigrateFreshCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Fresh migration (drop all + re-migrate)')
 
-	mm := new_migration_manager(c.bootstrap.orm_mgr)!
-	fresh_migrations(mm) or {
+	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)!
+	database.fresh_migrations(mm) or {
 		output.error('Fresh migration failed: ${err}')
 		return
 	}
@@ -196,7 +201,7 @@ pub fn (c &MigrateFreshCommand) execute(input &cli.CommandInput, output &cli.Com
 	// --seed 标志：迁移后自动执行种子
 	if input.has_flag('seed') {
 		output.writeln('')
-		mut seeder := new_database_seeder(c.bootstrap)
+		mut seeder := seeders.new_database_seeder(c.bootstrap)
 		seeder.run(output)!
 	}
 
@@ -212,10 +217,10 @@ pub fn (c &MigrateFreshCommand) execute(input &cli.CommandInput, output &cli.Com
 
 pub struct MigrateRefreshCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_migrate_refresh_command(boot &Bootstrap) &MigrateRefreshCommand {
+pub fn new_migrate_refresh_command(boot &bootstrap.Bootstrap) &MigrateRefreshCommand {
 	return &MigrateRefreshCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'migrate:refresh'
@@ -229,11 +234,11 @@ pub fn new_migrate_refresh_command(boot &Bootstrap) &MigrateRefreshCommand {
 pub fn (c &MigrateRefreshCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Refresh migration (rollback all + re-migrate)')
 
-	mm := new_migration_manager(c.bootstrap.orm_mgr)!
+	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)!
 
 	// 1. 回滚所有迁移
 	output.writeln('  Rolling back all migrations...')
-	reset_migrations(mm) or {
+	database.reset_migrations(mm) or {
 		output.error('Reset failed: ${err}')
 		return
 	}
@@ -241,7 +246,7 @@ pub fn (c &MigrateRefreshCommand) execute(input &cli.CommandInput, output &cli.C
 
 	// 2. 重新执行迁移
 	output.writeln('  Re-running migrations...')
-	run_migrations(mm) or {
+	database.run_migrations(mm) or {
 		output.error('Re-migration failed: ${err}')
 		return
 	}
@@ -250,7 +255,7 @@ pub fn (c &MigrateRefreshCommand) execute(input &cli.CommandInput, output &cli.C
 	// --seed 标志：迁移后自动执行种子
 	if input.has_flag('seed') {
 		output.writeln('')
-		mut seeder := new_database_seeder(c.bootstrap)
+		mut seeder := seeders.new_database_seeder(c.bootstrap)
 		seeder.run(output)!
 	}
 
@@ -264,10 +269,10 @@ pub fn (c &MigrateRefreshCommand) execute(input &cli.CommandInput, output &cli.C
 
 pub struct MigrateResetCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_migrate_reset_command(boot &Bootstrap) &MigrateResetCommand {
+pub fn new_migrate_reset_command(boot &bootstrap.Bootstrap) &MigrateResetCommand {
 	return &MigrateResetCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'migrate:reset'
@@ -281,8 +286,8 @@ pub fn new_migrate_reset_command(boot &Bootstrap) &MigrateResetCommand {
 pub fn (c &MigrateResetCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Reset migration (rollback all)')
 
-	mm := new_migration_manager(c.bootstrap.orm_mgr)!
-	reset_migrations(mm) or {
+	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)!
+	database.reset_migrations(mm) or {
 		output.error('Reset failed: ${err}')
 		return
 	}
@@ -297,10 +302,10 @@ pub fn (c &MigrateResetCommand) execute(input &cli.CommandInput, output &cli.Com
 
 pub struct SeedCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_seed_command(boot &Bootstrap) &SeedCommand {
+pub fn new_seed_command(boot &bootstrap.Bootstrap) &SeedCommand {
 	return &SeedCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'seed'
@@ -312,7 +317,7 @@ pub fn new_seed_command(boot &Bootstrap) &SeedCommand {
 }
 
 pub fn (c &SeedCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
-	mut seeder := new_database_seeder(c.bootstrap)
+	mut seeder := seeders.new_database_seeder(c.bootstrap)
 
 	// 支持 --only 参数选择性执行种子
 	only := input.get_option_or('only', '')
@@ -331,10 +336,10 @@ pub fn (c &SeedCommand) execute(input &cli.CommandInput, output &cli.CommandOutp
 
 pub struct QueueWorkCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_queue_work_command(boot &Bootstrap) &QueueWorkCommand {
+pub fn new_queue_work_command(boot &bootstrap.Bootstrap) &QueueWorkCommand {
 	return &QueueWorkCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'queue:work'
@@ -364,10 +369,10 @@ pub fn (c &QueueWorkCommand) execute(input &cli.CommandInput, output &cli.Comman
 
 pub struct SchedulerRunCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_scheduler_run_command(boot &Bootstrap) &SchedulerRunCommand {
+pub fn new_scheduler_run_command(boot &bootstrap.Bootstrap) &SchedulerRunCommand {
 	return &SchedulerRunCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'scheduler:run'
@@ -383,8 +388,8 @@ pub fn (c &SchedulerRunCommand) execute(input &cli.CommandInput, output &cli.Com
 	output.writeln('Press Ctrl+C to stop (or use process manager: systemd/Docker for graceful shutdown)')
 	output.writeln('')
 
-	sched := new_scheduler(c.bootstrap.stats_svc, c.bootstrap.cache_mgr, c.bootstrap.log)!
-	start_scheduler(sched)
+	sched := services.new_scheduler(c.bootstrap.stats_svc, c.bootstrap.cache_mgr, c.bootstrap.log)!
+	services.start_scheduler(sched)
 
 	output.success('Scheduler is running (${sched.task_count()} tasks registered)')
 	sched.print_status()
@@ -403,10 +408,10 @@ pub fn (c &SchedulerRunCommand) execute(input &cli.CommandInput, output &cli.Com
 
 pub struct StatsCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_stats_command(boot &Bootstrap) &StatsCommand {
+pub fn new_stats_command(boot &bootstrap.Bootstrap) &StatsCommand {
 	return &StatsCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'stats'
@@ -447,10 +452,10 @@ pub fn (c &StatsCommand) execute(input &cli.CommandInput, output &cli.CommandOut
 
 pub struct RoutesCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_routes_command(boot &Bootstrap) &RoutesCommand {
+pub fn new_routes_command(boot &bootstrap.Bootstrap) &RoutesCommand {
 	return &RoutesCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'routes'
@@ -490,10 +495,10 @@ pub fn (c &RoutesCommand) execute(input &cli.CommandInput, output &cli.CommandOu
 
 pub struct DocsCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_docs_command(boot &Bootstrap) &DocsCommand {
+pub fn new_docs_command(boot &bootstrap.Bootstrap) &DocsCommand {
 	return &DocsCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'docs'
@@ -638,7 +643,7 @@ ${rows}
 // 包括：业务命令（serve/migrate/seed/queue/scheduler/stats/routes/docs）
 //       + 迁移命令（migrate:fresh/refresh/reset）
 //       + 框架提供的 make:* 代码生成命令
-pub fn register_commands(mut app &cli.CliApplication, boot &Bootstrap) {
+pub fn register_commands(mut app &cli.CliApplication, boot &bootstrap.Bootstrap) {
 	// 业务命令
 	app.add_command(new_serve_command(boot))
 	app.add_command(new_migrate_command(boot))

@@ -27,12 +27,6 @@ PORT       ?= 8080
 HOST       ?= 0.0.0.0
 SERVICE    ?=
 
-# V only compiles .v files in the given directory, NOT sub-directories.
-# Demo uses a Laravel-style directory layout (app/, config/, bootstrap/, …)
-# where every .v file declares `module main`.  We flatten them into a
-# single build directory so `v run` sees everything.
-BUILD_DIR  := .build
-
 # ── 跨平台检测 (macOS / Linux) ──
 # 优先使用 docker compose（Docker v2+），回退到 docker-compose（v1）
 DOCKER_COMPOSE := $(shell command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
@@ -60,52 +54,7 @@ endif
 # 环境初始化
 # ═══════════════════════════════════════════════════════════
 
-.PHONY: setup install uninstall flatten
-
-# ── Flatten: collect all `module main` .v files into .build/ ──
-# V's `v run <dir>` only compiles .v files directly in <dir>, not in
-# sub-directories.  Demo uses a Laravel-style layout where every .v
-# file is `module main` but lives in app/, config/, bootstrap/, etc.
-# The `flatten` target COPIES them all into .build/ so V sees them.
-# We use cp (not symlinks) because V's watch mode on macOS does not
-# reliably follow symlinks.
-flatten:
-	@rm -rf $(BUILD_DIR)
-	@mkdir -p $(BUILD_DIR)/.vmodules
-	@for f in $$(find . -name '*.v' \
-		-not -path './.vmodules/*' \
-		-not -path './.build/*' \
-		-not -path './docs/*' \
-		-not -path './.git/*' \
-		-not -path './storage/*' \
-		-not -path './bin/*' \
-		-not -path './dist/*' \
-		-not -name '*_test.v'); do \
-		base=$$(basename $$f); \
-		if [ "$$base" = "v.mod" ]; then continue; fi; \
-		dir=$$(dirname $$f); \
-		if [ "$$dir" = "." ]; then \
-			dest=$(BUILD_DIR)/$$base; \
-		else \
-			prefix=$$(echo $$dir | sed 's|^\./||;s|/|__|g'); \
-			dest=$(BUILD_DIR)/$${prefix}__$$base; \
-		fi; \
-		cp "$$f" "$$dest"; \
-	done
-	@cp v.mod $(BUILD_DIR)/v.mod
-	@# Make photon vmodule resolvable — copy only module dirs (not examples/tests/docs)
-	@PHOTON_ROOT=$$(cd .. && pwd); \
-	mkdir -p $(BUILD_DIR)/.vmodules/photon; \
-	cp $(BUILD_DIR)/.vmodules/photon 2>/dev/null; \
-	for d in photon.v v.mod core config log cache orm pool lock web cli security apidoc logger; do \
-		if [ -e "$$PHOTON_ROOT/$$d" ]; then \
-			cp -R "$$PHOTON_ROOT/$$d" $(BUILD_DIR)/.vmodules/photon/; \
-		fi; \
-	done; \
-	mkdir -p $(HOME)/.vmodules; \
-	ln -sfn "$$PHOTON_ROOT" $(HOME)/.vmodules/photon
-	@# Verify
-	@test -d $(BUILD_DIR)/.vmodules/photon/apidoc || { echo "ERROR: photon vmodule not resolvable"; exit 1; }
+.PHONY: setup install uninstall
 
 ## 环境初始化: 一键搭建开发环境
 setup: check-v env build migrate seed
@@ -154,14 +103,12 @@ uninstall:
 .PHONY: dev run serve watch
 
 ## 开发模式: 热重载监听文件变更
-# 自动检测 V 编译器版本：
-#   - V 0.5.x: 使用原生 watch（`v watch run . -- args`）
-#   - 旧版 V / 语法不兼容: 回退到 `make watch`（fswatch/inotifywait 跨平台回退）
-dev: flatten
+# Demo 使用 V 模块系统（v.mod 项目），`v run .` 会递归编译子目录模块
+dev:
 	@echo "启动开发模式（热重载）..."
 	@if $(V) watch --help 2>&1 | grep -q "run"; then \
 		echo "✓ 使用 V 0.5.x 原生 watch..."; \
-		$(V) $(VFLAGS_DEV) watch run $(BUILD_DIR) -- serve --host=$(HOST) --port=$(PORT); \
+		$(V) $(VFLAGS_DEV) watch run . -- serve --host=$(HOST) --port=$(PORT); \
 	else \
 		echo "⚠ V 版本不支持 watch run，回退到 $(WATCHER) 监听..."; \
 		$(MAKE) watch HOST=$(HOST) PORT=$(PORT); \
@@ -181,7 +128,7 @@ watch:
 	@echo "监听文件变更并重启 [$(UNAME_S)/$(WATCHER)]..."
 	$(WATCHER_CHECK)
 	@while true; do \
-		$(V) $(VFLAGS_DEV) $(BUILD_DIR) && \
+		$(V) $(VFLAGS_DEV) -o $(BIN) . && \
 		./$(BIN) serve --host=$(HOST) --port=$(PORT) & \
 		SERVER_PID=$$!; \
 		$(WATCHER) $(WATCHER_FLAGS) >/dev/null 2>&1; \
@@ -198,16 +145,16 @@ watch:
 .PHONY: build build-release release release-package
 
 ## Debug 构建
-build: flatten
+build:
 	@echo "编译 (debug)..."
-	$(V) $(VFLAGS) -o $(BIN) $(BUILD_DIR)
+	$(V) $(VFLAGS) -o $(BIN) .
 	@echo "✓ 编译完成: ./$(BIN)"
 
 ## 生产优化构建
-build-release: flatten
+build-release:
 	@echo "编译 (release)..."
 	@mkdir -p $(BIN_DIR)
-	$(V) $(VFLAGS_REL) -o $(BIN_DIR)/$(BIN) $(BUILD_DIR)
+	$(V) $(VFLAGS_REL) -o $(BIN_DIR)/$(BIN) .
 	@echo "✓ 生产构建完成: $(BIN_DIR)/$(BIN)"
 
 ## 生产构建（别名）
@@ -236,23 +183,23 @@ release-package: build-release
 ## 运行全部测试
 test:
 	@echo "运行测试..."
-	$(V) $(VFLAGS) test $(SRC_DIR)
+	$(V) $(VFLAGS) test .
 
 ## 运行单元测试
 test-unit:
 	@echo "运行单元测试..."
-	$(V) $(VFLAGS) test $(SRC_DIR) -run '.*_test\.v$$' || \
-	$(V) $(VFLAGS) test $(SRC_DIR)
+	$(V) $(VFLAGS) test . -run '.*_test\.v$$' || \
+	$(V) $(VFLAGS) test .
 
 ## 运行集成测试
 test-integration:
 	@echo "运行集成测试..."
-	$(V) $(VFLAGS) test $(SRC_DIR) || true
+	$(V) $(VFLAGS) test . || true
 
 ## 生成测试覆盖率报告
 test-coverage:
 	@echo "生成测试覆盖率报告..."
-	@$(V) $(VFLAGS) test $(SRC_DIR) 2>&1 | tee coverage.txt
+	@$(V) $(VFLAGS) test . 2>&1 | tee coverage.txt
 	@echo "✓ 覆盖率报告已保存到 coverage.txt"
 
 # ═══════════════════════════════════════════════════════════
@@ -341,12 +288,12 @@ stats: build
 ## 代码静态检查
 lint:
 	@echo "运行静态检查..."
-	$(V) vet $(SRC_DIR) 2>&1 || true
+	$(V) vet . 2>&1 || true
 
 ## 格式化代码
 fmt:
 	@echo "格式化代码..."
-	$(V) fmt -w $(SRC_DIR)
+	$(V) fmt -w .
 	@echo "✓ 代码格式化完成"
 
 ## 综合检查（lint + fmt + test）
@@ -407,7 +354,6 @@ clean:
 	@echo "清理构建产物..."
 	@rm -f $(BIN)
 	@rm -rf $(BIN_DIR)/$(BIN)
-	@rm -rf $(BUILD_DIR)
 	@rm -f *.db *.db-journal *.db-wal *.db-shm
 	@echo "✓ 清理完成"
 
@@ -528,7 +474,7 @@ help:
 	@awk '/^## 测试:/{f=1;next}/^## /{f=0}f && /^[a-zA-Z_-]+:/{split($$0,a,":");printf "  \033[36m%-20s\033[0m %s\n",a[1],desc} /^[a-zA-Z_-]+:.*##/{split($$0,a,":");split(a[2],b,"##");printf "  \033[36m%-20s\033[0m %s\n",a[1],b[2]}' Makefile 2>/dev/null || true
 	@echo ""
 	@echo "数据库:"
-	@awk '/^## 数据库:/{f=1;next}/^## /{f=0}f && /^[a-zA-Z_-]+:/{split($\0,a,":");printf "  \033[36m%-20s\033[0m %s\n",a[1],desc} /^[a-zA-Z_-]+:.*##/{split($$0,a,":");split(a[2],b,"##");printf "  \033[36m%-20s\033[0m %s\n",a[1],b[2]}' Makefile 2>/dev/null || true
+	@awk '/^## 数据库:/{f=1;next}/^## /{f=0}f && /^[a-zA-Z_-]+:/{split($$0,a,":");printf "  \033[36m%-20s\033[0m %s\n",a[1],desc} /^[a-zA-Z_-]+:.*##/{split($$0,a,":");split(a[2],b,"##");printf "  \033[36m%-20s\033[0m %s\n",a[1],b[2]}' Makefile 2>/dev/null || true
 	@echo ""
 	@echo "运行时:"
 	@awk '/^## 运行时:/{f=1;next}/^## /{f=0}f && /^[a-zA-Z_-]+:/{split($$0,a,":");printf "  \033[36m%-20s\033[0m %s\n",a[1],desc} /^[a-zA-Z_-]+:.*##/{split($$0,a,":");split(a[2],b,"##");printf "  \033[36m%-20s\033[0m %s\n",a[1],b[2]}' Makefile 2>/dev/null || true

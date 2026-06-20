@@ -1,21 +1,14 @@
-module main
+module services
 
 // emails.v — PhotonBlog 邮件发送集成
 //
 // 封装邮件发送逻辑，使用 photon.mailer 的 EmailBuilder + 模板系统。
-// 提供两个邮件发送函数：
-//   1. send_welcome_email          — 用户注册后发送欢迎邮件（使用 template_welcome 模板）
-//   2. send_comment_notification   — 新评论通知文章作者（使用 template_notification 模板）
-//
-// 邮件发送由 Bootstrap 中初始化的 Mailer 实例处理：
-//   - dev 环境：LogTransport（仅记录日志，不实际发送）
-//   - prod 环境：SmtpTransport（通过 SMTP 服务器发送）
 
 import photon.mailer
+import models
 
 // send_welcome_email 发送欢迎邮件给新注册用户
-// 使用 template_welcome 模板，渲染 name/app_name/action_url 变量
-pub fn send_welcome_email(m &mailer.Mailer, user User) ! {
+pub fn send_welcome_email(m &mailer.Mailer, user models.User) ! {
 	unsafe {
 		if isnil(m) {
 			return error('send_welcome_email: mailer not initialized')
@@ -35,8 +28,7 @@ pub fn send_welcome_email(m &mailer.Mailer, user User) ! {
 }
 
 // send_comment_notification 发送评论通知邮件给文章作者
-// 使用 template_notification 模板，渲染 title/greeting/name/message/action_* 变量
-pub fn send_comment_notification(m &mailer.Mailer, post_author User, post Post, comment Comment) ! {
+pub fn send_comment_notification(m &mailer.Mailer, post_author models.User, post models.Post, comment models.Comment) ! {
 	unsafe {
 		if isnil(m) {
 			return error('send_comment_notification: mailer not initialized')

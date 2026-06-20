@@ -3,8 +3,8 @@ module bootstrap
 // bootstrap/console.v — 控制台输出工具
 //
 // 从 bootstrap.v 迁移的 print_banner / print_routes 方法。
-// print_routes 改为从 web.scan_controller[App]() 实际扫描结果生成，
-// 移除原硬编码路由表，确保路由信息与实际注册一致。
+// print_routes 改为接收路由列表参数，由调用方（module main）
+// 执行 web.scan_controller[App]() 后传入，避免子模块引用 App 类型。
 
 import photon.web
 
@@ -25,8 +25,7 @@ pub fn (b &Bootstrap) print_banner() {
 	println('')
 }
 
-// print_routes 打印路由表（从实际控制器扫描，非硬编码）
-pub fn (b &Bootstrap) print_routes() {
-	routes := web.scan_controller[App]()
+// print_routes 打印路由表（接收路由列表，由调用方扫描控制器后传入）
+pub fn (b &Bootstrap) print_routes(routes []web.RouteInfo) {
 	web.print_routes(routes)
 }

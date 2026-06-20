@@ -11,12 +11,14 @@ module factories
 //   // 创建子评论（回复）
 //   comment := new_comment_factory(boot).with_post(post_id).with_user(user_id).with_parent(parent_id).create()!
 
+import bootstrap
+import models
 import time
 
 // CommentFactory 评论模型工厂
 pub struct CommentFactory {
 pub:
-	bootstrap &Bootstrap
+	bootstrap &bootstrap.Bootstrap
 mut:
 	post_id   int
 	user_id   int
@@ -26,7 +28,7 @@ mut:
 
 // new_comment_factory 创建评论工厂实例，填充默认属性
 // 注：post_id 和 user_id 必须由调用方设置
-pub fn new_comment_factory(boot &Bootstrap) CommentFactory {
+pub fn new_comment_factory(boot &bootstrap.Bootstrap) CommentFactory {
 	suffix := time.now().unix().str() + '_' + rand_int_str(4)
 	return CommentFactory{
 		bootstrap: boot
@@ -66,8 +68,8 @@ pub fn (f CommentFactory) with_parent(parent_id int) CommentFactory {
 }
 
 // make 构建评论实体（不持久化）
-pub fn (f CommentFactory) make() Comment {
-	return Comment{
+pub fn (f CommentFactory) make() models.Comment {
+	return models.Comment{
 		post_id:   f.post_id
 		user_id:   f.user_id
 		content:   f.content
@@ -79,14 +81,14 @@ pub fn (f CommentFactory) make() Comment {
 // create 持久化评论到数据库并返回实体
 //
 // 通过 CommentService.create() 持久化，自动处理文章 updated_at 更新与事件分发。
-pub fn (f CommentFactory) create() !Comment {
+pub fn (f CommentFactory) create() !models.Comment {
 	if f.post_id == 0 {
 		return error('CommentFactory.create: post_id 未设置，请先调用 with_post() / post_id not set')
 	}
 	if f.user_id == 0 {
 		return error('CommentFactory.create: user_id 未设置，请先调用 with_user() / user_id not set')
 	}
-	dto := CreateCommentDto{
+	dto := models.CreateCommentDto{
 		post_id:   f.post_id
 		user_id:   f.user_id
 		content:   f.content

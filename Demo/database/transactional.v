@@ -1,37 +1,4 @@
-module main
-
-// transactional.v — 事务支持
-//
-// 提供 SQLite 原生事务封装，与方法上的 @[transactional] 注解配合使用：
-//   - @[transactional] 注解：声明事务意图（文档元数据 + 未来 comptime 自动织入入口）
-//   - TransactionGuard：RAII 守卫，实际执行 BEGIN / COMMIT / ROLLBACK
-//   - transactional()：函数式 API，适合简单场景
-//
-// 设计说明：
-//   Photon 框架的 orm.TransactionManager 仅维护事务状态标志（active/savepoint_count），
-//   不直接驱动底层 DB 的 BEGIN/COMMIT/ROLLBACK。框架的 @[transactional] 注解扫描器
-//   尚未通过 comptime 织入。因此本文件提供显式的事务封装，确保多步 DB 操作的原子性。
-//
-// 用法（RAII 守卫，推荐）：
-//   @[transactional]
-//   pub fn (mut s PostService) create(dto CreatePostDto) !Post {
-//       mut tx := begin_transaction(s.repo.db)!
-//       defer { tx.auto_rollback() }
-//
-//       mut repo := s.repo
-//       post = repo.save(mut post)!
-//
-//       tx.commit()!
-//
-//       // 事务后的副作用（事件分发、缓存失效）放在 commit 之后
-//       s.dispatch_published_event(post)
-//       return post
-//   }
-//
-// 用法（函数式，适合无返回值的简单场景）：
-//   transactional(db, fn [mut repo] () ! {
-//       repo.save(mut entity)!
-//   })!
+module database
 
 import db.sqlite
 

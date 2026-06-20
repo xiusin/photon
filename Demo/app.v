@@ -6,22 +6,16 @@ module main
 // 与 Context 请求级上下文。veb 框架在每次请求前自动调用 Context.before_request()
 // 完成请求计数；完整的中间件链（CORS/RequestId/日志/限流）在 main() 中通过 use() 注册，
 // 由 MiddlewareGroupRegistry.apply_api_group() 统一编排。
-//
-// API 文档：集成 apidoc 模块，提供运行时 API 文档收集与交互式文档面板（/__docs）。
-// 静态文档生成由 DocsCommand（make docs）提供，输出 Markdown/HTML 到 docs/api/。
 
 import veb
 import sync
 import photon.apidoc
+import bootstrap
+import app.http.middleware
+import app.http
 
 // ═══════════════════════════════════════════════════════════
 // App — 全局应用结构
-//
-// 嵌入 veb.Context（veb 框架要求）与 veb.Middleware[Context]（中间件链支持）。
-// 持有 Bootstrap（所有组件引用）与 MiddlewareGroupRegistry（中间件组注册表）。
-// 由 main() 在启动时创建，所有请求共享同一实例。
-// req_mu 保护 req_count 的并发递增（修复数据竞争）。
-// apidoc_handler 提供运行时 API 文档收集与交互式文档面板。
 // ═══════════════════════════════════════════════════════════
 
 pub struct App {
@@ -31,18 +25,14 @@ pub mut:
 	start_time          i64
 	req_count           int
 	req_mu              &sync.Mutex = unsafe { nil }
-	bootstrap           &Bootstrap = unsafe { nil }
-	middleware_registry &MiddlewareGroupRegistry = unsafe { nil }
-	http_kernel         &HttpKernel = unsafe { nil }
+	bootstrap           &bootstrap.Bootstrap = unsafe { nil }
+	middleware_registry &middleware.MiddlewareGroupRegistry = unsafe { nil }
+	http_kernel         &http.HttpKernel = unsafe { nil }
 	apidoc_handler      &apidoc.ApidocHandler = unsafe { nil }
 }
 
 // ═══════════════════════════════════════════════════════════
 // Context — 请求级上下文
-//
-// 嵌入 veb.Context，承载每次请求的临时状态：
-//   - request_id: 请求追踪 ID（UUID v4 风格，由 RequestIdMiddleware 填充）
-//   - user_id / username / role: 认证后的用户信息（由 JwtAuthMiddleware 填充）
 // ═══════════════════════════════════════════════════════════
 
 pub struct Context {
@@ -54,19 +44,8 @@ pub mut:
 	role       string
 }
 
-// ═══════════════════════════════════════════════════════════
-// 生命周期钩子
-// ═══════════════════════════════════════════════════════════
-
 // before_request — veb 在每次请求处理前自动调用
-//
-// 职责：仅初始化请求级默认值。request_id 生成已统一由 RequestIdMiddleware 处理
-// （见 app/Http/Middleware/registry.v apply_web_group），避免重复生成（SubTask 9.5）。
-//
-// 注：req_count 递增在 main() 注册的全局中间件中完成（互斥锁保护）。
 pub fn (mut ctx Context) before_request() {
-	// request_id 由 RequestIdMiddleware.handle() 在全局中间件链中生成并写回
-	// 此处仅确保默认值为空，避免残留
 	ctx.request_id = ''
 	ctx.username = ''
 	ctx.role = ''

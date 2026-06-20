@@ -1,15 +1,10 @@
 module resources
 
 // app/Http/Resources/user_resource.v — 用户 API Resource
-//
-// 将 User 实体转换为 API 响应格式，隐藏敏感字段（password/version）。
-// 时间戳格式化为 ISO 8601 字符串。
-//
-// Laravel 等价：App\Http\Resources\UserResource
-// Spring 等价：UserDTO + @JsonView
 
 import time
 import json
+import models
 
 // ═══════════════════════════════════════════════════════════
 // UserResource — 用户 API Resource
@@ -29,7 +24,7 @@ pub:
 }
 
 // new_user_resource 从 User 实体创建 UserResource
-pub fn new_user_resource(u &User) UserResource {
+pub fn new_user_resource(u &models.User) UserResource {
 	return UserResource{
 		id:         u.id
 		username:   u.username
@@ -59,7 +54,7 @@ pub:
 }
 
 // new_user_resource_collection 从 User 实体列表创建集合
-pub fn new_user_resource_collection(users []User, total int, page int, page_size int) UserResourceCollection {
+pub fn new_user_resource_collection(users []models.User, total int, page int, page_size int) UserResourceCollection {
 	mut resources := []UserResource{}
 	for u in users {
 		resources << new_user_resource(&u)

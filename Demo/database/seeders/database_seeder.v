@@ -14,18 +14,19 @@ module seeders
 // 或选择性执行：
 //   seeder.run_only('users', output)!  // 仅种子用户
 
+import bootstrap
 import photon.cli
 
 // DatabaseSeeder 种子编排器
 pub struct DatabaseSeeder {
 pub:
-	bootstrap &Bootstrap
+	bootstrap &bootstrap.Bootstrap
 mut:
 	seeders map[string]&Seeder
 }
 
 // new_database_seeder 创建种子编排器，注册所有子 Seeder
-pub fn new_database_seeder(boot &Bootstrap) &DatabaseSeeder {
+pub fn new_database_seeder(boot &bootstrap.Bootstrap) &DatabaseSeeder {
 	mut ds := &DatabaseSeeder{
 		bootstrap: boot
 		seeders:   map[string]&Seeder{}

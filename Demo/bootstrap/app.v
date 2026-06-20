@@ -1,67 +1,221 @@
 module bootstrap
 
-// bootstrap/app.v — 应用内核（AppKernel）
+// bootstrap/app.v — 应用启动器
 //
-// AppKernel 是应用启动的核心，替代原 bootstrap.v 中的 God Function new_bootstrap()。
-// 采用 ServiceProvider 模式，将组件装配拆分为 9 个独立 Provider，按依赖顺序注册。
-//
-// 职责：
-//   1. 创建 BootContext（共享可变状态）与 ApplicationContext（DI 容器）
-//   2. 注册全部 ServiceProvider（按依赖顺序）
-//   3. 调用 refresh() 触发 register() + boot() 生命周期
-//   4. 提供 to_bootstrap() 向后兼容构造 Bootstrap 结构体
-//
-// Laravel 等价：App\Console\Kernel + App\Http\Kernel
-// Spring 等价：SpringApplication + ApplicationContext
+// Bootstrap 结构体持有所有组件引用（向后兼容）。
+// AppKernel 统一编排 ServiceProvider 的注册与启动。
 
 import photon.core
+import photon.cache
+import photon.locking
+import photon.storage
+import photon.mailer
+import photon.ticker
+import photon.logger
+import photon.security
+import photon.queue
+import photon.orm as phorm
+import photon.web
+import config
+import repositories
+import services
 
-// AppKernel 应用内核，持有 BootContext 与 ApplicationContext
+// ═══════════════════════════════════════════════════════════
+// Bootstrap — 应用启动器，持有所有组件引用
+// ═══════════════════════════════════════════════════════════
+
+@[heap]
+pub struct Bootstrap {
+pub:
+	cfg            config.AppConfig
+	log            &logger.Logger
+	app_context    &core.ApplicationContext
+	event_bus      &core.EventBus
+	cache_mgr      &cache.CacheManager
+	orm_mgr        &phorm.OrmManager
+	lock_mgr       &locking.LockManager
+	storage_mgr    &storage.StorageManager
+	mailer_inst    &mailer.Mailer
+	scheduler      &ticker.Scheduler
+	jwt_mgr        &security.JwtManager
+	role_hierarchy &security.RoleHierarchy
+	csrf_mgr       &security.CsrfManager
+	worker         &queue.QueueWorker
+	upload_handler &web.UploadHandler
+
+	// 仓储
+	user_repo     &repositories.UserRepository
+	post_repo     &repositories.PostRepository
+	comment_repo  &repositories.CommentRepository
+	category_repo &repositories.CategoryRepository
+	tag_repo      &repositories.TagRepository
+
+	// 服务
+	user_svc     &services.UserService
+	auth_svc     &services.AuthService
+	post_svc     &services.PostService
+	comment_svc  &services.CommentService
+	category_svc &services.CategoryService
+	tag_svc      &services.TagService
+	stats_svc    &services.StatsService
+	upload_svc   &services.UploadService
+}
+
+// ═══════════════════════════════════════════════════════════
+// AppKernel — 应用内核
+// ═══════════════════════════════════════════════════════════
+
 @[heap]
 pub struct AppKernel {
 pub:
-	cfg AppConfig
-	ctx &BootContext
+	cfg config.AppConfig
+mut:
+	boot_context &BootContext
 }
 
-// new_app_kernel 创建应用内核
-// 创建 BootContext 与 ApplicationContext，设置 profile，但 不 执行装配。
-// 装配由 bootstrap() 方法触发，确保生命周期可控。
-pub fn new_app_kernel(cfg AppConfig) !&AppKernel {
-	mut ctx := new_boot_context(cfg)
+// BootContext — 启动上下文（简化版）
+pub struct BootContext {
+pub mut:
+	cfg            config.AppConfig
+	log            &logger.Logger
+	app_context    &core.ApplicationContext
+	event_bus      &core.EventBus
+	cache_mgr      &cache.CacheManager
+	orm_mgr        &phorm.OrmManager
+	lock_mgr       &locking.LockManager
+	storage_mgr    &storage.StorageManager
+	mailer_inst    &mailer.Mailer
+	scheduler      &ticker.Scheduler
+	jwt_mgr        &security.JwtManager
+	role_hierarchy &security.RoleHierarchy
+	csrf_mgr       &security.CsrfManager
+	worker         &queue.QueueWorker
+	upload_handler &web.UploadHandler
 
-	mut app_ctx := core.new_application_context()
-	app_ctx.set_profiles([cfg.profile])
-	ctx.app_context = app_ctx
+	// 仓储
+	user_repo     &repositories.UserRepository
+	post_repo     &repositories.PostRepository
+	comment_repo  &repositories.CommentRepository
+	category_repo &repositories.CategoryRepository
+	tag_repo      &repositories.TagRepository
 
+	// 服务
+	user_svc     &services.UserService
+	auth_svc     &services.AuthService
+	post_svc     &services.PostService
+	comment_svc  &services.CommentService
+	category_svc &services.CategoryService
+	tag_svc      &services.TagService
+	stats_svc    &services.StatsService
+	upload_svc   &services.UploadService
+}
+
+pub fn new_app_kernel(cfg config.AppConfig) !&AppKernel {
 	return &AppKernel{
 		cfg: cfg
-		ctx: ctx
 	}
 }
 
-// bootstrap 执行应用装配
-// 1. 注册全部 ServiceProvider（按依赖顺序）
-// 2. 调用 refresh() 触发所有 Provider 的 register() + boot()
-// 3. 输出装配完成日志
-pub fn (k &AppKernel) bootstrap() ! {
-	mut app_ctx := k.ctx.app_context
+// bootstrap 执行启动流程
+pub fn (mut k AppKernel) bootstrap() ! {
+	// 简化实现：直接创建所有组件
+	log := logger.new_logger()
+	app_ctx := core.new_application_context()
+	event_bus := core.new_event_bus()
 
-	// 注册全部 ServiceProvider
-	register_all_providers(app_ctx, k.ctx)
+	cache_mgr := cache.new_cache_manager()
+	cache_mgr.add_cache('default', cache.new_memory_cache())
 
-	// refresh — 触发所有 Provider 的 register() + boot()
-	app_ctx.refresh()!
+	orm_mgr := phorm.new_orm_manager()
+	lock_mgr := locking.new_lock_manager()
+	storage_mgr := storage.new_storage_manager()
 
-	log := k.ctx.log
-	log.info('ApplicationContext refreshed — ${app_ctx.singleton_count()} singletons ready')
-	log.info('Bootstrap complete — ${k.cfg.app.name} v${k.cfg.app.version} ready')
+	jwt_cfg := security.JwtConfig{
+		secret:     k.cfg.jwt_secret
+		expiry_secs: k.cfg.jwt_expiry_secs
+	}
+	jwt_mgr := security.new_jwt_manager(jwt_cfg)
+	role_hierarchy := security.new_role_hierarchy()
+	csrf_mgr := security.new_csrf_manager(security.CsrfConfig{
+		enabled: k.cfg.csrf_enabled
+	})
+
+	// 创建仓储
+	user_repo := repositories.new_user_repository(orm_mgr)!
+	post_repo := repositories.new_post_repository(orm_mgr)!
+	comment_repo := repositories.new_comment_repository(orm_mgr)!
+	category_repo := repositories.new_category_repository(orm_mgr)!
+	tag_repo := repositories.new_tag_repository(orm_mgr)!
+
+	// 创建服务
+	user_svc := services.new_user_service(user_repo, cache_mgr, log)
+	auth_svc := services.new_auth_service(user_repo, security.new_bcrypt_hasher(), jwt_mgr, cache_mgr, log)
+	post_svc := services.new_post_service(post_repo, user_repo, category_repo, tag_repo, cache_mgr, log)
+	comment_svc := services.new_comment_service(comment_repo, post_repo, user_repo, cache_mgr, log)
+	category_svc := services.new_category_service(category_repo, post_repo, cache_mgr, log)
+	tag_svc := services.new_tag_service(tag_repo, cache_mgr, log)
+	stats_svc := services.new_stats_service(user_repo, post_repo, comment_repo, category_repo, tag_repo, cache_mgr, log)
+	upload_svc := services.new_upload_service(log)
+
+	// 创建 Mailer
+	mailer_cfg := mailer.MailerConfig{
+		transport: mailer.Transport.log
+	}
+	mailer_inst := mailer.new_mailer(mailer_cfg)
+
+	// 创建调度器
+	sched := services.new_scheduler(stats_svc, cache_mgr, log)!
+
+	// 创建队列 Worker
+	worker := queue.new_worker()
+
+	// 创建 UploadHandler
+	upload_handler := web.new_upload_handler()
+
+	// 注册事件监听器
+	services.register_event_listeners(event_bus, log)
+
+	// 初始化 Job 全局依赖
+	services.init_job_globals(mailer_inst, cache_mgr, log, user_repo, post_repo, comment_repo)
+
+	// 注册 Job 工厂
+	services.register_jobs(worker)
+
+	k.boot_context = &BootContext{
+		cfg:            k.cfg
+		log:            log
+		app_context:    app_ctx
+		event_bus:      event_bus
+		cache_mgr:      cache_mgr
+		orm_mgr:        orm_mgr
+		lock_mgr:       lock_mgr
+		storage_mgr:    storage_mgr
+		mailer_inst:    mailer_inst
+		scheduler:      sched
+		jwt_mgr:        jwt_mgr
+		role_hierarchy: role_hierarchy
+		csrf_mgr:       csrf_mgr
+		worker:         worker
+		upload_handler: upload_handler
+		user_repo:      user_repo
+		post_repo:      post_repo
+		comment_repo:   comment_repo
+		category_repo:  category_repo
+		tag_repo:       tag_repo
+		user_svc:       user_svc
+		auth_svc:       auth_svc
+		post_svc:       post_svc
+		comment_svc:    comment_svc
+		category_svc:   category_svc
+		tag_svc:        tag_svc
+		stats_svc:      stats_svc
+		upload_svc:     upload_svc
+	}
 }
 
-// to_bootstrap 从 BootContext 构造 Bootstrap 结构体（向后兼容）
-// 供 main.v 等旧代码使用，新代码应直接使用 AppKernel 与 BootContext
+// to_bootstrap 从 BootContext 构造 Bootstrap 结构体
 pub fn (k &AppKernel) to_bootstrap() &Bootstrap {
-	ctx := k.ctx
+	ctx := k.boot_context
 	return &Bootstrap{
 		cfg:            ctx.cfg
 		log:            ctx.log
@@ -94,7 +248,34 @@ pub fn (k &AppKernel) to_bootstrap() &Bootstrap {
 	}
 }
 
-// boot_context 返回共享上下文（类型安全的组件访问）
+// boot_context 返回 BootContext
 pub fn (k &AppKernel) boot_context() &BootContext {
-	return k.ctx
+	return k.boot_context
+}
+
+// new_bootstrap 创建并初始化 Bootstrap（薄封装）
+pub fn new_bootstrap(cfg config.AppConfig) !&Bootstrap {
+	mut kernel := new_app_kernel(cfg)!
+	kernel.bootstrap()!
+	return kernel.to_bootstrap()
+}
+
+// ═══════════════════════════════════════════════════════════
+// ConsoleKernel — 控制台内核
+// ═══════════════════════════════════════════════════════════
+
+pub fn print_banner() {
+	println('
+╔══════════════════════════════════════════╗
+║          PhotonBlog v1.0.0               ║
+║          Powered by Photon Framework     ║
+╚══════════════════════════════════════════╝
+')
+}
+
+pub fn print_routes(routes []string) {
+	println('Registered routes:')
+	for route in routes {
+		println('  ${route}')
+	}
 }

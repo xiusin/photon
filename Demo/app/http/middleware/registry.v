@@ -1,35 +1,14 @@
 module middleware
 
-// app/Http/Middleware/registry.v — 中间件组注册表
-//
-// 注册命名中间件组，按 Laravel 风格组织中间件链：
-//   web    — CORS + RequestId + RequestLog + CSRF（仅状态变更方法校验）
-//   api    — web + RateLimit（CSRF 由 api 组跳过，因 API 使用 JWT Bearer）
-//   auth   — JwtAuth（写回 user_id/username/role 到 Context）
-//   admin  — auth + RoleAuth[ADMIN]
-//   editor — auth + RoleAuth[EDITOR, ADMIN]
-//
-// 中间件参数从 config/web.v 读取：
-//   CORS allowed_origins/methods/headers
-//   RateLimit max_requests/window_secs
-//
-// 设计说明：
-//   框架 web.MiddlewareGroupRegistry 基于 web.MiddlewareContext（包装 &veb.Context），
-//   其参数化中间件（throttle_middleware/role_middleware/cors_configurable_middleware）
-//   签名为 fn(mut &MiddlewareContext) !bool，与 Demo 基于 veb.Context 的中间件链不兼容。
-//   本注册表为 Demo 专用，复用 Demo 中间件实现（直接操作 veb.Context），
-//   同时保留命名组元数据供路由层与文档生成使用。
-//
-//   security.SecurityFilterChain 同样基于 &veb.Context，但其内置 CSRF/JWT/角色校验
-//   与本注册表职责重叠。为保持单一中间件编排入口与类型安全的 Demo Context 访问，
-//   Demo 选择自研 MiddlewareGroupRegistry，仅在 CsrfMiddleware 内部复用
-//   security.CsrfManager 的 token 生成与校验能力。
-//
-// Laravel 等价：App\Http\Kernel::$middlewareGroups + $routeMiddleware
-
+import veb
+import sync
+import time
 import photon.logger
 import photon.security
 import photon.web
+import util
+import config
+import services
 
 // ═══════════════════════════════════════════════════════════
 // MiddlewareGroupRegistry — 中间件组注册表
@@ -41,21 +20,19 @@ pub:
 	cors        &CorsMiddleware
 	request_id  &RequestIdMiddleware
 	request_log &RequestLogMiddleware
+pub mut:
 	rate_limit  &RateLimitMiddleware
 	jwt_auth    &JwtAuthMiddleware
 	role_auth   &RoleAuthMiddleware
 	csrf        &CsrfMiddleware
 	logger      &logger.Logger
-pub mut:
 	groups map[string][]string // group_name -> middleware spec list
 }
 
 // new_middleware_group_registry 创建中间件组注册表
-// 从 WebConfig 读取 CORS 与限流参数，装配所有中间件实例并注册命名组
-// csrf_mgr 由 AuthServiceProvider 创建，传入 nil 时 CSRF 中间件跳过校验
 pub fn new_middleware_group_registry(
-	cfg WebConfig,
-	auth_svc &AuthService,
+	cfg config.WebConfig,
+	auth_svc &services.AuthService,
 	rh &security.RoleHierarchy,
 	csrf_mgr &security.CsrfManager,
 	log &logger.Logger,
@@ -73,8 +50,7 @@ pub fn new_middleware_group_registry(
 		window_secs:  cfg.rate_limit_window_secs
 	}
 
-	// CSRF 中间件：csrf_mgr 为 nil 时创建一个禁用的占位实例
-	// （保持结构体字段非空，避免 nil 解引用）
+	// CSRF 中间件
 	csrf := if isnil(csrf_mgr) {
 		new_csrf_middleware(security.new_csrf_manager(security.CsrfConfig{
 			enabled: false
@@ -102,8 +78,6 @@ pub fn new_middleware_group_registry(
 	}
 }
 
-// parse_cors_origins 解析 CORS allowed_origins 配置字符串
-// '*' 或空 → ['*']；逗号分隔 → 列表
 fn parse_cors_origins(s string) []string {
 	if s.len == 0 || s == '*' {
 		return ['*']
@@ -121,8 +95,6 @@ fn parse_cors_origins(s string) []string {
 	return origins
 }
 
-// parse_role_spec 解析 'role:ADMIN' 或 'role:EDITOR,ADMIN' 规范
-// 返回所需角色列表
 fn parse_role_spec(spec string) []string {
 	parts := spec.split(':')
 	if parts.len < 2 {
@@ -142,56 +114,39 @@ fn parse_role_spec(spec string) []string {
 // 组应用方法
 // ═══════════════════════════════════════════════════════════
 
-// apply_web_group 应用 web 组中间件（CORS + RequestId + RequestLog + CSRF）
-// 全局基础中间件，每次请求执行
-// CSRF 仅对状态变更方法（POST/PUT/PATCH/DELETE）校验，安全方法直接放行
-// CSRF 校验失败时返回错误，由调用方转换为 403 响应
-pub fn (reg &MiddlewareGroupRegistry) apply_web_group(mut ctx Context) ! {
-	reg.cors.handle(mut ctx.Context)
-	reg.request_id.handle(mut ctx) // RequestIdMiddleware 写回 ctx.request_id（Demo Context）
-	reg.request_log.handle(mut ctx.Context)
-	reg.csrf.handle(mut ctx.Context)!
+// apply_web_group 应用 web 组中间件，返回 request_id
+pub fn (reg &MiddlewareGroupRegistry) apply_web_group(mut ctx veb.Context) !string {
+	reg.cors.handle(mut ctx)
+	request_id := reg.request_id.handle(mut ctx)
+	reg.request_log.handle(mut ctx)
+	reg.csrf.handle(mut ctx)!
+	return request_id
 }
 
-// apply_api_group 应用 api 组中间件（web + RateLimit，跳过 CSRF）
-// API 路由使用 JWT Bearer 令牌，天然免疫 CSRF，故不调用 CSRF 中间件
-// 返回错误表示限流触发或 CSRF 校验失败
-pub fn (reg &MiddlewareGroupRegistry) apply_api_group(mut ctx Context) ! {
-	// 复用 web 组的 CORS + RequestId + RequestLog，但跳过 CSRF
-	reg.cors.handle(mut ctx.Context)
-	reg.request_id.handle(mut ctx)
-	reg.request_log.handle(mut ctx.Context)
+// apply_api_group 应用 api 组中间件，返回 request_id
+pub fn (reg &MiddlewareGroupRegistry) apply_api_group(mut ctx veb.Context) !string {
+	reg.cors.handle(mut ctx)
+	request_id := reg.request_id.handle(mut ctx)
+	reg.request_log.handle(mut ctx)
 
-	ip := web.client_ip(&ctx.Context)
-	mut rl := reg.rate_limit
-	rl.handle(ip)!
+	ip := web.client_ip(&ctx)
+	reg.rate_limit.handle(ip)!
+
+	return request_id
 }
 
-// authenticate 应用 JWT 认证
-// 成功后将 user_id/username/role 写回 Context，控制器直接读取
-// 返回 (username, roles) 供需要角色列表的调用方使用
-pub fn (reg &MiddlewareGroupRegistry) authenticate(mut ctx Context) !(string, []string) {
-	username, roles := reg.jwt_auth.authenticate(mut ctx.Context)!
-
-	// 写回 Context（SubTask 9.6：移除控制器重复查库）
-	ctx.username = username
-	ctx.role = if roles.len > 0 { roles[0] } else { '' }
-
-	// 尝试从用户服务获取 user_id（避免控制器重复查询）
-	// 注：user_id 写回需控制器层在首次查询后设置，此处仅写 username/role
-	return username, roles
+// authenticate 应用 JWT 认证，返回 (username, roles)
+pub fn (reg &MiddlewareGroupRegistry) authenticate(mut ctx veb.Context) !(string, []string) {
+	return reg.jwt_auth.authenticate(mut ctx)!
 }
 
 // authorize 应用角色校验
-// 基于 RoleHierarchy 检查用户是否拥有所需角色中的任一个
 pub fn (reg &MiddlewareGroupRegistry) authorize(required_roles []string, user_roles []string) ! {
 	return reg.role_auth.authorize(required_roles, user_roles)
 }
 
-// apply_group 应用指定组的中间件链
-// 适用于 auth/admin/editor 组（含 JWT 认证与角色校验）
-// 返回 (username, roles)，失败时返回错误
-pub fn (reg &MiddlewareGroupRegistry) apply_group(mut ctx Context, group string) !(string, []string) {
+// apply_group 应用指定组的中间件链，返回 (username, roles)
+pub fn (reg &MiddlewareGroupRegistry) apply_group(mut ctx veb.Context, group string) !(string, []string) {
 	middlewares := reg.groups[group] or {
 		return error('middleware group not found: ${group}')
 	}
@@ -201,15 +156,11 @@ pub fn (reg &MiddlewareGroupRegistry) apply_group(mut ctx Context, group string)
 
 	for mw in middlewares {
 		if mw == 'jwt_auth' {
-			username, roles = reg.jwt_auth.authenticate(mut ctx.Context)!
-			// 写回 Context（SubTask 9.6）
-			ctx.username = username
-			ctx.role = if roles.len > 0 { roles[0] } else { '' }
+			username, roles = reg.jwt_auth.authenticate(mut ctx)!
 		} else if mw.starts_with('role:') {
 			required := parse_role_spec(mw)
 			reg.role_auth.authorize(required, roles)!
 		}
-		// 其他中间件规格（cors/request_id/request_log/rate_limit）由 apply_web_group/apply_api_group 处理
 	}
 
 	return username, roles
@@ -232,4 +183,213 @@ pub fn (reg &MiddlewareGroupRegistry) group_names() []string {
 // middlewares_of 返回指定组的中间件规范列表
 pub fn (reg &MiddlewareGroupRegistry) middlewares_of(name string) []string {
 	return reg.groups[name] or { []string{} }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 中间件类型定义
+// ═══════════════════════════════════════════════════════════
+
+// RequestLogMiddleware — 请求日志 + 耗时统计
+pub struct RequestLogMiddleware {
+pub:
+	log &logger.Logger
+}
+
+pub fn new_request_log_middleware(log &logger.Logger) &RequestLogMiddleware {
+	return &RequestLogMiddleware{log: log}
+}
+
+pub fn (m &RequestLogMiddleware) handle(mut ctx veb.Context) {
+	start := time.ticks()
+	method := ctx.req.method.str()
+	path := ctx.req.url
+	ip := web.client_ip(&ctx)
+
+	defer {
+		elapsed := time.ticks() - start
+		status := ctx.res.status_code
+		m.log.info('[HTTP] ${method} ${path} | IP: ${ip} | ${status} | ${elapsed}ms')
+	}
+}
+
+// CorsMiddleware — CORS 跨域
+pub struct CorsMiddleware {
+pub mut:
+	allowed_origins []string
+	allowed_methods string = 'GET, POST, PUT, DELETE, PATCH, OPTIONS'
+	allowed_headers string = 'Content-Type, Authorization, X-Requested-With, X-CSRF-TOKEN, X-Request-Id'
+}
+
+pub fn new_cors_middleware() &CorsMiddleware {
+	return &CorsMiddleware{allowed_origins: ['*']}
+}
+
+pub fn (m &CorsMiddleware) handle(mut ctx veb.Context) {
+	origin := ctx.get_custom_header('Origin') or { '' }
+
+	if origin.len > 0 {
+		mut allowed := false
+		for o in m.allowed_origins {
+			if o == '*' || o == origin {
+				allowed = true
+				break
+			}
+		}
+		if allowed {
+			allow_origin := if m.allowed_origins[0] == '*' { '*' } else { origin }
+			ctx.set_custom_header('Access-Control-Allow-Origin', allow_origin) or {}
+			ctx.set_custom_header('Access-Control-Allow-Methods', m.allowed_methods) or {}
+			ctx.set_custom_header('Access-Control-Allow-Headers', m.allowed_headers) or {}
+			ctx.set_custom_header('Access-Control-Allow-Credentials', 'true') or {}
+			ctx.set_custom_header('Access-Control-Max-Age', '3600') or {}
+		}
+	}
+
+	if ctx.req.method == .options {
+		ctx.send_response_to_client('text/plain', '')
+	}
+}
+
+// RequestIdMiddleware — 生成 UUID 风格 request_id
+pub struct RequestIdMiddleware {
+pub:
+	log &logger.Logger
+}
+
+pub fn new_request_id_middleware(log &logger.Logger) &RequestIdMiddleware {
+	return &RequestIdMiddleware{log: log}
+}
+
+// handle 生成 request_id，注入 logger MDC，设置响应头，返回 request_id
+pub fn (m &RequestIdMiddleware) handle(mut ctx veb.Context) string {
+	request_id := util.generate_request_id()
+
+	mut log := m.log
+	log.put('request_id', request_id)
+
+	ctx.set_custom_header('X-Request-Id', request_id) or {}
+
+	return request_id
+}
+
+// RateLimitMiddleware — 基于 IP 的滑动窗口限流
+pub struct RateLimitMiddleware {
+pub mut:
+	max_requests int = 60
+	window_secs  int = 60
+mut:
+	limits map[string][]i64
+	mu     sync.Mutex
+}
+
+pub fn new_rate_limit_middleware() &RateLimitMiddleware {
+	return &RateLimitMiddleware{max_requests: 60, window_secs: 60}
+}
+
+pub fn (mut m RateLimitMiddleware) handle(ip string) ! {
+	m.mu.@lock()
+	defer { m.mu.unlock() }
+
+	now := time.now().unix()
+	mut timestamps := m.limits[ip] or { []i64{} }
+
+	mut valid := []i64{}
+	for ts in timestamps {
+		if now - ts < i64(m.window_secs) {
+			valid << ts
+		}
+	}
+
+	if valid.len >= m.max_requests {
+		m.limits[ip] = valid
+		return error('rate limit exceeded — try again in ${m.window_secs} seconds (limit: ${m.max_requests}/min)')
+	}
+
+	valid << now
+	m.limits[ip] = valid
+}
+
+// JwtAuthMiddleware — JWT 认证
+pub struct JwtAuthMiddleware {
+pub:
+	auth_svc &services.AuthService
+}
+
+pub fn new_jwt_auth_middleware(auth_svc &services.AuthService) &JwtAuthMiddleware {
+	return unsafe { &JwtAuthMiddleware{auth_svc: auth_svc} }
+}
+
+pub fn (m &JwtAuthMiddleware) authenticate(mut ctx veb.Context) !(string, []string) {
+	auth_header := ctx.get_custom_header('Authorization') or {
+		return error('Authorization header required / 缺少认证头')
+	}
+
+	if !auth_header.starts_with('Bearer ') {
+		return error('Authorization must be Bearer <token> / 认证格式错误，需 Bearer 令牌')
+	}
+
+	token := auth_header[7..]
+
+	username := m.auth_svc.validate_token(token) or {
+		return error('invalid or expired token / 令牌无效或已过期: ${err}')
+	}
+
+	claims := m.auth_svc.parse_token(token) or {
+		return error('failed to parse token / 令牌解析失败: ${err}')
+	}
+
+	return username, claims.roles
+}
+
+// RoleAuthMiddleware — 基于 RoleHierarchy 的角色校验
+pub struct RoleAuthMiddleware {
+pub:
+	role_hierarchy &security.RoleHierarchy
+}
+
+pub fn new_role_auth_middleware(rh &security.RoleHierarchy) &RoleAuthMiddleware {
+	return unsafe { &RoleAuthMiddleware{role_hierarchy: rh} }
+}
+
+pub fn (m &RoleAuthMiddleware) authorize(required_roles []string, user_roles []string) ! {
+	if required_roles.len == 0 {
+		return
+	}
+
+	if m.role_hierarchy.has_any_role(user_roles, required_roles) {
+		return
+	}
+
+	return error('permission denied — required roles: ${required_roles.join(', ')} / 权限不足，需要角色: ${required_roles.join(', ')}')
+}
+
+// CsrfMiddleware — CSRF 跨站请求伪造防护
+pub struct CsrfMiddleware {
+pub:
+	mgr &security.CsrfManager
+}
+
+pub fn new_csrf_middleware(mgr &security.CsrfManager) &CsrfMiddleware {
+	return &CsrfMiddleware{mgr: mgr}
+}
+
+pub fn (m &CsrfMiddleware) handle(mut ctx veb.Context) ! {
+	method := ctx.req.method.str()
+
+	if !m.mgr.is_csrf_required(method) {
+		return
+	}
+
+	actual_header := ctx.get_custom_header(m.mgr.config.header_name) or { '' }
+	actual_form := ctx.get_custom_header(m.mgr.config.form_field_name) or { '' }
+	actual := m.mgr.get_actual_token(actual_header, actual_form)
+
+	mut mgr := m.mgr
+	expected := mgr.get_expected_token()
+
+	if expected.len == 0 {
+		return
+	}
+
+	m.mgr.validate(actual, expected)!
 }

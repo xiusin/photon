@@ -1,17 +1,9 @@
 module resources
 
 // app/Http/Resources/comment_resource.v — 评论 API Resource
-//
-// 将 Comment 实体转换为 API 响应格式，支持嵌套 user/replies。
-// 时间戳格式化为 ISO 8601 字符串。
-//
-// Laravel 等价：App\Http\Resources\CommentResource
 
 import json
-
-// ═══════════════════════════════════════════════════════════
-// CommentResource — 评论 API Resource
-// ═══════════════════════════════════════════════════════════
+import models
 
 pub struct CommentResource {
 pub mut:
@@ -25,8 +17,7 @@ pub:
 	updated_at string
 }
 
-// new_comment_resource 从 Comment 实体创建 CommentResource（不含关联）
-pub fn new_comment_resource(c &Comment) CommentResource {
+pub fn new_comment_resource(c &models.Comment) CommentResource {
 	return CommentResource{
 		id:         c.id
 		content:    c.content
@@ -36,8 +27,7 @@ pub fn new_comment_resource(c &Comment) CommentResource {
 	}
 }
 
-// new_comment_resource_with_user 从 Comment 实体创建 CommentResource（含用户）
-pub fn new_comment_resource_with_user(c &Comment, user &User) CommentResource {
+pub fn new_comment_resource_with_user(c &models.Comment, user &models.User) CommentResource {
 	mut resource := new_comment_resource(c)
 	if !isnil(user) && user.id > 0 {
 		resource.user = new_user_resource(user)
@@ -45,8 +35,7 @@ pub fn new_comment_resource_with_user(c &Comment, user &User) CommentResource {
 	return resource
 }
 
-// new_comment_resource_with_replies 从 Comment 实体创建 CommentResource（含用户和回复）
-pub fn new_comment_resource_with_replies(c &Comment, user &User, replies []CommentResource) CommentResource {
+pub fn new_comment_resource_with_replies(c &models.Comment, user &models.User, replies []CommentResource) CommentResource {
 	mut resource := new_comment_resource_with_user(c, user)
 	if replies.len > 0 {
 		resource.replies = replies
@@ -54,14 +43,9 @@ pub fn new_comment_resource_with_replies(c &Comment, user &User, replies []Comme
 	return resource
 }
 
-// to_json 序列化为 JSON 字符串
 pub fn (r CommentResource) to_json() string {
 	return json.encode(r)
 }
-
-// ═══════════════════════════════════════════════════════════
-// CommentResourceCollection — 评论集合
-// ═══════════════════════════════════════════════════════════
 
 pub struct CommentResourceCollection {
 pub:
@@ -69,8 +53,7 @@ pub:
 	meta ResourceMeta
 }
 
-// new_comment_resource_collection 从 Comment 实体列表创建集合
-pub fn new_comment_resource_collection(comments []Comment, total int, page int, page_size int) CommentResourceCollection {
+pub fn new_comment_resource_collection(comments []models.Comment, total int, page int, page_size int) CommentResourceCollection {
 	mut resources := []CommentResource{}
 	for c in comments {
 		resources << new_comment_resource(&c)
@@ -81,7 +64,6 @@ pub fn new_comment_resource_collection(comments []Comment, total int, page int, 
 	}
 }
 
-// to_json 序列化为 JSON 字符串
 pub fn (c CommentResourceCollection) to_json() string {
 	return json.encode(c)
 }

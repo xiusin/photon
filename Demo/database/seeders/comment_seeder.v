@@ -5,16 +5,18 @@ module seeders
 // 创建 20 条评论，分布在前 10 篇文章上。
 // 幂等性：若 post_id=1 已有评论则跳过。
 
+import bootstrap
+import models
 import photon.cli
 
 // CommentSeeder 评论种子
 pub struct CommentSeeder {
 pub:
-	bootstrap &Bootstrap
+	bootstrap &bootstrap.Bootstrap
 }
 
 // new_comment_seeder 创建评论种子实例
-pub fn new_comment_seeder(boot &Bootstrap) &CommentSeeder {
+pub fn new_comment_seeder(boot &bootstrap.Bootstrap) &CommentSeeder {
 	return &CommentSeeder{
 		bootstrap: boot
 	}
@@ -33,9 +35,9 @@ pub fn (s &CommentSeeder) run(output &cli.CommandOutput) ! {
 
 	// ── 2. 获取用户与文章列表 ──
 	mut user_repo := unsafe { s.bootstrap.user_repo }
-	users := user_repo.find_all() or { []User{} }
+	users := user_repo.find_all() or { []models.User{} }
 	mut post_repo := unsafe { s.bootstrap.post_repo }
-	posts := post_repo.find_all() or { []Post{} }
+	posts := post_repo.find_all() or { []models.Post{} }
 	if users.len == 0 || posts.len == 0 {
 		output.warning('    No users or posts found, skipping comment seeding')
 		return

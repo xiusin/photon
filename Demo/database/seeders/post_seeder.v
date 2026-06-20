@@ -5,16 +5,19 @@ module seeders
 // 创建 3 个分类 + 10 篇文章（使用随机作者）。
 // 幂等性：若文章数 >= 10 则跳过。
 
+import bootstrap
+import models
 import photon.cli
+import util
 
 // PostSeeder 文章种子
 pub struct PostSeeder {
 pub:
-	bootstrap &Bootstrap
+	bootstrap &bootstrap.Bootstrap
 }
 
 // new_post_seeder 创建文章种子实例
-pub fn new_post_seeder(boot &Bootstrap) &PostSeeder {
+pub fn new_post_seeder(boot &bootstrap.Bootstrap) &PostSeeder {
 	return &PostSeeder{
 		bootstrap: boot
 	}
@@ -28,9 +31,9 @@ pub fn (s &PostSeeder) run(output &cli.CommandOutput) ! {
 	mut category_svc := unsafe { s.bootstrap.category_svc }
 	categories := ['技术', '生活', '随笔']
 	for cat_name in categories {
-		dto := CreateCategoryDto{
+		dto := models.CreateCategoryDto{
 			name:        cat_name
-			slug:        generate_slug(cat_name)
+			slug:        util.generate_slug(cat_name)
 			description: '${cat_name}相关文章'
 		}
 		category_svc.create(dto) or {
@@ -41,7 +44,7 @@ pub fn (s &PostSeeder) run(output &cli.CommandOutput) ! {
 
 	// ── 2. 检查是否已有足够文章 ──
 	mut post_svc_check := unsafe { s.bootstrap.post_svc }
-	existing_posts := post_svc_check.find_all() or { []Post{} }
+	existing_posts := post_svc_check.find_all() or { []models.Post{} }
 	if existing_posts.len >= 10 {
 		output.writeln('    Posts already seeded (${existing_posts.len} found), skipping')
 		return
@@ -49,7 +52,7 @@ pub fn (s &PostSeeder) run(output &cli.CommandOutput) ! {
 
 	// ── 3. 获取作者列表 ──
 	mut user_repo := unsafe { s.bootstrap.user_repo }
-	users := user_repo.find_all() or { []User{} }
+	users := user_repo.find_all() or { []models.User{} }
 	if users.len == 0 {
 		output.warning('    No users found, skipping post seeding')
 		return

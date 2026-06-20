@@ -171,14 +171,15 @@ pub:
 	role      string
 }
 
-pub mut struct CreatePostDto {
-pub:
+pub struct CreatePostDto {
+pub mut:
 	title       string @[required; validate: 'required|min_len:1|max_len:255']
 	content     string @[required; validate: 'required']
 	summary     string @[validate: 'max_len:500']
 	author_id   int
 	category_id int
 	status      string = 'draft' @[validate: 'in:draft,published,archived']
+	tag_ids     []int
 }
 
 pub struct UpdatePostDto {
@@ -188,6 +189,7 @@ pub:
 	summary     string @[validate: 'max_len:500']
 	category_id int
 	status      string @[validate: 'in:draft,published,archived']
+	tag_ids     []int
 }
 
 pub struct PostListQueryDto {
@@ -201,8 +203,8 @@ pub:
 	sort       string = 'created_at_desc' @[validate: 'in:created_at_desc,created_at_asc,views_desc']
 }
 
-pub mut struct CreateCommentDto {
-pub:
+pub struct CreateCommentDto {
+pub mut:
 	post_id   int
 	user_id   int
 	content   string @[required; validate: 'required|min_len:1|max_len:2000']
@@ -259,6 +261,8 @@ pub:
 	published_count int
 	draft_count     int
 	comment_count   int
+	tag_count       int
+	category_count  int
 	aggregated_at   i64
 }
 
@@ -275,22 +279,23 @@ pub:
 // ═══════════════════════════════════════════════════════════
 
 pub struct PostFilter {
-pub:
+pub mut:
 	keyword     string
 	status      string
 	category_id int
 	tag_id      int
+	author_id   int
 }
 
 pub struct UserFilter {
-pub:
+pub mut:
 	keyword string
 	status  int
 	role    string
 }
 
 pub struct CommentFilter {
-pub:
+pub mut:
 	post_id int
 	status  string
 }
@@ -317,4 +322,10 @@ pub fn parse_sort_spec(sort string) SortSpec {
 		field:     field
 		direction: if dir == 'asc' { .asc } else { .desc }
 	}
+}
+
+// to_sql 生成 SQL ORDER BY 子句
+pub fn (s SortSpec) to_sql() string {
+	dir := if s.direction == .asc { 'ASC' } else { 'DESC' }
+	return 'ORDER BY ${s.field} ${dir}'
 }

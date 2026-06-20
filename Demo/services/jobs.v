@@ -1,21 +1,14 @@
-module main
+module services
 
 // jobs.v — PhotonBlog 队列任务定义
 //
-// 实现 photon.queue.Job 接口的异步任务。所有 Job 通过 __global 全局变量
-// 访问 Mailer / CacheManager / Logger / Repository 等依赖，由 Bootstrap
-// 在启动时调用 init_job_globals() 完成注入。
-//
-// 任务清单：
-//   1. SendWelcomeEmailJob         — 用户注册后发送欢迎邮件
-//   2. SendCommentNotificationJob  — 新评论通知文章作者
-//   3. StatsAggregationJob         — 聚合统计数据到缓存
-//   4. CleanupExpiredTokensJob     — 清理过期 JWT Token（演示用）
+// 实现 photon.queue.Job 接口的异步任务。
 
 import photon.queue
 import photon.mailer
 import photon.cache
 import photon.logger
+import repositories
 import json
 import time
 
@@ -27,14 +20,14 @@ __global (
 	g_mailer       &mailer.Mailer
 	g_cache        &cache.CacheManager
 	g_logger       &logger.Logger
-	g_user_repo    &UserRepository
-	g_post_repo    &PostRepository
-	g_comment_repo &CommentRepository
+	g_user_repo    &repositories.UserRepository
+	g_post_repo    &repositories.PostRepository
+	g_comment_repo &repositories.CommentRepository
 )
 
-// init_job_globals 初始化 Job 全局依赖，由 Bootstrap 在启动时调用
+// init_job_globals 初始化 Job 全局依赖
 pub fn init_job_globals(m &mailer.Mailer, cm &cache.CacheManager, log &logger.Logger,
-	user_repo &UserRepository, post_repo &PostRepository, comment_repo &CommentRepository) {
+	user_repo &repositories.UserRepository, post_repo &repositories.PostRepository, comment_repo &repositories.CommentRepository) {
 	unsafe {
 		g_mailer = m
 		g_cache = cm
@@ -45,7 +38,6 @@ pub fn init_job_globals(m &mailer.Mailer, cm &cache.CacheManager, log &logger.Lo
 	}
 }
 
-// job_log_safe 安全获取 logger（可能未初始化）
 fn job_log() ?&logger.Logger {
 	unsafe {
 		if isnil(g_logger) {
@@ -55,7 +47,6 @@ fn job_log() ?&logger.Logger {
 	}
 }
 
-// job_log_info 记录 info 日志（logger 未初始化时降级到 println）
 fn job_log_info(msg string) {
 	log := job_log() or {
 		println('[Job] ${msg}')
@@ -64,7 +55,6 @@ fn job_log_info(msg string) {
 	log.info(msg)
 }
 
-// job_log_error 记录 error 日志
 fn job_log_error(msg string) {
 	log := job_log() or {
 		eprintln('[Job ERROR] ${msg}')
@@ -74,7 +64,7 @@ fn job_log_error(msg string) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// SendWelcomeEmailJob — 欢迎邮件任务
+// SendWelcomeEmailJob
 // ═══════════════════════════════════════════════════════════
 
 pub struct SendWelcomeEmailJob {
@@ -119,15 +109,15 @@ pub fn (j &SendWelcomeEmailJob) backoff() []i64 {
 }
 
 // ═══════════════════════════════════════════════════════════
-// SendCommentNotificationJob — 评论通知任务
+// SendCommentNotificationJob
 // ═══════════════════════════════════════════════════════════
 
 pub struct SendCommentNotificationJob {
 pub:
 	comment_id int
 	post_id    int
-	commenter  string // 评论者用户名
-	content    string // 评论内容摘要
+	commenter  string
+	content    string
 }
 
 pub fn (j &SendCommentNotificationJob) job_type() string {
@@ -144,7 +134,6 @@ pub fn (j &SendCommentNotificationJob) handle() ! {
 	mut post_repo := unsafe { g_post_repo }
 	mut user_repo := unsafe { g_user_repo }
 
-	// 查找文章及作者
 	post := post_repo.find_by_id(j.post_id) or {
 		return error('SendCommentNotificationJob: post not found id=${j.post_id}')
 	}
@@ -181,7 +170,7 @@ pub fn (j &SendCommentNotificationJob) backoff() []i64 {
 }
 
 // ═══════════════════════════════════════════════════════════
-// StatsAggregationJob — 统计聚合任务
+// StatsAggregationJob
 // ═══════════════════════════════════════════════════════════
 
 pub struct StatsAggregationJob {
@@ -207,40 +196,22 @@ pub fn (j &StatsAggregationJob) handle() ! {
 
 	job_log_info('StatsAggregationJob: aggregating statistics...')
 
-	// 聚合各维度计数
-	user_count := user_repo.count() or {
-		job_log_error('StatsAggregationJob: failed to count users: ${err}')
-		0
-	}
-	post_count := post_repo.count() or {
-		job_log_error('StatsAggregationJob: failed to count posts: ${err}')
-		0
-	}
-	published_count := post_repo.count_by_status('published') or {
-		job_log_error('StatsAggregationJob: failed to count published posts: ${err}')
-		0
-	}
-	draft_count := post_repo.count_by_status('draft') or {
-		job_log_error('StatsAggregationJob: failed to count draft posts: ${err}')
-		0
-	}
-	comment_count := comment_repo.count() or {
-		job_log_error('StatsAggregationJob: failed to count comments: ${err}')
-		0
-	}
+	user_count := user_repo.count() or { 0 }
+	post_count := post_repo.count() or { 0 }
+	published_count := post_repo.count_by_status('published') or { 0 }
+	draft_count := post_repo.count_by_status('draft') or { 0 }
+	comment_count := comment_repo.count() or { 0 }
 
-	// 构建统计 JSON 并缓存
 	stats := {
-		'user_count':       user_count.str()
-		'post_count':       post_count.str()
-		'published_count':  published_count.str()
-		'draft_count':      draft_count.str()
-		'comment_count':    comment_count.str()
-		'aggregated_at':    time.now().unix().str()
+		'user_count':      user_count.str()
+		'post_count':      post_count.str()
+		'published_count': published_count.str()
+		'draft_count':     draft_count.str()
+		'comment_count':   comment_count.str()
+		'aggregated_at':   time.now().unix().str()
 	}
 	stats_json := json.encode(stats)
 
-	// 缓存 1 小时
 	cm.set('stats:blog', stats_json, 3600)!
 	cm.set('stats:user_count', user_count.str(), 3600)!
 	cm.set('stats:post_count', post_count.str(), 3600)!
@@ -259,7 +230,7 @@ pub fn (j &StatsAggregationJob) backoff() []i64 {
 }
 
 // ═══════════════════════════════════════════════════════════
-// CleanupExpiredTokensJob — 清理过期 Token 任务（演示用）
+// CleanupExpiredTokensJob
 // ═══════════════════════════════════════════════════════════
 
 pub struct CleanupExpiredTokensJob {
@@ -281,15 +252,12 @@ pub fn (j &CleanupExpiredTokensJob) handle() ! {
 	mut cm := unsafe { g_cache }
 	job_log_info('CleanupExpiredTokensJob: scanning for expired JWT blacklist tokens...')
 
-	// 遍历缓存键，清理过期的 JWT 黑名单条目
-	// MemoryCache 在访问时自动淘汰过期条目，这里主动扫描以释放内存
 	mut cleaned := 0
 	unsafe {
 		mut default_cache := g_cache.default_cache
 		keys := default_cache.keys()
 		for key in keys {
 			if key.starts_with('jwt:blacklist:') {
-				// 尝试访问 — 如果已过期，缓存会自动淘汰
 				_ = cm.get(key) or {
 					cleaned++
 					continue
@@ -310,10 +278,9 @@ pub fn (j &CleanupExpiredTokensJob) backoff() []i64 {
 }
 
 // ═══════════════════════════════════════════════════════════
-// Job 工厂注册表 — 供 Worker 使用
+// Job 工厂注册表
 // ═══════════════════════════════════════════════════════════
 
-// register_jobs 向 QueueWorker 注册所有 Job 类型的工厂函数
 pub fn register_jobs(worker &queue.QueueWorker) {
 	mut w := unsafe { mut worker }
 	w.register('SendWelcomeEmail', fn () &queue.Job {

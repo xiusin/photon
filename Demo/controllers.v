@@ -30,6 +30,8 @@ import veb
 import json
 import time
 import photon.web
+import models
+import app.http.resources
 
 // ═══════════════════════════════════════════════════════════
 // 请求体解析与校验
@@ -219,14 +221,14 @@ pub fn (mut app App) stats(mut ctx Context) veb.Result {
 @['/api/v1/auth/register']
 pub fn (mut app App) post_auth_register(mut ctx Context) veb.Result {
 	// 校验请求体
-	dto := ctx.validate_json[CreateUserDto]() or {
+	dto := ctx.validate_json[models.CreateUserDto]() or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	return app.do_register(mut ctx, dto)
 }
 
 // do_register 执行注册逻辑（内部辅助方法）
-fn (mut app App) do_register(mut ctx Context, dto CreateUserDto) veb.Result {
+fn (mut app App) do_register(mut ctx Context, dto models.CreateUserDto) veb.Result {
 	// 调用服务层注册（触发 user.registered 事件）
 	mut user_svc := app.bootstrap.user_svc
 	user, _ := user_svc.register(dto) or {
@@ -234,7 +236,7 @@ fn (mut app App) do_register(mut ctx Context, dto CreateUserDto) veb.Result {
 	}
 
 	// 返回用户信息（通过 UserResource 脱敏）
-	return ctx.send_data(new_user_resource(&user).to_json())
+	return ctx.send_data(resources.new_user_resource(&user).to_json())
 }
 
 // post_auth_login POST /api/v1/auth/login — 用户登录，返回 JWT
@@ -242,14 +244,14 @@ fn (mut app App) do_register(mut ctx Context, dto CreateUserDto) veb.Result {
 @['/api/v1/auth/login']
 pub fn (mut app App) post_auth_login(mut ctx Context) veb.Result {
 	// 校验请求体
-	dto := ctx.validate_json[LoginDto]() or {
+	dto := ctx.validate_json[models.LoginDto]() or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	return app.do_login(mut ctx, dto)
 }
 
 // do_login 执行登录逻辑（内部辅助方法）
-fn (mut app App) do_login(mut ctx Context, dto LoginDto) veb.Result {
+fn (mut app App) do_login(mut ctx Context, dto models.LoginDto) veb.Result {
 	// 调用服务层登录
 	mut user_svc := app.bootstrap.user_svc
 	user := user_svc.login(dto) or {
@@ -316,7 +318,7 @@ pub fn (mut app App) get_auth_profile(mut ctx Context) veb.Result {
 	}
 
 	// 返回用户信息（通过 UserResource 脱敏，隐藏 password/version）
-	return ctx.send_data(new_user_resource(&user).to_json())
+	return ctx.send_data(resources.new_user_resource(&user).to_json())
 }
 
 // MessageDto 通用消息响应
@@ -372,7 +374,7 @@ pub fn (mut app App) get_users(mut ctx Context) veb.Result {
 	status_filter := status_str.int()
 
 	// 构建过滤条件（SubTask 12.3：过滤下沉到 SQL）
-	filter := UserFilter{
+	filter := models.UserFilter{
 		keyword: keyword
 		status:  status_filter
 		role:    role_filter
@@ -385,13 +387,13 @@ pub fn (mut app App) get_users(mut ctx Context) veb.Result {
 	}
 
 	// 转换为 UserResource 集合
-	mut resources := []UserResource{}
+	mut res_list := []resources.UserResource{}
 	for u in users {
-		resources << new_user_resource(&u)
+		res_list << resources.new_user_resource(&u)
 	}
 
 	// 使用 web.page 构建分页响应（含 pagination 元数据）
-	page_result := web.page(json.encode(resources), page, page_size, total)
+	page_result := web.page(json.encode(res_list), page, page_size, total)
 	return ctx.send_page_result(page_result)
 }
 
@@ -417,7 +419,7 @@ pub fn (mut app App) get_user(mut ctx Context, id string) veb.Result {
 		return ctx.send_not_found('user not found / 用户不存在: ${id}')
 	}
 
-	return ctx.send_data(new_user_resource(&user).to_json())
+	return ctx.send_data(resources.new_user_resource(&user).to_json())
 }
 
 // post_user POST /api/v1/users — 创建用户（需 ADMIN）
@@ -433,20 +435,20 @@ pub fn (mut app App) post_user(mut ctx Context) veb.Result {
 	}
 
 	// 校验请求体
-	dto := ctx.validate_json[CreateUserDto]() or {
+	dto := ctx.validate_json[models.CreateUserDto]() or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	return app.do_admin_create_user(mut ctx, dto)
 }
 
 // do_admin_create_user 管理员创建用户（内部辅助方法）
-fn (mut app App) do_admin_create_user(mut ctx Context, dto CreateUserDto) veb.Result {
+fn (mut app App) do_admin_create_user(mut ctx Context, dto models.CreateUserDto) veb.Result {
 	mut user_svc := app.bootstrap.user_svc
 	user, _ := user_svc.register(dto) or {
 		return ctx.send_bad_request(err.msg())
 	}
 
-	return ctx.send_created(new_user_resource(&user).to_json())
+	return ctx.send_created(resources.new_user_resource(&user).to_json())
 }
 
 // put_user PUT /api/v1/users/:id — 更新用户（需 ADMIN）
@@ -467,20 +469,20 @@ pub fn (mut app App) put_user(mut ctx Context, id string) veb.Result {
 	}
 
 	// 校验请求体
-	dto := ctx.validate_json[UpdateUserDto]() or {
+	dto := ctx.validate_json[models.UpdateUserDto]() or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	return app.do_update_user(mut ctx, user_id, dto)
 }
 
 // do_update_user 执行用户更新（内部辅助方法）
-fn (mut app App) do_update_user(mut ctx Context, user_id int, dto UpdateUserDto) veb.Result {
+fn (mut app App) do_update_user(mut ctx Context, user_id int, dto models.UpdateUserDto) veb.Result {
 	mut user_svc := app.bootstrap.user_svc
 	user := user_svc.update(user_id, dto) or {
 		return ctx.send_not_found(err.msg())
 	}
 
-	return ctx.send_data(new_user_resource(&user).to_json())
+	return ctx.send_data(resources.new_user_resource(&user).to_json())
 }
 
 // delete_user DELETE /api/v1/users/:id — 删除用户（需 ADMIN，软删除）
@@ -536,7 +538,7 @@ pub fn (mut app App) get_posts(mut ctx Context) veb.Result {
 	}
 
 	// 构建过滤条件（SubTask 12.2：过滤下沉到 SQL）
-	filter := PostFilter{
+	filter := models.PostFilter{
 		keyword:     keyword
 		status:      status
 		category_id: if category.len > 0 { category.int() } else { 0 }
@@ -550,13 +552,13 @@ pub fn (mut app App) get_posts(mut ctx Context) veb.Result {
 	}
 
 	// 转换为 PostResource 集合
-	mut resources := []PostResource{}
+	mut res_list := []resources.PostResource{}
 	for p in posts {
-		resources << new_post_resource(&p)
+		res_list << resources.new_post_resource(&p)
 	}
 
 	// 使用 web.page 构建分页响应（含 pagination 元数据）
-	page_result := web.page(json.encode(resources), page, page_size, total)
+	page_result := web.page(json.encode(res_list), page, page_size, total)
 	return ctx.send_page_result(page_result)
 }
 
@@ -577,7 +579,7 @@ pub fn (mut app App) get_post(mut ctx Context, id string) veb.Result {
 	// 异步自增浏览量（不阻塞响应）
 	go post_svc.increment_views(post_id)
 
-	return ctx.send_data(new_post_resource(&post).to_json())
+	return ctx.send_data(resources.new_post_resource(&post).to_json())
 }
 
 // post_post POST /api/v1/posts — 创建文章（需 EDITOR+，触发 post.published 事件）
@@ -599,7 +601,7 @@ pub fn (mut app App) post_post(mut ctx Context) veb.Result {
 	}
 
 	// 校验请求体
-	mut dto := ctx.validate_json[CreatePostDto]() or {
+	mut dto := ctx.validate_json[models.CreatePostDto]() or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	// 注入作者 ID（由控制器从 JWT 设置，非客户端输入）
@@ -609,13 +611,13 @@ pub fn (mut app App) post_post(mut ctx Context) veb.Result {
 }
 
 // do_create_post 执行文章创建（内部辅助方法）
-fn (mut app App) do_create_post(mut ctx Context, dto CreatePostDto) veb.Result {
+fn (mut app App) do_create_post(mut ctx Context, dto models.CreatePostDto) veb.Result {
 	mut post_svc := app.bootstrap.post_svc
 	post := post_svc.create(dto) or {
 		return ctx.send_bad_request(err.msg())
 	}
 
-	return ctx.send_created(new_post_resource(&post).to_json())
+	return ctx.send_created(resources.new_post_resource(&post).to_json())
 }
 
 // put_post PUT /api/v1/posts/:id — 更新文章（需 EDITOR+，清除缓存）
@@ -636,20 +638,20 @@ pub fn (mut app App) put_post(mut ctx Context, id string) veb.Result {
 	}
 
 	// 校验请求体
-	dto := ctx.validate_json[UpdatePostDto]() or {
+	dto := ctx.validate_json[models.UpdatePostDto]() or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	return app.do_update_post(mut ctx, post_id, dto)
 }
 
 // do_update_post 执行文章更新（内部辅助方法）
-fn (mut app App) do_update_post(mut ctx Context, post_id int, dto UpdatePostDto) veb.Result {
+fn (mut app App) do_update_post(mut ctx Context, post_id int, dto models.UpdatePostDto) veb.Result {
 	mut post_svc := app.bootstrap.post_svc
 	post := post_svc.update(post_id, dto) or {
 		return ctx.send_not_found(err.msg())
 	}
 
-	return ctx.send_data(new_post_resource(&post).to_json())
+	return ctx.send_data(resources.new_post_resource(&post).to_json())
 }
 
 // delete_post DELETE /api/v1/posts/:id — 删除文章（需 ADMIN）
@@ -697,27 +699,27 @@ pub fn (mut app App) get_post_comments(mut ctx Context, id string) veb.Result {
 	}
 
 	// 构建嵌套评论结构（顶层评论 + 子评论）
-	mut top_level := []Comment{}
-	mut replies_map := map[int][]Comment{}
+	mut top_level := []models.Comment{}
+	mut replies_map := map[int][]models.Comment{}
 	for c in comments {
 		if c.parent_id == 0 {
 			top_level << c
 		} else {
-			mut existing := replies_map[c.parent_id] or { []Comment{} }
+			mut existing := replies_map[c.parent_id] or { []models.Comment{} }
 			existing << c
 			replies_map[c.parent_id] = existing
 		}
 	}
 
 	// 构建带 replies 的 Resource 列表
-	mut items := []CommentResource{}
+	mut items := []resources.CommentResource{}
 	for c in top_level {
-		replies := replies_map[c.id] or { []Comment{} }
-		mut reply_resources := []CommentResource{}
+		replies := replies_map[c.id] or { []models.Comment{} }
+		mut reply_resources := []resources.CommentResource{}
 		for r in replies {
-			reply_resources << new_comment_resource(&r)
+			reply_resources << resources.new_comment_resource(&r)
 		}
-		items << new_comment_resource_with_replies(&c, unsafe { nil }, reply_resources)
+		items << resources.new_comment_resource_with_replies(&c, unsafe { nil }, reply_resources)
 	}
 
 	// 使用 web.page 构建分页响应（评论一次性返回，分页元数据标识总数）
@@ -749,7 +751,7 @@ pub fn (mut app App) post_post_comment(mut ctx Context, id string) veb.Result {
 	}
 
 	// 校验请求体
-	mut dto := ctx.validate_json[CreateCommentDto]() or {
+	mut dto := ctx.validate_json[models.CreateCommentDto]() or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	// 注入 post_id 与 user_id（由控制器设置，非客户端输入）
@@ -761,7 +763,7 @@ pub fn (mut app App) post_post_comment(mut ctx Context, id string) veb.Result {
 		return ctx.send_bad_request(err.msg())
 	}
 
-	return ctx.send_created(new_comment_resource(&comment).to_json())
+	return ctx.send_created(resources.new_comment_resource(&comment).to_json())
 }
 
 // delete_comment DELETE /api/v1/comments/:id — 删除评论（需 ADMIN 或作者本人）
@@ -820,9 +822,9 @@ pub fn (mut app App) get_categories(mut ctx Context) veb.Result {
 	}
 
 	// 转换为 CategoryResource 集合
-	mut resources := []CategoryResource{}
+	mut res_list := []resources.CategoryResource{}
 	for c in categories {
-		resources << new_category_resource(&c)
+		res_list << resources.new_category_resource(&c)
 	}
 
 	// 使用 web.page 构建分页响应
@@ -843,20 +845,20 @@ pub fn (mut app App) post_category(mut ctx Context) veb.Result {
 	}
 
 	// 校验请求体
-	dto := ctx.validate_json[CreateCategoryDto]() or {
+	dto := ctx.validate_json[models.CreateCategoryDto]() or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	return app.do_create_category(mut ctx, dto)
 }
 
 // do_create_category 执行分类创建（内部辅助方法）
-fn (mut app App) do_create_category(mut ctx Context, dto CreateCategoryDto) veb.Result {
+fn (mut app App) do_create_category(mut ctx Context, dto models.CreateCategoryDto) veb.Result {
 	mut category_svc := app.bootstrap.category_svc
 	category := category_svc.create(dto) or {
 		return ctx.send_bad_request(err.msg())
 	}
 
-	return ctx.send_created(new_category_resource(&category).to_json())
+	return ctx.send_created(resources.new_category_resource(&category).to_json())
 }
 
 // get_tags GET /api/v1/tags — 标签列表（公开）
@@ -869,9 +871,9 @@ pub fn (mut app App) get_tags(mut ctx Context) veb.Result {
 	}
 
 	// 转换为 TagResource 集合
-	mut resources := []TagResource{}
+	mut res_list := []resources.TagResource{}
 	for t in tags {
-		resources << new_tag_resource(&t)
+		res_list << resources.new_tag_resource(&t)
 	}
 
 	// 使用 web.page 构建分页响应
@@ -892,20 +894,20 @@ pub fn (mut app App) post_tag(mut ctx Context) veb.Result {
 	}
 
 	// 校验请求体
-	dto := ctx.validate_json[CreateTagDto]() or {
+	dto := ctx.validate_json[models.CreateTagDto]() or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	return app.do_create_tag(mut ctx, dto)
 }
 
 // do_create_tag 执行标签创建（内部辅助方法）
-fn (mut app App) do_create_tag(mut ctx Context, dto CreateTagDto) veb.Result {
+fn (mut app App) do_create_tag(mut ctx Context, dto models.CreateTagDto) veb.Result {
 	mut tag_svc := app.bootstrap.tag_svc
 	tag := tag_svc.create(dto) or {
 		return ctx.send_bad_request(err.msg())
 	}
 
-	return ctx.send_created(new_tag_resource(&tag).to_json())
+	return ctx.send_created(resources.new_tag_resource(&tag).to_json())
 }
 
 // ═══════════════════════════════════════════════════════════

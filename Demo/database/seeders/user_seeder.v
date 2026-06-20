@@ -8,17 +8,18 @@ module seeders
 //
 // 幂等性：若用户名已存在则跳过创建。
 
+import bootstrap
 import photon.cli
 import os
 
 // UserSeeder 用户种子
 pub struct UserSeeder {
 pub:
-	bootstrap &Bootstrap
+	bootstrap &bootstrap.Bootstrap
 }
 
 // new_user_seeder 创建用户种子实例
-pub fn new_user_seeder(boot &Bootstrap) &UserSeeder {
+pub fn new_user_seeder(boot &bootstrap.Bootstrap) &UserSeeder {
 	return &UserSeeder{
 		bootstrap: boot
 	}

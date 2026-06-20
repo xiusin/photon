@@ -17,13 +17,15 @@ module factories
 //   // 仅构建实体不持久化
 //   user := new_user_factory(boot).make()
 
+import bootstrap
+import models
 import photon.security
 import time
 
 // UserFactory 用户模型工厂
 pub struct UserFactory {
 pub:
-	bootstrap &Bootstrap
+	bootstrap &bootstrap.Bootstrap
 mut:
 	username string
 	email    string
@@ -34,7 +36,7 @@ mut:
 }
 
 // new_user_factory 创建用户工厂实例，填充默认随机属性
-pub fn new_user_factory(boot &Bootstrap) UserFactory {
+pub fn new_user_factory(boot &bootstrap.Bootstrap) UserFactory {
 	suffix := time.now().unix().str() + '_' + rand_int_str(4)
 	return UserFactory{
 		bootstrap: boot
@@ -93,10 +95,10 @@ pub fn (f UserFactory) with_github(github string) UserFactory {
 }
 
 // make 构建用户实体（不持久化），密码已哈希
-pub fn (f UserFactory) make() User {
+pub fn (f UserFactory) make() models.User {
 	hasher := security.BcryptHasher{}
 	hashed := hasher.make(f.password)
-	return User{
+	return models.User{
 		username: f.username
 		email:    f.email
 		password: hashed
@@ -111,8 +113,8 @@ pub fn (f UserFactory) make() User {
 //
 // 通过 UserService.register() 持久化，自动处理密码哈希、
 // 唯一性校验、事件分发。若用户名已存在则返回错误。
-pub fn (f UserFactory) create() !User {
-	dto := CreateUserDto{
+pub fn (f UserFactory) create() !models.User {
+	dto := models.CreateUserDto{
 		username: f.username
 		email:    f.email
 		password: f.password
@@ -126,7 +128,7 @@ pub fn (f UserFactory) create() !User {
 }
 
 // create_or_first 幂等创建：若用户名已存在则返回已有用户
-pub fn (f UserFactory) create_or_first() !User {
+pub fn (f UserFactory) create_or_first() !models.User {
 	if f.bootstrap.user_repo.exists_by_username(f.username) {
 		return f.bootstrap.user_repo.find_by_username(f.username)!
 	}
