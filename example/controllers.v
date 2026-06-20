@@ -203,16 +203,15 @@ pub fn (mut app App) get_users(mut ctx Context) veb.Result {
 
 @[get]
 @['/api/v1/users/:id']
-pub fn (mut app App) get_user(mut ctx Context) veb.Result {
+pub fn (mut app App) get_user(mut ctx Context, id string) veb.Result {
 	app.middleware.apply_role(mut ctx.Context, 'ADMIN') or {
 		return ctx.json_error(403, err.msg())
 	}
-	id_str := ctx.query['id'] or { '' }
-	if id_str.len == 0 {
+	if id.len == 0 {
 		return ctx.json_error(400, 'missing user ID')
 	}
-	id := id_str.int()
-	user := app.services.user_service.get_by_id(id) or {
+	uid := id.int()
+	user := app.services.user_service.get_by_id(uid) or {
 		return ctx.json_error(404, err.msg())
 	}
 	return ctx.json_response(200, '${UserProfile{
@@ -257,20 +256,19 @@ pub fn (mut app App) post_user(mut ctx Context) veb.Result {
 
 @[put]
 @['/api/v1/users/:id']
-pub fn (mut app App) put_user(mut ctx Context) veb.Result {
+pub fn (mut app App) put_user(mut ctx Context, id string) veb.Result {
 	app.middleware.apply_role(mut ctx.Context, 'ADMIN') or {
 		return ctx.json_error(403, err.msg())
 	}
-	id_str := ctx.query['id'] or { '' }
-	if id_str.len == 0 {
+	if id.len == 0 {
 		return ctx.json_error(400, 'missing user ID')
 	}
-	id := id_str.int()
+	uid := id.int()
 	email := ctx.query['email'] or { ctx.form['email'] or { '' } }
 	nickname := ctx.query['nickname'] or { ctx.form['nickname'] or { '' } }
 	avatar := ctx.query['avatar'] or { ctx.form['avatar'] or { '' } }
 	req := UpdateUserRequest{email: email, nickname: nickname, avatar: avatar}
-	user := app.services.user_service.update(id, req) or {
+	user := app.services.user_service.update(uid, req) or {
 		return ctx.json_error(404, err.msg())
 	}
 	return ctx.json_response(200, '${UserProfile{
@@ -286,16 +284,15 @@ pub fn (mut app App) put_user(mut ctx Context) veb.Result {
 
 @[delete]
 @['/api/v1/users/:id']
-pub fn (mut app App) delete_user(mut ctx Context) veb.Result {
+pub fn (mut app App) delete_user(mut ctx Context, id string) veb.Result {
 	app.middleware.apply_role(mut ctx.Context, 'ADMIN') or {
 		return ctx.json_error(403, err.msg())
 	}
-	id_str := ctx.query['id'] or { '' }
-	if id_str.len == 0 {
+	if id.len == 0 {
 		return ctx.json_error(400, 'missing user ID')
 	}
-	id := id_str.int()
-	app.services.user_service.delete(id) or {
+	uid := id.int()
+	app.services.user_service.delete(uid) or {
 		return ctx.json_error(404, err.msg())
 	}
 	return ctx.json_success('user deleted')

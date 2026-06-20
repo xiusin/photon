@@ -7,7 +7,7 @@ import veb
 import time
 import web
 import logger
-import apidoc
+import photon.apidoc
 
 // App — 全局应用上下文
 pub struct App {
