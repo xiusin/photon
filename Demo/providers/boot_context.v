@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/boot_context.v — 服务提供者共享上下文
 //
@@ -27,11 +27,14 @@ import photon.security
 import photon.queue
 import photon.orm as phorm
 import photon.web
+import config
+import repositories
+import services
 
 @[heap]
 pub struct BootContext {
 pub mut:
-	cfg AppConfig
+	cfg config.AppConfig
 	// ── 基础设施 ──
 	log            &logger.Logger = unsafe { nil }
 	app_context    &core.ApplicationContext = unsafe { nil }
@@ -48,24 +51,24 @@ pub mut:
 	worker         &queue.QueueWorker = unsafe { nil }
 	upload_handler &web.UploadHandler = unsafe { nil }
 	// ── 仓储 ──
-	user_repo     &UserRepository = unsafe { nil }
-	post_repo     &PostRepository = unsafe { nil }
-	comment_repo  &CommentRepository = unsafe { nil }
-	category_repo &CategoryRepository = unsafe { nil }
-	tag_repo      &TagRepository = unsafe { nil }
+	user_repo     &repositories.UserRepository = unsafe { nil }
+	post_repo     &repositories.PostRepository = unsafe { nil }
+	comment_repo  &repositories.CommentRepository = unsafe { nil }
+	category_repo &repositories.CategoryRepository = unsafe { nil }
+	tag_repo      &repositories.TagRepository = unsafe { nil }
 	// ── 服务 ──
-	user_svc     &UserService = unsafe { nil }
-	auth_svc     &AuthService = unsafe { nil }
-	post_svc     &PostService = unsafe { nil }
-	comment_svc  &CommentService = unsafe { nil }
-	category_svc &CategoryService = unsafe { nil }
-	tag_svc      &TagService = unsafe { nil }
-	stats_svc    &StatsService = unsafe { nil }
-	upload_svc   &UploadService = unsafe { nil }
+	user_svc     &services.UserService = unsafe { nil }
+	auth_svc     &services.AuthService = unsafe { nil }
+	post_svc     &services.PostService = unsafe { nil }
+	comment_svc  &services.CommentService = unsafe { nil }
+	category_svc &services.CategoryService = unsafe { nil }
+	tag_svc      &services.TagService = unsafe { nil }
+	stats_svc    &services.StatsService = unsafe { nil }
+	upload_svc   &services.UploadService = unsafe { nil }
 }
 
 // new_boot_context 创建共享上下文，注入应用配置
-pub fn new_boot_context(cfg AppConfig) &BootContext {
+pub fn new_boot_context(cfg config.AppConfig) &BootContext {
 	return &BootContext{
 		cfg: cfg
 	}

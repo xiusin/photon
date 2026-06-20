@@ -1,4 +1,4 @@
-module main
+module services
 
 // emails.v — PhotonBlog 邮件发送集成
 //
@@ -12,10 +12,11 @@ module main
 //   - prod 环境：SmtpTransport（通过 SMTP 服务器发送）
 
 import photon.mailer
+import models
 
 // send_welcome_email 发送欢迎邮件给新注册用户
 // 使用 template_welcome 模板，渲染 name/app_name/action_url 变量
-pub fn send_welcome_email(m &mailer.Mailer, user User) ! {
+pub fn send_welcome_email(m &mailer.Mailer, user models.User) ! {
 	unsafe {
 		if isnil(m) {
 			return error('send_welcome_email: mailer not initialized')
@@ -36,7 +37,7 @@ pub fn send_welcome_email(m &mailer.Mailer, user User) ! {
 
 // send_comment_notification 发送评论通知邮件给文章作者
 // 使用 template_notification 模板，渲染 title/greeting/name/message/action_* 变量
-pub fn send_comment_notification(m &mailer.Mailer, post_author User, post Post, comment Comment) ! {
+pub fn send_comment_notification(m &mailer.Mailer, post_author models.User, post models.Post, comment models.Comment) ! {
 	unsafe {
 		if isnil(m) {
 			return error('send_comment_notification: mailer not initialized')

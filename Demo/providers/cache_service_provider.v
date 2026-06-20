@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/cache_service_provider.v — 缓存服务提供者
 //

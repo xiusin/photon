@@ -1,4 +1,4 @@
-module main
+module repositories
 
 // repositories.v — PhotonBlog 仓储层
 //
@@ -15,17 +15,19 @@ module main
 //
 // 仓储包装 save 方法：insert 后通过 last_insert_rowid() 回填自增 ID。
 
+import models
 import photon.orm as phorm
 import db.sqlite
 import time
+import database
 
 // ═══════════════════════════════════════════════════════════
 // UserRepository — 用户仓储
 // ═══════════════════════════════════════════════════════════
 
 // row_to_user 将 sqlite.Row 映射为 User 实体
-fn row_to_user(row sqlite.Row) User {
-	return User{
+fn row_to_user(row sqlite.Row) models.User {
+	return models.User{
 		BaseEntity: phorm.BaseEntity{
 			id:         row.get_int('id')
 			created_at: i64(row.get_int('created_at'))
@@ -44,7 +46,7 @@ fn row_to_user(row sqlite.Row) User {
 
 // ── CRUD 回调（原生 SQL）──
 
-fn user_exec_find(conn voidptr, id int) !User {
+fn user_exec_find(conn voidptr, id int) !models.User {
 	db := unsafe { &sqlite.DB(conn) }
 	rows := db.exec_param('SELECT * FROM users WHERE id = ?', id.str())!
 	if rows.len == 0 {
@@ -53,24 +55,24 @@ fn user_exec_find(conn voidptr, id int) !User {
 	return row_to_user(rows[0])
 }
 
-fn user_exec_find_all(conn voidptr) ![]User {
+fn user_exec_find_all(conn voidptr) ![]models.User {
 	db := unsafe { &sqlite.DB(conn) }
 	rows := db.exec('SELECT * FROM users ORDER BY id')!
-	mut result := []User{}
+	mut result := []models.User{}
 	for row in rows {
 		result << row_to_user(row)
 	}
 	return result
 }
 
-fn user_exec_insert(conn voidptr, u User) ! {
+fn user_exec_insert(conn voidptr, u models.User) ! {
 	db := unsafe { &sqlite.DB(conn) }
 	params := [u.username, u.email, u.password, u.nickname, u.avatar,
 		u.status.str(), u.role, u.created_at.str(), u.updated_at.str(), u.version.str()]
 	db.exec_param_many('INSERT INTO users (username, email, password, nickname, avatar, status, role, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', params)!
 }
 
-fn user_exec_update(conn voidptr, u User) ! {
+fn user_exec_update(conn voidptr, u models.User) ! {
 	db := unsafe { &sqlite.DB(conn) }
 	params := [u.username, u.email, u.password, u.nickname, u.avatar,
 		u.status.str(), u.role, u.updated_at.str(), u.version.str(), u.id.str()]
@@ -96,15 +98,15 @@ fn user_exec_exists(conn voidptr, id int) bool {
 // ── 仓储结构体 ──
 
 pub struct UserRepository {
-mut:
-	base &phorm.BaseRepository[User]
+pub:
+	base &phorm.BaseRepository[models.User]
 	db   &sqlite.DB
 }
 
 // new_user_repository 创建用户仓储，注册 7 个原生 SQL 回调到 BaseRepository[User]
 pub fn new_user_repository(manager &phorm.OrmManager) !&UserRepository {
-	db := get_db(manager)!
-	base := phorm.new_repository[User](manager, 'default',
+	db := database.get_db(manager)!
+	base := phorm.new_repository[models.User](manager, 'default',
 		user_exec_find, user_exec_find_all, user_exec_insert,
 		user_exec_update, user_exec_delete, user_exec_count, user_exec_exists)!
 	return &UserRepository{
@@ -116,7 +118,7 @@ pub fn new_user_repository(manager &phorm.OrmManager) !&UserRepository {
 // ── CRUD 方法 ──
 
 // save 插入或更新用户，insert 后回填自增 ID
-pub fn (mut repo UserRepository) save(mut user User) !User {
+pub fn (mut repo UserRepository) save(mut user models.User) !models.User {
 	was_new := user.is_new()
 	repo.base.save(mut user)!
 	if was_new {
@@ -125,15 +127,15 @@ pub fn (mut repo UserRepository) save(mut user User) !User {
 	return user
 }
 
-pub fn (mut repo UserRepository) find_by_id(id int) !User {
+pub fn (mut repo UserRepository) find_by_id(id int) !models.User {
 	return repo.base.find_by_id(id)!
 }
 
-pub fn (mut repo UserRepository) find_all() ![]User {
+pub fn (mut repo UserRepository) find_all() ![]models.User {
 	return repo.base.find_all()!
 }
 
-pub fn (mut repo UserRepository) update(mut user User) !User {
+pub fn (mut repo UserRepository) update(mut user models.User) !models.User {
 	return repo.base.update(mut user)!
 }
 
@@ -151,7 +153,7 @@ pub fn (repo &UserRepository) exists_by_id(id int) bool {
 
 // ── 派生查询 ──
 
-pub fn (repo &UserRepository) find_by_username(username string) !User {
+pub fn (repo &UserRepository) find_by_username(username string) !models.User {
 	rows := repo.db.exec_param('SELECT * FROM users WHERE username = ?', username)!
 	if rows.len == 0 {
 		return error('User not found: username=${username}')
@@ -159,7 +161,7 @@ pub fn (repo &UserRepository) find_by_username(username string) !User {
 	return row_to_user(rows[0])
 }
 
-pub fn (repo &UserRepository) find_by_email(email string) !User {
+pub fn (repo &UserRepository) find_by_email(email string) !models.User {
 	rows := repo.db.exec_param('SELECT * FROM users WHERE email = ?', email)!
 	if rows.len == 0 {
 		return error('User not found: email=${email}')
@@ -183,8 +185,8 @@ pub fn (repo &UserRepository) exists_by_email(email string) bool {
 // PostRepository — 文章仓储
 // ═══════════════════════════════════════════════════════════
 
-fn row_to_post(row sqlite.Row) Post {
-	return Post{
+fn row_to_post(row sqlite.Row) models.Post {
+	return models.Post{
 		BaseEntity: phorm.BaseEntity{
 			id:         row.get_int('id')
 			created_at: i64(row.get_int('created_at'))
@@ -203,7 +205,7 @@ fn row_to_post(row sqlite.Row) Post {
 
 // ── CRUD 回调 ──
 
-fn post_exec_find(conn voidptr, id int) !Post {
+fn post_exec_find(conn voidptr, id int) !models.Post {
 	db := unsafe { &sqlite.DB(conn) }
 	rows := db.exec_param('SELECT * FROM posts WHERE id = ?', id.str())!
 	if rows.len == 0 {
@@ -212,24 +214,24 @@ fn post_exec_find(conn voidptr, id int) !Post {
 	return row_to_post(rows[0])
 }
 
-fn post_exec_find_all(conn voidptr) ![]Post {
+fn post_exec_find_all(conn voidptr) ![]models.Post {
 	db := unsafe { &sqlite.DB(conn) }
 	rows := db.exec('SELECT * FROM posts ORDER BY id')!
-	mut result := []Post{}
+	mut result := []models.Post{}
 	for row in rows {
 		result << row_to_post(row)
 	}
 	return result
 }
 
-fn post_exec_insert(conn voidptr, p Post) ! {
+fn post_exec_insert(conn voidptr, p models.Post) ! {
 	db := unsafe { &sqlite.DB(conn) }
 	params := [p.title, p.content, p.summary, p.author_id.str(), p.category_id.str(),
 		p.status, p.views.str(), p.created_at.str(), p.updated_at.str(), p.version.str()]
 	db.exec_param_many('INSERT INTO posts (title, content, summary, author_id, category_id, status, views, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', params)!
 }
 
-fn post_exec_update(conn voidptr, p Post) ! {
+fn post_exec_update(conn voidptr, p models.Post) ! {
 	db := unsafe { &sqlite.DB(conn) }
 	params := [p.title, p.content, p.summary, p.author_id.str(), p.category_id.str(),
 		p.status, p.views.str(), p.updated_at.str(), p.version.str(), p.id.str()]
@@ -255,14 +257,14 @@ fn post_exec_exists(conn voidptr, id int) bool {
 // ── 仓储结构体 ──
 
 pub struct PostRepository {
-mut:
-	base &phorm.BaseRepository[Post]
+pub:
+	base &phorm.BaseRepository[models.Post]
 	db   &sqlite.DB
 }
 
 pub fn new_post_repository(manager &phorm.OrmManager) !&PostRepository {
-	db := get_db(manager)!
-	base := phorm.new_repository[Post](manager, 'default',
+	db := database.get_db(manager)!
+	base := phorm.new_repository[models.Post](manager, 'default',
 		post_exec_find, post_exec_find_all, post_exec_insert,
 		post_exec_update, post_exec_delete, post_exec_count, post_exec_exists)!
 	return &PostRepository{
@@ -273,7 +275,7 @@ pub fn new_post_repository(manager &phorm.OrmManager) !&PostRepository {
 
 // ── CRUD 方法 ──
 
-pub fn (mut repo PostRepository) save(mut post Post) !Post {
+pub fn (mut repo PostRepository) save(mut post models.Post) !models.Post {
 	was_new := post.is_new()
 	repo.base.save(mut post)!
 	if was_new {
@@ -282,15 +284,15 @@ pub fn (mut repo PostRepository) save(mut post Post) !Post {
 	return post
 }
 
-pub fn (mut repo PostRepository) find_by_id(id int) !Post {
+pub fn (mut repo PostRepository) find_by_id(id int) !models.Post {
 	return repo.base.find_by_id(id)!
 }
 
-pub fn (mut repo PostRepository) find_all() ![]Post {
+pub fn (mut repo PostRepository) find_all() ![]models.Post {
 	return repo.base.find_all()!
 }
 
-pub fn (mut repo PostRepository) update(mut post Post) !Post {
+pub fn (mut repo PostRepository) update(mut post models.Post) !models.Post {
 	return repo.base.update(mut post)!
 }
 
@@ -309,9 +311,9 @@ pub fn (repo &PostRepository) exists_by_id(id int) bool {
 // ── 派生查询 ──
 
 // find_by_author 查询某作者的所有文章
-pub fn (repo &PostRepository) find_by_author(author_id int) ![]Post {
+pub fn (repo &PostRepository) find_by_author(author_id int) ![]models.Post {
 	rows := repo.db.exec_param('SELECT * FROM posts WHERE author_id = ? ORDER BY created_at DESC', author_id.str())!
-	mut result := []Post{}
+	mut result := []models.Post{}
 	for row in rows {
 		result << row_to_post(row)
 	}
@@ -319,9 +321,9 @@ pub fn (repo &PostRepository) find_by_author(author_id int) ![]Post {
 }
 
 // find_by_category 查询某分类下的所有文章
-pub fn (repo &PostRepository) find_by_category(category_id int) ![]Post {
+pub fn (repo &PostRepository) find_by_category(category_id int) ![]models.Post {
 	rows := repo.db.exec_param('SELECT * FROM posts WHERE category_id = ? ORDER BY created_at DESC', category_id.str())!
-	mut result := []Post{}
+	mut result := []models.Post{}
 	for row in rows {
 		result << row_to_post(row)
 	}
@@ -329,9 +331,9 @@ pub fn (repo &PostRepository) find_by_category(category_id int) ![]Post {
 }
 
 // find_by_status 按状态查询文章
-pub fn (repo &PostRepository) find_by_status(status string) ![]Post {
+pub fn (repo &PostRepository) find_by_status(status string) ![]models.Post {
 	rows := repo.db.exec_param('SELECT * FROM posts WHERE status = ? ORDER BY created_at DESC', status)!
-	mut result := []Post{}
+	mut result := []models.Post{}
 	for row in rows {
 		result << row_to_post(row)
 	}
@@ -339,7 +341,7 @@ pub fn (repo &PostRepository) find_by_status(status string) ![]Post {
 }
 
 // find_published 查询所有已发布文章（便捷方法）
-pub fn (repo &PostRepository) find_published() ![]Post {
+pub fn (repo &PostRepository) find_published() ![]models.Post {
 	return repo.find_by_status('published')
 }
 
@@ -361,8 +363,8 @@ pub fn (repo &PostRepository) count_by_status(status string) !int {
 // CommentRepository — 评论仓储
 // ═══════════════════════════════════════════════════════════
 
-fn row_to_comment(row sqlite.Row) Comment {
-	return Comment{
+fn row_to_comment(row sqlite.Row) models.Comment {
+	return models.Comment{
 		BaseEntity: phorm.BaseEntity{
 			id:         row.get_int('id')
 			created_at: i64(row.get_int('created_at'))
@@ -379,7 +381,7 @@ fn row_to_comment(row sqlite.Row) Comment {
 
 // ── CRUD 回调 ──
 
-fn comment_exec_find(conn voidptr, id int) !Comment {
+fn comment_exec_find(conn voidptr, id int) !models.Comment {
 	db := unsafe { &sqlite.DB(conn) }
 	rows := db.exec_param('SELECT * FROM comments WHERE id = ?', id.str())!
 	if rows.len == 0 {
@@ -388,24 +390,24 @@ fn comment_exec_find(conn voidptr, id int) !Comment {
 	return row_to_comment(rows[0])
 }
 
-fn comment_exec_find_all(conn voidptr) ![]Comment {
+fn comment_exec_find_all(conn voidptr) ![]models.Comment {
 	db := unsafe { &sqlite.DB(conn) }
 	rows := db.exec('SELECT * FROM comments ORDER BY id')!
-	mut result := []Comment{}
+	mut result := []models.Comment{}
 	for row in rows {
 		result << row_to_comment(row)
 	}
 	return result
 }
 
-fn comment_exec_insert(conn voidptr, c Comment) ! {
+fn comment_exec_insert(conn voidptr, c models.Comment) ! {
 	db := unsafe { &sqlite.DB(conn) }
 	params := [c.post_id.str(), c.user_id.str(), c.content, c.parent_id.str(),
 		c.status, c.created_at.str(), c.updated_at.str(), c.version.str()]
 	db.exec_param_many('INSERT INTO comments (post_id, user_id, content, parent_id, status, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', params)!
 }
 
-fn comment_exec_update(conn voidptr, c Comment) ! {
+fn comment_exec_update(conn voidptr, c models.Comment) ! {
 	db := unsafe { &sqlite.DB(conn) }
 	params := [c.post_id.str(), c.user_id.str(), c.content, c.parent_id.str(),
 		c.status, c.updated_at.str(), c.version.str(), c.id.str()]
@@ -431,14 +433,14 @@ fn comment_exec_exists(conn voidptr, id int) bool {
 // ── 仓储结构体 ──
 
 pub struct CommentRepository {
-mut:
-	base &phorm.BaseRepository[Comment]
+pub:
+	base &phorm.BaseRepository[models.Comment]
 	db   &sqlite.DB
 }
 
 pub fn new_comment_repository(manager &phorm.OrmManager) !&CommentRepository {
-	db := get_db(manager)!
-	base := phorm.new_repository[Comment](manager, 'default',
+	db := database.get_db(manager)!
+	base := phorm.new_repository[models.Comment](manager, 'default',
 		comment_exec_find, comment_exec_find_all, comment_exec_insert,
 		comment_exec_update, comment_exec_delete, comment_exec_count, comment_exec_exists)!
 	return &CommentRepository{
@@ -449,7 +451,7 @@ pub fn new_comment_repository(manager &phorm.OrmManager) !&CommentRepository {
 
 // ── CRUD 方法 ──
 
-pub fn (mut repo CommentRepository) save(mut comment Comment) !Comment {
+pub fn (mut repo CommentRepository) save(mut comment models.Comment) !models.Comment {
 	was_new := comment.is_new()
 	repo.base.save(mut comment)!
 	if was_new {
@@ -458,15 +460,15 @@ pub fn (mut repo CommentRepository) save(mut comment Comment) !Comment {
 	return comment
 }
 
-pub fn (mut repo CommentRepository) find_by_id(id int) !Comment {
+pub fn (mut repo CommentRepository) find_by_id(id int) !models.Comment {
 	return repo.base.find_by_id(id)!
 }
 
-pub fn (mut repo CommentRepository) find_all() ![]Comment {
+pub fn (mut repo CommentRepository) find_all() ![]models.Comment {
 	return repo.base.find_all()!
 }
 
-pub fn (mut repo CommentRepository) update(mut comment Comment) !Comment {
+pub fn (mut repo CommentRepository) update(mut comment models.Comment) !models.Comment {
 	return repo.base.update(mut comment)!
 }
 
@@ -485,9 +487,9 @@ pub fn (repo &CommentRepository) exists_by_id(id int) bool {
 // ── 派生查询 ──
 
 // find_by_post 查询某文章的所有评论
-pub fn (repo &CommentRepository) find_by_post(post_id int) ![]Comment {
+pub fn (repo &CommentRepository) find_by_post(post_id int) ![]models.Comment {
 	rows := repo.db.exec_param('SELECT * FROM comments WHERE post_id = ? ORDER BY created_at ASC', post_id.str())!
-	mut result := []Comment{}
+	mut result := []models.Comment{}
 	for row in rows {
 		result << row_to_comment(row)
 	}
@@ -495,9 +497,9 @@ pub fn (repo &CommentRepository) find_by_post(post_id int) ![]Comment {
 }
 
 // find_by_parent 查询某评论的所有子评论（嵌套评论）
-pub fn (repo &CommentRepository) find_by_parent(parent_id int) ![]Comment {
+pub fn (repo &CommentRepository) find_by_parent(parent_id int) ![]models.Comment {
 	rows := repo.db.exec_param('SELECT * FROM comments WHERE parent_id = ? ORDER BY created_at ASC', parent_id.str())!
-	mut result := []Comment{}
+	mut result := []models.Comment{}
 	for row in rows {
 		result << row_to_comment(row)
 	}
@@ -524,8 +526,8 @@ pub fn (repo &CommentRepository) touch_post(post_id int) ! {
 // CategoryRepository — 分类仓储
 // ═══════════════════════════════════════════════════════════
 
-fn row_to_category(row sqlite.Row) Category {
-	return Category{
+fn row_to_category(row sqlite.Row) models.Category {
+	return models.Category{
 		BaseEntity: phorm.BaseEntity{
 			id:         row.get_int('id')
 			created_at: i64(row.get_int('created_at'))
@@ -540,7 +542,7 @@ fn row_to_category(row sqlite.Row) Category {
 
 // ── CRUD 回调 ──
 
-fn category_exec_find(conn voidptr, id int) !Category {
+fn category_exec_find(conn voidptr, id int) !models.Category {
 	db := unsafe { &sqlite.DB(conn) }
 	rows := db.exec_param('SELECT * FROM categories WHERE id = ?', id.str())!
 	if rows.len == 0 {
@@ -549,23 +551,23 @@ fn category_exec_find(conn voidptr, id int) !Category {
 	return row_to_category(rows[0])
 }
 
-fn category_exec_find_all(conn voidptr) ![]Category {
+fn category_exec_find_all(conn voidptr) ![]models.Category {
 	db := unsafe { &sqlite.DB(conn) }
 	rows := db.exec('SELECT * FROM categories ORDER BY id')!
-	mut result := []Category{}
+	mut result := []models.Category{}
 	for row in rows {
 		result << row_to_category(row)
 	}
 	return result
 }
 
-fn category_exec_insert(conn voidptr, c Category) ! {
+fn category_exec_insert(conn voidptr, c models.Category) ! {
 	db := unsafe { &sqlite.DB(conn) }
 	params := [c.name, c.slug, c.description, c.created_at.str(), c.updated_at.str(), c.version.str()]
 	db.exec_param_many('INSERT INTO categories (name, slug, description, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?)', params)!
 }
 
-fn category_exec_update(conn voidptr, c Category) ! {
+fn category_exec_update(conn voidptr, c models.Category) ! {
 	db := unsafe { &sqlite.DB(conn) }
 	params := [c.name, c.slug, c.description, c.updated_at.str(), c.version.str(), c.id.str()]
 	db.exec_param_many('UPDATE categories SET name = ?, slug = ?, description = ?, updated_at = ?, version = ? WHERE id = ?', params)!
@@ -590,14 +592,14 @@ fn category_exec_exists(conn voidptr, id int) bool {
 // ── 仓储结构体 ──
 
 pub struct CategoryRepository {
-mut:
-	base &phorm.BaseRepository[Category]
+pub:
+	base &phorm.BaseRepository[models.Category]
 	db   &sqlite.DB
 }
 
 pub fn new_category_repository(manager &phorm.OrmManager) !&CategoryRepository {
-	db := get_db(manager)!
-	base := phorm.new_repository[Category](manager, 'default',
+	db := database.get_db(manager)!
+	base := phorm.new_repository[models.Category](manager, 'default',
 		category_exec_find, category_exec_find_all, category_exec_insert,
 		category_exec_update, category_exec_delete, category_exec_count, category_exec_exists)!
 	return &CategoryRepository{
@@ -608,7 +610,7 @@ pub fn new_category_repository(manager &phorm.OrmManager) !&CategoryRepository {
 
 // ── CRUD 方法 ──
 
-pub fn (mut repo CategoryRepository) save(mut category Category) !Category {
+pub fn (mut repo CategoryRepository) save(mut category models.Category) !models.Category {
 	was_new := category.is_new()
 	repo.base.save(mut category)!
 	if was_new {
@@ -617,15 +619,15 @@ pub fn (mut repo CategoryRepository) save(mut category Category) !Category {
 	return category
 }
 
-pub fn (mut repo CategoryRepository) find_by_id(id int) !Category {
+pub fn (mut repo CategoryRepository) find_by_id(id int) !models.Category {
 	return repo.base.find_by_id(id)!
 }
 
-pub fn (mut repo CategoryRepository) find_all() ![]Category {
+pub fn (mut repo CategoryRepository) find_all() ![]models.Category {
 	return repo.base.find_all()!
 }
 
-pub fn (mut repo CategoryRepository) update(mut category Category) !Category {
+pub fn (mut repo CategoryRepository) update(mut category models.Category) !models.Category {
 	return repo.base.update(mut category)!
 }
 
@@ -644,7 +646,7 @@ pub fn (repo &CategoryRepository) exists_by_id(id int) bool {
 // ── 派生查询 ──
 
 // find_by_slug 按 slug 查询分类
-pub fn (repo &CategoryRepository) find_by_slug(slug string) !Category {
+pub fn (repo &CategoryRepository) find_by_slug(slug string) !models.Category {
 	rows := repo.db.exec_param('SELECT * FROM categories WHERE slug = ?', slug)!
 	if rows.len == 0 {
 		return error('Category not found: slug=${slug}')
@@ -662,8 +664,8 @@ pub fn (repo &CategoryRepository) exists_by_slug(slug string) bool {
 // TagRepository — 标签仓储
 // ═══════════════════════════════════════════════════════════
 
-fn row_to_tag(row sqlite.Row) Tag {
-	return Tag{
+fn row_to_tag(row sqlite.Row) models.Tag {
+	return models.Tag{
 		BaseEntity: phorm.BaseEntity{
 			id:         row.get_int('id')
 			created_at: i64(row.get_int('created_at'))
@@ -677,7 +679,7 @@ fn row_to_tag(row sqlite.Row) Tag {
 
 // ── CRUD 回调 ──
 
-fn tag_exec_find(conn voidptr, id int) !Tag {
+fn tag_exec_find(conn voidptr, id int) !models.Tag {
 	db := unsafe { &sqlite.DB(conn) }
 	rows := db.exec_param('SELECT * FROM tags WHERE id = ?', id.str())!
 	if rows.len == 0 {
@@ -686,23 +688,23 @@ fn tag_exec_find(conn voidptr, id int) !Tag {
 	return row_to_tag(rows[0])
 }
 
-fn tag_exec_find_all(conn voidptr) ![]Tag {
+fn tag_exec_find_all(conn voidptr) ![]models.Tag {
 	db := unsafe { &sqlite.DB(conn) }
 	rows := db.exec('SELECT * FROM tags ORDER BY id')!
-	mut result := []Tag{}
+	mut result := []models.Tag{}
 	for row in rows {
 		result << row_to_tag(row)
 	}
 	return result
 }
 
-fn tag_exec_insert(conn voidptr, t Tag) ! {
+fn tag_exec_insert(conn voidptr, t models.Tag) ! {
 	db := unsafe { &sqlite.DB(conn) }
 	params := [t.name, t.slug, t.created_at.str(), t.updated_at.str(), t.version.str()]
 	db.exec_param_many('INSERT INTO tags (name, slug, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?)', params)!
 }
 
-fn tag_exec_update(conn voidptr, t Tag) ! {
+fn tag_exec_update(conn voidptr, t models.Tag) ! {
 	db := unsafe { &sqlite.DB(conn) }
 	params := [t.name, t.slug, t.updated_at.str(), t.version.str(), t.id.str()]
 	db.exec_param_many('UPDATE tags SET name = ?, slug = ?, updated_at = ?, version = ? WHERE id = ?', params)!
@@ -727,14 +729,14 @@ fn tag_exec_exists(conn voidptr, id int) bool {
 // ── 仓储结构体 ──
 
 pub struct TagRepository {
-mut:
-	base &phorm.BaseRepository[Tag]
+pub:
+	base &phorm.BaseRepository[models.Tag]
 	db   &sqlite.DB
 }
 
 pub fn new_tag_repository(manager &phorm.OrmManager) !&TagRepository {
-	db := get_db(manager)!
-	base := phorm.new_repository[Tag](manager, 'default',
+	db := database.get_db(manager)!
+	base := phorm.new_repository[models.Tag](manager, 'default',
 		tag_exec_find, tag_exec_find_all, tag_exec_insert,
 		tag_exec_update, tag_exec_delete, tag_exec_count, tag_exec_exists)!
 	return &TagRepository{
@@ -745,7 +747,7 @@ pub fn new_tag_repository(manager &phorm.OrmManager) !&TagRepository {
 
 // ── CRUD 方法 ──
 
-pub fn (mut repo TagRepository) save(mut tag Tag) !Tag {
+pub fn (mut repo TagRepository) save(mut tag models.Tag) !models.Tag {
 	was_new := tag.is_new()
 	repo.base.save(mut tag)!
 	if was_new {
@@ -754,15 +756,15 @@ pub fn (mut repo TagRepository) save(mut tag Tag) !Tag {
 	return tag
 }
 
-pub fn (mut repo TagRepository) find_by_id(id int) !Tag {
+pub fn (mut repo TagRepository) find_by_id(id int) !models.Tag {
 	return repo.base.find_by_id(id)!
 }
 
-pub fn (mut repo TagRepository) find_all() ![]Tag {
+pub fn (mut repo TagRepository) find_all() ![]models.Tag {
 	return repo.base.find_all()!
 }
 
-pub fn (mut repo TagRepository) update(mut tag Tag) !Tag {
+pub fn (mut repo TagRepository) update(mut tag models.Tag) !models.Tag {
 	return repo.base.update(mut tag)!
 }
 
@@ -781,7 +783,7 @@ pub fn (repo &TagRepository) exists_by_id(id int) bool {
 // ── 派生查询 ──
 
 // find_by_slug 按 slug 查询标签
-pub fn (repo &TagRepository) find_by_slug(slug string) !Tag {
+pub fn (repo &TagRepository) find_by_slug(slug string) !models.Tag {
 	rows := repo.db.exec_param('SELECT * FROM tags WHERE slug = ?', slug)!
 	if rows.len == 0 {
 		return error('Tag not found: slug=${slug}')
@@ -815,10 +817,10 @@ pub fn (repo &TagRepository) detach_tag(post_id int, tag_id int) ! {
 }
 
 // find_tags_by_post 查询文章的所有标签
-pub fn (repo &TagRepository) find_tags_by_post(post_id int) ![]Tag {
+pub fn (repo &TagRepository) find_tags_by_post(post_id int) ![]models.Tag {
 	query := 'SELECT t.* FROM tags t INNER JOIN post_tags pt ON t.id = pt.tag_id WHERE pt.post_id = ? ORDER BY t.name'
 	rows := repo.db.exec_param(query, post_id.str())!
-	mut result := []Tag{}
+	mut result := []models.Tag{}
 	for row in rows {
 		result << row_to_tag(row)
 	}

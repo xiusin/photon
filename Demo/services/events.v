@@ -1,4 +1,4 @@
-module main
+module services
 
 // events.v — PhotonBlog 事件系统
 //

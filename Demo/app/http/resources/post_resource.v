@@ -1,4 +1,4 @@
-module main
+module resources
 
 // app/Http/Resources/post_resource.v — 文章 API Resource
 //

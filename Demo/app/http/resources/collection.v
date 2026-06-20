@@ -1,4 +1,4 @@
-module main
+module resources
 
 // app/Http/Resources/collection.v — 通用 Resource 集合
 //

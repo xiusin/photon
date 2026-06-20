@@ -1,4 +1,4 @@
-module main
+module migrations
 
 // 20260101000006_create_post_tags_table.v — 文章-标签关联表迁移
 //
@@ -7,8 +7,9 @@ module main
 
 import photon.orm as phorm
 import db.sqlite
+import database
 
-struct CreatePostTagsTable {}
+pub struct CreatePostTagsTable {}
 
 fn (m CreatePostTagsTable) version() int {
 	return 6
@@ -19,7 +20,7 @@ fn (m CreatePostTagsTable) name() string {
 }
 
 fn (m CreatePostTagsTable) up(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
+	db := database.get_db(&manager)!
 	mut schema := phorm.new_schema(.sqlite)
 	schema.create_table('post_tags', fn (mut t phorm.TableDef) {
 		t.id()
@@ -34,10 +35,10 @@ fn (m CreatePostTagsTable) up(mut manager phorm.OrmManager) ! {
 		t.index_(['post_id'], 'idx_post_tags_post')
 		t.index_(['tag_id'], 'idx_post_tags_tag')
 	})
-	execute_schema(db, schema)!
+	database.execute_schema(db, schema)!
 }
 
 fn (m CreatePostTagsTable) down(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
+	db := database.get_db(&manager)!
 	db.exec('DROP TABLE IF EXISTS post_tags')!
 }

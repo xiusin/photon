@@ -1,4 +1,4 @@
-module main
+module database
 
 // database.v — PhotonBlog 数据库连接与迁移
 //
@@ -17,6 +17,7 @@ module main
 
 import photon.orm as phorm
 import db.sqlite
+import config
 
 // 全局数据库连接，确保 sqlite.DB 在应用生命周期内存活
 __global (
@@ -31,7 +32,7 @@ __global (
 //
 // 根据 DatabaseConfig 创建 SQLite 连接，注册为 'default' 连接。
 // 支持 :memory: 内存数据库和文件路径两种模式。
-pub fn init_database(cfg DatabaseConfig) !&phorm.OrmManager {
+pub fn init_database(cfg config.DatabaseConfig) !&phorm.OrmManager {
 	unsafe {
 		g_db = sqlite.connect(cfg.path)!
 	}
@@ -51,7 +52,7 @@ pub fn get_db(om &phorm.OrmManager) !&sqlite.DB {
 // ═══════════════════════════════════════════════════════════
 
 // execute_schema 执行 Schema 构建器生成的所有 SQL 语句
-fn execute_schema(db &sqlite.DB, schema &phorm.Schema) ! {
+pub fn execute_schema(db &sqlite.DB, schema &phorm.Schema) ! {
 	for stmt in schema.statements {
 		db.exec(stmt)!
 	}
@@ -61,24 +62,13 @@ fn execute_schema(db &sqlite.DB, schema &phorm.Schema) ! {
 // 迁移管理入口
 // ═══════════════════════════════════════════════════════════
 
-// new_migration_manager 创建迁移管理器并注册所有迁移
+// new_migration_manager 创建迁移管理器（不注册具体迁移）
 //
-// 从 database/migrations/ 目录装配迁移实例，按版本号顺序注册到
-// MigrationManager。迁移结构体定义在 migrations/*.v 文件中（均为 module main），
-// 此处集中注册以便统一调度。新增迁移时只需在 migrations/ 目录创建文件
-// 并在此追加一行 mm.add(XxxTable{})。
+// 返回空的 MigrationManager，具体迁移由调用方通过 migrations.register_all() 注册。
+// 这避免了 database <-> migrations 的循环依赖。
 pub fn new_migration_manager(om &phorm.OrmManager) !&phorm.MigrationManager {
 	mut mm := phorm.new_migration_manager(om)
 	mm.set_db_name('default')
-
-	// 按版本顺序注册迁移（顺序由各迁移结构体的 version() 方法决定）
-	mm.add(CreateUsersTable{})       // v1: 用户表
-	mm.add(CreatePostsTable{})       // v2: 文章表
-	mm.add(CreateCommentsTable{})    // v3: 评论表
-	mm.add(CreateCategoriesTable{})  // v4: 分类表
-	mm.add(CreateTagsTable{})        // v5: 标签表
-	mm.add(CreatePostTagsTable{})    // v6: 文章-标签关联表
-
 	return mm
 }
 

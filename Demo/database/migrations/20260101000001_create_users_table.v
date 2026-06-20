@@ -1,4 +1,4 @@
-module main
+module migrations
 
 // 20260101000001_create_users_table.v — 用户表迁移
 //
@@ -8,8 +8,9 @@ module main
 
 import photon.orm as phorm
 import db.sqlite
+import database
 
-struct CreateUsersTable {}
+pub struct CreateUsersTable {}
 
 fn (m CreateUsersTable) version() int {
 	return 1
@@ -20,7 +21,7 @@ fn (m CreateUsersTable) name() string {
 }
 
 fn (m CreateUsersTable) up(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
+	db := database.get_db(&manager)!
 	mut schema := phorm.new_schema(.sqlite)
 	schema.create_table('users', fn (mut t phorm.TableDef) {
 		t.id()
@@ -46,10 +47,10 @@ fn (m CreateUsersTable) up(mut manager phorm.OrmManager) ! {
 		t.index_(['status'], 'idx_users_status')
 		t.index_(['role'], 'idx_users_role')
 	})
-	execute_schema(db, schema)!
+	database.execute_schema(db, schema)!
 }
 
 fn (m CreateUsersTable) down(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
+	db := database.get_db(&manager)!
 	db.exec('DROP TABLE IF EXISTS users')!
 }

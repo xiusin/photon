@@ -1,4 +1,4 @@
-module main
+module repositories
 
 // repository_filters.v — 仓储层升级：过滤查询 + 软删除 + 预加载辅助
 //
@@ -16,6 +16,7 @@ module main
 //
 // Laravel 等价：Eloquent's with() / where() / softDelete / withTrashed
 
+import models
 import time
 
 // ═══════════════════════════════════════════════════════════
@@ -88,7 +89,7 @@ fn (s SortSpec) to_sql() string {
 
 // find_with_filters 按条件过滤/排序/分页查询文章
 // 返回 (当前页文章, 总数)
-pub fn (repo &PostRepository) find_with_filters(filter PostFilter, sort_str string, page int, page_size int) !([]Post, int) {
+pub fn (repo &PostRepository) find_with_filters(filter PostFilter, sort_str string, page int, page_size int) !([]models.Post, int) {
 	mut where_clauses := []string{}
 	mut params := []string{}
 
@@ -147,7 +148,7 @@ pub fn (repo &PostRepository) find_with_filters(filter PostFilter, sort_str stri
 	// 查询当前页
 	query_sql := 'SELECT * FROM posts ${where_sql} ${order_sql} ${limit_sql}'
 	rows := repo.db.exec_param_many(query_sql, params)!
-	mut result := []Post{}
+	mut result := []models.Post{}
 	for row in rows {
 		result << row_to_post(row)
 	}
@@ -157,23 +158,23 @@ pub fn (repo &PostRepository) find_with_filters(filter PostFilter, sort_str stri
 
 // find_post_with_relations 查询文章并预加载关联（author/category/tags）
 // 应用层实现预加载，替代框架 EagerRepository stub
-pub fn (repo &PostRepository) find_post_with_relations(id int, user_repo &UserRepository, category_repo &CategoryRepository, tag_repo &TagRepository) !(Post, User, Category, []Tag) {
+pub fn (mut repo PostRepository) find_post_with_relations(id int, mut user_repo UserRepository, mut category_repo CategoryRepository, mut tag_repo TagRepository) !(models.Post, models.User, models.Category, []models.Tag) {
 	post := repo.find_by_id(id)!
 
 	// 预加载 author
-	mut author := User{}
+	mut author := models.User{}
 	if post.author_id > 0 {
-		author = user_repo.find_by_id(post.author_id) or { User{} }
+		author = user_repo.find_by_id(post.author_id) or { models.User{} }
 	}
 
 	// 预加载 category
-	mut category := Category{}
+	mut category := models.Category{}
 	if post.category_id > 0 {
-		category = category_repo.find_by_id(post.category_id) or { Category{} }
+		category = category_repo.find_by_id(post.category_id) or { models.Category{} }
 	}
 
 	// 预加载 tags
-	tags := tag_repo.find_tags_by_post(id) or { []Tag{} }
+	tags := tag_repo.find_tags_by_post(id) or { []models.Tag{} }
 
 	return post, author, category, tags
 }
@@ -184,7 +185,7 @@ pub fn (repo &PostRepository) find_post_with_relations(id int, user_repo &UserRe
 
 // find_with_filters 按条件过滤/排序/分页查询用户
 // 返回 (当前页用户, 总数)
-pub fn (repo &UserRepository) find_with_filters(filter UserFilter, sort_str string, page int, page_size int) !([]User, int) {
+pub fn (repo &UserRepository) find_with_filters(filter UserFilter, sort_str string, page int, page_size int) !([]models.User, int) {
 	mut where_clauses := []string{}
 	mut params := []string{}
 
@@ -231,7 +232,7 @@ pub fn (repo &UserRepository) find_with_filters(filter UserFilter, sort_str stri
 	// 查询当前页
 	query_sql := 'SELECT * FROM users ${where_sql} ${order_sql} ${limit_sql}'
 	rows := repo.db.exec_param_many(query_sql, params)!
-	mut result := []User{}
+	mut result := []models.User{}
 	for row in rows {
 		result << row_to_user(row)
 	}
@@ -257,7 +258,7 @@ pub fn (repo &UserRepository) force_delete(id int) ! {
 }
 
 // find_with_trashed 查询包含软删除记录的用户
-pub fn (repo &UserRepository) find_with_trashed(id int) !User {
+pub fn (repo &UserRepository) find_with_trashed(id int) !models.User {
 	rows := repo.db.exec_param('SELECT * FROM users WHERE id = ?', id.str())!
 	if rows.len == 0 {
 		return error('User not found: id=${id}')
@@ -266,9 +267,9 @@ pub fn (repo &UserRepository) find_with_trashed(id int) !User {
 }
 
 // find_only_trashed 查询仅软删除记录
-pub fn (repo &UserRepository) find_only_trashed() ![]User {
+pub fn (repo &UserRepository) find_only_trashed() ![]models.User {
 	rows := repo.db.exec('SELECT * FROM users WHERE status = -1 ORDER BY id')!
-	mut result := []User{}
+	mut result := []models.User{}
 	for row in rows {
 		result << row_to_user(row)
 	}
@@ -281,7 +282,7 @@ pub fn (repo &UserRepository) find_only_trashed() ![]User {
 
 // find_by_post_with_filters 按条件过滤查询某文章的评论
 // 返回 (当前页评论, 总数)
-pub fn (repo &CommentRepository) find_by_post_with_filters(post_id int, filter CommentFilter, sort_str string, page int, page_size int) !([]Comment, int) {
+pub fn (repo &CommentRepository) find_by_post_with_filters(post_id int, filter CommentFilter, sort_str string, page int, page_size int) !([]models.Comment, int) {
 	mut where_clauses := ['post_id = ?']
 	mut params := [post_id.str()]
 
@@ -311,7 +312,7 @@ pub fn (repo &CommentRepository) find_by_post_with_filters(post_id int, filter C
 	// 查询当前页
 	query_sql := 'SELECT * FROM comments ${where_sql} ${order_sql} ${limit_sql}'
 	rows := repo.db.exec_param_many(query_sql, params)!
-	mut result := []Comment{}
+	mut result := []models.Comment{}
 	for row in rows {
 		result << row_to_comment(row)
 	}
@@ -332,9 +333,9 @@ pub fn (mut repo CommentRepository) restore(id int) ! {
 }
 
 // find_with_trashed 查询包含软删除的评论
-pub fn (repo &CommentRepository) find_with_trashed(post_id int) ![]Comment {
+pub fn (repo &CommentRepository) find_with_trashed(post_id int) ![]models.Comment {
 	rows := repo.db.exec_param('SELECT * FROM comments WHERE post_id = ? ORDER BY created_at ASC', post_id.str())!
-	mut result := []Comment{}
+	mut result := []models.Comment{}
 	for row in rows {
 		result << row_to_comment(row)
 	}
@@ -358,9 +359,9 @@ pub fn (mut repo PostRepository) restore(id int) ! {
 }
 
 // find_only_archived 查询仅归档（软删除）的文章
-pub fn (repo &PostRepository) find_only_archived() ![]Post {
+pub fn (repo &PostRepository) find_only_archived() ![]models.Post {
 	rows := repo.db.exec("SELECT * FROM posts WHERE status = 'archived' ORDER BY id")!
-	mut result := []Post{}
+	mut result := []models.Post{}
 	for row in rows {
 		result << row_to_post(row)
 	}

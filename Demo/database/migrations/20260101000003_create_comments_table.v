@@ -1,4 +1,4 @@
-module main
+module migrations
 
 // 20260101000003_create_comments_table.v — 评论表迁移
 //
@@ -7,8 +7,9 @@ module main
 
 import photon.orm as phorm
 import db.sqlite
+import database
 
-struct CreateCommentsTable {}
+pub struct CreateCommentsTable {}
 
 fn (m CreateCommentsTable) version() int {
 	return 3
@@ -19,7 +20,7 @@ fn (m CreateCommentsTable) name() string {
 }
 
 fn (m CreateCommentsTable) up(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
+	db := database.get_db(&manager)!
 	mut schema := phorm.new_schema(.sqlite)
 	schema.create_table('comments', fn (mut t phorm.TableDef) {
 		t.id()
@@ -43,10 +44,10 @@ fn (m CreateCommentsTable) up(mut manager phorm.OrmManager) ! {
 		t.index_(['parent_id'], 'idx_comments_parent')
 		t.index_(['status'], 'idx_comments_status')
 	})
-	execute_schema(db, schema)!
+	database.execute_schema(db, schema)!
 }
 
 fn (m CreateCommentsTable) down(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
+	db := database.get_db(&manager)!
 	db.exec('DROP TABLE IF EXISTS comments')!
 }

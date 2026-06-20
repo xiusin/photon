@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/service_service_provider.v — 业务服务提供者
 //
@@ -9,6 +9,7 @@ module main
 // Spring 等价：@Service 注解的 Bean 自动装配
 
 import photon.core
+import services
 
 pub struct ServiceServiceProvider {
 	ctx &BootContext
@@ -41,14 +42,14 @@ pub fn (sp &ServiceServiceProvider) register(mut app_ctx core.ApplicationContext
 	cfg := sp.ctx.cfg
 
 	// 创建服务
-	user_svc := new_user_service(user_repo, event_bus, log)
-	auth_svc := new_auth_service(jwt_mgr, user_svc, role_hierarchy, log)
-	post_svc := new_post_service(post_repo, cache_mgr, lock_mgr, event_bus, log)
-	comment_svc := new_comment_service(comment_repo, event_bus, log)
-	category_svc := new_category_service(category_repo, log)
-	tag_svc := new_tag_service(tag_repo, log)
-	stats_svc := new_stats_service(user_repo, post_repo, comment_repo, cache_mgr, lock_mgr, log)
-	upload_svc := new_upload_service(storage_mgr, upload_handler, cfg.storage.base_path, log)
+	user_svc := services.new_user_service(user_repo, event_bus, log)
+	auth_svc := services.new_auth_service(jwt_mgr, user_svc, role_hierarchy, log)
+	post_svc := services.new_post_service(post_repo, cache_mgr, lock_mgr, event_bus, log)
+	comment_svc := services.new_comment_service(comment_repo, event_bus, log)
+	category_svc := services.new_category_service(category_repo, log)
+	tag_svc := services.new_tag_service(tag_repo, log)
+	stats_svc := services.new_stats_service(user_repo, post_repo, comment_repo, cache_mgr, lock_mgr, log)
+	upload_svc := services.new_upload_service(storage_mgr, upload_handler, cfg.storage.base_path, log)
 
 	sp.ctx.user_svc = user_svc
 	sp.ctx.auth_svc = auth_svc

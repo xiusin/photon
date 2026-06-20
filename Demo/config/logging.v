@@ -1,4 +1,4 @@
-module main
+module config
 
 // config/logging.v — 日志配置
 //

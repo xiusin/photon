@@ -1,4 +1,4 @@
-module main
+module routes
 
 // routes/api.v — API 路由定义与中间件组配置
 //

@@ -1,4 +1,4 @@
-module main
+module services
 
 // scheduler.v — PhotonBlog 定时调度任务
 //

@@ -1,6 +1,6 @@
-module main
+module util
 
-// helpers.v — PhotonBlog 集中式工具函数
+// util.v — PhotonBlog 集中式工具函数
 //
 // 将分散在各模块中的通用工具函数集中管理，降低心智成本、提升复用性：
 //   1. generate_request_id  — UUID v4 风格请求 ID（原 middleware.v）

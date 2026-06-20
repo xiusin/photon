@@ -24,8 +24,14 @@ module main
 
 import photon.cli
 import photon.web
+import photon.orm as phorm
 import time
 import os
+import bootstrap
+import database
+import services
+import database.seeders
+import database.migrations
 
 // ═══════════════════════════════════════════════════════════
 // ServeCommand — 启动 Web 服务
@@ -33,7 +39,7 @@ import os
 
 pub struct ServeCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
 // new_serve_command 创建启动 Web 服务的命令
@@ -69,7 +75,7 @@ pub fn (c &ServeCommand) execute(input &cli.CommandInput, output &cli.CommandOut
 
 pub struct MigrateCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
 pub fn new_migrate_command(boot &Bootstrap) &MigrateCommand {
@@ -86,8 +92,9 @@ pub fn new_migrate_command(boot &Bootstrap) &MigrateCommand {
 pub fn (c &MigrateCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Running database migrations')
 
-	mm := new_migration_manager(c.bootstrap.orm_mgr)!
-	run_migrations(mm) or {
+	mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
+	database.migrations.register_all(mut mm)
+	database.run_migrations(mm) or {
 		output.error('Migration failed: ${err}')
 		return
 	}
@@ -102,7 +109,7 @@ pub fn (c &MigrateCommand) execute(input &cli.CommandInput, output &cli.CommandO
 
 pub struct MigrateRollbackCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
 pub fn new_migrate_rollback_command(boot &Bootstrap) &MigrateRollbackCommand {
@@ -119,7 +126,8 @@ pub fn new_migrate_rollback_command(boot &Bootstrap) &MigrateRollbackCommand {
 pub fn (c &MigrateRollbackCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Rolling back database migrations')
 
-	mm := new_migration_manager(c.bootstrap.orm_mgr)!
+	mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
+	database.migrations.register_all(mut mm)
 	rollback_migrations(mm) or {
 		output.error('Rollback failed: ${err}')
 		return
@@ -135,7 +143,7 @@ pub fn (c &MigrateRollbackCommand) execute(input &cli.CommandInput, output &cli.
 
 pub struct MigrateStatusCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
 pub fn new_migrate_status_command(boot &Bootstrap) &MigrateStatusCommand {
@@ -152,7 +160,8 @@ pub fn new_migrate_status_command(boot &Bootstrap) &MigrateStatusCommand {
 pub fn (c &MigrateStatusCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Migration Status')
 
-	mm := new_migration_manager(c.bootstrap.orm_mgr)!
+	mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
+	database.migrations.register_all(mut mm)
 	migration_status(mm) or {
 		output.error('Failed to get migration status: ${err}')
 		return
@@ -169,7 +178,7 @@ pub fn (c &MigrateStatusCommand) execute(input &cli.CommandInput, output &cli.Co
 
 pub struct MigrateFreshCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
 pub fn new_migrate_fresh_command(boot &Bootstrap) &MigrateFreshCommand {
@@ -186,7 +195,8 @@ pub fn new_migrate_fresh_command(boot &Bootstrap) &MigrateFreshCommand {
 pub fn (c &MigrateFreshCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Fresh migration (drop all + re-migrate)')
 
-	mm := new_migration_manager(c.bootstrap.orm_mgr)!
+	mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
+	database.migrations.register_all(mut mm)
 	fresh_migrations(mm) or {
 		output.error('Fresh migration failed: ${err}')
 		return
@@ -212,7 +222,7 @@ pub fn (c &MigrateFreshCommand) execute(input &cli.CommandInput, output &cli.Com
 
 pub struct MigrateRefreshCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
 pub fn new_migrate_refresh_command(boot &Bootstrap) &MigrateRefreshCommand {
@@ -229,7 +239,8 @@ pub fn new_migrate_refresh_command(boot &Bootstrap) &MigrateRefreshCommand {
 pub fn (c &MigrateRefreshCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Refresh migration (rollback all + re-migrate)')
 
-	mm := new_migration_manager(c.bootstrap.orm_mgr)!
+	mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
+	database.migrations.register_all(mut mm)
 
 	// 1. 回滚所有迁移
 	output.writeln('  Rolling back all migrations...')
@@ -241,7 +252,7 @@ pub fn (c &MigrateRefreshCommand) execute(input &cli.CommandInput, output &cli.C
 
 	// 2. 重新执行迁移
 	output.writeln('  Re-running migrations...')
-	run_migrations(mm) or {
+	database.run_migrations(mm) or {
 		output.error('Re-migration failed: ${err}')
 		return
 	}
@@ -264,7 +275,7 @@ pub fn (c &MigrateRefreshCommand) execute(input &cli.CommandInput, output &cli.C
 
 pub struct MigrateResetCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
 pub fn new_migrate_reset_command(boot &Bootstrap) &MigrateResetCommand {
@@ -281,7 +292,8 @@ pub fn new_migrate_reset_command(boot &Bootstrap) &MigrateResetCommand {
 pub fn (c &MigrateResetCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Reset migration (rollback all)')
 
-	mm := new_migration_manager(c.bootstrap.orm_mgr)!
+	mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
+	database.migrations.register_all(mut mm)
 	reset_migrations(mm) or {
 		output.error('Reset failed: ${err}')
 		return
@@ -297,7 +309,7 @@ pub fn (c &MigrateResetCommand) execute(input &cli.CommandInput, output &cli.Com
 
 pub struct SeedCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
 pub fn new_seed_command(boot &Bootstrap) &SeedCommand {
@@ -331,7 +343,7 @@ pub fn (c &SeedCommand) execute(input &cli.CommandInput, output &cli.CommandOutp
 
 pub struct QueueWorkCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
 pub fn new_queue_work_command(boot &Bootstrap) &QueueWorkCommand {
@@ -364,7 +376,7 @@ pub fn (c &QueueWorkCommand) execute(input &cli.CommandInput, output &cli.Comman
 
 pub struct SchedulerRunCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
 pub fn new_scheduler_run_command(boot &Bootstrap) &SchedulerRunCommand {
@@ -403,7 +415,7 @@ pub fn (c &SchedulerRunCommand) execute(input &cli.CommandInput, output &cli.Com
 
 pub struct StatsCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
 pub fn new_stats_command(boot &Bootstrap) &StatsCommand {
@@ -447,7 +459,7 @@ pub fn (c &StatsCommand) execute(input &cli.CommandInput, output &cli.CommandOut
 
 pub struct RoutesCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
 pub fn new_routes_command(boot &Bootstrap) &RoutesCommand {
@@ -490,7 +502,7 @@ pub fn (c &RoutesCommand) execute(input &cli.CommandInput, output &cli.CommandOu
 
 pub struct DocsCommand {
 	cli.BaseCommand
-	bootstrap &Bootstrap = unsafe { nil }
+	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
 pub fn new_docs_command(boot &Bootstrap) &DocsCommand {

@@ -1,4 +1,4 @@
-module main
+module services
 
 // services.v — PhotonBlog 业务服务层
 //
@@ -33,6 +33,10 @@ import photon.http
 import json
 import os
 import time
+import models
+import repositories
+import database
+import util
 
 // ═══════════════════════════════════════════════════════════
 // BlogStats — 博客统计聚合数据
@@ -82,14 +86,14 @@ pub fn fetch_github_avatar(username string) !string {
 
 pub struct UserService {
 pub:
-	repo      &UserRepository
+	repo      &repositories.UserRepository
 	hasher    security.BcryptHasher
 	event_bus &core.EventBus
 	logger    &logger.Logger
 }
 
 // new_user_service 创建用户服务，注入仓储、事件总线和日志
-pub fn new_user_service(repo &UserRepository, event_bus &core.EventBus, log &logger.Logger) &UserService {
+pub fn new_user_service(repo &repositories.UserRepository, event_bus &core.EventBus, log &logger.Logger) &UserService {
 	return unsafe {
 		&UserService{
 			repo:      repo
@@ -103,7 +107,7 @@ pub fn new_user_service(repo &UserRepository, event_bus &core.EventBus, log &log
 // register 注册新用户：校验唯一性 → 哈希密码 → （可选）获取 GitHub 头像 → 事务持久化 → 分发 user.registered 事件
 // 返回 (创建的用户, 欢迎消息)
 @[transactional]
-pub fn (mut s UserService) register(dto CreateUserDto) !(User, string) {
+pub fn (mut s UserService) register(dto models.CreateUserDto) !(models.User, string) {
 	// 校验用户名唯一性（事务前只读检查）
 	if s.repo.exists_by_username(dto.username) {
 		return error('用户名已存在 / username already exists: ${dto.username}')
@@ -129,7 +133,7 @@ pub fn (mut s UserService) register(dto CreateUserDto) !(User, string) {
 	}
 
 	// 构建用户实体
-	mut user := User{
+	mut user := models.User{
 		username: dto.username
 		email:    dto.email
 		password: hashed
@@ -167,7 +171,7 @@ pub fn (mut s UserService) register(dto CreateUserDto) !(User, string) {
 }
 
 // login 用户登录：校验凭证 → 分发 user.logged_in 事件
-pub fn (mut s UserService) login(dto LoginDto) !User {
+pub fn (mut s UserService) login(dto models.LoginDto) !models.User {
 	user := s.repo.find_by_username(dto.username) or {
 		return error('用户名或密码错误 / invalid username or password')
 	}
@@ -196,24 +200,24 @@ pub fn (mut s UserService) login(dto LoginDto) !User {
 }
 
 // find_by_id 按 ID 查询用户
-pub fn (mut s UserService) find_by_id(id int) !User {
+pub fn (mut s UserService) find_by_id(id int) !models.User {
 	mut repo := s.repo
 	return repo.find_by_id(id)!
 }
 
 // find_by_username 按用户名查询用户
-pub fn (s &UserService) find_by_username(username string) !User {
+pub fn (s &UserService) find_by_username(username string) !models.User {
 	return s.repo.find_by_username(username)!
 }
 
 // find_all 查询所有用户
-pub fn (mut s UserService) find_all() ![]User {
+pub fn (mut s UserService) find_all() ![]models.User {
 	mut repo := s.repo
 	return repo.find_all()!
 }
 
 // update 更新用户信息
-pub fn (mut s UserService) update(id int, dto UpdateUserDto) !User {
+pub fn (mut s UserService) update(id int, dto models.UpdateUserDto) !models.User {
 	mut repo := s.repo
 	mut user := repo.find_by_id(id)!
 
@@ -271,8 +275,8 @@ pub fn (s &UserService) verify_password(password string, hash string) bool {
 }
 
 // to_profile_dto 将 User 实体转换为 UserProfileDto（脱敏，不含密码）
-pub fn (s &UserService) to_profile_dto(u &User) UserProfileDto {
-	return UserProfileDto{
+pub fn (s &UserService) to_profile_dto(u &models.User) models.UserProfileDto {
+	return models.UserProfileDto{
 		id:       u.id
 		username: u.username
 		nickname: u.nickname
@@ -310,7 +314,7 @@ pub fn new_auth_service(jwt_mgr &security.JwtManager, user_svc &UserService, rol
 
 // generate_token 为用户生成 JWT 访问令牌 + 刷新令牌
 // 返回 (access_token, refresh_token)
-pub fn (s &AuthService) generate_token(user &User) !(string, string) {
+pub fn (s &AuthService) generate_token(user &models.User) !(string, string) {
 	roles := [user.role]
 	access_token := s.jwt_manager.create_token(user.username, roles)!
 	refresh_token := s.jwt_manager.create_refresh_token(user.username)!
@@ -376,9 +380,9 @@ pub fn (s &AuthService) check_any_permission(user_roles []string, required_roles
 }
 
 // build_login_response 构建登录响应 DTO（令牌 + 用户信息）
-pub fn (mut s AuthService) build_login_response(user &User) !LoginResponseDto {
+pub fn (mut s AuthService) build_login_response(user &models.User) !models.LoginResponseDto {
 	access_token, refresh_token := s.generate_token(user)!
-	return LoginResponseDto{
+	return models.LoginResponseDto{
 		access_token:  access_token
 		token_type:    'Bearer'
 		expires_in:    3600
@@ -393,7 +397,7 @@ pub fn (mut s AuthService) build_login_response(user &User) !LoginResponseDto {
 
 pub struct PostService {
 pub:
-	repo      &PostRepository
+	repo      &repositories.PostRepository
 	cache     &cache.CacheManager
 	lock_mgr  &locking.LockManager
 	event_bus &core.EventBus
@@ -401,7 +405,7 @@ pub:
 }
 
 // new_post_service 创建文章服务，注入仓储、缓存、锁、事件总线和日志
-pub fn new_post_service(repo &PostRepository, cm &cache.CacheManager, lm &locking.LockManager, bus &core.EventBus, log &logger.Logger) &PostService {
+pub fn new_post_service(repo &repositories.PostRepository, cm &cache.CacheManager, lm &locking.LockManager, bus &core.EventBus, log &logger.Logger) &PostService {
 	return unsafe {
 		&PostService{
 			repo:      repo
@@ -415,8 +419,8 @@ pub fn new_post_service(repo &PostRepository, cm &cache.CacheManager, lm &lockin
 
 // create 创建文章：持久化 → 若为 published 状态则分发 post.published 事件
 @[transactional]
-pub fn (mut s PostService) create(dto CreatePostDto) !Post {
-	mut post := Post{
+pub fn (mut s PostService) create(dto models.CreatePostDto) !models.Post {
+	mut post := models.Post{
 		title:       dto.title
 		content:     dto.content
 		summary:     dto.summary
@@ -450,7 +454,7 @@ pub fn (mut s PostService) create(dto CreatePostDto) !Post {
 // find_by_id 查询文章详情（带缓存 + Singleflight 削峰）
 // 缓存策略：使用 CacheManager.get_or_load 内置 Singleflight 防止缓存击穿，
 // TTL 1 小时。缓存损坏时删除脏键并回源。
-pub fn (mut s PostService) find_by_id(id int) !Post {
+pub fn (mut s PostService) find_by_id(id int) !models.Post {
 	cache_key := 'posts:${id}'
 	mut cm := s.cache
 	repo := s.repo
@@ -463,7 +467,7 @@ pub fn (mut s PostService) find_by_id(id int) !Post {
 	})!
 
 	// 解码缓存，失败则删除损坏缓存并回源
-	post := json.decode(Post, cached) or {
+	post := json.decode(models.Post, cached) or {
 		cm.delete(cache_key) or {}
 		mut r := repo
 		return r.find_by_id(id)!
@@ -473,13 +477,13 @@ pub fn (mut s PostService) find_by_id(id int) !Post {
 }
 
 // find_all 查询所有文章
-pub fn (mut s PostService) find_all() ![]Post {
+pub fn (mut s PostService) find_all() ![]models.Post {
 	mut repo := s.repo
 	return repo.find_all()!
 }
 
 // find_published 查询所有已发布文章（带缓存 + Singleflight 削峰）
-pub fn (mut s PostService) find_published() ![]Post {
+pub fn (mut s PostService) find_published() ![]models.Post {
 	cache_key := 'posts:published'
 	mut cm := s.cache
 	repo := s.repo
@@ -492,7 +496,7 @@ pub fn (mut s PostService) find_published() ![]Post {
 	})!
 
 	// 解码缓存，失败则删除损坏缓存并回源
-	posts := json.decode([]Post, cached) or {
+	posts := json.decode([]models.Post, cached) or {
 		cm.delete(cache_key) or {}
 		mut r := repo
 		return r.find_published()!
@@ -502,18 +506,18 @@ pub fn (mut s PostService) find_published() ![]Post {
 }
 
 // find_by_author 查询某作者的所有文章
-pub fn (s &PostService) find_by_author(author_id int) ![]Post {
+pub fn (s &PostService) find_by_author(author_id int) ![]models.Post {
 	return s.repo.find_by_author(author_id)!
 }
 
 // find_by_category 查询某分类下的所有文章
-pub fn (s &PostService) find_by_category(category_id int) ![]Post {
+pub fn (s &PostService) find_by_category(category_id int) ![]models.Post {
 	return s.repo.find_by_category(category_id)!
 }
 
 // update 更新文章：LockGuard 加锁 → 事务更新 → TaggedCache 失效 → 分发 post.updated 事件
 @[transactional]
-pub fn (mut s PostService) update(id int, dto UpdatePostDto) !Post {
+pub fn (mut s PostService) update(id int, dto models.UpdatePostDto) !models.Post {
 	// 使用 LockGuard RAII 防止并发更新冲突（defer 保证释放）
 	mut lm := s.lock_mgr
 	guard := locking.new_lock_guard(mut lm, 'post:update:${id}')
@@ -612,7 +616,7 @@ pub fn (mut s PostService) increment_views(id int) ! {
 }
 
 // publish 发布文章：LockGuard 加锁 → 更新状态 → TaggedCache 失效 → 分发 post.published 事件
-pub fn (mut s PostService) publish(id int) !Post {
+pub fn (mut s PostService) publish(id int) !models.Post {
 	// 使用 LockGuard 防止并发发布冲突
 	mut lm := s.lock_mgr
 	guard := locking.new_lock_guard(mut lm, 'post:publish:${id}')
@@ -647,7 +651,7 @@ pub fn (s &PostService) count_by_status(status string) !int {
 }
 
 // dispatch_published_event 分发文章发布事件（内部辅助方法）
-fn (mut s PostService) dispatch_published_event(post Post) {
+fn (mut s PostService) dispatch_published_event(post models.Post) {
 	mut bus := s.event_bus
 	event := core.new_event_with_data(event_post_published, post.title, {
 		'post_id': post.id.str()
@@ -662,13 +666,13 @@ fn (mut s PostService) dispatch_published_event(post Post) {
 
 pub struct CommentService {
 pub:
-	repo      &CommentRepository
+	repo      &repositories.CommentRepository
 	event_bus &core.EventBus
 	logger    &logger.Logger
 }
 
 // new_comment_service 创建评论服务，注入仓储、事件总线和日志
-pub fn new_comment_service(repo &CommentRepository, bus &core.EventBus, log &logger.Logger) &CommentService {
+pub fn new_comment_service(repo &repositories.CommentRepository, bus &core.EventBus, log &logger.Logger) &CommentService {
 	return unsafe {
 		&CommentService{
 			repo:      repo
@@ -680,8 +684,8 @@ pub fn new_comment_service(repo &CommentRepository, bus &core.EventBus, log &log
 
 // create 创建评论：事务持久化评论 + 更新文章活动时间 → 分发 comment.posted 事件
 @[transactional]
-pub fn (mut s CommentService) create(dto CreateCommentDto) !Comment {
-	mut comment := Comment{
+pub fn (mut s CommentService) create(dto models.CreateCommentDto) !models.Comment {
+	mut comment := models.Comment{
 		post_id:   dto.post_id
 		user_id:   dto.user_id
 		content:   dto.content
@@ -721,18 +725,18 @@ pub fn (mut s CommentService) create(dto CreateCommentDto) !Comment {
 }
 
 // find_by_id 查询评论详情
-pub fn (mut s CommentService) find_by_id(id int) !Comment {
+pub fn (mut s CommentService) find_by_id(id int) !models.Comment {
 	mut repo := s.repo
 	return repo.find_by_id(id)!
 }
 
 // find_by_post 查询某文章的所有评论
-pub fn (s &CommentService) find_by_post(post_id int) ![]Comment {
+pub fn (s &CommentService) find_by_post(post_id int) ![]models.Comment {
 	return s.repo.find_by_post(post_id)!
 }
 
 // find_replies 查询某评论的子评论（嵌套评论）
-pub fn (s &CommentService) find_replies(parent_id int) ![]Comment {
+pub fn (s &CommentService) find_replies(parent_id int) ![]models.Comment {
 	return s.repo.find_by_parent(parent_id)!
 }
 
@@ -757,12 +761,12 @@ pub fn (s &CommentService) count_by_post(post_id int) !int {
 
 pub struct CategoryService {
 pub:
-	repo   &CategoryRepository
+	repo   &repositories.CategoryRepository
 	logger &logger.Logger
 }
 
 // new_category_service 创建分类服务
-pub fn new_category_service(repo &CategoryRepository, log &logger.Logger) &CategoryService {
+pub fn new_category_service(repo &repositories.CategoryRepository, log &logger.Logger) &CategoryService {
 	return unsafe {
 		&CategoryService{
 			repo:   repo
@@ -772,7 +776,7 @@ pub fn new_category_service(repo &CategoryRepository, log &logger.Logger) &Categ
 }
 
 // create 创建分类：自动生成 slug（若未提供）→ 校验唯一性 → 持久化
-pub fn (mut s CategoryService) create(dto CreateCategoryDto) !Category {
+pub fn (mut s CategoryService) create(dto models.CreateCategoryDto) !models.Category {
 	// 生成 slug（若未提供，从 name 生成）
 	mut slug := dto.slug
 	if slug.len == 0 {
@@ -784,7 +788,7 @@ pub fn (mut s CategoryService) create(dto CreateCategoryDto) !Category {
 		return error('分类 slug 已存在 / category slug already exists: ${slug}')
 	}
 
-	mut category := Category{
+	mut category := models.Category{
 		name:        dto.name
 		slug:        slug
 		description: dto.description
@@ -798,24 +802,24 @@ pub fn (mut s CategoryService) create(dto CreateCategoryDto) !Category {
 }
 
 // find_by_id 查询分类详情
-pub fn (mut s CategoryService) find_by_id(id int) !Category {
+pub fn (mut s CategoryService) find_by_id(id int) !models.Category {
 	mut repo := s.repo
 	return repo.find_by_id(id)!
 }
 
 // find_all 查询所有分类
-pub fn (mut s CategoryService) find_all() ![]Category {
+pub fn (mut s CategoryService) find_all() ![]models.Category {
 	mut repo := s.repo
 	return repo.find_all()!
 }
 
 // find_by_slug 按 slug 查询分类
-pub fn (s &CategoryService) find_by_slug(slug string) !Category {
+pub fn (s &CategoryService) find_by_slug(slug string) !models.Category {
 	return s.repo.find_by_slug(slug)!
 }
 
 // update 更新分类
-pub fn (mut s CategoryService) update(id int, dto CreateCategoryDto) !Category {
+pub fn (mut s CategoryService) update(id int, dto models.CreateCategoryDto) !models.Category {
 	mut repo := s.repo
 	mut category := repo.find_by_id(id)!
 
@@ -850,12 +854,12 @@ pub fn (s &CategoryService) delete(id int) ! {
 
 pub struct TagService {
 pub:
-	repo   &TagRepository
+	repo   &repositories.TagRepository
 	logger &logger.Logger
 }
 
 // new_tag_service 创建标签服务
-pub fn new_tag_service(repo &TagRepository, log &logger.Logger) &TagService {
+pub fn new_tag_service(repo &repositories.TagRepository, log &logger.Logger) &TagService {
 	return unsafe {
 		&TagService{
 			repo:   repo
@@ -865,7 +869,7 @@ pub fn new_tag_service(repo &TagRepository, log &logger.Logger) &TagService {
 }
 
 // create 创建标签：自动生成 slug → 校验唯一性 → 持久化
-pub fn (mut s TagService) create(dto CreateTagDto) !Tag {
+pub fn (mut s TagService) create(dto models.CreateTagDto) !models.Tag {
 	// 生成 slug
 	mut slug := dto.slug
 	if slug.len == 0 {
@@ -877,7 +881,7 @@ pub fn (mut s TagService) create(dto CreateTagDto) !Tag {
 		return error('标签 slug 已存在 / tag slug already exists: ${slug}')
 	}
 
-	mut tag := Tag{
+	mut tag := models.Tag{
 		name: dto.name
 		slug: slug
 	}
@@ -890,24 +894,24 @@ pub fn (mut s TagService) create(dto CreateTagDto) !Tag {
 }
 
 // find_by_id 查询标签详情
-pub fn (mut s TagService) find_by_id(id int) !Tag {
+pub fn (mut s TagService) find_by_id(id int) !models.Tag {
 	mut repo := s.repo
 	return repo.find_by_id(id)!
 }
 
 // find_all 查询所有标签
-pub fn (mut s TagService) find_all() ![]Tag {
+pub fn (mut s TagService) find_all() ![]models.Tag {
 	mut repo := s.repo
 	return repo.find_all()!
 }
 
 // find_by_slug 按 slug 查询标签
-pub fn (s &TagService) find_by_slug(slug string) !Tag {
+pub fn (s &TagService) find_by_slug(slug string) !models.Tag {
 	return s.repo.find_by_slug(slug)!
 }
 
 // update 更新标签
-pub fn (mut s TagService) update(id int, dto CreateTagDto) !Tag {
+pub fn (mut s TagService) update(id int, dto models.CreateTagDto) !models.Tag {
 	mut repo := s.repo
 	mut tag := repo.find_by_id(id)!
 
@@ -946,7 +950,7 @@ pub fn (s &TagService) detach_tag(post_id int, tag_id int) ! {
 }
 
 // find_tags_by_post 查询文章的所有标签
-pub fn (s &TagService) find_tags_by_post(post_id int) ![]Tag {
+pub fn (s &TagService) find_tags_by_post(post_id int) ![]models.Tag {
 	return s.repo.find_tags_by_post(post_id)!
 }
 
@@ -961,16 +965,16 @@ pub fn (s &TagService) find_post_ids_by_tag(tag_id int) ![]int {
 
 pub struct StatsService {
 pub:
-	user_repo    &UserRepository
-	post_repo    &PostRepository
-	comment_repo &CommentRepository
+	user_repo    &repositories.UserRepository
+	post_repo    &repositories.PostRepository
+	comment_repo &repositories.CommentRepository
 	cache        &cache.CacheManager
 	lock_mgr     &locking.LockManager
 	logger       &logger.Logger
 }
 
 // new_stats_service 创建统计服务，注入各仓储、缓存和锁管理器
-pub fn new_stats_service(user_repo &UserRepository, post_repo &PostRepository, comment_repo &CommentRepository, cm &cache.CacheManager, lm &locking.LockManager, log &logger.Logger) &StatsService {
+pub fn new_stats_service(user_repo &repositories.UserRepository, post_repo &repositories.PostRepository, comment_repo &repositories.CommentRepository, cm &cache.CacheManager, lm &locking.LockManager, log &logger.Logger) &StatsService {
 	return unsafe {
 		&StatsService{
 			user_repo:    user_repo

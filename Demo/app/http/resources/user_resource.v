@@ -1,4 +1,4 @@
-module main
+module resources
 
 // app/Http/Resources/user_resource.v — 用户 API Resource
 //

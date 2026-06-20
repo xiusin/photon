@@ -1,4 +1,4 @@
-module main
+module bootstrap
 
 // bootstrap/console.v — 控制台输出工具
 //
@@ -25,8 +25,10 @@ pub fn (b &Bootstrap) print_banner() {
 	println('')
 }
 
-// print_routes 打印路由表（从实际控制器扫描，非硬编码）
-pub fn (b &Bootstrap) print_routes() {
-	routes := web.scan_controller[App]()
+// print_routes 打印路由表（接收从 main 模块扫描的路由列表）
+// 注：App 类型在 module main 中定义，无法跨模块引用，
+// 因此路由扫描由 main.v 调用 web.scan_controller[App]() 完成，
+// 结果传递给本函数打印。
+pub fn print_routes(routes []web.RouteInfo) {
 	web.print_routes(routes)
 }

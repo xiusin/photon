@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/auth_service_provider.v — 认证授权服务提供者
 //
@@ -40,7 +40,7 @@ pub fn (sp &AuthServiceProvider) register(mut app_ctx core.ApplicationContext) !
 	// 解析配置中的角色层级字符串（如 "ADMIN>EDITOR>USER"）
 	hierarchy_pairs := parse_role_hierarchy(cfg.auth.role_hierarchy)
 	for pair in hierarchy_pairs {
-		rh.add_role(pair.$0, pair.$1)
+		rh.add_role(pair.role, pair.subordinates)
 	}
 	sp.ctx.role_hierarchy = rh
 

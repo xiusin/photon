@@ -1,4 +1,4 @@
-module main
+module models
 
 // models.v — PhotonBlog 实体模型与 DTO
 //

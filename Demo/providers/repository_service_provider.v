@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/repository_service_provider.v — 仓储服务提供者
 //
@@ -8,6 +8,7 @@ module main
 // Spring 等价：@Repository + JpaRepositoryFactoryBean
 
 import photon.core
+import repositories
 
 pub struct RepositoryServiceProvider {
 	ctx &BootContext
@@ -25,11 +26,11 @@ pub fn (sp &RepositoryServiceProvider) register(mut app_ctx core.ApplicationCont
 	log := sp.ctx.log
 	orm_mgr := sp.ctx.orm_mgr
 
-	user_repo := new_user_repository(orm_mgr)!
-	post_repo := new_post_repository(orm_mgr)!
-	comment_repo := new_comment_repository(orm_mgr)!
-	category_repo := new_category_repository(orm_mgr)!
-	tag_repo := new_tag_repository(orm_mgr)!
+	user_repo := repositories.new_user_repository(orm_mgr)!
+	post_repo := repositories.new_post_repository(orm_mgr)!
+	comment_repo := repositories.new_comment_repository(orm_mgr)!
+	category_repo := repositories.new_category_repository(orm_mgr)!
+	tag_repo := repositories.new_tag_repository(orm_mgr)!
 
 	sp.ctx.user_repo = user_repo
 	sp.ctx.post_repo = post_repo

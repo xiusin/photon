@@ -1,4 +1,4 @@
-module main
+module factories
 
 // post_factory.v — PostFactory 模型工厂
 //
@@ -15,11 +15,13 @@ module main
 //   post := new_post_factory(boot).with_author(admin_id).make()
 
 import time
+import bootstrap
+import models
 
 // PostFactory 文章模型工厂
 pub struct PostFactory {
 pub:
-	bootstrap &Bootstrap
+	bootstrap &bootstrap.Bootstrap
 mut:
 	title       string
 	content     string
@@ -31,7 +33,7 @@ mut:
 
 // new_post_factory 创建文章工厂实例，填充默认属性
 // 注：author_id 必须由调用方通过 with_author() 设置
-pub fn new_post_factory(boot &Bootstrap) PostFactory {
+pub fn new_post_factory(boot &bootstrap.Bootstrap) PostFactory {
 	suffix := time.now().unix().str() + '_' + rand_int_str(4)
 	return PostFactory{
 		bootstrap:   boot
@@ -80,8 +82,8 @@ pub fn (f PostFactory) with_status(status string) PostFactory {
 }
 
 // make 构建文章实体（不持久化）
-pub fn (f PostFactory) make() Post {
-	return Post{
+pub fn (f PostFactory) make() models.Post {
+	return models.Post{
 		title:       f.title
 		content:     f.content
 		summary:     f.summary
@@ -95,11 +97,11 @@ pub fn (f PostFactory) make() Post {
 // create 持久化文章到数据库并返回实体
 //
 // 通过 PostService.create() 持久化，自动处理缓存失效与事件分发。
-pub fn (f PostFactory) create() !Post {
+pub fn (f PostFactory) create() !models.Post {
 	if f.author_id == 0 {
 		return error('PostFactory.create: author_id 未设置，请先调用 with_author() / author_id not set')
 	}
-	dto := CreatePostDto{
+	dto := models.CreatePostDto{
 		title:       f.title
 		content:     f.content
 		summary:     f.summary

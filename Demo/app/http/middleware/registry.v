@@ -12,24 +12,12 @@ module main
 // 中间件参数从 config/web.v 读取：
 //   CORS allowed_origins/methods/headers
 //   RateLimit max_requests/window_secs
-//
-// 设计说明：
-//   框架 web.MiddlewareGroupRegistry 基于 web.MiddlewareContext（包装 &veb.Context），
-//   其参数化中间件（throttle_middleware/role_middleware/cors_configurable_middleware）
-//   签名为 fn(mut &MiddlewareContext) !bool，与 Demo 基于 veb.Context 的中间件链不兼容。
-//   本注册表为 Demo 专用，复用 Demo 中间件实现（直接操作 veb.Context），
-//   同时保留命名组元数据供路由层与文档生成使用。
-//
-//   security.SecurityFilterChain 同样基于 &veb.Context，但其内置 CSRF/JWT/角色校验
-//   与本注册表职责重叠。为保持单一中间件编排入口与类型安全的 Demo Context 访问，
-//   Demo 选择自研 MiddlewareGroupRegistry，仅在 CsrfMiddleware 内部复用
-//   security.CsrfManager 的 token 生成与校验能力。
-//
-// Laravel 等价：App\Http\Kernel::$middlewareGroups + $routeMiddleware
 
 import photon.logger
 import photon.security
 import photon.web
+import config
+import services
 
 // ═══════════════════════════════════════════════════════════
 // MiddlewareGroupRegistry — 中间件组注册表
@@ -54,8 +42,8 @@ pub mut:
 // 从 WebConfig 读取 CORS 与限流参数，装配所有中间件实例并注册命名组
 // csrf_mgr 由 AuthServiceProvider 创建，传入 nil 时 CSRF 中间件跳过校验
 pub fn new_middleware_group_registry(
-	cfg WebConfig,
-	auth_svc &AuthService,
+	cfg config.WebConfig,
+	auth_svc &services.AuthService,
 	rh &security.RoleHierarchy,
 	csrf_mgr &security.CsrfManager,
 	log &logger.Logger,

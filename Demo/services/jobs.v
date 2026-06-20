@@ -1,4 +1,4 @@
-module main
+module services
 
 // jobs.v — PhotonBlog 队列任务定义
 //
@@ -16,6 +16,8 @@ import photon.queue
 import photon.mailer
 import photon.cache
 import photon.logger
+import models
+import repositories
 import json
 import time
 
@@ -27,14 +29,14 @@ __global (
 	g_mailer       &mailer.Mailer
 	g_cache        &cache.CacheManager
 	g_logger       &logger.Logger
-	g_user_repo    &UserRepository
-	g_post_repo    &PostRepository
-	g_comment_repo &CommentRepository
+	g_user_repo    &repositories.UserRepository
+	g_post_repo    &repositories.PostRepository
+	g_comment_repo &repositories.CommentRepository
 )
 
 // init_job_globals 初始化 Job 全局依赖，由 Bootstrap 在启动时调用
 pub fn init_job_globals(m &mailer.Mailer, cm &cache.CacheManager, log &logger.Logger,
-	user_repo &UserRepository, post_repo &PostRepository, comment_repo &CommentRepository) {
+	user_repo &repositories.UserRepository, post_repo &repositories.PostRepository, comment_repo &repositories.CommentRepository) {
 	unsafe {
 		g_mailer = m
 		g_cache = cm

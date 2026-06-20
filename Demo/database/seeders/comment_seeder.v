@@ -1,4 +1,4 @@
-module main
+module seeders
 
 // comment_seeder.v — CommentSeeder 评论种子数据
 //
@@ -6,15 +6,18 @@ module main
 // 幂等性：若 post_id=1 已有评论则跳过。
 
 import photon.cli
+import bootstrap
+import models
+import factories
 
 // CommentSeeder 评论种子
 pub struct CommentSeeder {
 pub:
-	bootstrap &Bootstrap
+	bootstrap &bootstrap.Bootstrap
 }
 
 // new_comment_seeder 创建评论种子实例
-pub fn new_comment_seeder(boot &Bootstrap) &CommentSeeder {
+pub fn new_comment_seeder(boot &bootstrap.Bootstrap) &CommentSeeder {
 	return &CommentSeeder{
 		bootstrap: boot
 	}
@@ -25,7 +28,7 @@ pub fn (s &CommentSeeder) run(output &cli.CommandOutput) ! {
 	output.section('  Seeding comments')
 
 	// ── 1. 检查是否已有评论 ──
-	existing_count := s.bootstrap.comment_svc.count_by_post(1) or { 0 }
+	existing_count := s.bootstrap.comment_svc.count_by_post(1)
 	if existing_count > 0 {
 		output.writeln('    Comments already seeded, skipping')
 		return
@@ -33,9 +36,9 @@ pub fn (s &CommentSeeder) run(output &cli.CommandOutput) ! {
 
 	// ── 2. 获取用户与文章列表 ──
 	mut user_repo := unsafe { s.bootstrap.user_repo }
-	users := user_repo.find_all() or { []User{} }
+	users := user_repo.find_all()
 	mut post_repo := unsafe { s.bootstrap.post_repo }
-	posts := post_repo.find_all() or { []Post{} }
+	posts := post_repo.find_all()
 	if users.len == 0 || posts.len == 0 {
 		output.warning('    No users or posts found, skipping comment seeding')
 		return
@@ -61,7 +64,7 @@ pub fn (s &CommentSeeder) run(output &cli.CommandOutput) ! {
 		user := users[((i - 1) % users.len)]
 		content := comment_templates[(i - 1) % comment_templates.len]
 
-		comment := new_comment_factory(s.bootstrap).
+		factories.new_comment_factory(s.bootstrap).
 			with_post(post.id).
 			with_user(user.id).
 			with_content('第 ${i} 条评论: ${content}').

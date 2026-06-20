@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/database_service_provider.v — 数据库服务提供者
 //
@@ -9,6 +9,8 @@ module main
 
 import photon.core
 import photon.orm as phorm
+import database
+import database.migrations
 
 pub struct DatabaseServiceProvider {
 	ctx &BootContext
@@ -26,7 +28,7 @@ pub fn (sp &DatabaseServiceProvider) register(mut app_ctx core.ApplicationContex
 	cfg := sp.ctx.cfg
 	log := sp.ctx.log
 
-	orm_mgr := init_database(cfg.database)!
+	orm_mgr := database.init_database(cfg.database)!
 	sp.ctx.orm_mgr = orm_mgr
 	log.info('OrmManager initialized — ${cfg.database.driver} (${cfg.database.path})')
 
@@ -38,8 +40,9 @@ pub fn (sp &DatabaseServiceProvider) boot(mut app_ctx core.ApplicationContext) !
 	log := sp.ctx.log
 	orm_mgr := sp.ctx.orm_mgr
 
-	mm := new_migration_manager(orm_mgr)!
+	mm := database.new_migration_manager(orm_mgr)!
+	database.migrations.register_all(mut mm)
 	log.info('Running database migrations...')
-	run_migrations(mm)!
+	database.run_migrations(mm)!
 	log.info('Database migrations applied')
 }
