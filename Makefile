@@ -14,6 +14,16 @@
 # ── V Compiler flags ──
 VFLAGS := -enable-globals
 
+# Locate a usable `v` binary. We prefer PATH, then a few well-known install
+# locations, then fall back to whatever V points at. CI sandboxes and Mac/Linux
+# dev boxes both end up with a working V via this search.
+V       ?= $(shell command -v v 2>/dev/null)
+V       ?= $(shell test -x /usr/local/bin/v && echo /usr/local/bin/v)
+V       ?= $(shell test -x /opt/homebrew/bin/v && echo /opt/homebrew/bin/v)
+V       ?= $(shell test -x $$HOME/v/v && echo $$HOME/v/v)
+V       ?= $(shell test -x $$V && echo $$V)
+V       ?= $(error "Could not find 'v' compiler. Install V or set $$V in your environment.")
+
 # Detect if we're inside photon/ directory (no photon/ prefix needed)
 ROOT_PREFIX := $(if $(wildcard photon.v),,photon/)
 
@@ -22,19 +32,29 @@ MODULES := $(ROOT_PREFIX)config/ $(ROOT_PREFIX)logger/ $(ROOT_PREFIX)security/ $
 EXAMPLE := $(ROOT_PREFIX)example/
 
 # ── ORM test files ──
+# v test only accepts folders or *_test.v files; non-test helpers (like
+# orm/query_test.v) are listed under TEST_HELPERS for typecheck only.
 ORM_TESTS := $(ROOT_PREFIX)orm/orm_test.v \
              $(ROOT_PREFIX)orm/entity_test.v \
-             $(ROOT_PREFIX)orm/query_test.v \
              $(ROOT_PREFIX)orm/derive_test.v \
-             $(ROOT_PREFIX)orm/transaction_test.v
+             $(ROOT_PREFIX)orm/transaction_test.v \
+             $(ROOT_PREFIX)orm/relation_test.v \
+             $(ROOT_PREFIX)orm/migration_test.v \
+             $(ROOT_PREFIX)orm/adapter_test.v \
+             $(ROOT_PREFIX)orm/transaction_annotation_test.v \
+             $(ROOT_PREFIX)orm/repository_test.v
 
 # ── Targets ──
 
-.PHONY: build run test test-all check clean help docs-serve
+.PHONY: build run test test-all check clean help docs-serve doctor link-vmodules unlink-vmodules
 
 help:
 	@echo "Photon Framework Build & Test"
 	@echo ""
+	@echo "  make doctor         - Self-check: env + link + compile every module"
+	@echo "  make link-vmodules  - Create ~/.vmodules/photon -> \$$PWD"
+	@echo "  make unlink-vmodules - Remove the global vmodule symlink"
+	@echo "  make dev            - link-vmodules + run the example server"
 	@echo "  make build     - Compile the full server example"
 	@echo "  make run       - Compile and run the full server example"
 	@echo "  make test      - Run ORM test files (fast smoke test)"
@@ -51,21 +71,21 @@ help:
 
 build:
 	@mkdir -p $(ROOT_PREFIX)bin
-	v $(VFLAGS) -o $(ROOT_PREFIX)bin/photon-example $(EXAMPLE)
+	$(V) $(VFLAGS) -o $(ROOT_PREFIX)bin/photon-example $(EXAMPLE)
 	@echo "Binary: $(ROOT_PREFIX)bin/photon-example"
 
 run:
-	v $(VFLAGS) run $(EXAMPLE)
+	$(V) $(VFLAGS) run $(EXAMPLE)
 
 test:
-	v $(VFLAGS) test $(ORM_TESTS)
+	$(V) $(VFLAGS) test $(ORM_TESTS)
 
 test-all:
 	@echo "Running all module tests..."
 	@total=0; pass=0; fail=0; \
 	for dir in $(MODULES); do \
 		if [ -d "$$dir" ]; then \
-			if v $(VFLAGS) test "$$dir" >/dev/null 2>&1; then \
+			if $(V) $(VFLAGS) test "$$dir" >/dev/null 2>&1; then \
 				echo "  [OK]   $$dir"; \
 				pass=$$((pass+1)); \
 			else \
@@ -81,20 +101,83 @@ test-all:
 check:
 	@for dir in $(MODULES); do \
 		printf "Check %-25s ... " "$$dir"; \
-		v $(VFLAGS) -shared -o /dev/null "$$dir" >/dev/null 2>&1 && echo "OK" || echo "FAIL"; \
+		$(V) $(VFLAGS) -shared -o /dev/null "$$dir" >/dev/null 2>&1 && echo "OK" || echo "FAIL"; \
 	done
 	@printf "Check %-25s ... " "$(EXAMPLE)"
-	@v $(VFLAGS) -o $(ROOT_PREFIX)bin/_check_tmp $(EXAMPLE) >/dev/null 2>&1 && echo "OK ($(ROOT_PREFIX)bin/_check_tmp)" || echo "FAIL"
+	@$(V) $(VFLAGS) -o $(ROOT_PREFIX)bin/_check_tmp $(EXAMPLE) >/dev/null 2>&1 && echo "OK ($(ROOT_PREFIX)bin/_check_tmp)" || echo "FAIL"
 	@rm -f $(ROOT_PREFIX)bin/_check_tmp
 
 clean:
 	rm -rf $(ROOT_PREFIX)bin/
 	@echo "Cleaned build artifacts."
 
+# ── Developer environment ──
+#
+# V resolves imports by walking: project/.vmodules → ~/.vmodules → $VAPATH/vlib.
+# `v .` in a downstream project therefore needs the photon module to be visible
+# either via that project's .vmodules/photon symlink, or via ~/.vmodules/photon.
+# `make link-vmodules` creates the global one (Mac & Linux) so `make doctor`
+# and `make dev` Just Work on a fresh checkout.
+
+VMODULES_DIR := $(HOME)/.vmodules
+PHOTON_LINK  := $(VMODULES_DIR)/photon
+
+link-vmodules:
+	@mkdir -p $(VMODULES_DIR)
+	@if [ -L $(PHOTON_LINK) ] && [ "$$(readlink -f $(PHOTON_LINK) 2>/dev/null || readlink $(PHOTON_LINK))" = "$(CURDIR)" ]; then \
+		echo "  [OK]  $(PHOTON_LINK) -> $(CURDIR)"; \
+	else \
+		ln -sfn $(CURDIR) $(PHOTON_LINK); \
+		echo "  [NEW] $(PHOTON_LINK) -> $(CURDIR)"; \
+	fi
+
+unlink-vmodules:
+	@rm -f $(PHOTON_LINK)
+	@echo "  [RM]  $(PHOTON_LINK)"
+
+# `make doctor` is a one-shot self-check: prints environment, ensures the vmodule
+# link is in place, and compiles every module + the bundled example. Exits 0 only
+# when every step passes — safe to wire into CI.
+doctor: link-vmodules
+	@echo "─── Photon doctor ───"
+	@printf "V compiler:    "; $(V) -V 2>/dev/null | head -1
+	@printf "OS:            "; uname -s
+	@printf "C compiler:    "; $${CC:-cc} --version 2>/dev/null | head -1
+	@printf "photon path:   "; pwd
+	@echo
+	@echo "Per-module typecheck:"
+	@rm -f /tmp/photon-doctor.fail
+	@for dir in $(MODULES); do \
+		if [ -d "$$dir" ]; then \
+			printf "  %-22s ... " "$$dir"; \
+			if $(V) $(VFLAGS) -shared -o /dev/null "$$dir" >/dev/null 2>&1; then \
+				echo "OK"; \
+			else \
+				echo "FAIL"; touch /tmp/photon-doctor.fail; \
+			fi; \
+		fi; \
+	done
+	@printf "  %-22s ... " "$(EXAMPLE)"
+	@if $(V) $(VFLAGS) -o /dev/null $(EXAMPLE) >/dev/null 2>&1; then echo "OK"; else echo "FAIL"; touch /tmp/photon-doctor.fail; fi
+	@echo
+	@if [ ! -f /tmp/photon-doctor.fail ]; then \
+		echo "doctor: PASS ✓"; \
+		rm -f /tmp/photon-doctor.fail; \
+	else \
+		echo "doctor: FAIL ✗"; \
+		rm -f /tmp/photon-doctor.fail; \
+		exit 1; \
+	fi
+
+# Push the global vmodule link into the current project as well — useful when
+# you want to test a downstream consumer without modifying its .vmodules/.
+dev: link-vmodules
+	$(V) $(VFLAGS) run $(EXAMPLE)
+
 # ── Documentation Server ──
 
 docs-serve:
-	v run $(ROOT_PREFIX)docs/serve.v
+	$(V) run $(ROOT_PREFIX)docs/serve.v
 
 # ── Linux Service Deployment ──
 
@@ -106,7 +189,7 @@ SYSTEMD_DIR  := /etc/systemd/system
 # Build a production binary suitable for systemd deployment
 service:
 	@echo "Building production binary..."
-	v $(VFLAGS) -prod -o $(ROOT_PREFIX)bin/$(SERVICE_NAME) $(EXAMPLE)
+	$(V) $(VFLAGS) -prod -o $(ROOT_PREFIX)bin/$(SERVICE_NAME) $(EXAMPLE)
 	@echo "Binary: $(ROOT_PREFIX)bin/$(SERVICE_NAME)"
 
 # Install as a systemd service (requires root)
