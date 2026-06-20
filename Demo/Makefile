@@ -73,9 +73,12 @@ uninstall:
 .PHONY: dev run serve watch
 
 ## 开发模式: 热重载监听文件变更
+# V 0.5.x 语法：v watch run <project> -- <args>
+#   例如：v -enable-globals watch run . -- serve --host=0.0.0.0 --port=8080
+# 如遇旧版 V 或语法不兼容，可改用 'make watch'（shell + inotifywait 实现的回退方案）
 dev:
 	@echo "启动开发模式（热重载）..."
-	$(V) $(VFLAGS_DEV) watch . --run-args "serve --host=$(HOST) --port=$(PORT)"
+	$(V) $(VFLAGS_DEV) watch run . -- serve --host=$(HOST) --port=$(PORT)
 
 ## 编译并运行服务器
 run: build
