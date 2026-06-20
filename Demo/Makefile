@@ -26,8 +26,27 @@ DB_PATH    ?= photonblog.db
 PROFILE    ?= dev
 PORT       ?= 8080
 HOST       ?= 0.0.0.0
-DOCKER_COMPOSE := docker-compose
 SERVICE    ?=
+
+# ── 跨平台检测 (macOS / Linux) ──
+# 优先使用 docker compose（Docker v2+），回退到 docker-compose（v1）
+DOCKER_COMPOSE := $(shell command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
+
+# 操作系统检测：darwin (macOS) / linux
+UNAME_S := $(shell uname -s)
+
+# 文件监听工具选择：
+#   macOS:  fswatch (brew install fswatch)
+#   Linux:  inotifywait (apt install inotify-tools)
+ifeq ($(UNAME_S),Darwin)
+    WATCHER       := fswatch
+    WATCHER_FLAGS := -r --exclude='\.git' --exclude='\.db' --exclude='storage' --exclude='bin' --exclude='dist' .
+    WATCHER_CHECK := command -v fswatch >/dev/null 2>&1 || { echo "✗ macOS 需要 fswatch: brew install fswatch"; exit 1; }
+else
+    WATCHER       := inotifywait
+    WATCHER_FLAGS := -r -e modify,create,delete,move --exclude '\.git|\.db|storage|bin|dist' .
+    WATCHER_CHECK := command -v inotifywait >/dev/null 2>&1 || { echo "✗ Linux 需要 inotifywait: apt install inotify-tools"; exit 1; }
+endif
 
 # ── 默认目标 ──
 .DEFAULT_GOAL := help
@@ -49,6 +68,18 @@ setup: check-v env build migrate seed
 check-v:
 	@command -v $(V) >/dev/null 2>&1 || { echo "✗ 未找到 V 编译器，请先安装: https://vlang.io"; exit 1; }
 	@echo "✓ V 编译器: $$($(V) version)"
+
+## 环境自检 (macOS/Linux)
+doctor:
+	@echo "=== PhotonBlog 环境自检 ==="
+	@echo "操作系统: $(UNAME_S)"
+	@command -v $(V) >/dev/null 2>&1 && echo "✓ V 编译器: $$($(V) version)" || echo "✗ V 编译器未安装"
+	@command -v sqlite3 >/dev/null 2>&1 && echo "✓ sqlite3: $$(sqlite3 --version)" || echo "⚠ sqlite3 未安装 (可选)"
+	@command -v make >/dev/null 2>&1 && echo "✓ make: $$(make --version | head -1)" || echo "✗ make 未安装"
+	@command -v $(WATCHER) >/dev/null 2>&1 && echo "✓ 文件监听器: $(WATCHER)" || echo "⚠ 文件监听器 $(WATCHER) 未安装 (make watch 需要)"
+	@command -v $(DOCKER_COMPOSE) >/dev/null 2>&1 && echo "✓ 容器编排: $(DOCKER_COMPOSE)" || echo "⚠ Docker Compose 未安装 (可选)"
+	@command -v curl >/dev/null 2>&1 && echo "✓ curl: $$(curl --version | head -1)" || echo "⚠ curl 未安装"
+	@echo "═══════════════════════════"
 
 ## 创建 .env 文件（若不存在）
 env:
@@ -73,12 +104,18 @@ uninstall:
 .PHONY: dev run serve watch
 
 ## 开发模式: 热重载监听文件变更
-# V 0.5.x 语法：v watch run <project> -- <args>
-#   例如：v -enable-globals watch run . -- serve --host=0.0.0.0 --port=8080
-# 如遇旧版 V 或语法不兼容，可改用 'make watch'（shell + inotifywait 实现的回退方案）
+# 自动检测 V 编译器版本：
+#   - V 0.5.x: 使用原生 watch（`v watch run . -- args`）
+#   - 旧版 V / 语法不兼容: 回退到 `make watch`（fswatch/inotifywait 跨平台回退）
 dev:
 	@echo "启动开发模式（热重载）..."
-	$(V) $(VFLAGS_DEV) watch run . -- serve --host=$(HOST) --port=$(PORT)
+	@if $(V) watch --help 2>&1 | grep -q "run"; then \
+		echo "✓ 使用 V 0.5.x 原生 watch..."; \
+		$(V) $(VFLAGS_DEV) watch run . -- serve --host=$(HOST) --port=$(PORT); \
+	else \
+		echo "⚠ V 版本不支持 watch run，回退到 $(WATCHER) 监听..."; \
+		$(MAKE) watch HOST=$(HOST) PORT=$(PORT); \
+	fi
 
 ## 编译并运行服务器
 run: build
@@ -87,15 +124,21 @@ run: build
 ## 启动服务器（别名）
 serve: run
 
-## 文件监听重启
+## 文件监听重启（跨平台：macOS=fswatch, Linux=inotifywait）
+# 启动服务器后，源码变更时自动重建并重启。
+# 需要先安装对应工具：macOS `brew install fswatch`；Linux `apt install inotify-tools`
 watch:
-	@echo "监听文件变更并重启..."
+	@echo "监听文件变更并重启 [$(UNAME_S)/$(WATCHER)]..."
+	$(WATCHER_CHECK)
 	@while true; do \
-		$(V) $(VFLAGS_DEV) . && ./$(BIN) serve --host=$(HOST) --port=$(PORT) & \
+		$(V) $(VFLAGS_DEV) $(SRC_DIR) && \
+		./$(BIN) serve --host=$(HOST) --port=$(PORT) & \
 		SERVER_PID=$$!; \
-		inotifywait -r -e modify,create,delete,move --exclude '\.git|\.db|storage|bin' . ; \
+		$(WATCHER) $(WATCHER_FLAGS) >/dev/null 2>&1; \
 		kill $$SERVER_PID 2>/dev/null; \
+		wait $$SERVER_PID 2>/dev/null; \
 		sleep 1; \
+		echo "↻ 检测到文件变更，重新构建..."; \
 	done
 
 # ═══════════════════════════════════════════════════════════

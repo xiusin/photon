@@ -37,6 +37,33 @@ PhotonBlog is designed as a **skeleton project** demonstrating best practices fo
 - Photon Framework (located at `../` relative to this directory)
 - Make, Docker (optional)
 
+### Environment Self-Check
+
+Run `make doctor` to verify your environment. It detects your OS and checks for required tools:
+
+```
+=== PhotonBlog 环境自检 ===
+操作系统: Darwin    # or Linux
+✓ V 编译器: V 0.5.1
+✓ make: GNU Make 3.81
+✓ 文件监听器: fswatch       # macOS
+   或: inotifywait           # Linux
+✓ 容器编排: docker compose
+✓ curl: curl 8.1.2
+═══════════════════════════
+```
+
+### Cross-Platform Notes
+
+The Makefile auto-detects your OS (macOS / Linux) and selects appropriate tools:
+
+| OS      | File Watcher   | Install                                         |
+|---------|----------------|-------------------------------------------------|
+| macOS   | `fswatch`        | `brew install fswatch`                          |
+| Linux   | `inotifywait`    | `apt install inotify-tools`                     |
+
+Docker: prefers `docker compose` (v2+), falls back to `docker-compose` (v1).
+
 ### One-Command Setup
 
 ```bash
