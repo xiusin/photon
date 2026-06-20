@@ -91,6 +91,11 @@ pub fn (r &Result) to_json() string {
 	return json.encode(r)
 }
 
+// to_json serializes the PageResult (including pagination) to JSON
+pub fn (r &PageResult) to_json() string {
+	return json.encode(r)
+}
+
 // -- Convenience builders --
 
 // ok creates a 200 OK result

@@ -97,10 +97,11 @@ pub fn new_user_service(repo &UserRepository, event_bus &core.EventBus, log &log
 	}
 }
 
-// register 注册新用户：校验唯一性 → 哈希密码 → （可选）获取 GitHub 头像 → 持久化 → 分发 user.registered 事件
+// register 注册新用户：校验唯一性 → 哈希密码 → （可选）获取 GitHub 头像 → 事务持久化 → 分发 user.registered 事件
 // 返回 (创建的用户, 欢迎消息)
+@[transactional]
 pub fn (mut s UserService) register(dto CreateUserDto) !(User, string) {
-	// 校验用户名唯一性
+	// 校验用户名唯一性（事务前只读检查）
 	if s.repo.exists_by_username(dto.username) {
 		return error('用户名已存在 / username already exists: ${dto.username}')
 	}
@@ -112,7 +113,7 @@ pub fn (mut s UserService) register(dto CreateUserDto) !(User, string) {
 	// 哈希密码
 	hashed := s.hasher.make(dto.password)
 
-	// 若提供 GitHub 用户名，调用 GitHub API 获取头像 URL
+	// 若提供 GitHub 用户名，调用 GitHub API 获取头像 URL（事务外 HTTP 调用，不占用 DB 事务）
 	mut avatar_url := ''
 	if dto.github.len > 0 {
 		avatar_url = fetch_github_avatar(dto.github) or {
@@ -135,13 +136,22 @@ pub fn (mut s UserService) register(dto CreateUserDto) !(User, string) {
 		role:     dto.role
 	}
 
+	// 事务保证：用户持久化原子性（为未来多步操作如初始化统计预留事务边界）
+	mut tx := begin_transaction(s.repo.db)!
+	defer {
+		tx.auto_rollback()
+	}
+
 	// 持久化（OrmAdapter 自动调用 touch() 设置时间戳与版本号）
 	mut repo := s.repo
 	user = repo.save(mut user)!
 
+	tx.commit()!
+
 	s.logger.info('[UserService] 用户注册成功: id=${user.id} username=${user.username}')
 
-	// 分发 user.registered 事件（触发欢迎邮件 + 统计缓存失效）
+	// 事务后副作用：分发 user.registered 事件（触发欢迎邮件 + 统计缓存失效）
+	// 放在 commit 之后，避免事件监听器失败导致事务回滚（邮件发送等副作用不可回滚）
 	mut bus := s.event_bus
 	event := core.new_event_with_data(event_user_registered, user.username, {
 		'user_id':  user.id.str()
@@ -401,6 +411,7 @@ pub fn new_post_service(repo &PostRepository, cm &cache.CacheManager, lm &lockin
 }
 
 // create 创建文章：持久化 → 若为 published 状态则分发 post.published 事件
+@[transactional]
 pub fn (mut s PostService) create(dto CreatePostDto) !Post {
 	mut post := Post{
 		title:       dto.title
@@ -412,12 +423,20 @@ pub fn (mut s PostService) create(dto CreatePostDto) !Post {
 		views:       0
 	}
 
+	// 事务保证：持久化失败则回滚（单写操作事务，为未来多步扩展预留原子性边界）
+	mut tx := begin_transaction(s.repo.db)!
+	defer {
+		tx.auto_rollback()
+	}
+
 	mut repo := s.repo
 	post = repo.save(mut post)!
 
+	tx.commit()!
+
 	s.logger.info('[PostService] 文章创建成功: id=${post.id} title="${post.title}" status=${post.status}')
 
-	// 若直接发布，分发 post.published 事件
+	// 事务后副作用：事件分发（非 DB 操作，放在 commit 之后避免事务内副作用不可回滚）
 	if post.status == 'published' {
 		s.dispatch_published_event(post)
 	}
@@ -500,13 +519,20 @@ pub fn (s &PostService) find_by_category(category_id int) ![]Post {
 	return s.repo.find_by_category(category_id)!
 }
 
-// update 更新文章：加锁 → 更新 → 清除缓存 → 分发 post.updated 事件
+// update 更新文章：加锁 → 事务更新 → 清除缓存 → 分发 post.updated 事件
+@[transactional]
 pub fn (mut s PostService) update(id int, dto UpdatePostDto) !Post {
 	// 使用锁防止并发更新冲突
 	mut lm := s.lock_mgr
 	lm.lock('post:update:${id}')
 	defer {
 		lm.unlock('post:update:${id}') or {}
+	}
+
+	// 事务保证：更新失败则回滚
+	mut tx := begin_transaction(s.repo.db)!
+	defer {
+		tx.auto_rollback()
 	}
 
 	mut repo := s.repo
@@ -533,7 +559,9 @@ pub fn (mut s PostService) update(id int, dto UpdatePostDto) !Post {
 
 	post = repo.update(mut post)!
 
-	// 清除缓存
+	tx.commit()!
+
+	// 事务后副作用：清除缓存 + 事件分发
 	mut cm := s.cache
 	cm.delete('post:${id}') or {}
 	cm.delete('posts:published') or {}
@@ -556,7 +584,8 @@ pub fn (mut s PostService) update(id int, dto UpdatePostDto) !Post {
 	return post
 }
 
-// delete 删除文章：加锁 → 删除 → 清除缓存
+// delete 删除文章：加锁 → 事务删除 → 清除缓存
+@[transactional]
 pub fn (mut s PostService) delete(id int) ! {
 	mut lm := s.lock_mgr
 	lm.lock('post:delete:${id}')
@@ -564,9 +593,17 @@ pub fn (mut s PostService) delete(id int) ! {
 		lm.unlock('post:delete:${id}') or {}
 	}
 
+	// 事务保证：删除失败则回滚
+	mut tx := begin_transaction(s.repo.db)!
+	defer {
+		tx.auto_rollback()
+	}
+
 	s.repo.delete_by_id(id)!
 
-	// 清除缓存
+	tx.commit()!
+
+	// 事务后副作用：清除缓存
 	mut cm := s.cache
 	cm.delete('post:${id}') or {}
 	cm.delete('posts:published') or {}
@@ -647,7 +684,8 @@ pub fn new_comment_service(repo &CommentRepository, bus &core.EventBus, log &log
 	}
 }
 
-// create 创建评论：持久化 → 分发 comment.posted 事件
+// create 创建评论：事务持久化评论 + 更新文章活动时间 → 分发 comment.posted 事件
+@[transactional]
 pub fn (mut s CommentService) create(dto CreateCommentDto) !Comment {
 	mut comment := Comment{
 		post_id:   dto.post_id
@@ -657,12 +695,25 @@ pub fn (mut s CommentService) create(dto CreateCommentDto) !Comment {
 		status:    'visible'
 	}
 
+	// 事务保证：评论创建 + 文章活动时间更新原子性
+	// 任一步骤失败则整体回滚（评论不会孤立存在）
+	mut tx := begin_transaction(s.repo.db)!
+	defer {
+		tx.auto_rollback()
+	}
+
 	mut repo := s.repo
 	comment = repo.save(mut comment)!
 
+	// 第二步：更新文章的 updated_at 时间戳，标记文章有新活动
+	// 若此步失败，评论创建也会回滚（原子性保证）
+	repo.touch_post(comment.post_id)!
+
+	tx.commit()!
+
 	s.logger.info('[CommentService] 评论创建成功: id=${comment.id} post_id=${comment.post_id} user_id=${comment.user_id}')
 
-	// 分发 comment.posted 事件（触发通知文章作者）
+	// 事务后副作用：事件分发（非 DB 操作，放在 commit 之后）
 	mut bus := s.event_bus
 	event := core.new_event_with_data(event_comment_posted, comment.content, {
 		'comment_id': comment.id.str()

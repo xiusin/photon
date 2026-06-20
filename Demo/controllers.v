@@ -185,9 +185,8 @@ fn (mut app App) do_register(mut ctx Context, dto CreateUserDto) veb.Result {
 		return ctx.send_bad_request(err.msg())
 	}
 
-	// 返回用户信息（脱敏）
-	profile := user_svc.to_profile_dto(&user)
-	return ctx.send_data(json.encode(profile))
+	// 返回用户信息（通过 UserResource 脱敏）
+	return ctx.send_data(new_user_resource(&user).to_json())
 }
 
 // post_auth_login POST /api/v1/auth/login — 用户登录，返回 JWT
@@ -268,9 +267,8 @@ pub fn (mut app App) get_auth_profile(mut ctx Context) veb.Result {
 		return ctx.send_not_found('user not found / 用户不存在: ${username}')
 	}
 
-	// 返回用户信息（脱敏）
-	profile := user_svc.to_profile_dto(&user)
-	return ctx.send_data(json.encode(profile))
+	// 返回用户信息（通过 UserResource 脱敏，隐藏 password/version）
+	return ctx.send_data(new_user_resource(&user).to_json())
 }
 
 // MessageDto 通用消息响应
@@ -295,15 +293,6 @@ pub fn (mut app App) post_auth_logout(mut ctx Context) veb.Result {
 // ═══════════════════════════════════════════════════════════
 // Task 14: 用户管理控制器 — CRUD（均需 ADMIN）
 // ═══════════════════════════════════════════════════════════
-
-// PagedListDto 分页列表响应
-struct PagedListDto[T] {
-	items    []T
-	total    int
-	page     int
-	page_size int
-	has_more bool
-}
 
 // get_users GET /api/v1/users — 用户分页列表（需 ADMIN，支持 keyword/status/role 过滤）
 @[get]
@@ -334,44 +323,28 @@ pub fn (mut app App) get_users(mut ctx Context) veb.Result {
 	}
 	status_filter := status_str.int()
 
-	// 查询所有用户
-	mut user_svc := app.bootstrap.user_svc
-	users := user_svc.find_all() or {
+	// 构建过滤条件（SubTask 12.3：过滤下沉到 SQL）
+	filter := UserFilter{
+		keyword: keyword
+		status:  status_filter
+		role:    role_filter
+	}
+
+	// 调用仓储层过滤查询（过滤/分页全部在 SQL 完成）
+	user_repo := app.bootstrap.user_repo
+	users, total := user_repo.find_with_filters(filter, 'id_asc', page, page_size) or {
 		return ctx.send_internal_error('failed to fetch users / 获取用户列表失败: ${err}')
 	}
 
-	// 过滤
-	mut filtered := []UserProfileDto{}
+	// 转换为 UserResource 集合
+	mut resources := []UserResource{}
 	for u in users {
-		if keyword.len > 0 && !u.username.contains(keyword) && !u.email.contains(keyword) {
-			continue
-		}
-		if status_filter != 0 && u.status != status_filter {
-			continue
-		}
-		if role_filter.len > 0 && u.role != role_filter {
-			continue
-		}
-		filtered << user_svc.to_profile_dto(&u)
+		resources << new_user_resource(&u)
 	}
 
-	// 分页
-	total := filtered.len
-	start := (page - 1) * page_size
-	end := if start + page_size > total { total } else { start + page_size }
-	mut paged := []UserProfileDto{}
-	if start < total {
-		paged = filtered[start..end].clone()
-	}
-
-	resp := PagedListDto[UserProfileDto]{
-		items:     paged
-		total:     total
-		page:      page
-		page_size: page_size
-		has_more:  end < total
-	}
-	return ctx.send_data(json.encode(resp))
+	// 使用 web.page 构建分页响应（含 pagination 元数据）
+	page_result := web.page(json.encode(resources), page, page_size, total)
+	return ctx.send_page_result(page_result)
 }
 
 // get_user GET /api/v1/users/:id — 用户详情（需 ADMIN）
@@ -396,8 +369,7 @@ pub fn (mut app App) get_user(mut ctx Context, id string) veb.Result {
 		return ctx.send_not_found('user not found / 用户不存在: ${id}')
 	}
 
-	profile := user_svc.to_profile_dto(&user)
-	return ctx.send_data(json.encode(profile))
+	return ctx.send_data(new_user_resource(&user).to_json())
 }
 
 // post_user POST /api/v1/users — 创建用户（需 ADMIN）
@@ -426,8 +398,7 @@ fn (mut app App) do_admin_create_user(mut ctx Context, dto CreateUserDto) veb.Re
 		return ctx.send_bad_request(err.msg())
 	}
 
-	profile := user_svc.to_profile_dto(&user)
-	return ctx.send_created(json.encode(profile))
+	return ctx.send_created(new_user_resource(&user).to_json())
 }
 
 // put_user PUT /api/v1/users/:id — 更新用户（需 ADMIN）
@@ -461,8 +432,7 @@ fn (mut app App) do_update_user(mut ctx Context, user_id int, dto UpdateUserDto)
 		return ctx.send_not_found(err.msg())
 	}
 
-	profile := user_svc.to_profile_dto(&user)
-	return ctx.send_data(json.encode(profile))
+	return ctx.send_data(new_user_resource(&user).to_json())
 }
 
 // delete_user DELETE /api/v1/users/:id — 删除用户（需 ADMIN，软删除）
@@ -482,8 +452,9 @@ pub fn (mut app App) delete_user(mut ctx Context, id string) veb.Result {
 		return ctx.send_bad_request('invalid user id / 无效的用户 ID')
 	}
 
-	user_svc := app.bootstrap.user_svc
-	user_svc.delete(user_id) or {
+	// 软删除（SubTask 12.4：设置 status = -1，而非物理删除）
+	mut user_repo := app.bootstrap.user_repo
+	user_repo.soft_delete(user_id) or {
 		return ctx.send_not_found(err.msg())
 	}
 
@@ -516,113 +487,29 @@ pub fn (mut app App) get_posts(mut ctx Context) veb.Result {
 		page_size = 20
 	}
 
-	// 查询文章
-	mut post_svc := app.bootstrap.post_svc
-	mut posts := []Post{}
-
-	if status == 'published' {
-		posts = post_svc.find_published() or {
-			return ctx.send_internal_error('failed to fetch posts / 获取文章列表失败: ${err}')
-		}
-	} else {
-		posts = post_svc.find_all() or {
-			return ctx.send_internal_error('failed to fetch posts / 获取文章列表失败: ${err}')
-		}
+	// 构建过滤条件（SubTask 12.2：过滤下沉到 SQL）
+	filter := PostFilter{
+		keyword:     keyword
+		status:      status
+		category_id: if category.len > 0 { category.int() } else { 0 }
+		tag_id:      if tag.len > 0 { tag.int() } else { 0 }
 	}
 
-	// 按状态过滤
-	if status.len > 0 && status != 'all' {
-		mut filtered := []Post{}
-		for p in posts {
-			if p.status == status {
-				filtered << p
-			}
-		}
-		posts = filtered.clone()
+	// 调用仓储层过滤查询（过滤/排序/分页全部在 SQL 完成）
+	post_repo := app.bootstrap.post_repo
+	posts, total := post_repo.find_with_filters(filter, sort, page, page_size) or {
+		return ctx.send_internal_error('failed to fetch posts / 获取文章列表失败: ${err}')
 	}
 
-	// 按分类过滤
-	if category.len > 0 {
-		category_id := category.int()
-		if category_id > 0 {
-			mut filtered := []Post{}
-			for p in posts {
-				if p.category_id == category_id {
-					filtered << p
-				}
-			}
-			posts = filtered.clone()
-		}
+	// 转换为 PostResource 集合
+	mut resources := []PostResource{}
+	for p in posts {
+		resources << new_post_resource(&p)
 	}
 
-	// 按标签过滤
-	if tag.len > 0 {
-		tag_svc := app.bootstrap.tag_svc
-		tag_id := tag.int()
-		if tag_id > 0 {
-			post_ids := tag_svc.find_post_ids_by_tag(tag_id) or { []int{} }
-			mut filtered := []Post{}
-			for p in posts {
-				if p.id in post_ids {
-					filtered << p
-				}
-			}
-			posts = filtered.clone()
-		}
-	}
-
-	// 按关键词过滤
-	if keyword.len > 0 {
-		mut filtered := []Post{}
-		for p in posts {
-			if p.title.contains(keyword) || p.summary.contains(keyword) || p.content.contains(keyword) {
-				filtered << p
-			}
-		}
-		posts = filtered.clone()
-	}
-
-	// 排序
-	if sort == 'created_at_asc' {
-		// 按创建时间升序（简单冒泡排序，文章数不多时可用）
-		mut sorted := posts.clone()
-		for i in 0 .. sorted.len {
-			for j in i + 1 .. sorted.len {
-				if sorted[i].created_at > sorted[j].created_at {
-					tmp := sorted[i]
-					sorted[i] = sorted[j]
-					sorted[j] = tmp
-				}
-			}
-		}
-		posts = sorted.clone()
-	} else if sort == 'views_desc' {
-		// 按浏览量降序
-		mut sorted := posts.clone()
-		for i in 0 .. sorted.len {
-			for j in i + 1 .. sorted.len {
-				if sorted[i].views < sorted[j].views {
-					tmp := sorted[i]
-					sorted[i] = sorted[j]
-					sorted[j] = tmp
-				}
-			}
-		}
-		posts = sorted.clone()
-	}
-	// 默认 created_at_desc — 数据库已按时间倒序返回，无需额外排序
-
-	// 分页
-	total := posts.len
-	start := (page - 1) * page_size
-	end := if start + page_size > total { total } else { start + page_size }
-	mut paged := []Post{}
-	if start < total {
-		paged = posts[start..end].clone()
-	}
-
-	resp := new_post_resource_collection(paged, total, page, page_size)
-	return ctx.send_data(resp.to_json())
+	// 使用 web.page 构建分页响应（含 pagination 元数据）
+	page_result := web.page(json.encode(resources), page, page_size, total)
+	return ctx.send_page_result(page_result)
 }
 
 // get_post GET /api/v1/posts/:id — 文章详情（公开，自增 views，缓存命中）
@@ -734,8 +621,9 @@ pub fn (mut app App) delete_post(mut ctx Context, id string) veb.Result {
 		return ctx.send_bad_request('invalid post id / 无效的文章 ID')
 	}
 
-	mut post_svc := app.bootstrap.post_svc
-	post_svc.delete(post_id) or {
+	// 软删除（SubTask 12.4：设置 status = 'archived'，而非物理删除）
+	mut post_repo := app.bootstrap.post_repo
+	post_repo.soft_delete(post_id) or {
 		return ctx.send_not_found(err.msg())
 	}
 
@@ -745,18 +633,6 @@ pub fn (mut app App) delete_post(mut ctx Context, id string) veb.Result {
 // ═══════════════════════════════════════════════════════════
 // Task 16: 评论控制器 — 列表/创建/删除
 // ═══════════════════════════════════════════════════════════
-
-// CommentWithRepliesDto 带回复的评论
-struct CommentWithRepliesDto {
-	comment Comment
-	replies []Comment
-}
-
-// CommentsListDto 评论列表响应
-struct CommentsListDto {
-	items []CommentWithRepliesDto
-	total int
-}
 
 // get_post_comments GET /api/v1/posts/:id/comments — 文章评论列表（公开，支持嵌套）
 @[get]
@@ -785,21 +661,20 @@ pub fn (mut app App) get_post_comments(mut ctx Context, id string) veb.Result {
 		}
 	}
 
-	// 构建带 replies 的列表
-	mut items := []CommentWithRepliesDto{}
+	// 构建带 replies 的 Resource 列表
+	mut items := []CommentResource{}
 	for c in top_level {
 		replies := replies_map[c.id] or { []Comment{} }
-		items << CommentWithRepliesDto{
-			comment: c
-			replies: replies
+		mut reply_resources := []CommentResource{}
+		for r in replies {
+			reply_resources << new_comment_resource(&r)
 		}
+		items << new_comment_resource_with_replies(&c, unsafe { nil }, reply_resources)
 	}
 
-	resp := CommentsListDto{
-		items: items
-		total: comments.len
-	}
-	return ctx.send_data(json.encode(resp))
+	// 使用 web.page 构建分页响应（评论一次性返回，分页元数据标识总数）
+	page_result := web.page(json.encode(items), 1, items.len, items.len)
+	return ctx.send_page_result(page_result)
 }
 
 // post_post_comment POST /api/v1/posts/:id/comments — 创建评论（需 USER+，触发 comment.posted 事件）
@@ -838,7 +713,7 @@ pub fn (mut app App) post_post_comment(mut ctx Context, id string) veb.Result {
 		return ctx.send_bad_request(err.msg())
 	}
 
-	return ctx.send_created(json.encode(comment))
+	return ctx.send_created(new_comment_resource(&comment).to_json())
 }
 
 // delete_comment DELETE /api/v1/comments/:id — 删除评论（需 ADMIN 或作者本人）
@@ -874,8 +749,9 @@ pub fn (mut app App) delete_comment(mut ctx Context, id string) veb.Result {
 		return ctx.send_forbidden('permission denied — only admin or comment owner can delete / 权限不足，仅管理员或评论作者可删除')
 	}
 
-	// 执行删除（软删除，标记为 deleted 状态）
-	comment_svc.delete(comment_id) or {
+	// 执行软删除（SubTask 12.4：设置 status = 'deleted'）
+	mut comment_repo := app.bootstrap.comment_repo
+	comment_repo.soft_delete(comment_id) or {
 		return ctx.send_internal_error(err.msg())
 	}
 
@@ -895,7 +771,15 @@ pub fn (mut app App) get_categories(mut ctx Context) veb.Result {
 		return ctx.send_internal_error('failed to fetch categories / 获取分类列表失败: ${err}')
 	}
 
-	return ctx.send_data(json.encode(categories))
+	// 转换为 CategoryResource 集合
+	mut resources := []CategoryResource{}
+	for c in categories {
+		resources << new_category_resource(&c)
+	}
+
+	// 使用 web.page 构建分页响应
+	page_result := web.page(json.encode(resources), 1, resources.len, resources.len)
+	return ctx.send_page_result(page_result)
 }
 
 // post_category POST /api/v1/categories — 创建分类（需 ADMIN）
@@ -924,7 +808,7 @@ fn (mut app App) do_create_category(mut ctx Context, dto CreateCategoryDto) veb.
 		return ctx.send_bad_request(err.msg())
 	}
 
-	return ctx.send_created(json.encode(category))
+	return ctx.send_created(new_category_resource(&category).to_json())
 }
 
 // get_tags GET /api/v1/tags — 标签列表（公开）
@@ -936,7 +820,15 @@ pub fn (mut app App) get_tags(mut ctx Context) veb.Result {
 		return ctx.send_internal_error('failed to fetch tags / 获取标签列表失败: ${err}')
 	}
 
-	return ctx.send_data(json.encode(tags))
+	// 转换为 TagResource 集合
+	mut resources := []TagResource{}
+	for t in tags {
+		resources << new_tag_resource(&t)
+	}
+
+	// 使用 web.page 构建分页响应
+	page_result := web.page(json.encode(resources), 1, resources.len, resources.len)
+	return ctx.send_page_result(page_result)
 }
 
 // post_tag POST /api/v1/tags — 创建标签（需 EDITOR+）
@@ -965,7 +857,7 @@ fn (mut app App) do_create_tag(mut ctx Context, dto CreateTagDto) veb.Result {
 		return ctx.send_bad_request(err.msg())
 	}
 
-	return ctx.send_created(json.encode(tag))
+	return ctx.send_created(new_tag_resource(&tag).to_json())
 }
 
 // ═══════════════════════════════════════════════════════════

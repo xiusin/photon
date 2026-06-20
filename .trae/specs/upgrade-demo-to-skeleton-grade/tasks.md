@@ -75,57 +75,57 @@
   - [x] SubTask 9.5: 移除 `app.v` 中重复的 `request_id` 生成逻辑，统一由 `RequestIdMiddleware` 处理
   - [x] SubTask 9.6: `JwtAuthMiddleware` 认证成功后将 `user_id`/`username`/`role` 写回 `Context`，控制器直接读取（移除重复查库）
 
-- [ ] Task 10: 实现 API Resource 转换层
-  - [ ] SubTask 10.1: 创建 `Demo/app/Http/Resources/user_resource.v`（UserResource：输出 id/username/email/nickname/avatar/role/status/created_at，**隐藏 password/version**）
-  - [ ] SubTask 10.2: 创建 `Demo/app/Http/Resources/post_resource.v`（PostResource：输出 id/title/summary/status/views/created_at + 嵌套 author/category/tags）
-  - [ ] SubTask 10.3: 创建 `Demo/app/Http/Resources/comment_resource.v`（CommentResource：输出 id/content/created_at + 嵌套 user/replies）
-  - [ ] SubTask 10.4: 创建 `Demo/app/Http/Resources/category_resource.v` 与 `tag_resource.v`
-  - [ ] SubTask 10.5: 创建 `Demo/app/Http/Resources/collection.v`（ResourceCollection[T]：批量转换 + 分页元数据）
-  - [ ] SubTask 10.6: 重写 `Demo/controllers.v` 所有 `json.encode(entity)` 为 `XxxResource(entity).to_json()` 或 `ResourceCollection(entities).to_json()`
-  - [ ] SubTask 10.7: 私有化 `User.password` 字段（移除 `pub`，仅通过 `BcryptHasher.verify` 校验）
+- [x] Task 10: 实现 API Resource 转换层
+  - [x] SubTask 10.1: 创建 `Demo/app/Http/Resources/user_resource.v`（UserResource：输出 id/username/email/nickname/avatar/role/status/created_at，**隐藏 password/version**）
+  - [x] SubTask 10.2: 创建 `Demo/app/Http/Resources/post_resource.v`（PostResource：输出 id/title/summary/status/views/created_at + 嵌套 author/category/tags）
+  - [x] SubTask 10.3: 创建 `Demo/app/Http/Resources/comment_resource.v`（CommentResource：输出 id/content/created_at + 嵌套 user/replies）
+  - [x] SubTask 10.4: 创建 `Demo/app/Http/Resources/category_resource.v` 与 `tag_resource.v`
+  - [x] SubTask 10.5: 创建 `Demo/app/Http/Resources/collection.v`（ResourceCollection[T]：批量转换 + 分页元数据）
+  - [x] SubTask 10.6: 重写 `Demo/controllers.v` 所有 `json.encode(entity)` 为 `XxxResource(entity).to_json()` 或 `ResourceCollection(entities).to_json()`
+  - [x] SubTask 10.7: 私有化 `User.password` 字段（移除 `pub`，仅通过 `BcryptHasher.verify` 校验）
 
-- [ ] Task 11: 实现分页器集成
-  - [ ] SubTask 11.1: 重写 `Demo/controllers.v` 列表端点（`GET /users`/`GET /posts`/`GET /comments`），使用 `support.LengthAwarePaginator[T]` 替换手写 `start..end` 切片
-  - [ ] SubTask 11.2: 分页响应使用 `web.page(json.encode(paginator.data), page, page_size, total)`，追加 `meta`/`links` 元数据
-  - [ ] SubTask 11.3: 过滤/排序参数下沉到 Repository（`find_by_criteria(criteria)`/`find_with_sort(sort_field, sort_dir)`），移除控制器内存过滤
+- [x] Task 11: 实现分页器集成
+  - [x] SubTask 11.1: 重写 `Demo/controllers.v` 列表端点（`GET /users`/`GET /posts`/`GET /comments`），使用 `support.LengthAwarePaginator[T]` 替换手写 `start..end` 切片
+  - [x] SubTask 11.2: 分页响应使用 `web.page(json.encode(paginator.data), page, page_size, total)`，追加 `meta`/`links` 元数据
+  - [x] SubTask 11.3: 过滤/排序参数下沉到 Repository（`find_by_criteria(criteria)`/`find_with_sort(sort_field, sort_dir)`），移除控制器内存过滤
 
 ## 阶段四：ORM 与数据层升级
 
-- [ ] Task 12: 实现仓储层升级（预加载 + 事务 + 软删除 + SQL 过滤）
-  - [ ] SubTask 12.1: 重写 `Demo/repositories.v`，所有仓储继承 `orm.EagerRepository[T]`，支持 `with(['author','category','tags'])` 预加载
-  - [ ] SubTask 12.2: 新增 `PostRepository.find_with_filters(filters map[string]string, sort string, page int, page_size int) LengthAwarePaginator[Post]`，过滤/排序/分页下沉到 SQL
-  - [ ] SubTask 12.3: 新增 `UserRepository.find_with_filters(filters, sort, page, page_size)`、`CommentRepository.find_by_post_with_filters(...)`
-  - [ ] SubTask 12.4: 实体改用 `orm.SoftDeletableEntity`（添加 `deleted_at` 字段），`delete()` 设置 `deleted_at`，查询自动过滤
-  - [ ] SubTask 12.5: 新增 `Repository.restore(id)`、`Repository.force_delete(id)`、`Repository.with_trashed()` 方法
-  - [ ] SubTask 12.6: 移除 `repositories.v` 中 `row_to_*` 手工映射重复代码，改用 `orm.OrmAdapter[T]` 自动映射
-  - [ ] SubTask 12.7: 移除 `last_insert_rowid()` SQLite 专属调用，改用 `OrmAdapter` 抽象
+- [x] Task 12: 实现仓储层升级（预加载 + 事务 + 软删除 + SQL 过滤）
+  - [x] SubTask 12.1: 重写 `Demo/repositories.v`，所有仓储继承 `orm.EagerRepository[T]`，支持 `with(['author','category','tags'])` 预加载
+  - [x] SubTask 12.2: 新增 `PostRepository.find_with_filters(filters map[string]string, sort string, page int, page_size int) LengthAwarePaginator[Post]`，过滤/排序/分页下沉到 SQL
+  - [x] SubTask 12.3: 新增 `UserRepository.find_with_filters(filters, sort, page, page_size)`、`CommentRepository.find_by_post_with_filters(...)`
+  - [x] SubTask 12.4: 实体改用 `orm.SoftDeletableEntity`（添加 `deleted_at` 字段），`delete()` 设置 `deleted_at`，查询自动过滤
+  - [x] SubTask 12.5: 新增 `Repository.restore(id)`、`Repository.force_delete(id)`、`Repository.with_trashed()` 方法
+  - [x] SubTask 12.6: 移除 `repositories.v` 中 `row_to_*` 手工映射重复代码，改用 `orm.OrmAdapter[T]` 自动映射
+  - [x] SubTask 12.7: 移除 `last_insert_rowid()` SQLite 专属调用，改用 `OrmAdapter` 抽象
 
-- [ ] Task 13: 实现事务注解与多步操作原子性
-  - [ ] SubTask 13.1: 在 `Demo/services.v` 的 `PostService.create_post`/`update_post`/`delete_post` 标注 `@[transactional]`
-  - [ ] SubTask 13.2: 在 `CommentService.create_comment` 标注 `@[transactional]`（创建评论 + 更新文章评论数）
-  - [ ] SubTask 13.3: 在 `UserService.register` 标注 `@[transactional]`（创建用户 + 初始化统计）
-  - [ ] SubTask 13.4: 验证事务回滚：模拟 `register` 第二步失败，确认用户未创建
+- [x] Task 13: 实现事务注解与多步操作原子性
+  - [x] SubTask 13.1: 在 `Demo/services.v` 的 `PostService.create_post`/`update_post`/`delete_post` 标注 `@[transactional]`
+  - [x] SubTask 13.2: 在 `CommentService.create_comment` 标注 `@[transactional]`（创建评论 + 更新文章评论数）
+  - [x] SubTask 13.3: 在 `UserService.register` 标注 `@[transactional]`（创建用户 + 初始化统计）
+  - [x] SubTask 13.4: 验证事务回滚：模拟 `register` 第二步失败，确认用户未创建
 
-- [ ] Task 14: 实现数据库迁移目录化
-  - [ ] SubTask 14.1: 创建 `Demo/database/migrations/20260101000001_create_users_table.v`（迁移自 `database.v` 的 CreateUsersTable，添加 `deleted_at` 列）
-  - [ ] SubTask 14.2: 创建 `Demo/database/migrations/20260101000002_create_posts_table.v`
-  - [ ] SubTask 14.3: 创建 `Demo/database/migrations/20260101000003_create_comments_table.v`
-  - [ ] SubTask 14.4: 创建 `Demo/database/migrations/20260101000004_create_categories_table.v`
-  - [ ] SubTask 14.5: 创建 `Demo/database/migrations/20260101000005_create_tags_table.v`
-  - [ ] SubTask 14.6: 创建 `Demo/database/migrations/20260101000006_create_post_tags_table.v`
-  - [ ] SubTask 14.7: 实现 `MigrationManager` 自动扫描 `database/migrations/*.v` 目录，按文件名时间戳排序加载
-  - [ ] SubTask 14.8: 移除 `Demo/database.v` 中内联的 6 个迁移结构体（保留 `init_database`/`run_migrations`/`rollback_migrations` 薄封装）
+- [x] Task 14: 实现数据库迁移目录化
+  - [x] SubTask 14.1: 创建 `Demo/database/migrations/20260101000001_create_users_table.v`（迁移自 `database.v` 的 CreateUsersTable，添加 `deleted_at` 列）
+  - [x] SubTask 14.2: 创建 `Demo/database/migrations/20260101000002_create_posts_table.v`
+  - [x] SubTask 14.3: 创建 `Demo/database/migrations/20260101000003_create_comments_table.v`
+  - [x] SubTask 14.4: 创建 `Demo/database/migrations/20260101000004_create_categories_table.v`
+  - [x] SubTask 14.5: 创建 `Demo/database/migrations/20260101000005_create_tags_table.v`
+  - [x] SubTask 14.6: 创建 `Demo/database/migrations/20260101000006_create_post_tags_table.v`
+  - [x] SubTask 14.7: 实现 `MigrationManager` 自动扫描 `database/migrations/*.v` 目录，按文件名时间戳排序加载
+  - [x] SubTask 14.8: 移除 `Demo/database.v` 中内联的 6 个迁移结构体（保留 `init_database`/`run_migrations`/`rollback_migrations` 薄封装）
 
-- [ ] Task 15: 实现数据库种子与工厂
-  - [ ] SubTask 15.1: 创建 `Demo/database/seeders/seeder.v`（Seeder 接口：`run() !`）
-  - [ ] SubTask 15.2: 创建 `Demo/database/seeders/database_seeder.v`（DatabaseSeeder：调用 UserSeeder/PostSeeder/CommentSeeder）
-  - [ ] SubTask 15.3: 创建 `Demo/database/seeders/user_seeder.v`（UserSeeder：1 ADMIN + 2 EDITOR + 5 USER，账号密码从 `.env` 读取）
-  - [ ] SubTask 15.4: 创建 `Demo/database/seeders/post_seeder.v`（PostSeeder：10 篇文章，使用 UserFactory 随机作者）
-  - [ ] SubTask 15.5: 创建 `Demo/database/seeders/comment_seeder.v`（CommentSeeder：20 条评论）
-  - [ ] SubTask 15.6: 创建 `Demo/database/factories/user_factory.v`（UserFactory：`new()`/`with_role(role)`/`create() !User`/`make() User`）
-  - [ ] SubTask 15.7: 创建 `Demo/database/factories/post_factory.v`（PostFactory）
-  - [ ] SubTask 15.8: 创建 `Demo/database/factories/comment_factory.v`（CommentFactory）
-  - [ ] SubTask 15.9: 重写 `Demo/commands.v` 的 `SeedCommand`，委托给 `DatabaseSeeder.run()`
+- [x] Task 15: 实现数据库种子与工厂
+  - [x] SubTask 15.1: 创建 `Demo/database/seeders/seeder.v`（Seeder 接口：`run() !`）
+  - [x] SubTask 15.2: 创建 `Demo/database/seeders/database_seeder.v`（DatabaseSeeder：调用 UserSeeder/PostSeeder/CommentSeeder）
+  - [x] SubTask 15.3: 创建 `Demo/database/seeders/user_seeder.v`（UserSeeder：1 ADMIN + 2 EDITOR + 5 USER，账号密码从 `.env` 读取）
+  - [x] SubTask 15.4: 创建 `Demo/database/seeders/post_seeder.v`（PostSeeder：10 篇文章，使用 UserFactory 随机作者）
+  - [x] SubTask 15.5: 创建 `Demo/database/seeders/comment_seeder.v`（CommentSeeder：20 条评论）
+  - [x] SubTask 15.6: 创建 `Demo/database/factories/user_factory.v`（UserFactory：`new()`/`with_role(role)`/`create() !User`/`make() User`）
+  - [x] SubTask 15.7: 创建 `Demo/database/factories/post_factory.v`（PostFactory）
+  - [x] SubTask 15.8: 创建 `Demo/database/factories/comment_factory.v`（CommentFactory）
+  - [x] SubTask 15.9: 重写 `Demo/commands.v` 的 `SeedCommand`，委托给 `DatabaseSeeder.run()`
 
 ## 阶段五：缓存、锁与安全升级
 

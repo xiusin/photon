@@ -5,13 +5,15 @@ module main
 // 使用 Photon orm 模块的 OrmManager + MigrationManager + Schema 构建器，
 // 实现 SQLite 数据库连接管理与版本化迁移。
 //
-// 迁移表结构：
+// 迁移结构体已拆分到 database/migrations/ 目录，按文件名时间戳排序加载：
 //   1. users       — 用户表
-//   2. categories  — 分类表
-//   3. posts       — 文章表
-//   4. comments    — 评论表
+//   2. posts       — 文章表
+//   3. comments    — 评论表
+//   4. categories  — 分类表
 //   5. tags        — 标签表
 //   6. post_tags   — 文章-标签关联表
+//
+// 本文件仅保留连接初始化、Schema 执行辅助、迁移管理器装配与生命周期入口。
 
 import photon.orm as phorm
 import db.sqlite
@@ -45,244 +47,6 @@ pub fn get_db(om &phorm.OrmManager) !&sqlite.DB {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 迁移结构体
-// ═══════════════════════════════════════════════════════════
-
-// CreateUsersTable — 创建用户表（版本 1）
-struct CreateUsersTable {}
-
-fn (m CreateUsersTable) version() int {
-	return 1
-}
-
-fn (m CreateUsersTable) name() string {
-	return 'create_users_table'
-}
-
-fn (m CreateUsersTable) up(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
-	mut schema := phorm.new_schema(.sqlite)
-	schema.create_table('users', fn (mut t phorm.TableDef) {
-		t.id()
-		t.string_('username', 255)
-		t.not_null()
-		t.string_('email', 255)
-		t.not_null()
-		t.string_('password', 255)
-		t.not_null()
-		t.string_('nickname', 255)
-		t.string_('avatar', 512)
-		t.integer('status')
-		t.default_('1')
-		t.string_('role', 50)
-		t.default_('USER')
-		t.integer('created_at')
-		t.integer('updated_at')
-		t.integer('version')
-		t.unique_(['username'], 'idx_users_username')
-		t.unique_(['email'], 'idx_users_email')
-		t.index_(['status'], 'idx_users_status')
-		t.index_(['role'], 'idx_users_role')
-	})
-	execute_schema(db, schema)!
-}
-
-fn (m CreateUsersTable) down(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
-	db.exec('DROP TABLE IF EXISTS users')!
-}
-
-// CreateCategoriesTable — 创建分类表（版本 2）
-struct CreateCategoriesTable {}
-
-fn (m CreateCategoriesTable) version() int {
-	return 2
-}
-
-fn (m CreateCategoriesTable) name() string {
-	return 'create_categories_table'
-}
-
-fn (m CreateCategoriesTable) up(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
-	mut schema := phorm.new_schema(.sqlite)
-	schema.create_table('categories', fn (mut t phorm.TableDef) {
-		t.id()
-		t.string_('name', 255)
-		t.not_null()
-		t.string_('slug', 255)
-		t.not_null()
-		t.string_('description', 512)
-		t.integer('created_at')
-		t.integer('updated_at')
-		t.integer('version')
-		t.unique_(['slug'], 'idx_categories_slug')
-		t.index_(['name'], 'idx_categories_name')
-	})
-	execute_schema(db, schema)!
-}
-
-fn (m CreateCategoriesTable) down(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
-	db.exec('DROP TABLE IF EXISTS categories')!
-}
-
-// CreatePostsTable — 创建文章表（版本 3）
-struct CreatePostsTable {}
-
-fn (m CreatePostsTable) version() int {
-	return 3
-}
-
-fn (m CreatePostsTable) name() string {
-	return 'create_posts_table'
-}
-
-fn (m CreatePostsTable) up(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
-	mut schema := phorm.new_schema(.sqlite)
-	schema.create_table('posts', fn (mut t phorm.TableDef) {
-		t.id()
-		t.string_('title', 255)
-		t.not_null()
-		t.text('content')
-		t.not_null()
-		t.string_('summary', 512)
-		t.integer('author_id')
-		t.not_null()
-		t.integer('category_id')
-		t.string_('status', 20)
-		t.default_('draft')
-		t.integer('views')
-		t.default_('0')
-		t.integer('created_at')
-		t.integer('updated_at')
-		t.integer('version')
-		t.index_(['author_id'], 'idx_posts_author')
-		t.index_(['category_id'], 'idx_posts_category')
-		t.index_(['status'], 'idx_posts_status')
-		t.index_(['created_at'], 'idx_posts_created_at')
-	})
-	execute_schema(db, schema)!
-}
-
-fn (m CreatePostsTable) down(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
-	db.exec('DROP TABLE IF EXISTS posts')!
-}
-
-// CreateCommentsTable — 创建评论表（版本 4）
-struct CreateCommentsTable {}
-
-fn (m CreateCommentsTable) version() int {
-	return 4
-}
-
-fn (m CreateCommentsTable) name() string {
-	return 'create_comments_table'
-}
-
-fn (m CreateCommentsTable) up(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
-	mut schema := phorm.new_schema(.sqlite)
-	schema.create_table('comments', fn (mut t phorm.TableDef) {
-		t.id()
-		t.integer('post_id')
-		t.not_null()
-		t.integer('user_id')
-		t.not_null()
-		t.text('content')
-		t.not_null()
-		t.integer('parent_id')
-		t.default_('0')
-		t.string_('status', 20)
-		t.default_('visible')
-		t.integer('created_at')
-		t.integer('updated_at')
-		t.integer('version')
-		t.index_(['post_id'], 'idx_comments_post')
-		t.index_(['user_id'], 'idx_comments_user')
-		t.index_(['parent_id'], 'idx_comments_parent')
-		t.index_(['status'], 'idx_comments_status')
-	})
-	execute_schema(db, schema)!
-}
-
-fn (m CreateCommentsTable) down(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
-	db.exec('DROP TABLE IF EXISTS comments')!
-}
-
-// CreateTagsTable — 创建标签表（版本 5）
-struct CreateTagsTable {}
-
-fn (m CreateTagsTable) version() int {
-	return 5
-}
-
-fn (m CreateTagsTable) name() string {
-	return 'create_tags_table'
-}
-
-fn (m CreateTagsTable) up(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
-	mut schema := phorm.new_schema(.sqlite)
-	schema.create_table('tags', fn (mut t phorm.TableDef) {
-		t.id()
-		t.string_('name', 255)
-		t.not_null()
-		t.string_('slug', 255)
-		t.not_null()
-		t.integer('created_at')
-		t.integer('updated_at')
-		t.integer('version')
-		t.unique_(['slug'], 'idx_tags_slug')
-		t.index_(['name'], 'idx_tags_name')
-	})
-	execute_schema(db, schema)!
-}
-
-fn (m CreateTagsTable) down(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
-	db.exec('DROP TABLE IF EXISTS tags')!
-}
-
-// CreatePostTagsTable — 创建文章-标签关联表（版本 6）
-struct CreatePostTagsTable {}
-
-fn (m CreatePostTagsTable) version() int {
-	return 6
-}
-
-fn (m CreatePostTagsTable) name() string {
-	return 'create_post_tags_table'
-}
-
-fn (m CreatePostTagsTable) up(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
-	mut schema := phorm.new_schema(.sqlite)
-	schema.create_table('post_tags', fn (mut t phorm.TableDef) {
-		t.id()
-		t.integer('post_id')
-		t.not_null()
-		t.integer('tag_id')
-		t.not_null()
-		t.integer('created_at')
-		t.integer('updated_at')
-		t.integer('version')
-		t.unique_(['post_id', 'tag_id'], 'idx_post_tags_unique')
-		t.index_(['post_id'], 'idx_post_tags_post')
-		t.index_(['tag_id'], 'idx_post_tags_tag')
-	})
-	execute_schema(db, schema)!
-}
-
-fn (m CreatePostTagsTable) down(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
-	db.exec('DROP TABLE IF EXISTS post_tags')!
-}
-
-// ═══════════════════════════════════════════════════════════
 // 迁移辅助函数
 // ═══════════════════════════════════════════════════════════
 
@@ -298,17 +62,22 @@ fn execute_schema(db &sqlite.DB, schema &phorm.Schema) ! {
 // ═══════════════════════════════════════════════════════════
 
 // new_migration_manager 创建迁移管理器并注册所有迁移
+//
+// 从 database/migrations/ 目录装配迁移实例，按版本号顺序注册到
+// MigrationManager。迁移结构体定义在 migrations/*.v 文件中（均为 module main），
+// 此处集中注册以便统一调度。新增迁移时只需在 migrations/ 目录创建文件
+// 并在此追加一行 mm.add(XxxTable{})。
 pub fn new_migration_manager(om &phorm.OrmManager) !&phorm.MigrationManager {
 	mut mm := phorm.new_migration_manager(om)
 	mm.set_db_name('default')
 
-	// 按版本顺序注册迁移
-	mm.add(CreateUsersTable{})
-	mm.add(CreateCategoriesTable{})
-	mm.add(CreatePostsTable{})
-	mm.add(CreateCommentsTable{})
-	mm.add(CreateTagsTable{})
-	mm.add(CreatePostTagsTable{})
+	// 按版本顺序注册迁移（顺序由各迁移结构体的 version() 方法决定）
+	mm.add(CreateUsersTable{})       // v1: 用户表
+	mm.add(CreatePostsTable{})       // v2: 文章表
+	mm.add(CreateCommentsTable{})    // v3: 评论表
+	mm.add(CreateCategoriesTable{})  // v4: 分类表
+	mm.add(CreateTagsTable{})        // v5: 标签表
+	mm.add(CreatePostTagsTable{})    // v6: 文章-标签关联表
 
 	return mm
 }

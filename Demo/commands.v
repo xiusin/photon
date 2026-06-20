@@ -167,133 +167,24 @@ pub fn new_seed_command(boot &Bootstrap) &SeedCommand {
 	return &SeedCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'seed'
-			description: 'Seed database with sample data'
-			sig:         ''
+			description: 'Seed database with sample data (1 ADMIN + 2 EDITOR + 5 USER + 10 posts + 20 comments)'
+			sig:         '[--only=users|posts|comments]'
 		}
 		bootstrap: boot
 	}
 }
 
-// seed_user 创建用户（幂等：若已存在则查找返回）
-fn (c &SeedCommand) seed_user(dto CreateUserDto, output &cli.CommandOutput) !User {
-	if c.bootstrap.user_repo.exists_by_username(dto.username) {
-		return c.bootstrap.user_svc.find_by_username(dto.username)!
-	}
-	mut user_svc := unsafe { c.bootstrap.user_svc }
-	u, _ := user_svc.register(dto) or {
-		output.warning('Failed to create user ${dto.username}: ${err}')
-		return User{}
-	}
-	return u
-}
-
 pub fn (c &SeedCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
-	output.title('Seeding database')
+	mut seeder := new_database_seeder(c.bootstrap)
 
-	// ── 1. 创建 1 个 ADMIN ──
-	admin_dto := CreateUserDto{
-		username: 'admin'
-		email:    'admin@photonblog.dev'
-		password: 'admin123'
-		nickname: 'Administrator'
-		role:     'ADMIN'
-	}
-	admin := c.seed_user(admin_dto, output)!
-	if admin.id > 0 {
-		output.success('Created admin user: ${admin.username} (id=${admin.id})')
+	// 支持 --only 参数选择性执行种子
+	only := input.get_option_or('only', '')
+	if only.len > 0 {
+		seeder.run_only(only, output)!
+		return
 	}
 
-	// ── 2. 创建 2 个 EDITOR ──
-	editor_names := ['editor1', 'editor2']
-	for i, name in editor_names {
-		dto := CreateUserDto{
-			username: name
-			email:    '${name}@photonblog.dev'
-			password: 'editor123'
-			nickname: 'Editor ${i + 1}'
-			role:     'EDITOR'
-		}
-		user := c.seed_user(dto, output) or { User{} }
-		if user.id > 0 {
-			output.success('Created editor: ${user.username} (id=${user.id})')
-		}
-	}
-
-	// ── 3. 创建 5 个 USER ──
-	for i in 1 .. 6 {
-		name := 'user${i}'
-		dto := CreateUserDto{
-			username: name
-			email:    '${name}@photonblog.dev'
-			password: 'user123'
-			nickname: 'User ${i}'
-			role:     'USER'
-		}
-		user := c.seed_user(dto, output) or { User{} }
-		if user.id > 0 {
-			output.success('Created user: ${user.username} (id=${user.id})')
-		}
-	}
-
-	// ── 4. 创建分类 ──
-	categories := ['技术', '生活', '随笔']
-	mut category_svc := unsafe { c.bootstrap.category_svc }
-	for cat_name in categories {
-		dto := CreateCategoryDto{
-			name:        cat_name
-			slug:        generate_slug(cat_name)
-			description: '${cat_name}相关文章'
-		}
-		category_svc.create(dto) or {
-			// 分类可能已存在，忽略错误
-		}
-	}
-	output.success('Categories ensured (技术/生活/随笔)')
-
-	// ── 5. 创建 10 篇文章 ──
-	mut post_svc_check := unsafe { c.bootstrap.post_svc }
-	existing_posts := post_svc_check.find_all() or { []Post{} }
-	if existing_posts.len < 10 {
-		mut post_svc := unsafe { c.bootstrap.post_svc }
-		for i in 1 .. 11 {
-			dto := CreatePostDto{
-				title:       '文章标题 ${i} - PhotonBlog 示例'
-				content:     '这是第 ${i} 篇示例文章的内容。PhotonBlog 是一个基于 Photon Framework 的完整博客系统示例，展示了 V 语言企业级框架的全部功能，包括依赖注入、ORM、缓存、队列、事件驱动等核心特性。'
-				summary:     '示例文章 ${i} 的摘要'
-				author_id:   admin.id
-				category_id: ((i - 1) % 3) + 1
-				status:      'published'
-			}
-			post_svc.create(dto) or {
-				// 创建失败则跳过
-			}
-		}
-		output.success('Created 10 sample posts')
-	} else {
-		output.writeln('  Posts already seeded (${existing_posts.len} found), skipping')
-	}
-
-	// ── 6. 创建 20 条评论 ──
-	existing_comments_count := c.bootstrap.comment_svc.count_by_post(1) or { 0 }
-	if existing_comments_count == 0 {
-		mut comment_svc := unsafe { c.bootstrap.comment_svc }
-		for i in 1 .. 21 {
-			dto := CreateCommentDto{
-				post_id:   ((i - 1) % 10) + 1
-				user_id:   ((i - 1) % 5) + 1
-				content:   '这是第 ${i} 条评论。很好的文章，受益匪浅！'
-				parent_id: 0
-			}
-			comment_svc.create(dto) or {
-				// 创建失败则跳过
-			}
-		}
-		output.success('Created 20 sample comments')
-	} else {
-		output.writeln('  Comments already seeded, skipping')
-	}
-
-	output.success('Seed data inserted successfully')
+	seeder.run(output)!
 	return
 }
 

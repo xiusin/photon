@@ -513,6 +513,13 @@ pub fn (repo &CommentRepository) count_by_post(post_id int) !int {
 	return rows[0].get_int('cnt')
 }
 
+// touch_post 更新文章的 updated_at 时间戳（用于评论创建时标记文章活动）
+// 与评论创建同事务执行，确保原子性
+pub fn (repo &CommentRepository) touch_post(post_id int) ! {
+	now := time.now().unix().str()
+	repo.db.exec_param_many('UPDATE posts SET updated_at = ? WHERE id = ?', [now, post_id.str()])!
+}
+
 // ═══════════════════════════════════════════════════════════
 // CategoryRepository — 分类仓储
 // ═══════════════════════════════════════════════════════════
