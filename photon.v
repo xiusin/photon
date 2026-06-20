@@ -18,6 +18,7 @@ import web
 import storage
 import mailer
 import apidoc
+import pool
 
 // Re-export config types
 pub type Config = config.Config
