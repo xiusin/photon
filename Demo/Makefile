@@ -66,10 +66,12 @@ endif
 # V's `v run <dir>` only compiles .v files directly in <dir>, not in
 # sub-directories.  Demo uses a Laravel-style layout where every .v
 # file is `module main` but lives in app/, config/, bootstrap/, etc.
-# The `flatten` target symlinks them all into .build/ so V sees them.
+# The `flatten` target COPIES them all into .build/ so V sees them.
+# We use cp (not symlinks) because V's watch mode on macOS does not
+# reliably follow symlinks.
 flatten:
 	@rm -rf $(BUILD_DIR)
-	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)/.vmodules
 	@for f in $$(find . -name '*.v' \
 		-not -path './.vmodules/*' \
 		-not -path './.build/*' \
@@ -88,17 +90,22 @@ flatten:
 			prefix=$$(echo $$dir | sed 's|^\./||;s|/|__|g'); \
 			dest=$(BUILD_DIR)/$${prefix}__$$base; \
 		fi; \
-		ln -sf $$(pwd)/$$f $$dest 2>/dev/null || cp $$f $$dest; \
+		cp "$$f" "$$dest"; \
 	done
 	@cp v.mod $(BUILD_DIR)/v.mod
-	@# Ensure photon vmodule is resolvable — try both project-local and global
-	@mkdir -p $(BUILD_DIR)/.vmodules
+	@# Make photon vmodule resolvable — copy only module dirs (not examples/tests/docs)
 	@PHOTON_ROOT=$$(cd .. && pwd); \
-	ln -sfn "$$PHOTON_ROOT" $(BUILD_DIR)/.vmodules/photon; \
+	mkdir -p $(BUILD_DIR)/.vmodules/photon; \
+	cp $(BUILD_DIR)/.vmodules/photon 2>/dev/null; \
+	for d in photon.v v.mod core config log cache orm pool lock web cli security apidoc logger; do \
+		if [ -e "$$PHOTON_ROOT/$$d" ]; then \
+			cp -R "$$PHOTON_ROOT/$$d" $(BUILD_DIR)/.vmodules/photon/; \
+		fi; \
+	done; \
 	mkdir -p $(HOME)/.vmodules; \
 	ln -sfn "$$PHOTON_ROOT" $(HOME)/.vmodules/photon
-	@# Verify the link works
-	@test -d $(BUILD_DIR)/.vmodules/photon/apidoc || { echo "ERROR: .build/.vmodules/photon/apidoc not found — symlink broken?"; exit 1; }
+	@# Verify
+	@test -d $(BUILD_DIR)/.vmodules/photon/apidoc || { echo "ERROR: photon vmodule not resolvable"; exit 1; }
 
 ## 环境初始化: 一键搭建开发环境
 setup: check-v env build migrate seed
