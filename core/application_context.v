@@ -266,6 +266,31 @@ pub fn (mut ctx ApplicationContext) add_auto_configuration(type_name string, con
 	ctx.auto_config_manager.add_auto_configuration(type_name, config, conditions)
 }
 
+// register_auto_configuration is the comptime-driven entry point for
+// auto-configuration discovery (Task A1).
+//
+// It delegates to `AutoConfigurationManager.register_from_comptime[T]()`,
+// which performs a compile-time scan of T's struct-level attributes and:
+//   - Refuses (returns error) if T is NOT annotated with `@[auto_configuration]`
+//   - Registers T as an auto-configuration candidate
+//   - Parses any `@[conditional_on_*]` attributes into Condition objects
+//
+// V comptime can only see types in the current compilation unit, so users
+// call this once per auto-configuration class during bootstrap (before
+// refresh()). The candidates are then evaluated and applied during
+// refresh() via `auto_config_manager.apply_all()` (step 3 of refresh()).
+//
+// Spring Boot equivalent: @EnableAutoConfiguration classpath scan
+//
+// Usage:
+//   mut app := core.new_application_context()
+//   app.register_auto_configuration[RedisAutoConfig]()!
+//   app.register_auto_configuration[WebMvcAutoConfig]()!
+//   app.refresh()!  // apply_all() evaluates conditions during step 3
+pub fn (mut ctx ApplicationContext) register_auto_configuration[T]() ! {
+	ctx.auto_config_manager.register_from_comptime[T]()!
+}
+
 // ── SmartLifecycle ──
 
 // add_smart_lifecycle registers a SmartLifecycle bean.
@@ -360,6 +385,14 @@ pub fn (mut ctx ApplicationContext) refresh() ! {
 	}
 
 	// 3. Apply AutoConfigurations (conditionally register more beans)
+	//    Auto-configuration candidates are registered BEFORE refresh() via
+	//    `ctx.register_auto_configuration[T]()` (Task A1), which performs a
+	//    comptime scan of `@[auto_configuration]` attributes. Here we only
+	//    evaluate their `@[conditional_on_*]` conditions and apply those
+	//    that match — this is the Spring Boot two-phase model
+	//    (import candidates → evaluate conditions during refresh).
+	//    User beans (registered in steps 1–2) take precedence over
+	//    auto-configured beans ("user has the final word" principle).
 	if !isnil(ctx.auto_config_manager) {
 		ctx.auto_config_manager.apply_all(mut ctx) or {
 			eprintln('[ApplicationContext] auto-configuration error: ${err}')

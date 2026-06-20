@@ -132,3 +132,83 @@ pub fn (mut m AutoConfigurationManager) candidate_count() int {
 	defer { m.mu.runlock() }
 	return m.candidates.len
 }
+
+// list returns a snapshot of all registered auto-configuration candidates.
+// The returned slice is a copy — callers may iterate it without holding the
+// manager's lock.
+//
+// Spring equivalent: AutoConfigurationImportSelector.getAutoConfigurations()
+pub fn (mut m AutoConfigurationManager) list() []AutoConfigurationCandidate {
+	m.mu.rlock()
+	defer { m.mu.runlock() }
+	return m.candidates.clone()
+}
+
+// has_candidate returns true if a candidate with the given type_name is
+// registered. Used by tests and diagnostics to verify comptime registration.
+pub fn (mut m AutoConfigurationManager) has_candidate(type_name string) bool {
+	m.mu.rlock()
+	defer { m.mu.runlock() }
+	for c in m.candidates {
+		if c.type_name == type_name {
+			return true
+		}
+	}
+	return false
+}
+
+// ── Comptime-Driven Registration (Task A1) ──
+//
+// V comptime can only inspect types in the current compilation unit, so
+// cross-module "class-path scanning" (Spring Boot's classpath traversal) is
+// impossible. Instead, Photon realizes auto-configuration as a
+// contract-enforcing comptime helper: the bootstrap code calls
+// `register_from_comptime[T]()` for each candidate type, and the comptime
+// check guarantees T carries `@[auto_configuration]` — refusing any
+// non-annotated type. This is the "auto" guarantee: no manual type_name
+// strings, no runtime reflection, and a compile-time-verified annotation
+// contract.
+//
+// Usage (in the application's bootstrap, before refresh()):
+//   ctx.auto_config_manager.register_from_comptime[RedisAutoConfig]()!
+//   ctx.auto_config_manager.register_from_comptime[WebMvcAutoConfig]()!
+//   ctx.refresh()!  // apply_all() evaluates conditions and invokes configure()
+
+// register_from_comptime registers type T as an auto-configuration candidate
+// if (and only if) T is annotated with `@[auto_configuration]`.
+//
+// The comptime scan extracts:
+//   1. The `@[auto_configuration]` attribute — required; refusal returns an error.
+//   2. Any `@[conditional_on_*]` attributes — parsed into Condition objects
+//      and attached to the candidate. Conditions are later evaluated by
+//      apply_all() during refresh().
+//
+// For Task A1, the candidate is registered with `config = nil` — the
+// configuration class itself is recorded as a bean candidate. Task A3 will
+// extend this to scan T's `@[bean]` methods and wire them into the container.
+//
+// Returns an error (with bilingual message) if T lacks the annotation,
+// enforcing the auto-configuration contract at compile time.
+pub fn (mut m AutoConfigurationManager) register_from_comptime[T]() ! {
+	// Comptime check: T MUST carry @[auto_configuration].
+	// This is the core of the "auto" guarantee — non-annotated types are refused.
+	if !extract_auto_configuration[T]() {
+		return error('type "${T.name}" is not annotated with @[auto_configuration]; cannot register as auto-configuration / 类型 "${T.name}" 未标注 @[auto_configuration]，无法注册为自动配置类')
+	}
+
+	// Extract the full attribute set (comptime) and parse any conditional
+	// annotations into Condition objects. Conditions are evaluated later
+	// during apply_all(), NOT at registration time — this mirrors Spring
+	// Boot's two-phase model (import → evaluate).
+	attrs := extract_auto_configuration_attrs[T]()
+	mut cond_ctx := new_condition_context()
+	conditions := parse_conditions(attrs, mut cond_ctx)
+
+	candidate := AutoConfigurationCandidate{
+		type_name:  T.name
+		config:     unsafe { nil } // A1: register the class itself; A3 wires @[bean] methods
+		conditions: conditions
+		order_:     0 // default order; A3 may extract @[order] if needed
+	}
+	m.add_candidate(candidate)
+}

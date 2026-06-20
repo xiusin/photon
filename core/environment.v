@@ -19,7 +19,44 @@ module core
 //   env.set_property('app.name', 'PhotonAPI')
 //   env.get_or('app.name', 'MyApp')  // → 'PhotonAPI'
 //   env.accepts_profile('dev')        // → true
+//
+// Profile-specific config (Task A4):
+//   env.load_default_config('config/application.toml')!  // default config
+//   env.load_profile('dev')!                              // application-dev.toml
+//   env.parse_cli_args(os.args)                           // --key=value overrides
+//   // Priority chain: CLI > env vars > profile config > default config > properties
 import sync
+import os
+import toml
+
+// ── Property Source Priority (Task A4) ──
+
+// PropertySourcePriority defines the priority order of property sources.
+// Higher values indicate higher priority (override lower-priority sources).
+//
+// Priority chain (highest → lowest):
+//   1. cli          — --key=value command-line arguments
+//   2. env_var      — PHOTON_* environment variables
+//   3. profile      — application-{profile}.toml
+//   4. default      — application.toml
+//
+// Spring equivalent: MutablePropertySources with ordered PropertySource list
+pub enum PropertySourcePriority {
+	default = 0 // application.toml (lowest)
+	profile = 1 // application-{profile}.toml
+	env_var = 2 // PHOTON_* environment variables
+	cli     = 3 // --key=value command-line arguments (highest)
+}
+
+// str returns a human-readable source name.
+pub fn (p PropertySourcePriority) str() string {
+	return match p {
+		.default { 'default' }
+		.profile { 'profile' }
+		.env_var { 'env_var' }
+		.cli { 'cli' }
+	}
+}
 
 // ── Environment ──
 
@@ -40,6 +77,16 @@ pub interface PropertySource {
 //   - Property source integration (Spring PropertySource)
 //   - Nested property prefix queries (get_by_prefix)
 //   - Placeholder resolution (${key} and ${key:default})
+//   - Profile-specific config loading (Task A4)
+//   - Property source priority chain (Task A4):
+//       CLI > env vars > profile config > default config > properties
+//
+// Property source maps (Task A4):
+//   - properties:                programmatic properties (set_property) — lowest priority fallback
+//   - default_config_properties: application.toml loaded properties
+//   - profile_config_properties: application-{profile}.toml loaded properties
+//   - cli_args:                  parsed --key=value command-line arguments
+//   - env vars:                  looked up dynamically via os.getenv('PHOTON_*')
 @[heap]
 pub struct Environment {
 pub mut:
@@ -47,16 +94,25 @@ pub mut:
 	default_profiles []string
 	properties       map[string]string
 	sources          []&PropertySource
+	// ── Task A4: Profile-specific config & priority chain ──
+	active_profile string // the single active profile for config loading (e.g. 'dev')
+	config_dir     string // directory to search for application*.toml files
 mut:
-	mu sync.RwMutex
+	mu                        sync.RwMutex
+	default_config_properties map[string]string // application.toml
+	profile_config_properties map[string]string // application-{profile}.toml
+	cli_args                  map[string]string // --key=value parsed args
 }
 
 // new_environment creates an empty Environment with sensible defaults.
 pub fn new_environment() &Environment {
 	return &Environment{
-		active_profiles:  ['default']
-		default_profiles: ['default']
-		properties:       map[string]string{}
+		active_profiles:           ['default']
+		default_profiles:          ['default']
+		properties:                map[string]string{}
+		default_config_properties: map[string]string{}
+		profile_config_properties: map[string]string{}
+		cli_args:                  map[string]string{}
 	}
 }
 
@@ -117,6 +173,310 @@ pub fn (mut env Environment) set_default_profiles(profiles []string) {
 	env.default_profiles = profiles.clone()
 }
 
+// ── Profile-Specific Config (Task A4) ──
+
+// set_active_profile sets a single active profile for config loading.
+// This is used by load_profile() to determine which application-{profile}.toml
+// to load. It also adds the profile to active_profiles for accepts_profile().
+//
+// Unlike set_active_profiles() which replaces the entire profile list,
+// this sets the `active_profile` field used for config file resolution.
+//
+// Spring equivalent: spring.profiles.active
+pub fn (mut env Environment) set_active_profile(profile string) {
+	env.mu.@lock()
+	defer { env.mu.unlock() }
+	env.active_profile = profile
+	if profile.len > 0 && profile !in env.active_profiles {
+		env.active_profiles << profile
+	}
+}
+
+// get_active_profile returns the single active profile used for config loading.
+// Returns empty string if no profile is set.
+pub fn (mut env Environment) get_active_profile() string {
+	env.mu.rlock()
+	defer { env.mu.runlock() }
+	return env.active_profile
+}
+
+// set_config_dir sets the directory where application*.toml files are searched.
+// Used by load_profile() and load_default_config() when no explicit path is given.
+// Defaults to the current working directory if not set.
+pub fn (mut env Environment) set_config_dir(dir string) {
+	env.mu.@lock()
+	defer { env.mu.unlock() }
+	env.config_dir = dir
+}
+
+// get_config_dir returns the config directory, defaulting to '.' if not set.
+pub fn (mut env Environment) get_config_dir() string {
+	env.mu.rlock()
+	defer { env.mu.runlock() }
+	if env.config_dir.len > 0 {
+		return env.config_dir
+	}
+	return '.'
+}
+
+// detect_profile detects the active profile from (in priority order):
+//   1. --profile=xxx or --profile xxx CLI argument
+//   2. PHOTON_PROFILE environment variable
+//   3. Empty string (no profile) if neither is set
+//
+// This does NOT mutate the environment — it only returns the detected profile.
+// Call set_active_profile() to apply it, or use apply_detected_profile() which
+// combines detection + application.
+//
+// Spring equivalent: spring.profiles.active from --spring.profiles.active
+pub fn (mut env Environment) detect_profile() string {
+	// 1. Check CLI args (--profile=xxx or --profile xxx)
+	env.mu.rlock()
+	args_snapshot := env.cli_args.clone()
+	env.mu.runlock()
+	// cli_args already has --profile parsed into 'profile' key
+	if profile := args_snapshot['profile'] {
+		return profile
+	}
+
+	// Also scan os.args directly for --profile (in case parse_cli_args wasn't called)
+	if os.args.len > 1 {
+		for i := 1; i < os.args.len; i++ {
+			arg := os.args[i]
+			if arg == '--profile' && i + 1 < os.args.len {
+				return os.args[i + 1]
+			}
+			if arg.starts_with('--profile=') {
+				return arg['--profile='.len..]
+			}
+		}
+	}
+
+	// 2. Check PHOTON_PROFILE environment variable
+	env_var := os.getenv('PHOTON_PROFILE')
+	if env_var.len > 0 {
+		return env_var
+	}
+
+	// 3. No profile detected
+	return ''
+}
+
+// apply_detected_profile detects the profile (from CLI/env) and applies it
+// to the environment via set_active_profile(). Returns the detected profile.
+//
+// Usage:
+//   env.parse_cli_args(os.args)
+//   profile := env.apply_detected_profile()  // → 'dev' (if --profile=dev)
+//   env.load_profile(profile)!
+pub fn (mut env Environment) apply_detected_profile() string {
+	profile := env.detect_profile()
+	if profile.len > 0 {
+		env.set_active_profile(profile)
+	}
+	return profile
+}
+
+// load_default_config loads application.toml from the given path (or from
+// config_dir if path is empty). The loaded properties are stored in
+// default_config_properties (priority: default, the lowest config source).
+//
+// If the file does not exist, this is a no-op (returns ok) — default config
+// is optional. Other read/parse errors are propagated.
+//
+// Spring equivalent: application.properties / application.toml
+pub fn (mut env Environment) load_default_config(path string) ! {
+	file_path := if path.len > 0 { path } else { '${env.get_config_dir()}/application.toml' }
+
+	// Default config is optional — silently skip if file doesn't exist
+	if !os.exists(file_path) {
+		return
+	}
+
+	content := os.read_file(file_path) or {
+		return error('failed to read default config "${file_path}": ${err}')
+	}
+
+	props := parse_toml_to_flat_map(content) or {
+		return error('failed to parse default config "${file_path}": ${err}')
+	}
+
+	env.mu.@lock()
+	defer { env.mu.unlock() }
+	for key, value in props {
+		env.default_config_properties[key] = value
+	}
+}
+
+// load_profile_config loads a specific profile config file (e.g.
+// application-dev.toml) from the given path. The loaded properties are stored
+// in profile_config_properties (priority: profile, overrides default config).
+//
+// If the file does not exist, this is a no-op (returns ok) — profile config
+// is optional. Other read/parse errors are propagated.
+pub fn (mut env Environment) load_profile_config(path string) ! {
+	// Profile config is optional — silently skip if file doesn't exist
+	if !os.exists(path) {
+		return
+	}
+
+	content := os.read_file(path) or {
+		return error('failed to read profile config "${path}": ${err}')
+	}
+
+	props := parse_toml_to_flat_map(content) or {
+		return error('failed to parse profile config "${path}": ${err}')
+	}
+
+	env.mu.@lock()
+	defer { env.mu.unlock() }
+	for key, value in props {
+		env.profile_config_properties[key] = value
+	}
+}
+
+// load_profile loads application-{profile}.toml for the given profile (or the
+// currently active profile if profile is empty). The file is searched in
+// config_dir. Loaded properties override default_config_properties.
+//
+// If the file does not exist, this is a no-op (returns ok) — profile config
+// is optional.
+//
+// Usage:
+//   env.set_config_dir('config')
+//   env.load_profile('dev')!  // loads config/application-dev.toml
+//   // or:
+//   env.set_active_profile('prod')
+//   env.load_profile('')!     // loads config/application-prod.toml
+pub fn (mut env Environment) load_profile(profile string) ! {
+	target_profile := if profile.len > 0 { profile } else { env.get_active_profile() }
+	if target_profile.len == 0 {
+		return
+	}
+
+	// Ensure the profile is tracked as active
+	if profile.len > 0 {
+		env.set_active_profile(profile)
+	}
+
+	file_path := '${env.get_config_dir()}/application-${target_profile}.toml'
+	env.load_profile_config(file_path)!
+}
+
+// ── CLI Argument Parsing (Task A4) ──
+
+// parse_cli_args parses command-line arguments for property overrides.
+// Recognized forms:
+//   --profile=xxx        sets the active profile
+//   --profile xxx        sets the active profile (space-separated)
+//   --key=value          sets property 'key' to 'value'
+//   --key value          sets property 'key' to 'value' (space-separated)
+//   --flag               sets property 'flag' to 'true'
+//
+// The 'profile' key is extracted and stored separately for detect_profile().
+// All other --key=value pairs are stored in cli_args (highest priority source).
+//
+// Returns the list of non-config arguments (args that don't start with --).
+// This allows callers to pass remaining args to their own CLI parser.
+//
+// Spring equivalent: --spring.profiles.active=xxx, --my.property=value
+//
+// Usage:
+//   remaining := env.parse_cli_args(os.args)
+pub fn (mut env Environment) parse_cli_args(args []string) []string {
+	mut remaining := []string{}
+	mut parsed := map[string]string{}
+
+	mut i := 1 // skip args[0] (program name)
+	for i < args.len {
+		arg := args[i]
+
+		if !arg.starts_with('--') {
+			remaining << arg
+			i++
+			continue
+		}
+
+		// Strip leading --
+		key_part := arg[2..]
+
+		// --key=value form
+		if eq_idx := key_part.index('=') {
+			key := key_part[..eq_idx]
+			value := key_part[eq_idx + 1..]
+			parsed[key] = value
+			i++
+			continue
+		}
+
+		// --key value form (peek at next arg)
+		// Only consume next arg if it doesn't start with -- (otherwise treat as flag)
+		if i + 1 < args.len && !args[i + 1].starts_with('--') {
+			parsed[key_part] = args[i + 1]
+			i += 2
+			continue
+		}
+
+		// --flag form (boolean flag → 'true')
+		parsed[key_part] = 'true'
+		i++
+	}
+
+	env.mu.@lock()
+	defer { env.mu.unlock() }
+	for key, value in parsed {
+		env.cli_args[key] = value
+	}
+
+	return remaining
+}
+
+// set_cli_arg programmatically sets a CLI arg override.
+// This is primarily useful for testing. In production, use parse_cli_args().
+pub fn (mut env Environment) set_cli_arg(key string, value string) {
+	env.mu.@lock()
+	defer { env.mu.unlock() }
+	env.cli_args[key] = value
+}
+
+// clear_cli_args removes all parsed CLI arg overrides.
+pub fn (mut env Environment) clear_cli_args() {
+	env.mu.@lock()
+	defer { env.mu.unlock() }
+	env.cli_args = map[string]string{}
+}
+
+// get_cli_args returns a snapshot of all parsed CLI arg overrides.
+pub fn (mut env Environment) get_cli_args() map[string]string {
+	env.mu.rlock()
+	defer { env.mu.runlock() }
+	return env.cli_args.clone()
+}
+
+// ── Environment Variable Lookup (Task A4) ──
+
+// env_var_name_for_key converts a property key to its PHOTON_ env var name.
+// Conversion: uppercase, replace '.' with '_', prefix with 'PHOTON_'.
+//
+// Examples:
+//   'app.name'       → 'PHOTON_APP_NAME'
+//   'server.port'    → 'PHOTON_SERVER_PORT'
+//   'db.host'        → 'PHOTON_DB_HOST'
+pub fn env_var_name_for_key(key string) string {
+	return 'PHOTON_' + key.to_upper().replace('.', '_').replace('-', '_')
+}
+
+// lookup_env_var checks if a PHOTON_* environment variable exists for the
+// given property key. Returns the value if set (non-empty), or none if unset.
+fn (mut env Environment) lookup_env_var(key string) ?string {
+	env_var := env_var_name_for_key(key)
+	val := os.getenv(env_var)
+	if val.len > 0 {
+		return val
+	}
+	return none
+}
+
 // ── Property Management ──
 
 // set_property sets a configuration property.
@@ -135,58 +495,185 @@ pub fn (mut env Environment) set_properties(props map[string]string) {
 	}
 }
 
-// get_property retrieves a property by key.
+// get_property retrieves a property by key, checking the priority chain:
+//   1. CLI args (--key=value)                    [highest]
+//   2. Environment variables (PHOTON_*)
+//   3. Profile config (application-{profile}.toml)
+//   4. Default config (application.toml)
+//   5. Programmatic properties (set_property)   [lowest, fallback]
+//
+// Returns empty string if the key is not found in any source.
+//
+// Task A4: priority chain lookup
 pub fn (mut env Environment) get_property(key string) string {
-	env.mu.rlock()
-	defer { env.mu.runlock() }
-	return env.properties[key] or { '' }
+	return env.lookup_property(key) or { '' }
 }
 
 // get_property_or retrieves a property by key with a default value.
+// Checks the full priority chain (see get_property).
 // This is the Spring equivalent of Environment.getProperty(key, defaultValue).
 pub fn (mut env Environment) get_property_or(key string, default_val string) string {
+	return env.lookup_property(key) or { default_val }
+}
+
+// get_property_strict retrieves a property by key, returning an error if not
+// found in any source. Checks the full priority chain (see get_property).
+//
+// This is the explicit-error variant of get_property for callers that need
+// to distinguish "missing" from "empty string".
+pub fn (mut env Environment) get_property_strict(key string) !string {
+	return env.lookup_property(key) or { return error('property "${key}" not found in any source') }
+}
+
+// lookup_property is the internal priority-chain lookup.
+// Returns the value and its source, or none if not found.
+//
+// Priority (highest → lowest):
+//   1. cli_args                  — --key=value CLI overrides
+//   2. env_var                   — PHOTON_* environment variables
+//   3. profile_config_properties — application-{profile}.toml
+//   4. default_config_properties — application.toml
+//   5. properties                — programmatic (set_property) fallback
+fn (mut env Environment) lookup_property(key string) ?string {
+	// Step 1: Check CLI args (highest priority) under read lock
 	env.mu.rlock()
-	defer { env.mu.runlock() }
-	return env.properties[key] or { default_val }
+	if val := env.cli_args[key] {
+		env.mu.runlock()
+		return val
+	}
+	env.mu.runlock()
+
+	// Step 2: Check env vars (outside lock — os.getenv is a syscall)
+	// Env vars have HIGHER priority than profile/default config.
+	if val := env.lookup_env_var(key) {
+		return val
+	}
+
+	// Steps 3-5: Check in-memory config sources under read lock
+	env.mu.rlock()
+	// 3. Profile config
+	if val := env.profile_config_properties[key] {
+		env.mu.runlock()
+		return val
+	}
+	// 4. Default config
+	if val := env.default_config_properties[key] {
+		env.mu.runlock()
+		return val
+	}
+	// 5. Programmatic properties (fallback)
+	if val := env.properties[key] {
+		env.mu.runlock()
+		return val
+	}
+	env.mu.runlock()
+
+	return none
+}
+
+// PropertyLookupResult holds the result of a priority-chain lookup,
+// including the value and the source it came from.
+pub struct PropertyLookupResult {
+pub:
+	value  string
+	source PropertySourcePriority
+}
+
+// lookup_property_with_source returns both the value and the source priority
+// of a property. Useful for diagnostics. Returns none if not found.
+pub fn (mut env Environment) lookup_property_with_source(key string) ?PropertyLookupResult {
+	// Step 1: Check CLI args (highest priority) under read lock
+	env.mu.rlock()
+	if val := env.cli_args[key] {
+		env.mu.runlock()
+		return PropertyLookupResult{
+			value:  val
+			source: .cli
+		}
+	}
+	env.mu.runlock()
+
+	// Step 2: Check env vars (outside lock — os.getenv is a syscall)
+	if val := env.lookup_env_var(key) {
+		return PropertyLookupResult{
+			value:  val
+			source: .env_var
+		}
+	}
+
+	// Steps 3-5: Check in-memory config sources under read lock
+	env.mu.rlock()
+	// 3. Profile config
+	if val := env.profile_config_properties[key] {
+		env.mu.runlock()
+		return PropertyLookupResult{
+			value:  val
+			source: .profile
+		}
+	}
+	// 4. Default config
+	if val := env.default_config_properties[key] {
+		env.mu.runlock()
+		return PropertyLookupResult{
+			value:  val
+			source: .default
+		}
+	}
+	// 5. Programmatic properties (fallback)
+	if val := env.properties[key] {
+		env.mu.runlock()
+		return PropertyLookupResult{
+			value:  val
+			source: .default
+		}
+	}
+	env.mu.runlock()
+
+	return none
+}
+
+// property_source returns the name of the source that provides the given key,
+// or empty string if the key is not found in any source.
+// Useful for debugging which source a property value came from.
+pub fn (mut env Environment) property_source(key string) string {
+	res := env.lookup_property_with_source(key) or { return '' }
+	return res.source.str()
 }
 
 // get_property_int retrieves a property as an integer.
+// Checks the full priority chain (see get_property).
 pub fn (mut env Environment) get_property_int(key string) !int {
-	env.mu.rlock()
-	defer { env.mu.runlock() }
-	val := env.properties[key] or { return error('property "${key}" not found') }
+	val := env.lookup_property(key) or { return error('property "${key}" not found') }
 	return val.int()
 }
 
 // get_property_int_or retrieves a property as an integer with a default.
+// Checks the full priority chain (see get_property).
 pub fn (mut env Environment) get_property_int_or(key string, default_val int) int {
-	env.mu.rlock()
-	defer { env.mu.runlock() }
-	val := env.properties[key] or { return default_val }
+	val := env.lookup_property(key) or { return default_val }
 	return val.int()
 }
 
 // get_property_bool retrieves a property as a boolean.
+// Checks the full priority chain (see get_property).
 pub fn (mut env Environment) get_property_bool(key string) !bool {
-	env.mu.rlock()
-	defer { env.mu.runlock() }
-	val := env.properties[key] or { return error('property "${key}" not found') }
+	val := env.lookup_property(key) or { return error('property "${key}" not found') }
 	return val.bool()
 }
 
 // get_property_bool_or retrieves a property as a boolean with a default.
+// Checks the full priority chain (see get_property).
 pub fn (mut env Environment) get_property_bool_or(key string, default_val bool) bool {
-	env.mu.rlock()
-	defer { env.mu.runlock() }
-	val := env.properties[key] or { return default_val }
+	val := env.lookup_property(key) or { return default_val }
 	return val.bool()
 }
 
-// has_property checks if a property exists.
+// has_property checks if a property exists in any source (priority chain).
+// Returns true if the key is found in CLI args, env vars, profile config,
+// default config, or programmatic properties.
 pub fn (mut env Environment) has_property(key string) bool {
-	env.mu.rlock()
-	defer { env.mu.runlock() }
-	return key in env.properties
+	_ := env.lookup_property(key) or { return false }
+	return true
 }
 
 // remove_property removes a property.
@@ -424,19 +911,100 @@ pub fn (mut env Environment) source_count() int {
 // ── f64 Type Access ──
 
 // get_property_f64 retrieves a property as a float64.
+// Checks the full priority chain (see get_property).
 pub fn (mut env Environment) get_property_f64(key string) !f64 {
-	env.mu.rlock()
-	defer { env.mu.runlock() }
-	val := env.properties[key] or { return error('property "${key}" not found') }
+	val := env.lookup_property(key) or { return error('property "${key}" not found') }
 	return val.f64()
 }
 
 // get_property_f64_or retrieves a property as a float64 with a default.
+// Checks the full priority chain (see get_property).
 pub fn (mut env Environment) get_property_f64_or(key string, default_val f64) f64 {
+	val := env.lookup_property(key) or { return default_val }
+	return val.f64()
+}
+
+// ── Merged Properties (Task A4) ──
+
+// merged_properties returns a merged view of all property sources, with
+// higher-priority sources overriding lower-priority ones.
+//
+// Merge order (applied low → high, so high priority wins):
+//   1. properties (programmatic)         — base
+//   2. default_config_properties         — overrides base
+//   3. profile_config_properties         — overrides default
+//   4. env vars (PHOTON_*)               — overrides profile
+//   5. cli_args                          — overrides all
+//
+// Note: env vars are NOT included in the merged map because they require
+// scanning the entire process environment, which is expensive and may
+// expose unrelated variables. Only explicitly-set sources are merged.
+// Use get_property(key) for env var lookup.
+//
+// This is useful for diagnostics, exporting config, or binding to structs
+// when you want a single consolidated view.
+pub fn (mut env Environment) merged_properties() map[string]string {
 	env.mu.rlock()
 	defer { env.mu.runlock() }
-	val := env.properties[key] or { return default_val }
-	return val.f64()
+
+	mut result := map[string]string{}
+
+	// 5. Programmatic properties (base)
+	for key, value in env.properties {
+		result[key] = value
+	}
+	// 4. Default config (overrides base)
+	for key, value in env.default_config_properties {
+		result[key] = value
+	}
+	// 3. Profile config (overrides default)
+	for key, value in env.profile_config_properties {
+		result[key] = value
+	}
+	// 1. CLI args (highest priority, overrides all in-memory sources)
+	for key, value in env.cli_args {
+		result[key] = value
+	}
+
+	return result
+}
+
+// all_property_keys returns all unique property keys from all in-memory
+// sources (properties, default_config, profile_config, cli_args).
+// Does NOT include env var keys (which would require scanning the environment).
+pub fn (mut env Environment) all_property_keys() []string {
+	env.mu.rlock()
+	defer { env.mu.runlock() }
+
+	mut seen := map[string]bool{}
+	mut keys := []string{}
+
+	for key in env.properties.keys() {
+		if key !in seen {
+			seen[key] = true
+			keys << key
+		}
+	}
+	for key in env.default_config_properties.keys() {
+		if key !in seen {
+			seen[key] = true
+			keys << key
+		}
+	}
+	for key in env.profile_config_properties.keys() {
+		if key !in seen {
+			seen[key] = true
+			keys << key
+		}
+	}
+	for key in env.cli_args.keys() {
+		if key !in seen {
+			seen[key] = true
+			keys << key
+		}
+	}
+
+	return keys
 }
 
 // ── Nested Property Prefix Query ──
@@ -795,4 +1363,69 @@ fn bind_to_struct_impl[T](mut env &Environment, prefix string, typ &T) !T {
 		}
 	}
 	return config
+}
+
+// ── TOML Parsing Helper (Task A4) ──
+
+// parse_toml_to_flat_map parses a TOML document string into a flat
+// dot-notation key-value map. Uses V's official `toml` module.
+//
+// Example:
+//   Input TOML:
+//     [app]
+//     name = "MyApp"
+//     [server]
+//     port = 8080
+//
+//   Output map:
+//     { 'app.name': 'MyApp', 'server.port': '8080' }
+//
+// This is a self-contained implementation in `core` to avoid a dependency
+// on the `config` module. The `config` module has a similar function
+// (toml_doc_to_flat_map) for its own use cases.
+pub fn parse_toml_to_flat_map(content string) !map[string]string {
+	doc := toml.parse_text(content)!
+	mut result := map[string]string{}
+	any := doc.to_any()
+	flatten_toml_value(any, '', mut result)
+	return result
+}
+
+// flatten_toml_value recursively flattens a toml.Any value into dot-notation keys.
+fn flatten_toml_value(val toml.Any, prefix string, mut result map[string]string) {
+	match val {
+		map[string]toml.Any {
+			for key, any_val in val {
+				new_key := if prefix.len > 0 { '${prefix}.${key}' } else { key }
+				flatten_toml_value(any_val, new_key, mut result)
+			}
+		}
+		[]toml.Any {
+			for i, any_val in val {
+				new_key := '${prefix}[${i}]'
+				flatten_toml_value(any_val, new_key, mut result)
+			}
+		}
+		string {
+			if prefix.len > 0 {
+				result[prefix] = val
+			}
+		}
+		bool {
+			if prefix.len > 0 {
+				result[prefix] = if val { 'true' } else { 'false' }
+			}
+		}
+		int, i64, u64, f32, f64 {
+			if prefix.len > 0 {
+				result[prefix] = val.str()
+			}
+		}
+		else {
+			// DateTime, Date, Time, Null — use str()
+			if prefix.len > 0 {
+				result[prefix] = val.str()
+			}
+		}
+	}
 }

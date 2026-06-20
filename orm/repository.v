@@ -742,6 +742,83 @@ pub fn (mut repo JpaRepository[T]) find_all() ![]T {
 	return entities
 }
 
+// find_all_paged retrieves a page of entities with pagination metadata.
+//
+// Executes two SQL queries (no full-table scan):
+//   1. SELECT COUNT(*) FROM <table>                          — total entity count
+//   2. SELECT <cols> FROM <table> [ORDER BY ...] LIMIT ? OFFSET ? — page items
+//
+// The PageRequest's sort orders are applied as an ORDER BY clause with
+// snake_case column name conversion (so callers may pass either camelCase
+// field names or snake_case column names).  Page numbers are 1-based;
+// a page_number < 1 is normalized to 1.  A page_size <= 0 returns an error.
+//
+// Out-of-bounds pages return an empty items slice with the correct total
+// and total_pages.  All SQL uses positional `?` placeholders — no string
+// interpolation of user values, preventing SQL injection.
+//
+// Example:
+//   pr := support.page_request(2, 10)            // page 2, 10 items per page
+//   page := repo.find_all_paged(pr)!             // Page[User]
+//   assert page.items.len == 10
+//   assert page.total == 25
+//   assert page.total_pages == 3
+pub fn (mut repo JpaRepository[T]) find_all_paged(page_request support.PageRequest) !support.Page[T] {
+	if isnil(repo.query_fn) {
+		return error('find_all_paged: query_fn not configured')
+	}
+	if page_request.size <= 0 {
+		return error('find_all_paged: page size must be positive, got ${page_request.size}')
+	}
+
+	// Normalize page number: treat 0 or negative as page 1
+	page_num := if page_request.page < 1 { 1 } else { page_request.page }
+	offset := (page_num - 1) * page_request.size
+
+	db := repo.orm_manager.get_conn(repo.db_name)!
+
+	// 1. Get total count via SELECT COUNT(*)
+	count_query := 'SELECT COUNT(*) FROM ${repo.table_name}'
+	count_rows := repo.query_fn(db, count_query, []string{})!
+	mut total := i64(0)
+	if count_rows.len > 0 && count_rows[0].len > 0 {
+		total = count_rows[0][0].i64()
+	}
+
+	// 2. Build SELECT query with optional ORDER BY + LIMIT/OFFSET
+	mut query := 'SELECT ${repo.columns_clause()} FROM ${repo.table_name}'
+	mut args := []string{}
+
+	// Build ORDER BY clause with snake_case column conversion
+	if page_request.sort.orders.len > 0 {
+		mut order_parts := []string{cap: page_request.sort.orders.len}
+		for order in page_request.sort.orders {
+			col := support.snake(order.property)
+			dir := if order.direction == .desc { 'DESC' } else { 'ASC' }
+			order_parts << '${col} ${dir}'
+		}
+		query += ' ORDER BY ${order_parts.join(', ')}'
+	}
+
+	// LIMIT/OFFSET use positional ? placeholders (parameterized)
+	query += ' LIMIT ? OFFSET ?'
+	args << '${page_request.size}'
+	args << '${offset}'
+
+	rows := repo.query_fn(db, query, args)!
+
+	// 3. Map rows to entities
+	mut entities := []T{cap: rows.len}
+	for row in rows {
+		mut entity := T{}
+		jpa_map_row(mut entity, row)
+		entities << entity
+	}
+
+	// 4. Build Page[T] with computed total_pages (ceiling division)
+	return support.new_page[T](entities, total, page_num, page_request.size)
+}
+
 // count returns the total number of entities.
 pub fn (mut repo JpaRepository[T]) count() !i64 {
 	if isnil(repo.query_fn) {

@@ -181,6 +181,9 @@ pub fn extract_qualifier(attrs []string) string {
 }
 
 // extract_value_expr parses @[value('config.key')] from attributes.
+// Handles both V-normalized forms:
+//   @[value: 'app.name']  → attr = "value: 'app.name'"  → returns "app.name"
+//   @[value('app.name')]  → attr = "value('app.name')"  → returns "app.name"
 pub fn extract_value_expr(attrs []string) string {
 	for attr in attrs {
 		if attr.starts_with('value:') || attr.starts_with('value(') {
@@ -193,7 +196,9 @@ pub fn extract_value_expr(attrs []string) string {
 					val = val[..val.len - 1]
 				}
 			}
-			return val.trim("'").trim('"').trim_space()
+			// Trim space first so surrounding quotes are at the edges,
+			// then strip matching quotes, then trim any inner space.
+			return val.trim_space().trim("'").trim('"').trim_space()
 		}
 	}
 	return ''
@@ -440,4 +445,71 @@ pub fn has_bean_attr(attrs []string) bool {
 		}
 	}
 	return false
+}
+
+// ── @[auto_configuration] Comptime Scanning (Task A1) ──
+//
+// Spring Boot equivalent: AutoConfigurationImportSelector selecting
+// @AutoConfiguration-annotated classes from the classpath.
+//
+// V comptime can only inspect types in the current compilation unit, so
+// "auto-discovery" is realized as a contract-enforcing helper: the user
+// calls `extract_auto_configuration[T]()` (or the higher-level
+// `AutoConfigurationManager.register_from_comptime[T]()`) for each
+// candidate type at the bootstrap site. The comptime check enforces that
+// T carries the `@[auto_configuration]` attribute, refusing non-annotated
+// types — this is the "auto" guarantee (no manual type_name strings).
+//
+// V 0.5.1 comptime note: struct-level attributes are NOT exposed via
+// `T.attrs` (that field does not exist on the comptime type). Instead,
+// V provides the `$for attr in T.attributes { ... }` loop, where each
+// `attr` is a `builtin.VAttribute` with `.name`, `.has_arg`, `.arg`,
+// and `.kind` fields. We use this to detect `@[auto_configuration]`.
+
+// extract_auto_configuration returns true if type T is annotated with
+// `@[auto_configuration]`. This is a pure comptime check — zero runtime
+// cost, zero runtime reflection.
+//
+// Usage:
+//   if core.extract_auto_configuration[MyConfig]() {
+//       // T is an auto-configuration source
+//   }
+pub fn extract_auto_configuration[T]() bool {
+	mut found := false
+	$for attr in T.attributes {
+		if attr.name == attr_auto_configuration {
+			found = true
+		}
+	}
+	return found
+}
+
+// extract_auto_configuration_attrs returns the list of struct-level
+// attribute names for type T (comptime). Useful for inspecting the full
+// annotation set — e.g. parsing `@[conditional_on_*]` annotations
+// alongside `@[auto_configuration]`.
+//
+// Each returned string is the bare attribute name (e.g. 'auto_configuration',
+// 'conditional_on_profile'). Arguments are available via the comptime
+// `attr.arg` / `attr.has_arg` fields inside the `$for` loop, but for the
+// common case of condition parsing we re-derive the full attribute string
+// in `register_from_comptime[T]()` below.
+pub fn extract_auto_configuration_attrs[T]() []string {
+	mut attrs := []string{}
+	$for attr in T.attributes {
+		if attr.has_arg {
+			// Normalize to the 'name:arg' form expected by parse_conditions()
+			// and the extract_* helpers in this file.
+			attrs << '${attr.name}:${attr.arg}'
+		} else {
+			attrs << attr.name
+		}
+	}
+	return attrs
+}
+
+// auto_configuration_type_name returns the V type name for T as a string.
+// Wraps `T.name` so callers do not depend on comptime internals directly.
+pub fn auto_configuration_type_name[T]() string {
+	return T.name
 }

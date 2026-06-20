@@ -283,3 +283,19 @@ pub fn (mut ti TransactionalInterceptor) rollback_if_needed(started bool) {
 		ti.tx_manager.rollback() or { return }
 	}
 }
+
+// rollback_if_needed_with_attr rolls back the transaction on error,
+// consulting the rollback_for / no_rollback_for rules from the
+// TransactionAttribute (B3.4).
+//
+// Unlike rollback_if_needed(started) which always rolls back on any
+// error, this method:
+//   - Skips rollback if the error matches no_rollback_for.
+//   - Only rolls back if the error matches rollback_for (when specified).
+//   - Rolls back on any error when rollback_for is empty (default).
+pub fn (mut ti TransactionalInterceptor) rollback_if_needed_with_attr(started bool, err IError, attr TransactionAttribute) {
+	if !started || isnil(ti.tx_manager) || !ti.tx_manager.is_active() {
+		return
+	}
+	ti.tx_manager.rollback_if_needed(err, attr) or { return }
+}

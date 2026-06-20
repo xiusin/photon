@@ -79,12 +79,21 @@ pub fn (pp &AutowiredAnnotationPostProcessor) post_process_after_initialization(
 // ── ValueAnnotationPostProcessor ──
 
 // ValueAnnotationPostProcessor processes @[value('config.key')] annotations.
-// It resolves configuration values from the Environment and binds them to fields.
+// It resolves configuration values from the Environment and binds them to
+// bean fields, providing the Photon equivalent of Spring's @Value annotation.
 //
-// Marker post-processor. Actual value-injection is performed by comptime-generated
-// code in core/scanner.v. This struct exists only for registration and
-// discovery purposes; its post_process_* methods return the bean unchanged
-// to satisfy the BeanPostProcessor interface contract.
+// Design note: V's comptime requires a statically-known type T to iterate
+// fields via $for. The BeanPostProcessor interface operates on voidptr
+// beans, so the actual value-injection happens in the generic comptime
+// method inject_values[T](), which is called at the registration site
+// where T is known (e.g., from comptime-generated code in scanner.v or
+// the user's bootstrap code). The post_process_* methods remain as no-op
+// markers to satisfy the BeanPostProcessor interface contract.
+//
+// Thread-safety: the struct holds only an immutable &Environment reference.
+// inject_values[T]() is stateless — it reads from the Environment (which is
+// protected by its own RwMutex) and writes only to the caller-owned bean
+// instance. No locking is required on the post-processor itself.
 //
 // Spring equivalent: CustomAutowireConfigurer + ValueAnnotationBeanPostProcessor
 pub struct ValueAnnotationPostProcessor {
@@ -92,14 +101,86 @@ pub:
 	environment &Environment = unsafe { nil }
 }
 
+// post_process_before_initialization is a no-op marker. Actual value
+// injection is performed by inject_values[T](), which requires a
+// statically-known type T (not available from a voidptr bean).
 pub fn (pp &ValueAnnotationPostProcessor) post_process_before_initialization(bean_name string, bean voidptr) voidptr {
-	// Actual value binding is done by comptime-generated code.
-	// This post-processor serves as a marker and provides runtime validation.
 	return bean
 }
 
+// post_process_after_initialization is a no-op marker.
 pub fn (pp &ValueAnnotationPostProcessor) post_process_after_initialization(bean_name string, bean voidptr) voidptr {
 	return bean
+}
+
+// inject_values scans type T at compile time for fields annotated with
+// @[value('key')] and injects the corresponding property values from the
+// Environment. This is the real value-injection implementation — it uses
+// V's comptime $for to iterate fields and $if to check field types, so
+// all type checking and field access is resolved at compile time (zero
+// runtime reflection).
+//
+// Supported field types: string, int, i64, f32, f64, bool
+//
+// The property key is extracted from @[value('key')] using
+// extract_value_expr() (from scanner.v). Both attribute forms are
+// supported:
+//   @[value: 'app.name']   → key = 'app.name'
+//   @[value('app.name')]   → key = 'app.name'
+//
+// If a referenced property key is not found in the Environment, an error
+// is returned with a readable bilingual message:
+//   value injection failed: key "..." not found / 值注入失败：键 "..." 未找到
+//
+// The lookup respects the full Environment priority chain
+// (CLI > env vars > profile config > default config > programmatic).
+//
+// Usage:
+//   mut config := MyConfig{}
+//   mut env := app.environment
+//   pp.inject_values[MyConfig](mut config, mut env)!
+//   // config fields are now populated from environment properties
+pub fn (mut pp ValueAnnotationPostProcessor) inject_values[T](mut bean T, mut env &Environment) ! {
+	$for field in T.fields {
+		key := extract_value_expr(field.attrs)
+		// Skip fields without @[value('...')] (continue is not allowed
+		// in comptime $for loops, so we guard with an if-block).
+		if key.len > 0 {
+			// Look up the property — error if not found in any source.
+			if !env.has_property(key) {
+				return error('value injection failed: key "${key}" not found / 值注入失败：键 "${key}" 未找到')
+			}
+			raw_value := env.get_property(key)
+
+			// Convert and assign by field type (comptime — zero runtime reflection).
+			$if field.typ is string {
+				bean.$(field.name) = raw_value
+			} $else $if field.typ is int {
+				bean.$(field.name) = raw_value.int()
+			} $else $if field.typ is i64 {
+				bean.$(field.name) = raw_value.i64()
+			} $else $if field.typ is f32 {
+				bean.$(field.name) = f32(raw_value.f64())
+			} $else $if field.typ is f64 {
+				bean.$(field.name) = raw_value.f64()
+			} $else $if field.typ is bool {
+				bean.$(field.name) = raw_value.to_lower() == 'true' || raw_value == '1'
+			}
+		}
+	}
+}
+
+// inject_values_for_bean is a convenience wrapper that uses the post-
+// processor's embedded environment reference. Equivalent to:
+//   pp.inject_values[T](mut bean, mut pp.environment)!
+//
+// Returns an error if the post-processor's environment field is not set.
+pub fn (mut pp ValueAnnotationPostProcessor) inject_values_for_bean[T](mut bean T) ! {
+	if isnil(pp.environment) {
+		return error('ValueAnnotationPostProcessor.environment is not set / 值注入后处理器的 environment 字段未设置')
+	}
+	mut env := pp.environment
+	pp.inject_values[T](mut bean, mut env)!
 }
 
 // ── LifecycleAnnotationPostProcessor ──
