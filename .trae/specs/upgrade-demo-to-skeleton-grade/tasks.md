@@ -8,72 +8,72 @@
   - [x] SubTask 1.3: 创建 `Demo/.env`（dev 默认值，JWT_SECRET 留空提示）、`Demo/.env.prod.example`、`Demo/.env.testing`
   - [x] SubTask 1.4: 更新 `Demo/.gitignore`（忽略 `.env`、`bin/`、`storage/logs/*.log`、`storage/uploads/`、`*.db`、`docs/api/` 生成物）
 
-- [ ] Task 2: 实现 config/ 目录按关注点拆分配置文件
-  - [ ] SubTask 2.1: 创建 `Demo/config/app.v`（AppConfig：name/version/profile/debug）
-  - [ ] SubTask 2.2: 创建 `Demo/config/database.v`（DatabaseConfig：driver/path/max_connections，占位符 `${DB_PATH}`）
-  - [ ] SubTask 2.3: 创建 `Demo/config/jwt.v`（JwtConfig：secret/ttl/issuer，占位符 `${JWT_SECRET}`，生产环境校验逻辑）
-  - [ ] SubTask 2.4: 创建 `Demo/config/cache.v`（CacheConfig：driver/ttl/prefix）
-  - [ ] SubTask 2.5: 创建 `Demo/config/mail.v`（MailConfig：driver/host/port/user/pass/from）
-  - [ ] SubTask 2.6: 创建 `Demo/config/storage.v`（StorageConfig：driver/path/max_size/allowed_extensions）
-  - [ ] SubTask 2.7: 创建 `Demo/config/logging.v`（LoggingConfig：level/channel/file_path/json_format）
-  - [ ] SubTask 2.8: 创建 `Demo/config/web.v`（WebConfig：cors/rate_limit/middleware_groups）
-  - [ ] SubTask 2.9: 创建 `Demo/config/auth.v`（AuthConfig：role_hierarchy/guards/providers）
-  - [ ] SubTask 2.10: 重写 `Demo/config.v`，实现 `load_config(profile)` 扫描 `config/*.v` + 加载 `.env` + `Environment.resolve_placeholders` 解析占位符 + 生产环境密钥校验
+- [x] Task 2: 实现 config/ 目录按关注点拆分配置文件
+  - [x] SubTask 2.1: 创建 `Demo/config/app.v`（AppConfig：name/version/profile/debug）
+  - [x] SubTask 2.2: 创建 `Demo/config/database.v`（DatabaseConfig：driver/path/max_connections，占位符 `${DB_PATH}`）
+  - [x] SubTask 2.3: 创建 `Demo/config/jwt.v`（JwtConfig：secret/ttl/issuer，占位符 `${JWT_SECRET}`，生产环境校验逻辑）
+  - [x] SubTask 2.4: 创建 `Demo/config/cache.v`（CacheConfig：driver/ttl/prefix）
+  - [x] SubTask 2.5: 创建 `Demo/config/mail.v`（MailConfig：driver/host/port/user/pass/from）
+  - [x] SubTask 2.6: 创建 `Demo/config/storage.v`（StorageConfig：driver/path/max_size/allowed_extensions）
+  - [x] SubTask 2.7: 创建 `Demo/config/logging.v`（LoggingConfig：level/channel/file_path/json_format）
+  - [x] SubTask 2.8: 创建 `Demo/config/web.v`（WebConfig：cors/rate_limit/middleware_groups）
+  - [x] SubTask 2.9: 创建 `Demo/config/auth.v`（AuthConfig：role_hierarchy/guards/providers）
+  - [x] SubTask 2.10: 重写 `Demo/config.v`，实现 `load_config(profile)` 扫描 `config/*.v` + 加载 `.env` + `Environment.resolve_placeholders` 解析占位符 + 生产环境密钥校验
 
-- [ ] Task 3: 实现 helpers.v 工具函数集中文件
-  - [ ] SubTask 3.1: 创建 `Demo/helpers.v`，迁移 `generate_request_id`、`generate_slug`、`now_unix` 工具函数
-  - [ ] SubTask 3.2: 新增 `cache_remember[T](cm, key, ttl, loader fn() !T) !T` 泛型缓存辅助
-  - [ ] SubTask 3.3: 新增 `parse_pagination(ctx) (int, int)` 解析 page/page_size 查询参数
-  - [ ] SubTask 3.4: 新增 `parse_sort(ctx, allowed []string) (string, string)` 解析排序参数
+- [x] Task 3: 实现 helpers.v 工具函数集中文件
+  - [x] SubTask 3.1: 创建 `Demo/helpers.v`，迁移 `generate_request_id`、`generate_slug`、`now_unix` 工具函数
+  - [x] SubTask 3.2: 新增 `cache_remember[T](cm, key, ttl, loader fn() !T) !T` 泛型缓存辅助
+  - [x] SubTask 3.3: 新增 `parse_pagination(ctx) (int, int)` 解析 page/page_size 查询参数
+  - [x] SubTask 3.4: 新增 `parse_sort(ctx, allowed []string) (string, string)` 解析排序参数
 
 ## 阶段二：服务提供者与启动流程重构
 
-- [ ] Task 4: 实现 ServiceProvider 拆分 bootstrap God Function
-  - [ ] SubTask 4.1: 创建 `Demo/providers/app_service_provider.v`（AppServiceProvider：注册 AppConfig/Logger/Environment）
-  - [ ] SubTask 4.2: 创建 `Demo/providers/database_service_provider.v`（DatabaseServiceProvider：注册 OrmManager/MigrationManager，执行迁移）
-  - [ ] SubTask 4.3: 创建 `Demo/providers/cache_service_provider.v`（CacheServiceProvider：注册 CacheManager/TaggedCache/Singleflight）
-  - [ ] SubTask 4.4: 创建 `Demo/providers/web_service_provider.v`（WebServiceProvider：注册 MiddlewareGroupRegistry/ExceptionHandlerRegistry/Router）
-  - [ ] SubTask 4.5: 创建 `Demo/providers/auth_service_provider.v`（AuthServiceProvider：注册 JwtManager/AuthenticationManager/RoleHierarchy/BcryptHasher，角色层级从 config/auth.v 读取）
-  - [ ] SubTask 4.6: 创建 `Demo/providers/queue_service_provider.v`（QueueServiceProvider：注册 QueueDispatcher/Worker）
-  - [ ] SubTask 4.7: 创建 `Demo/providers/event_service_provider.v`（EventServiceProvider：注册 EventBus + 监听器映射）
-  - [ ] SubTask 4.8: 创建 `Demo/providers/repository_service_provider.v`（RepositoryServiceProvider：注册所有 Repository）
-  - [ ] SubTask 4.9: 创建 `Demo/providers/service_service_provider.v`（ServiceServiceProvider：注册所有 Service）
+- [x] Task 4: 实现 ServiceProvider 拆分 bootstrap God Function
+  - [x] SubTask 4.1: 创建 `Demo/providers/app_service_provider.v`（AppServiceProvider：注册 AppConfig/Logger/Environment）
+  - [x] SubTask 4.2: 创建 `Demo/providers/database_service_provider.v`（DatabaseServiceProvider：注册 OrmManager/MigrationManager，执行迁移）
+  - [x] SubTask 4.3: 创建 `Demo/providers/cache_service_provider.v`（CacheServiceProvider：注册 CacheManager/TaggedCache/Singleflight）
+  - [x] SubTask 4.4: 创建 `Demo/providers/web_service_provider.v`（WebServiceProvider：注册 MiddlewareGroupRegistry/ExceptionHandlerRegistry/Router）
+  - [x] SubTask 4.5: 创建 `Demo/providers/auth_service_provider.v`（AuthServiceProvider：注册 JwtManager/AuthenticationManager/RoleHierarchy/BcryptHasher，角色层级从 config/auth.v 读取）
+  - [x] SubTask 4.6: 创建 `Demo/providers/queue_service_provider.v`（QueueServiceProvider：注册 QueueDispatcher/Worker）
+  - [x] SubTask 4.7: 创建 `Demo/providers/event_service_provider.v`（EventServiceProvider：注册 EventBus + 监听器映射）
+  - [x] SubTask 4.8: 创建 `Demo/providers/repository_service_provider.v`（RepositoryServiceProvider：注册所有 Repository）
+  - [x] SubTask 4.9: 创建 `Demo/providers/service_service_provider.v`（ServiceServiceProvider：注册所有 Service）
 
-- [ ] Task 5: 实现 bootstrap/app.v 启动入口
-  - [ ] SubTask 5.1: 创建 `Demo/bootstrap/app.v`，实现 `new_app_kernel(cfg) !&AppKernel`，创建 ProviderRegistry，按序注册所有 Provider
-  - [ ] SubTask 5.2: 实现 `AppKernel.bootstrap()` 调用 `register_all()` + `boot_all()`，移除 `unsafe { voidptr(x) }` 类型擦除
-  - [ ] SubTask 5.3: 实现 `AppKernel.get_service[T](name) !&T` 类型安全的服务获取
-  - [ ] SubTask 5.4: 迁移 `print_banner`/`print_routes` 到 `bootstrap/console.v`，路由表从 `web.scan_controller[App]()` 实际结果生成（移除硬编码）
-  - [ ] SubTask 5.5: 重写 `Demo/bootstrap.v` 为薄封装，委托给 `bootstrap/app.v` 的 AppKernel
+- [x] Task 5: 实现 bootstrap/app.v 启动入口
+  - [x] SubTask 5.1: 创建 `Demo/bootstrap/app.v`，实现 `new_app_kernel(cfg) !&AppKernel`，创建 ProviderRegistry，按序注册所有 Provider
+  - [x] SubTask 5.2: 实现 `AppKernel.bootstrap()` 调用 `register_all()` + `boot_all()`，移除 `unsafe { voidptr(x) }` 类型擦除
+  - [x] SubTask 5.3: 实现 `AppKernel.get_service[T](name) !&T` 类型安全的服务获取
+  - [x] SubTask 5.4: 迁移 `print_banner`/`print_routes` 到 `bootstrap/console.v`，路由表从 `web.scan_controller[App]()` 实际结果生成（移除硬编码）
+  - [x] SubTask 5.5: 重写 `Demo/bootstrap.v` 为薄封装，委托给 `bootstrap/app.v` 的 AppKernel
 
-- [ ] Task 6: 重写 main.v 入口与路由分离
-  - [ ] SubTask 6.1: 创建 `Demo/routes/api.v`，定义 API 路由分组（`/api/v1` 前缀 + `api` 中间件组），注册 auth/users/posts/comments/categories/tags/uploads 控制器
-  - [ ] SubTask 6.2: 创建 `Demo/routes/web.v`，定义 Web 路由（`/`/`/health`/`/ping`/`/stats`）
-  - [ ] SubTask 6.3: 重写 `Demo/main.v`，加载 `.env` → `load_config(profile)` → `new_app_kernel(cfg)` → `kernel.bootstrap()` → 注册中间件组 → 注册路由 → CLI/Web 双模式分发
-  - [ ] SubTask 6.4: 修复 `App.req_count` 数据竞争，改用 `sync.atomic` 或 `sync.Mutex`
+- [x] Task 6: 重写 main.v 入口与路由分离
+  - [x] SubTask 6.1: 创建 `Demo/routes/api.v`，定义 API 路由分组（`/api/v1` 前缀 + `api` 中间件组），注册 auth/users/posts/comments/categories/tags/uploads 控制器
+  - [x] SubTask 6.2: 创建 `Demo/routes/web.v`，定义 Web 路由（`/`/`/health`/`/ping`/`/stats`）
+  - [x] SubTask 6.3: 重写 `Demo/main.v`，加载 `.env` → `load_config(profile)` → `new_app_kernel(cfg)` → `kernel.bootstrap()` → 注册中间件组 → 注册路由 → CLI/Web 双模式分发
+  - [x] SubTask 6.4: 修复 `App.req_count` 数据竞争，改用 `sync.atomic` 或 `sync.Mutex`
 
 ## 阶段三：Web 层升级（统一响应 + 验证 + 异常 + 中间件组 + Resource）
 
-- [ ] Task 7: 实现统一响应与异常处理
-  - [ ] SubTask 7.1: 创建 `Demo/app/Http/Kernel.v`，注册 `ExceptionHandlerRegistry`，为 `BadRequestException`/`NotFoundException`/`ValidationException`/`UnauthorizedException`/`ForbiddenException`/`ConflictException`/`RateLimitExceededException` 注册处理器
-  - [ ] SubTask 7.2: 注册默认异常处理器，捕获未知异常返回 500（生产环境隐藏堆栈）
-  - [ ] SubTask 7.3: 重写 `Demo/controllers.v` 所有 `ok_resp`/`err_resp` 调用为 `web.success`/`web.fail`/`web.page`/`web.ok`/`web.created`/`web.bad_request`/`web.not_found`/`web.unauthorized`/`web.forbidden`
-  - [ ] SubTask 7.4: 移除 `controllers.v` 中所有手写 JSON 字符串拼接（`'{"success":...}'`），改用 `json.encode(struct)` + `web.Result`
-  - [ ] SubTask 7.5: 移除 `models.v` 中未使用的 `ApiResponseDto`/`success_response`/`error_response` 死代码
+- [x] Task 7: 实现统一响应与异常处理
+  - [x] SubTask 7.1: 创建 `Demo/app/Http/Kernel.v`，注册 `ExceptionHandlerRegistry`，为 `BadRequestException`/`NotFoundException`/`ValidationException`/`UnauthorizedException`/`ForbiddenException`/`ConflictException`/`RateLimitExceededException` 注册处理器
+  - [x] SubTask 7.2: 注册默认异常处理器，捕获未知异常返回 500（生产环境隐藏堆栈）
+  - [x] SubTask 7.3: 重写 `Demo/controllers.v` 所有 `ok_resp`/`err_resp` 调用为 `web.success`/`web.fail`/`web.page`/`web.ok`/`web.created`/`web.bad_request`/`web.not_found`/`web.unauthorized`/`web.forbidden`
+  - [x] SubTask 7.4: 移除 `controllers.v` 中所有手写 JSON 字符串拼接（`'{"success":...}'`），改用 `json.encode(struct)` + `web.Result`
+  - [x] SubTask 7.5: 移除 `models.v` 中未使用的 `ApiResponseDto`/`success_response`/`error_response` 死代码
 
-- [ ] Task 8: 实现表单请求验证
-  - [ ] SubTask 8.1: 在 `Demo/models.v` 为所有 DTO 标注 `@[validate: '...']` 规则（CreateUserDto: `username|required|min_len:3|max_len:32`，`email|required|email`，`password|required|min_len:6`；CreatePostDto: `title|required|min_len:1|max_len:255`，`content|required`；CreateCommentDto: `content|required|min_len:1` 等）
-  - [ ] SubTask 8.2: 重写 `Demo/controllers.v` 所有内联校验（`if dto.x.len == 0`）为 `web.validate_body[T](ctx)` 或 `web.validate[T](ctx)`，校验失败抛 `ValidationException`
-  - [ ] SubTask 8.3: 移除 `parse_body_or_form` 双路径解析，统一用 `web.validate_body[T]`（框架已处理 JSON/form）
-  - [ ] SubTask 8.4: 移除所有 `build_*_dto` form 回退函数（7 个），由框架验证器统一处理
+- [x] Task 8: 实现表单请求验证
+  - [x] SubTask 8.1: 在 `Demo/models.v` 为所有 DTO 标注 `@[validate: '...']` 规则（CreateUserDto: `username|required|min_len:3|max_len:32`，`email|required|email`，`password|required|min_len:6`；CreatePostDto: `title|required|min_len:1|max_len:255`，`content|required`；CreateCommentDto: `content|required|min_len:1` 等）
+  - [x] SubTask 8.2: 重写 `Demo/controllers.v` 所有内联校验（`if dto.x.len == 0`）为 `web.validate_body[T](ctx)` 或 `web.validate[T](ctx)`，校验失败抛 `ValidationException`
+  - [x] SubTask 8.3: 移除 `parse_body_or_form` 双路径解析，统一用 `web.validate_body[T]`（框架已处理 JSON/form）
+  - [x] SubTask 8.4: 移除所有 `build_*_dto` form 回退函数（7 个），由框架验证器统一处理
 
-- [ ] Task 9: 实现中间件组与参数化中间件
-  - [ ] SubTask 9.1: 创建 `Demo/app/Http/Middleware/registry.v`，使用 `web.MiddlewareGroupRegistry` 注册命名组：`web`（CORS+RequestId+RequestLog）、`api`（web+RateLimit）、`auth`（JwtAuth）、`admin`（auth+RoleAuth[ADMIN]）、`editor`（auth+RoleAuth[EDITOR,ADMIN]）
-  - [ ] SubTask 9.2: 中间件参数从 `config/web.v` 读取（CORS allowed_origins/methods/headers、RateLimit max_requests/window_secs）
-  - [ ] SubTask 9.3: 使用 `web.throttle_middleware`/`web.role_middleware`/`web.cors_configurable_middleware` 替换手写中间件
-  - [ ] SubTask 9.4: 移除 `Demo/middleware.v` 中的 `MiddlewareManager`（保留中间件实现，改由组注册管理）
-  - [ ] SubTask 9.5: 移除 `app.v` 中重复的 `request_id` 生成逻辑，统一由 `RequestIdMiddleware` 处理
-  - [ ] SubTask 9.6: `JwtAuthMiddleware` 认证成功后将 `user_id`/`username`/`role` 写回 `Context`，控制器直接读取（移除重复查库）
+- [x] Task 9: 实现中间件组与参数化中间件
+  - [x] SubTask 9.1: 创建 `Demo/app/Http/Middleware/registry.v`，使用 `web.MiddlewareGroupRegistry` 注册命名组：`web`（CORS+RequestId+RequestLog）、`api`（web+RateLimit）、`auth`（JwtAuth）、`admin`（auth+RoleAuth[ADMIN]）、`editor`（auth+RoleAuth[EDITOR,ADMIN]）
+  - [x] SubTask 9.2: 中间件参数从 `config/web.v` 读取（CORS allowed_origins/methods/headers、RateLimit max_requests/window_secs）
+  - [x] SubTask 9.3: 使用 `web.throttle_middleware`/`web.role_middleware`/`web.cors_configurable_middleware` 替换手写中间件
+  - [x] SubTask 9.4: 移除 `Demo/middleware.v` 中的 `MiddlewareManager`（保留中间件实现，改由组注册管理）
+  - [x] SubTask 9.5: 移除 `app.v` 中重复的 `request_id` 生成逻辑，统一由 `RequestIdMiddleware` 处理
+  - [x] SubTask 9.6: `JwtAuthMiddleware` 认证成功后将 `user_id`/`username`/`role` 写回 `Context`，控制器直接读取（移除重复查库）
 
 - [ ] Task 10: 实现 API Resource 转换层
   - [ ] SubTask 10.1: 创建 `Demo/app/Http/Resources/user_resource.v`（UserResource：输出 id/username/email/nickname/avatar/role/status/created_at，**隐藏 password/version**）
@@ -161,7 +161,7 @@
 
 ## 阶段七：Make 脚本集与容器化
 
-- [ ] Task 20: 实现 Makefile 全生命周期覆盖
+- [x] Task 20: 实现 Makefile 全生命周期覆盖
   - [ ] SubTask 20.1: 重写 `Demo/Makefile`，定义变量（`V`/`VFLAGS`/`BIN`/`BIN_DIR`/`PROFILE`/`DB_PATH`），支持 `PROFILE=dev|prod|test` 切换
   - [ ] SubTask 20.2: 实现环境初始化 target：`setup`（检查 V 编译器 + 加载 .env + build + migrate + seed）、`install`（编译安装到 `/usr/local/bin`）、`uninstall`
   - [ ] SubTask 20.3: 实现开发 target：`dev`（watch 模式热重载，`v -enable-globals watch .`）、`run`/`serve`（build + 启动）、`watch`（文件监听重启）
@@ -176,7 +176,7 @@
   - [ ] SubTask 20.12: 实现 `help` target 自动从 target 注释 `##` 生成分类帮助列表
   - [ ] SubTask 20.13: 所有 target 添加 `.PHONY` 声明，确保正确触发
 
-- [ ] Task 21: 实现 docker-compose.yml 多服务编排
+- [x] Task 21: 实现 docker-compose.yml 多服务编排
   - [ ] SubTask 21.1: 创建 `Demo/docker-compose.yml`，定义服务：`app`（Web 服务，端口 8080）、`db`（SQLite 卷挂载 或 PostgreSQL）、`redis`（缓存/队列后端）、`queue`（队列 Worker，复用 app 镜像）、`scheduler`（定时调度器）
   - [ ] SubTask 21.2: 配置 `app` 服务 healthcheck（`curl localhost:8080/health`）、`queue`/`scheduler` 依赖 `app` 健康后启动
   - [ ] SubTask 21.3: 配置卷挂载：`./storage:/app/storage`、`./config:/app/config`、`./.env:/app/.env:ro`

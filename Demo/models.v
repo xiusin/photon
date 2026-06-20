@@ -23,7 +23,7 @@ pub struct User {
 pub mut:
 	username string
 	email    string
-	password string // bcrypt hash
+	password string @[skip] // bcrypt hash — 不序列化到 JSON（SubTask 10.7）
 	nickname string
 	avatar   string
 	status   int = 1 // 1=active, 0=disabled, -1=deleted
@@ -125,34 +125,38 @@ pub fn (pt &PostTag) table_name() string {
 
 // ═══════════════════════════════════════════════════════════
 // DTO — 数据传输对象
+//
+// 验证规则使用 @[validate: '...'] 注解，由 web.validate_body[T] 在运行时校验。
+// 支持的规则：required|min:N|max:N|min_len:N|max_len:N|email|url|alpha|alpha_num|
+//             numeric|in:A,B,C|not_in:A,B,C|regex:PATTERN|between:MIN,MAX|integer|boolean
 // ═══════════════════════════════════════════════════════════
 
 // CreateUserDto — 创建用户请求
 pub struct CreateUserDto {
 pub:
-	username string @[required]
-	email    string @[required]
-	password string @[required]
-	nickname string
-	role     string = 'USER'
+	username string @[required; validate: 'required|min_len:3|max_len:32|alpha_num']
+	email    string @[required; validate: 'required|email']
+	password string @[required; validate: 'required|min_len:6|max_len:128']
+	nickname string @[validate: 'max_len:64']
+	role     string = 'USER' @[validate: 'in:USER,EDITOR,ADMIN']
 	github   string // 可选：GitHub 用户名，提供后自动获取头像 URL
 }
 
 // UpdateUserDto — 更新用户请求
 pub struct UpdateUserDto {
 pub:
-	email    string
-	nickname string
+	email    string @[validate: 'email']
+	nickname string @[validate: 'max_len:64']
 	avatar   string
-	status   int
-	role     string
+	status   int    @[validate: 'between:0,2']
+	role     string @[validate: 'in:USER,EDITOR,ADMIN']
 }
 
 // LoginDto — 登录请求
 pub struct LoginDto {
 pub:
-	username string @[required]
-	password string @[required]
+	username string @[required; validate: 'required']
+	password string @[required; validate: 'required']
 }
 
 // LoginResponseDto — 登录响应
@@ -189,24 +193,25 @@ pub:
 }
 
 // CreatePostDto — 创建文章请求
+// 注：author_id 由控制器从 JWT 注入，不参与客户端校验
 pub struct CreatePostDto {
 pub:
-	title       string @[required]
-	content     string @[required]
-	summary     string
+	title       string @[required; validate: 'required|min_len:1|max_len:255']
+	content     string @[required; validate: 'required']
+	summary     string @[validate: 'max_len:500']
 	author_id   int
 	category_id int
-	status      string = 'draft'
+	status      string = 'draft' @[validate: 'in:draft,published,archived']
 }
 
 // UpdatePostDto — 更新文章请求
 pub struct UpdatePostDto {
 pub:
-	title       string
+	title       string @[validate: 'max_len:255']
 	content     string
-	summary     string
+	summary     string @[validate: 'max_len:500']
 	category_id int
-	status      string
+	status      string @[validate: 'in:draft,published,archived']
 }
 
 // PostListQueryDto — 文章列表查询参数
@@ -217,16 +222,17 @@ pub:
 	category   string
 	tag        string
 	keyword    string
-	status     string = 'published'
-	sort       string = 'created_at_desc'
+	status     string = 'published' @[validate: 'in:all,published,draft,archived']
+	sort       string = 'created_at_desc' @[validate: 'in:created_at_desc,created_at_asc,views_desc']
 }
 
 // CreateCommentDto — 创建评论请求
+// 注：post_id 与 user_id 由控制器注入，不参与客户端校验
 pub struct CreateCommentDto {
 pub:
 	post_id   int
 	user_id   int
-	content   string @[required]
+	content   string @[required; validate: 'required|min_len:1|max_len:2000']
 	parent_id int
 }
 
@@ -241,53 +247,24 @@ pub:
 // CreateCategoryDto — 创建分类请求
 pub struct CreateCategoryDto {
 pub:
-	name        string @[required]
-	slug        string
-	description string
+	name        string @[required; validate: 'required|min_len:1|max_len:100']
+	slug        string @[validate: 'max_len:128']
+	description string @[validate: 'max_len:500']
 }
 
 // CreateTagDto — 创建标签请求
 pub struct CreateTagDto {
 pub:
-	name string @[required]
-	slug string
+	name string @[required; validate: 'required|min_len:1|max_len:50']
+	slug string @[validate: 'max_len:128']
 }
 
 // ═══════════════════════════════════════════════════════════
 // API 统一响应封装
 // ═══════════════════════════════════════════════════════════
-
-// ApiResponseDto — 统一 API 响应格式
-pub struct ApiResponseDto {
-pub:
-	success   bool   = true
-	code      int    = 200
-	message   string = 'OK'
-	data      string
-	timestamp i64
-}
-
-// success_response 创建成功响应
-pub fn success_response(data string) ApiResponseDto {
-	return ApiResponseDto{
-		success:   true
-		code:      200
-		message:   'OK'
-		data:      data
-		timestamp: 0
-	}
-}
-
-// error_response 创建错误响应
-pub fn error_response(code int, message string) ApiResponseDto {
-	return ApiResponseDto{
-		success:   false
-		code:      code
-		message:   message
-		data:      ''
-		timestamp: 0
-	}
-}
+// 注：统一响应已迁移至 photon.web.Result（web/result.v）
+// 使用 web.success() / web.fail() / web.page() 等函数构建响应
+// 通过 Context.send_result() 发送（见 app/Http/Kernel.v）
 
 // ═══════════════════════════════════════════════════════════
 // Health & Stats 模型

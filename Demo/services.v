@@ -1175,29 +1175,4 @@ pub fn (s &UploadService) delete_file(path string) ! {
 // 辅助函数
 // ═══════════════════════════════════════════════════════════
 
-// generate_slug 从名称生成 URL 友好的 slug
-// 规则：转小写 → 空格替换为连字符 → 移除非字母数字字符
-fn generate_slug(name string) string {
-	mut slug := name.to_lower()
-	slug = slug.replace(' ', '-')
-	slug = slug.replace('_', '-')
-	// 保留小写字母、数字、连字符
-	mut result := []u8{}
-	for ch in slug {
-		if (ch >= `a` && ch <= `z`) || (ch >= `0` && ch <= `9`) || ch == `-` {
-			result << u8(ch)
-		}
-	}
-	slug = result.bytestr()
-	// 移除首尾连字符
-	for slug.starts_with('-') {
-		slug = slug[1..]
-	}
-	for slug.ends_with('-') {
-		slug = slug[..slug.len - 1]
-	}
-	if slug.len == 0 {
-		slug = 'item'
-	}
-	return slug
-}
+// generate_slug 已迁移至 helpers.v

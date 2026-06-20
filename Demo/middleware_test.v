@@ -7,7 +7,7 @@ module main
 //   - RateLimitMiddleware 限流逻辑
 //   - JwtAuthMiddleware 认证
 //   - RoleAuthMiddleware 角色校验
-//   - MiddlewareManager 统一管理
+//   - MiddlewareGroupRegistry 命名组注册与编排
 
 fn test_cors_middleware_default() {
 	middleware := new_cors_middleware()
@@ -143,43 +143,135 @@ fn test_role_auth_middleware_any_role() {
 	role_mw.authorize(['EDITOR', 'ADMIN'], ['ADMIN']) or { assert false }
 }
 
-fn test_middleware_manager_creation() {
-	boot := test_setup()!
-	mm := new_middleware_manager(boot.auth_svc, boot.role_hierarchy, boot.log)
+// ═══════════════════════════════════════════════════════════
+// MiddlewareGroupRegistry 测试
+// ═══════════════════════════════════════════════════════════
 
-	assert !isnil(mm.request_log)
-	assert !isnil(mm.cors)
-	assert !isnil(mm.request_id)
-	assert !isnil(mm.rate_limit)
-	assert !isnil(mm.jwt_auth)
-	assert !isnil(mm.role_auth)
+fn test_middleware_group_registry_creation() {
+	boot := test_setup()!
+	cfg := default_web_config()
+	reg := new_middleware_group_registry(cfg, boot.auth_svc, boot.role_hierarchy, boot.log)
+
+	// 所有中间件实例应已装配
+	assert !isnil(reg.cors)
+	assert !isnil(reg.request_id)
+	assert !isnil(reg.request_log)
+	assert !isnil(reg.rate_limit)
+	assert !isnil(reg.jwt_auth)
+	assert !isnil(reg.role_auth)
+
+	// CORS 参数从 config 读取
+	assert reg.cors.allowed_methods == cfg.cors_allowed_methods
+
+	// RateLimit 参数从 config 读取
+	assert reg.rate_limit.max_requests == cfg.rate_limit_max_requests
+	assert reg.rate_limit.window_secs == cfg.rate_limit_window_secs
 }
 
-fn test_middleware_manager_rate_limit() {
+fn test_middleware_group_registry_named_groups() {
 	boot := test_setup()!
-	mut mm := new_middleware_manager(boot.auth_svc, boot.role_hierarchy, boot.log)
+	cfg := default_web_config()
+	reg := new_middleware_group_registry(cfg, boot.auth_svc, boot.role_hierarchy, boot.log)
 
-	// 在限流阈值内应正常通过
-	mm.apply_rate_limit('192.168.1.1') or {
-		assert false
-		return
-	}
-	assert true
+	// 所有命名组应已注册
+	assert reg.has_group('web')
+	assert reg.has_group('api')
+	assert reg.has_group('auth')
+	assert reg.has_group('admin')
+	assert reg.has_group('editor')
+
+	// web 组：cors + request_id + request_log
+	web_mws := reg.middlewares_of('web')
+	assert web_mws.len == 3
+	assert 'cors' in web_mws
+	assert 'request_id' in web_mws
+	assert 'request_log' in web_mws
+
+	// api 组：web + rate_limit
+	api_mws := reg.middlewares_of('api')
+	assert api_mws.len == 4
+	assert 'rate_limit' in api_mws
+
+	// auth 组：jwt_auth
+	auth_mws := reg.middlewares_of('auth')
+	assert auth_mws.len == 1
+	assert 'jwt_auth' in auth_mws
+
+	// admin 组：jwt_auth + role:ADMIN
+	admin_mws := reg.middlewares_of('admin')
+	assert admin_mws.len == 2
+	assert admin_mws[1].starts_with('role:')
+
+	// editor 组：jwt_auth + role:EDITOR,ADMIN
+	editor_mws := reg.middlewares_of('editor')
+	assert editor_mws.len == 2
+	assert editor_mws[1].contains('EDITOR')
+	assert editor_mws[1].contains('ADMIN')
 }
 
-fn test_middleware_manager_role_check() {
+fn test_middleware_group_registry_authorize() {
 	boot := test_setup()!
-	mm := new_middleware_manager(boot.auth_svc, boot.role_hierarchy, boot.log)
+	cfg := default_web_config()
+	reg := new_middleware_group_registry(cfg, boot.auth_svc, boot.role_hierarchy, boot.log)
 
 	// ADMIN 通过 EDITOR 校验
-	mm.apply_role(['EDITOR'], ['ADMIN']) or { assert false }
+	reg.authorize(['EDITOR'], ['ADMIN']) or { assert false }
 
 	// USER 不通过 ADMIN 校验
-	mm.apply_role(['ADMIN'], ['USER']) or {
+	reg.authorize(['ADMIN'], ['USER']) or {
 		assert true
 		return
 	}
 	assert false
+}
+
+fn test_middleware_group_registry_group_names() {
+	boot := test_setup()!
+	cfg := default_web_config()
+	reg := new_middleware_group_registry(cfg, boot.auth_svc, boot.role_hierarchy, boot.log)
+
+	names := reg.group_names()
+	assert names.len >= 5
+	assert 'web' in names
+	assert 'api' in names
+	assert 'auth' in names
+	assert 'admin' in names
+	assert 'editor' in names
+}
+
+fn test_parse_cors_origins() {
+	// 默认通配符
+	assert parse_cors_origins('*') == ['*']
+	assert parse_cors_origins('') == ['*']
+
+	// 单个域名
+	origins := parse_cors_origins('https://example.com')
+	assert origins.len == 1
+	assert origins[0] == 'https://example.com'
+
+	// 多个域名（逗号分隔，含空格）
+	origins2 := parse_cors_origins('https://a.com, https://b.com ,https://c.com')
+	assert origins2.len == 3
+	assert origins2[0] == 'https://a.com'
+	assert origins2[1] == 'https://b.com'
+	assert origins2[2] == 'https://c.com'
+}
+
+fn test_parse_role_spec() {
+	// 单角色
+	roles := parse_role_spec('role:ADMIN')
+	assert roles.len == 1
+	assert roles[0] == 'ADMIN'
+
+	// 多角色
+	roles2 := parse_role_spec('role:EDITOR,ADMIN')
+	assert roles2.len == 2
+	assert 'EDITOR' in roles2
+	assert 'ADMIN' in roles2
+
+	// 无角色（格式错误）
+	roles3 := parse_role_spec('role')
+	assert roles3.len == 0
 }
 
 fn test_request_id_generation() {

@@ -3,16 +3,16 @@ module main
 // controller_test.v — PhotonBlog 控制器响应格式与状态码测试
 //
 // 测试覆盖：
-//   - 统一响应格式（ok_resp / err_resp）
+//   - 统一响应格式（web.success / web.fail）
 //   - 控制器辅助函数
-//   - API 响应 DTO 结构
-//   - extract_json_field 辅助函数
+//   - DTO 结构与序列化
+//   - extract_json_field 辅助函数（已移除，相关测试已删除）
 
 import json
+import photon.web
 
-fn test_ok_resp_format() {
-	resp_str := ok_resp('{"id":1}')
-	resp := json.decode(ApiResponseDto, resp_str)!
+fn test_web_success_format() {
+	resp := web.success('{"id":1}')
 
 	assert resp.success == true
 	assert resp.code == 200
@@ -21,9 +21,8 @@ fn test_ok_resp_format() {
 	assert resp.timestamp > 0
 }
 
-fn test_err_resp_format() {
-	resp_str := err_resp(404, 'Not Found')
-	resp := json.decode(ApiResponseDto, resp_str)!
+fn test_web_fail_format() {
+	resp := web.fail(404, 'Not Found')
 
 	assert resp.success == false
 	assert resp.code == 404
@@ -32,59 +31,91 @@ fn test_err_resp_format() {
 	assert resp.timestamp > 0
 }
 
-fn test_ok_resp_with_nested_data() {
+fn test_web_success_with_nested_data() {
 	data := json.encode({
 		'name': 'Alice'
 		'age':  '30'
 	})
-	resp_str := ok_resp(data)
-	resp := json.decode(ApiResponseDto, resp_str)!
+	resp := web.success(data)
 
 	assert resp.success == true
 	assert resp.data.contains('Alice')
 }
 
-fn test_err_resp_with_special_chars() {
-	resp_str := err_resp(400, '用户名、邮箱、密码为必填项')
-	resp := json.decode(ApiResponseDto, resp_str)!
+fn test_web_fail_with_special_chars() {
+	resp := web.fail(400, '用户名、邮箱、密码为必填项')
 
 	assert resp.success == false
 	assert resp.code == 400
 	assert resp.message.contains('必填项')
 }
 
-fn test_extract_json_field_basic() {
-	json_str := '{"refresh_token":"abc123def","token_type":"Bearer"}'
-	assert extract_json_field(json_str, 'refresh_token') == 'abc123def'
-	assert extract_json_field(json_str, 'token_type') == 'Bearer'
+fn test_web_result_to_json() {
+	resp := web.success('{"id":1}')
+	json_str := resp.to_json()
+
+	// JSON 字符串应包含所有字段
+	assert json_str.contains('"success":true')
+	assert json_str.contains('"code":200')
+	assert json_str.contains('"message":"OK"')
+	assert json_str.contains('"data":"{\\"id\\":1}"')
 }
 
-fn test_extract_json_field_missing() {
-	json_str := '{"name":"Alice"}'
-	assert extract_json_field(json_str, 'nonexistent') == ''
-}
+fn test_web_created_helper() {
+	resp := web.created('{"id":42}')
 
-fn test_extract_json_field_empty_string() {
-	assert extract_json_field('', 'key') == ''
-}
-
-fn test_extract_json_field_nested() {
-	json_str := '{"data":{"name":"Bob"},"refresh_token":"tok123"}'
-	assert extract_json_field(json_str, 'refresh_token') == 'tok123'
-}
-
-fn test_api_response_dto_success() {
-	resp := success_response('{"users":[]}')
 	assert resp.success == true
-	assert resp.code == 200
-	assert resp.data == '{"users":[]}'
+	assert resp.code == 201
+	assert resp.message == 'Created'
 }
 
-fn test_api_response_dto_error() {
-	resp := error_response(500, 'Internal Server Error')
+fn test_web_bad_request_helper() {
+	resp := web.bad_request('invalid input')
+
+	assert resp.success == false
+	assert resp.code == 400
+	assert resp.message == 'invalid input'
+}
+
+fn test_web_not_found_helper() {
+	resp := web.not_found('not found')
+
+	assert resp.success == false
+	assert resp.code == 404
+}
+
+fn test_web_unauthorized_helper() {
+	resp := web.unauthorized('please login')
+
+	assert resp.success == false
+	assert resp.code == 401
+}
+
+fn test_web_forbidden_helper() {
+	resp := web.forbidden('no permission')
+
+	assert resp.success == false
+	assert resp.code == 403
+}
+
+fn test_web_internal_error_helper() {
+	resp := web.internal_error('server error')
+
 	assert resp.success == false
 	assert resp.code == 500
-	assert resp.message == 'Internal Server Error'
+}
+
+fn test_web_page_helper() {
+	resp := web.page('{"items":[]}', 1, 20, 100)
+
+	assert resp.success == true
+	assert resp.code == 200
+	assert resp.pagination.page == 1
+	assert resp.pagination.page_size == 20
+	assert resp.pagination.total == 100
+	assert resp.pagination.total_pages == 5
+	assert resp.pagination.has_next == true
+	assert resp.pagination.has_prev == false
 }
 
 fn test_login_response_dto_serialization() {

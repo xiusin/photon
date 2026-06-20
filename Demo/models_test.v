@@ -182,21 +182,8 @@ fn test_create_comment_dto() {
 	assert dto.parent_id == 0
 }
 
-fn test_success_response() {
-	resp := success_response('{"id":1}')
-	assert resp.success == true
-	assert resp.code == 200
-	assert resp.message == 'OK'
-	assert resp.data == '{"id":1}'
-}
-
-fn test_error_response() {
-	resp := error_response(404, 'Not Found')
-	assert resp.success == false
-	assert resp.code == 404
-	assert resp.message == 'Not Found'
-	assert resp.data == ''
-}
+// 注：success_response / error_response 测试已移除
+// 统一响应已迁移至 photon.web.Result，相关测试见 controller_test.v
 
 fn test_user_profile_dto() {
 	dto := UserProfileDto{

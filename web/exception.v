@@ -228,27 +228,39 @@ pub fn (mut r ExceptionHandlerRegistry) register_default_handler(handler Excepti
 // First tries the registered handler by type name, then falls back to
 // HttpException status code extraction (type-safe, not string-based).
 pub fn (mut r ExceptionHandlerRegistry) handle(err IError) string {
+	status, body := r.handle_with_status(err)
+	_ = status // status available via handle_with_status for callers needing it
+	return body
+}
+
+// handle_with_status resolves the handler and returns both the HTTP status
+// code and the JSON body. Use this when you need to set the response status.
+pub fn (mut r ExceptionHandlerRegistry) handle_with_status(err IError) (int, string) {
 	err_type := typeof(err).name
 
 	// Try specific handler first
 	if handler := r.handlers[err_type] {
-		return handler(err)
+		status := extract_http_status(err)
+		if status == 0 {
+			status = 500
+		}
+		return status, handler(err)
 	}
 
 	// Try to extract status code from HttpException subtypes
 	// This is type-safe: we check for known struct types, not error message text.
 	status := extract_http_status(err)
 	if status > 0 {
-		return text_response_for_error(status, err.msg())
+		return status, text_response_for_error(status, err.msg())
 	}
 
 	// Try default handler
 	if !isnil(r.default_handler) {
-		return r.default_handler(err)
+		return 500, r.default_handler(err)
 	}
 
 	// Last resort: 500
-	return text_response_for_error(500, err.msg())
+	return 500, text_response_for_error(500, err.msg())
 }
 
 // register_defaults registers handlers for common HTTP exceptions.
@@ -319,6 +331,12 @@ fn extract_http_status(err IError) int {
 		'ServiceUnavailableException' { 503 }
 		else { 0 }
 	}
+}
+
+// extract_status is the public alias for extract_http_status.
+// Returns the HTTP status code for known HttpException subtypes, or 0 if unknown.
+pub fn extract_status(err IError) int {
+	return extract_http_status(err)
 }
 
 // ── Error Response Helpers ──
