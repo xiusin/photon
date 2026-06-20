@@ -833,6 +833,65 @@ pub fn (mut repo JpaRepository[T]) count() !i64 {
 	return rows[0][0].i64()
 }
 
+// ── @[query] native SQL execution (Task B6) ──
+//
+// execute_query and execute_named_query let callers run raw SQL
+// SELECTs through the same query_fn callback used by the
+// comptime-derived CRUD methods.  See query.v for the annotation
+// parser and comptime extractor.
+
+// execute_query runs a raw SQL SELECT with positional `?` parameters
+// and maps each result row to a T via jpa_map_row.
+//
+// All user values MUST be passed in `params` (positional `?`
+// placeholders) — never string-interpolated into the SQL string —
+// to prevent SQL injection.
+//
+// Example:
+//   users := repo.execute_query(
+//       'SELECT * FROM users WHERE age > ? ORDER BY age DESC',
+//       ['18']
+//   )!
+pub fn (mut repo JpaRepository[T]) execute_query(query_str string, params []string) ![]T {
+	if isnil(repo.query_fn) {
+		return error('execute_query: query_fn not configured / 未配置 query_fn')
+	}
+	db := repo.orm_manager.get_conn(repo.db_name)!
+	rows := repo.query_fn(db, query_str, params)!
+	mut results := []T{cap: rows.len}
+	for row in rows {
+		mut entity := T{}
+		jpa_map_row(mut entity, row)
+		results << entity
+	}
+	return results
+}
+
+// execute_named_query runs a SQL SELECT containing `:name` named
+// parameters, binding values from `named_params` by name.
+//
+// Named parameters are converted to positional `?` placeholders
+// internally (via convert_named_to_positional in query.v); the
+// caller supplies a map from parameter name to string value.  A
+// missing parameter produces a bilingual error.
+//
+// Example:
+//   users := repo.execute_named_query(
+//       'SELECT * FROM users WHERE age > :age AND name LIKE :name',
+//       {'age': '18', 'name': 'J%'}
+//   )!
+pub fn (mut repo JpaRepository[T]) execute_named_query(query_str string, named_params map[string]string) ![]T {
+	positional_sql, param_names := convert_named_to_positional(query_str)
+	mut params := []string{cap: param_names.len}
+	for name in param_names {
+		val := named_params[name] or {
+			return error('execute_named_query: missing named parameter "${name}" / 缺少命名参数: ${name}')
+		}
+		params << val
+	}
+	return repo.execute_query(positional_sql, params)
+}
+
 // ── DDL helper ──
 
 // create_table creates the table if it does not exist, using

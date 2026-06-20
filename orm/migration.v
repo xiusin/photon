@@ -1,5 +1,7 @@
 module orm
 
+import sync
+
 // migration.v - Database Migration System (Laravel Migrations + Flyway inspired)
 //
 // Provides versioned database schema migration with:
@@ -667,27 +669,98 @@ pub:
 	applied_at i64
 }
 
+// SqlMigration is a raw-SQL migration record executed by the SQL
+// migration path (migrate_with_sql).  Unlike the `Migration` interface
+// (which runs `up(mut OrmManager)`), a SqlMigration carries the DDL/DML
+// statements directly — the MigrationManager executes them inside a
+// per-migration transaction and records the version in
+// `_photon_migrations`.
+//
+// `version` is a string (e.g. '001', '20240101_create_users') to match
+// the TEXT PRIMARY KEY column of the tracking table.
+pub struct SqlMigration {
+pub:
+	version     string
+	description string
+	up_sql      string
+	down_sql    string
+}
+
+// MigrationResult reports the outcome of a migrate() call.
+//
+//   applied — number of migrations executed and committed this run
+//   skipped — number of migrations already applied (no-op)
+//   failed  — versions that failed and were rolled back (the run
+//             stops at the first failure; subsequent migrations are
+//             not attempted)
+pub struct MigrationResult {
+pub:
+	applied int
+	skipped int
+	failed  []string
+}
+
 // MigrationManager manages migration execution and tracking.
+//
+// Two execution paths:
+//   1. In-memory / interface path (default): migrations implement the
+//      `Migration` interface; `up(mut OrmManager)` is called directly.
+//      Tracking is held in `applied_versions` / `applied_records`.
+//   2. SQL path (when `exec_fn` + `query_fn` are set): raw-SQL
+//      migrations (`sql_migrations`) are executed inside per-migration
+//      transactions against a real DB; the `_photon_migrations` table
+//      is the source of truth for applied versions.
+//
+// Thread-safety: all SQL-path public methods take `mu` (a sync.RwMutex).
+// The in-memory path is single-threaded by design (matches the original
+// behaviour); callers that need concurrent in-memory migration should
+// externalise synchronisation.
 @[heap]
 pub struct MigrationManager {
 pub mut:
 	manager         &OrmManager
 	migrations      []&Migration
+	sql_migrations  []SqlMigration
 	db_name         string = 'default'
 	migration_table string = 'schema_migrations'
 	in_memory       bool // if true, track migrations in memory (for testing)
 	auto_schema     bool // if true, use Schema builder for DDL
+	initialized     bool // true after initialize() creates the tracking table
+	exec_fn         SqlExecFn  = unsafe { nil } // SQL execution callback (B4)
+	query_fn        SqlQueryFn = unsafe { nil } // SQL query callback (B4)
 mut:
 	applied_versions []int
 	applied_records  []AppliedMigration
 	applied_batch    int
 	schema_cache     map[string]string // table_name → CREATE TABLE SQL
+	mu               sync.RwMutex
 }
 
 // new_migration_manager creates a new MigrationManager.
 pub fn new_migration_manager(manager &OrmManager) &MigrationManager {
 	return &MigrationManager{
 		manager:          manager
+		applied_versions: []int{}
+		applied_records:  []AppliedMigration{}
+		schema_cache:     map[string]string{}
+	}
+}
+
+// new_migration_manager_with_fns creates a MigrationManager bound to
+// real SQL execution callbacks.  When `exec_fn` and `query_fn` are
+// both set, migrate() / initialize() execute real SQL against the
+// database identified by `db_name` and track applied versions in the
+// `_photon_migrations` table.
+//
+// The callbacks share the same signature as JpaRepository's
+// SqlExecFn / SqlQueryFn (db voidptr, query string, args []string) so
+// the same sqlite/pg/mysql adapter works for both.
+pub fn new_migration_manager_with_fns(manager &OrmManager, db_name string, exec_fn SqlExecFn, query_fn SqlQueryFn) &MigrationManager {
+	return &MigrationManager{
+		manager:          manager
+		db_name:          db_name
+		exec_fn:          exec_fn
+		query_fn:         query_fn
 		applied_versions: []int{}
 		applied_records:  []AppliedMigration{}
 		schema_cache:     map[string]string{}
@@ -714,38 +787,111 @@ pub fn (mut mm MigrationManager) add(migration &Migration) {
 	mm.migrations << migration
 }
 
+// add_sql_migration registers a raw-SQL migration (B4).
+//
+// Migrations are executed in version-ascending order inside
+// per-migration transactions.  `up_sql` may contain multiple
+// statements separated by ';'.  `down_sql` is recorded for future
+// rollback support (not yet executed by migrate()).
+pub fn (mut mm MigrationManager) add_sql_migration(version string, description string, up_sql string, down_sql string) {
+	mm.sql_migrations << SqlMigration{
+		version:     version
+		description: description
+		up_sql:      up_sql
+		down_sql:    down_sql
+	}
+}
+
 // ── Migration Lifecycle ──
 
 // initialize creates the migration tracking table.
+//
+// When `exec_fn` is set (SQL path, B4.1), executes:
+//   CREATE TABLE IF NOT EXISTS <migration_table> (
+//       version TEXT PRIMARY KEY,
+//       applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+//       description TEXT
+//   )
+// directly against the database.  Idempotent — safe to call multiple
+// times; the `initialized` flag short-circuits subsequent calls.
+//
+// When `exec_fn` is NOT set (in-memory / interface path), falls back
+// to the original Schema-builder behaviour (caches the DDL in
+// `schema_cache` without executing it).
 pub fn (mut mm MigrationManager) initialize() ! {
 	if mm.in_memory {
 		return
 	}
+	if mm.initialized {
+		return
+	}
 
-	// Create the schema_migrations table using Schema builder
+	// SQL path: execute real DDL against the database.
+	if !isnil(mm.exec_fn) {
+		mm.mu.@lock()
+		defer {
+			mm.mu.unlock()
+		}
+		db := mm.manager.get_conn(mm.db_name)!
+		sql_stmt := 'CREATE TABLE IF NOT EXISTS ${mm.migration_table} (
+            version TEXT PRIMARY KEY,
+            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            description TEXT
+        )'
+		mm.exec_fn(db, sql_stmt, []string{})!
+		mm.initialized = true
+		return
+	}
+
+	// In-memory / interface path: build the DDL via Schema builder
+	// and cache it (original behaviour).
 	mut schema := new_schema(mm.driver_or_default())
 	migration_table_name := mm.migration_table
 	schema.create_table(migration_table_name, fn [migration_table_name] (mut t TableDef) {
-		t.integer('version').not_null()
+		t.integer('version')
+		t.not_null()
 		t.string_('name', 255)
 		t.integer('batch')
 		t.timestamp_('applied_at')
 		t.unique_(['version'], 'idx_${migration_table_name}_version')
 	})
-
-	// In a real implementation, execute the SQL against the database
-	// For now, cache it
 	mm.schema_cache[mm.migration_table] = schema.to_sql()
+	mm.initialized = true
 }
 
 // migrate runs all pending migrations in order.
-pub fn (mut mm MigrationManager) migrate() ! {
+//
+// Returns a MigrationResult reporting how many migrations were
+// applied, skipped (already applied), or failed (rolled back).
+//
+// Two execution paths:
+//   1. SQL path (exec_fn + query_fn set, B4.2/B4.3): queries the
+//      `_photon_migrations` table for applied versions, then for each
+//      pending SqlMigration opens a transaction, executes `up_sql`,
+//      inserts the version record, and commits.  On failure the
+//      transaction is rolled back and the run aborts.
+//   2. In-memory / interface path (default): calls `up(mut OrmManager)`
+//      on each Migration interface implementor and tracks applied
+//      versions in memory.
+pub fn (mut mm MigrationManager) migrate() !MigrationResult {
+	// SQL path: real database execution.
+	if !isnil(mm.exec_fn) && !isnil(mm.query_fn) && !mm.in_memory {
+		return mm.migrate_with_sql()
+	}
+	return mm.migrate_in_memory()
+}
+
+// migrate_in_memory is the original interface-based migration path.
+// Tracks applied versions in `applied_versions` / `applied_records`.
+fn (mut mm MigrationManager) migrate_in_memory() !MigrationResult {
 	mm.sort_migrations()
 	mm.applied_batch++
 
 	mut applied := 0
+	mut skipped := 0
 	for migration in mm.migrations {
 		if mm.is_applied(migration.version()) {
+			skipped++
 			continue
 		}
 
@@ -763,9 +909,122 @@ pub fn (mut mm MigrationManager) migrate() ! {
 		applied++
 	}
 
-	if applied == 0 {
-		// No pending migrations
+	return MigrationResult{
+		applied: applied
+		skipped: skipped
+		failed: []string{}
 	}
+}
+
+// migrate_with_sql executes raw-SQL migrations against the database (B4.2/B4.3).
+//
+// Each migration runs in its own transaction (BEGIN → up_sql → INSERT
+// version → COMMIT).  If up_sql or the version insert fails, the
+// transaction is rolled back (ROLLBACK) and the run aborts with an
+// error; subsequent migrations are NOT attempted.  Already-applied
+// migrations are skipped.
+fn (mut mm MigrationManager) migrate_with_sql() !MigrationResult {
+	if !mm.initialized {
+		mm.initialize()!
+	}
+
+	mm.mu.@lock()
+	defer {
+		mm.mu.unlock()
+	}
+
+	db := mm.manager.get_conn(mm.db_name)!
+
+	// Get applied versions from the tracking table.
+	mut applied_set := mm.get_applied_versions_locked(db)!
+
+	// Sort SQL migrations by version (ascending).
+	mut pending := mm.sql_migrations.clone()
+	pending.sort(a.version < b.version)
+
+	mut applied_count := 0
+	mut skipped_count := 0
+	mut failed_migrations := []string{}
+
+	for migration in pending {
+		if migration.version in applied_set {
+			skipped_count++
+			continue
+		}
+
+		// Open a per-migration transaction (B4.3).
+		mm.exec_fn(db, 'BEGIN', []string{}) or {
+			failed_migrations << migration.version
+			return error('migration ${migration.version} failed to begin transaction / 开始事务失败: ${err}')
+		}
+
+		// Execute the migration's up SQL.
+		mm.exec_fn(db, migration.up_sql, []string{}) or {
+			mm.exec_fn(db, 'ROLLBACK', []string{}) or {}
+			failed_migrations << migration.version
+			return error('migration ${migration.version} failed / 迁移失败: ${err}')
+		}
+
+		// Record the version (parameterised — SQL-injection safe).
+		mm.exec_fn(db, 'INSERT INTO ${mm.migration_table} (version, description) VALUES (?, ?)',
+			[migration.version, migration.description]) or {
+			mm.exec_fn(db, 'ROLLBACK', []string{}) or {}
+			failed_migrations << migration.version
+			return error('migration ${migration.version} failed to record version / 记录版本失败: ${err}')
+		}
+
+		// Commit the transaction.
+		mm.exec_fn(db, 'COMMIT', []string{}) or {
+			failed_migrations << migration.version
+			return error('migration ${migration.version} failed to commit / 提交事务失败: ${err}')
+		}
+
+		applied_set << migration.version
+		applied_count++
+	}
+
+	return MigrationResult{
+		applied: applied_count
+		skipped: skipped_count
+		failed: failed_migrations
+	}
+}
+
+// get_applied_versions returns the list of migration versions recorded
+// in the tracking table, sorted in ascending version order.
+//
+// Returns an empty list when the SQL path is not configured
+// (exec_fn/query_fn unset) or the tracking table does not yet exist.
+pub fn (mut mm MigrationManager) get_applied_versions() ![]string {
+	if isnil(mm.query_fn) {
+		return []string{}
+	}
+	mm.mu.@lock()
+	defer {
+		mm.mu.unlock()
+	}
+	db := mm.manager.get_conn(mm.db_name)!
+	return mm.get_applied_versions_locked(db)
+}
+
+// get_applied_versions_locked is the lock-free inner helper.
+// Caller MUST hold mm.mu.
+fn (mut mm MigrationManager) get_applied_versions_locked(db voidptr) ![]string {
+	if isnil(mm.query_fn) {
+		return []string{}
+	}
+	rows := mm.query_fn(db, 'SELECT version FROM ${mm.migration_table} ORDER BY version',
+		[]string{}) or {
+		// Table might not exist yet — treat as empty.
+		return []string{}
+	}
+	mut versions := []string{}
+	for row in rows {
+		if row.len > 0 {
+			versions << row[0]
+		}
+	}
+	return versions
 }
 
 // rollback rolls back the last batch of migrations.

@@ -291,6 +291,56 @@ pub fn (mut ctx ApplicationContext) register_auto_configuration[T]() ! {
 	ctx.auto_config_manager.register_from_comptime[T]()!
 }
 
+// ── Starter Pattern: Manifest Imports (Task A5) ──
+
+// register_imports registers a list of auto-configuration class names as
+// pending manifest imports. This is the programmatic equivalent of loading
+// a manifest file — each module can export a `pub const auto_configuration_imports`
+// array and pass it here during bootstrap.
+//
+// The imports are declarations only — they do NOT create candidates. Actual
+// candidate registration requires a separate `register_auto_configuration[T]()`
+// call for each type.
+//
+// Spring Boot equivalent: AutoConfigurationImportSelector.selectImports()
+//
+// Usage:
+//   // Module db exports: pub const auto_configuration_imports = ['DbAutoConfig']
+//   ctx.register_imports(db.auto_configuration_imports)
+//   ctx.register_auto_configuration[db.DbAutoConfig]()!
+pub fn (mut ctx ApplicationContext) register_imports(imports []string) {
+	ctx.auto_config_manager.register_imports(imports)
+}
+
+// load_imports_from_manifest loads auto-configuration class names from a
+// manifest file (auto_configuration_imports.v format).
+//
+// The file format is plain text:
+//   - One fully-qualified class name per line
+//   - Lines starting with # are comments (ignored)
+//   - Empty lines are ignored
+//
+// Returns the number of class names loaded.
+//
+// Spring Boot equivalent: loading META-INF/spring/...AutoConfiguration.imports
+pub fn (mut ctx ApplicationContext) load_imports_from_manifest(path string) !int {
+	return ctx.auto_config_manager.load_imports_from_manifest(path)
+}
+
+// scan_manifests recursively scans a directory tree for
+// auto_configuration_imports.v manifest files and loads all class names
+// from each file found.
+//
+// This simulates Spring Boot's classpath scanning for
+// META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports.
+// In V, since there is no runtime classpath, the application points this
+// method at a directory containing module subdirectories.
+//
+// Returns the total number of class names loaded across all manifest files.
+pub fn (mut ctx ApplicationContext) scan_manifests(directory string) !int {
+	return ctx.auto_config_manager.scan_manifests(directory)
+}
+
 // ── SmartLifecycle ──
 
 // add_smart_lifecycle registers a SmartLifecycle bean.

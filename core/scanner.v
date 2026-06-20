@@ -360,9 +360,11 @@ pub fn extract_cacheable_key(attrs []string) string {
 // Spring equivalent: @Bean method
 pub struct BeanMethod {
 pub:
-	method_name string   // V method name
-	bean_name   string   // resulting bean type_name (defaults to method_name)
-	attrs       []string // method-level attributes (scope, primary, depends_on, etc.)
+	method_name  string   // V method name
+	bean_name    string   // resulting bean type_name (defaults to method_name)
+	attrs        []string // method-level attributes (scope, primary, depends_on, etc.)
+	arg_count    int      // number of method parameters (Task A3)
+	config_class string   // the @[configuration] class this method belongs to (Task A3)
 }
 
 // new_bean_method creates a BeanMethod from a method name and attributes.
@@ -511,5 +513,101 @@ pub fn extract_auto_configuration_attrs[T]() []string {
 // auto_configuration_type_name returns the V type name for T as a string.
 // Wraps `T.name` so callers do not depend on comptime internals directly.
 pub fn auto_configuration_type_name[T]() string {
+	return T.name
+}
+
+// ── @[configuration] + @[bean] Comptime Scanning (Task A3) ──
+//
+// Spring equivalent: @Configuration class with @Bean methods.
+//
+// V comptime note: struct-level attributes are inspected via
+// `$for attr in T.attributes { ... }` (same as Task A1). Method-level
+// attributes are inspected via `method.attrs` inside `$for method in T.methods`.
+//
+// V 0.5.1 comptime limitation: `method.return_type` and `method.args[].typ`
+// are integer type indices, NOT type-name strings. To obtain the return type
+// name as a string, we call `t.$method()` inside the `$for` loop and use
+// `typeof(result).name`. This only works for 0-arg methods; for methods with
+// args, the caller must use the type-parameterized registration helpers
+// (`register_bean_method_factory[T, R]` / `register_bean_method_with_dep[T, R, D]`)
+// which use `$if method.return_type is R` to branch at compile time.
+
+// extract_configuration returns true if type T is annotated with
+// `@[configuration]`. This is a pure comptime check — zero runtime cost.
+//
+// Usage:
+//   if core.extract_configuration[MyConfig]() {
+//       // T is a configuration class
+//   }
+pub fn extract_configuration[T]() bool {
+	mut found := false
+	$for attr in T.attributes {
+		if attr.name == attr_configuration {
+			found = true
+		}
+	}
+	return found
+}
+
+// extract_configuration_attrs returns the list of struct-level attribute names
+// for type T (comptime). Useful for inspecting conditional annotations alongside
+// `@[configuration]`.
+pub fn extract_configuration_attrs[T]() []string {
+	mut attrs := []string{}
+	$for attr in T.attributes {
+		if attr.has_arg {
+			attrs << '${attr.name}:${attr.arg}'
+		} else {
+			attrs << attr.name
+		}
+	}
+	return attrs
+}
+
+// extract_bean_methods scans type T at compile time for methods annotated with
+// `@[bean]`. Returns a list of BeanMethod descriptors containing the method
+// name, bean name, attributes, argument count, and the configuration class name.
+//
+// Spring equivalent: @Bean method discovery in @Configuration classes.
+//
+// V comptime note: `method.return_type` and `method.args[].typ` are integer
+// type indices, not strings. The `return_type` and `param_types` fields are
+// left empty here — they are populated by the type-parameterized registration
+// helpers which use `$if method.return_type is R` to determine types at
+// compile time. The `arg_count` field IS available and is used to select
+// the appropriate registration helper (0-arg vs 1-arg).
+//
+// Usage:
+//   methods := core.extract_bean_methods[MyConfig]()
+//   for m in methods {
+//       println('${m.method_name} (${m.arg_count} args)')
+//   }
+pub fn extract_bean_methods[T]() []BeanMethod {
+	mut methods := []BeanMethod{}
+	$for method in T.methods {
+		// Check if method has @[bean] attribute
+		mut has_bean := false
+		for attr in method.attrs {
+			if attr == attr_bean || attr.starts_with('bean:') || attr.starts_with('bean(') {
+				has_bean = true
+			}
+		}
+		if has_bean {
+			bm := new_bean_method(method.name, method.attrs)
+			methods << BeanMethod{
+				method_name: bm.method_name
+				bean_name:   bm.bean_name
+				attrs:       bm.attrs.clone()
+				arg_count:   method.args.len
+				config_class: T.name
+			}
+		}
+	}
+	return methods
+}
+
+// configuration_type_name returns the V type name for T as a string.
+// Wraps `T.name` so callers do not depend on comptime internals directly.
+pub fn configuration_type_name[T]() string {
 	return T.name
 }
