@@ -17,6 +17,7 @@ import orm
 import web
 import storage
 import mailer
+import apidoc
 
 // Re-export config types
 pub type Config = config.Config
@@ -196,3 +197,14 @@ pub type KeyDerivation = security.KeyDerivation
 // Re-export YAML/TOML config source types (P1)
 pub type YamlConfigSource = config.YamlConfigSource
 pub type TomlConfigSource = config.TomlConfigSource
+
+// Re-export apidoc types (API documentation collector + handler)
+pub type ApidocHandler = apidoc.ApidocHandler
+pub type Collector = apidoc.Collector
+pub type ApiDocStore = apidoc.ApiDocStore
+pub type ApiDocEntry = apidoc.ApiDocEntry
+pub type ApiDocRequest = apidoc.ApiDocRequest
+pub type ApiDocResponse = apidoc.ApiDocResponse
+pub type ApiDocParam = apidoc.ApiDocParam
+pub type ApiDocHeader = apidoc.ApiDocHeader
+pub type ApiDocResponseProp = apidoc.ApiDocResponseProp

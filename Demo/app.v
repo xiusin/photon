@@ -34,7 +34,7 @@ pub mut:
 	bootstrap           &Bootstrap = unsafe { nil }
 	middleware_registry &MiddlewareGroupRegistry = unsafe { nil }
 	http_kernel         &HttpKernel = unsafe { nil }
-	apidoc_handler      &apidoc.ApidocHandler = unsafe { nil }
+	apidoc_handler      &photon.ApidocHandler = unsafe { nil }
 }
 
 // ═══════════════════════════════════════════════════════════
