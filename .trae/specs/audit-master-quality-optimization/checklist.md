@@ -3,11 +3,11 @@
 ## Phase P0 — 正确性与安全
 
 ### Task 1: ticker 协程生命周期
-- [ ] `ticker/bucket.v` `scheduler_run()` 通过 `stop_signal` 可退出
-- [ ] `ticker/bucket.v` `Ticker.stop()` 传入正确 `when` 值
-- [ ] `ticker/bucket.v` `TimerScheduler` 使用 `WaitGroup` 等待协程退出
-- [ ] `ticker/bucket.v` `running` 标志线程安全
-- [ ] `ticker_lifecycle_test.v` 验证 stop 后无协程泄漏
+- [x] `ticker/bucket.v` `scheduler_run()` 通过 `stop_signal` 可退出
+- [x] `ticker/bucket.v` `Ticker.stop()` 传入正确 `when` 值
+- [x] `ticker/bucket.v` `TimerScheduler` 使用 `WaitGroup` 等待协程退出
+- [x] `ticker/bucket.v` `running` 标志线程安全
+- [x] `ticker_lifecycle_test.v` 验证 stop 后无协程泄漏
 
 ### Task 2: pool 对象生命周期
 - [x] `pool/pool.v` `close()` 调用每个 `PooledObject.close()`
@@ -37,14 +37,14 @@
 - [x] `container_lifecycle_test.v` 验证 destroy 调用顺序
 
 ### Task 5: cache 并发与生命周期
-- [ ] `cache/memory.v` `get()` 读锁下不写 map
-- [ ] `cache/memory.v` 过期删除无 TOCTOU
-- [ ] `cache/cache_tags.v` `tag_to_keys` 加锁保护
-- [ ] `cache/cache_tags.v` `flush_tag()` 同步更新反向索引
-- [ ] `cache/cache_tags.v` TTL 过期同步更新反向索引
-- [ ] `cache/cache.v` `CacheRegistry.unregister()` 存在
-- [ ] `cache/memory.v` 后台 GC 协程清理过期条目
-- [ ] `cache_concurrency_test.v` 验证并发一致性
+- [x] `cache/memory.v` `get()` 读锁下不写 map
+- [x] `cache/memory.v` 过期删除无 TOCTOU
+- [x] `cache/cache_tags.v` `tag_to_keys` 加锁保护
+- [x] `cache/cache_tags.v` `flush_tag()` 同步更新反向索引
+- [x] `cache/cache_tags.v` TTL 过期同步更新反向索引
+- [x] `cache/cache.v` `CacheRegistry.unregister()` 存在
+- [x] `cache/memory.v` 后台 GC 协程清理过期条目
+- [x] `cache_concurrency_test.v` 验证并发一致性
 
 ### Task 6: locking/queue/web/storage 资源泄漏
 - [x] `locking/lock.v` `unlock_and_cleanup()` 无竞态
@@ -87,31 +87,31 @@
 ## Phase P1 — Spring 逻辑对齐
 
 ### Task 9: @ConfigurationProperties
-- [ ] `core/environment.v` `bind_to_struct[T]` 泛型函数存在
-- [ ] 支持嵌套结构体、数组、基本类型
-- [ ] 支持 `@[config_field]` 自定义键
-- [ ] `core/core.v` 自动绑定 `@[configuration_properties]` bean
-- [ ] 旧 `bind_to` 标记 `@[deprecated]`
-- [ ] `config_binding_test.v` 验证
+- [x] `core/environment.v` `bind_to_struct[T]` 泛型函数存在
+- [x] 支持嵌套结构体、数组、基本类型
+- [x] 支持 `@[config_field]` 自定义键
+- [x] `core/core.v` 自动绑定 `@[configuration_properties]` bean
+- [x] 旧 `bind_to` 标记 `@[deprecated]`
+- [x] `config_binding_test.v` 验证
 
 ### Task 10: @Conditional
-- [ ] `core/condition.v` `OnClassCondition` 真实检查
-- [ ] `OnBeanCondition`/`OnPropertyCondition` 存在
-- [ ] `core/core.v` 注册时评估条件
-- [ ] `conditional_test.v` 验证
+- [x] `core/condition.v` `OnClassCondition` 真实检查
+- [x] `OnBeanCondition`/`OnPropertyCondition` 存在
+- [x] `core/core.v` 注册时评估条件
+- [x] `conditional_test.v` 验证
 
 ### Task 11: BeanPostProcessor AOP
-- [ ] `core/post_processor.v` `AnnotationAwarePostProcessor.before()` 扫描注解
-- [ ] `@[transactional]` 自动织入事务代理
-- [ ] `@[cacheable]` 自动织入缓存代理
-- [ ] `after()` 调用 `afterPropertiesSet()` 与 `@post_construct`
-- [ ] `aop_proxy_test.v` 验证事务回滚、缓存命中
+- [x] `core/post_processor.v` `AnnotationAwarePostProcessor.before()` 扫描注解
+- [x] `@[transactional]` 自动织入事务代理
+- [x] `@[cacheable]` 自动织入缓存代理
+- [x] `after()` 调用 `afterPropertiesSet()` 与 `@post_construct`
+- [x] `aop_proxy_test.v` 验证事务回滚、缓存命中
 
 ### Task 12: @ControllerAdvice
-- [ ] `web/exception.v` `@[controller_advice]` 注解与 `ExceptionHandler` trait
-- [ ] `ExceptionResolver` 注册全局 advice
-- [ ] 替换 `typeof(err).name` 字符串匹配
-- [ ] `controller_advice_test.v` 验证
+- [x] `web/exception.v` `@[controller_advice]` 注解与 `ExceptionHandler` trait
+- [x] `ExceptionResolver` 注册全局 advice
+- [x] 替换 `typeof(err).name` 字符串匹配
+- [x] `controller_advice_test.v` 验证
 
 ### Task 13: JpaRepository
 - [x] `orm/repository.v` `JpaRepository[T]` 基类存在
@@ -120,32 +120,32 @@
 - [x] `jpa_repository_test.v` 验证零配置 CRUD
 
 ### Task 14: MockMvc
-- [ ] `web/testing.v` `MockMvc` 结构体存在
-- [ ] `MockMvc.perform()` 返回 `MockResult`
-- [ ] `MockResult` 提供 `assert_status`/`assert_json_contains`/`assert_header`
-- [ ] `mockmvc_test.v` 验证
+- [x] `web/testing.v` `MockMvc` 结构体存在
+- [x] `MockMvc.perform()` 返回 `MockResult`
+- [x] `MockResult` 提供 `assert_status`/`assert_json_contains`/`assert_header`
+- [x] `mockmvc_test.v` 验证
 
 ### Task 15: example/ 迁移
-- [ ] `example/main.v` 使用 `application_context`
-- [ ] `example/bootstrap.v` 使用 `@[configuration]` + `@[bean]`
-- [ ] `example/controllers.v` 使用 `@[controller]` + `@[autowired]`
-- [ ] `example/services.v` 使用 `@[service]` + `@[transactional]`
-- [ ] example 编译运行功能等价
+- [x] `example/main.v` 使用 `application_context`
+- [x] `example/bootstrap.v` 使用 `@[configuration]` + `@[bean]`
+- [x] `example/controllers.v` 使用 `@[controller]` + `@[autowired]`
+- [x] `example/services.v` 使用 `@[service]` + `@[transactional]`
+- [x] example 编译运行功能等价
 
 ## Phase P2 — 大师级质量
 
 ### Task 16: 统一关闭顺序
-- [ ] `core/application_context.v` `shutdown()` 按 web → queue → ticker → schedule → event → cache → orm → pool → core 顺序
-- [ ] 每阶段超时 5s
-- [ ] `shutdown_order_test.v` 验证顺序
+- [x] `core/application_context.v` `shutdown()` 按 web → queue → ticker → schedule → event → cache → orm → pool → core 顺序
+- [x] 每阶段超时 5s
+- [x] `shutdown_order_test.v` 验证顺序
 
 ### Task 17: 资源池完整化
-- [ ] `pool/pool.v` 七阶段完整：factory → validate → acquire → use → release → idle_timeout → max_lifetime → close
-- [ ] `pool_full_lifecycle_test.v` 验证
-- [ ] 所有后台协程 shutdown 后退出
+- [x] `pool/pool.v` 七阶段完整：factory → validate → acquire → use → release → idle_timeout → max_lifetime → close
+- [x] `pool_full_lifecycle_test.v` 验证
+- [x] 所有后台协程 shutdown 后退出
 
 ### Task 18: 最终验证
-- [ ] `v test photon/...` 全部通过
-- [ ] `v fmt -w photon/...` 格式验证
-- [ ] `优化文档.md` 更新 Phase 3 记录
-- [ ] example/ 编译运行通过
+- [x] `v test photon/...` 全部通过
+- [x] `v fmt -w photon/...` 格式验证
+- [x] `优化文档.md` 更新 Phase 3 记录
+- [x] example/ 编译运行通过

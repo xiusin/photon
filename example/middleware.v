@@ -3,7 +3,7 @@ module main
 // middleware.v — HTTP 中间件
 //
 // 中间件通过 @[middleware('name')] 注解挂载到路由。
-// 当前采用"手动注册+检查"模式，未来可迁移至注解驱动。
+// MiddlewareManager 作为 @[component] Bean 注册到 DI 容器，由 ApplicationContext 统一管理。
 import veb
 import logger
 import time
@@ -180,11 +180,12 @@ pub fn (mut m RateLimitMiddleware) handle(ip string) ! {
 // 中间件管理器 — 统一挂载和编排
 // ═══════════════════════════════════════════════════════════
 
+@[component]
 pub struct MiddlewareManager {
 pub mut:
-	request_log &RequestLogMiddleware
+	request_log &RequestLogMiddleware @[autowired]
 	cors        &CorsMiddleware
-	auth        &AuthMiddleware
+	auth        &AuthMiddleware @[autowired]
 	rate_limit  &RateLimitMiddleware
 }
 

@@ -434,8 +434,7 @@ pub const shutdown_priority_core = 10
 pub struct ShutdownStage {
 pub:
 	name     string
-	priority int
-	@[required]
+	priority int @[required]
 	hook     fn () !
 }
 

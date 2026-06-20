@@ -4,12 +4,12 @@
 
 ### 子阶段 P0-A：内存泄漏与协程生命周期（5 CRITICAL + 14 HIGH）
 
-- [ ] Task 1: 修复 ticker 模块协程生命周期（CRITICAL #1/#2）
-  - [ ] SubTask 1.1: `ticker/bucket.v` — `scheduler_run()` 增加 `stop_signal chan bool`，循环改为 `select { stop_signal <- true { break } else {} }`，退出时关闭调度协程
-  - [ ] SubTask 1.2: `ticker/bucket.v` — `Ticker.stop()` 传入正确的 `when = time.now().unix()`，匹配触发删除
-  - [ ] SubTask 1.3: `ticker/bucket.v` — `TimerScheduler` 增加 `wg sync.WaitGroup`，`start()` 时 `wg.add(1)`，协程退出 `wg.done()`，`stop()` 调用 `wg.wait()` 确保退出
-  - [ ] SubTask 1.4: `ticker/bucket.v` — `TimerScheduler.running` 改为 `sync.Mutex` 保护或原子 bool
-  - [ ] SubTask 1.5: 编写 `ticker_lifecycle_test.v` 验证 stop 后协程退出、无泄漏
+- [x] Task 1: 修复 ticker 模块协程生命周期（CRITICAL #1/#2）
+  - [x] SubTask 1.1: `ticker/bucket.v` — `scheduler_run()` 增加 `stop_signal chan bool`，循环改为 `select { stop_signal <- true { break } else {} }`，退出时关闭调度协程
+  - [x] SubTask 1.2: `ticker/bucket.v` — `Ticker.stop()` 传入正确的 `when = time.now().unix()`，匹配触发删除
+  - [x] SubTask 1.3: `ticker/bucket.v` — `TimerScheduler` 增加 `wg sync.WaitGroup`，`start()` 时 `wg.add(1)`，协程退出 `wg.done()`，`stop()` 调用 `wg.wait()` 确保退出
+  - [x] SubTask 1.4: `ticker/bucket.v` — `TimerScheduler.running` 改为 `sync.Mutex` 保护或原子 bool
+  - [x] SubTask 1.5: 编写 `ticker_lifecycle_test.v` 验证 stop 后协程退出、无泄漏
 
 - [x] Task 2: 修复 pool 模块对象生命周期（CRITICAL #3 + HIGH #13/#14 + M4）
   - [x] SubTask 2.1: `pool/pool.v` — `close()` 遍历 `idle` 切片，对每个 `PooledObject` 调用 `obj.close()`，清空 `idle` 与 `active_count`
@@ -38,15 +38,15 @@
   - [x] SubTask 4.6: `core/application_context.v` — `shutdown()` 清理引用切片（`instances = []`、`definitions = {}`）
   - [x] SubTask 4.7: 编写 `container_lifecycle_test.v` 验证 destroy 调用顺序、无残留引用
 
-- [ ] Task 5: 修复 cache 并发与生命周期（CRITICAL #4 并发 + C5/C6 + M22）
-  - [ ] SubTask 5.1: `cache/memory.v` — `get()` 读锁下禁止 `unsafe { entries[key].hit_count++ }`，改为读锁下读取 entry 副本，写锁下更新 hit_count，或使用原子计数器
-  - [ ] SubTask 5.2: `cache/memory.v` — 修复过期删除 TOCTOU：读锁发现过期 → 释放读锁 → 写锁重新检查是否仍存在且过期 → 删除
-  - [ ] SubTask 5.3: `cache/cache_tags.v` — `tag_to_keys` 反向索引所有读写加 `mu sync.RwMutex`
-  - [ ] SubTask 5.4: `cache/cache_tags.v` — `flush_tag()` 删除 key 时同步更新 `tag_to_keys`
-  - [ ] SubTask 5.5: `cache/cache_tags.v` — TTL 过期清理时同步更新 `tag_to_keys`（订阅 memory cache 的删除事件或定期扫描）
-  - [ ] SubTask 5.6: `cache/cache.v` — `CacheRegistry` 增加 `unregister(name)` 方法
-  - [ ] SubTask 5.7: `cache/memory.v` — 启动后台 GC 协程定期清理过期条目，stop_signal 控制
-  - [ ] SubTask 5.8: 编写 `cache_concurrency_test.v` 验证并发读写、tag flush 一致性
+- [x] Task 5: 修复 cache 并发与生命周期（CRITICAL #4 并发 + C5/C6 + M22）
+  - [x] SubTask 5.1: `cache/memory.v` — `get()` 读锁下禁止 `unsafe { entries[key].hit_count++ }`，改为读锁下读取 entry 副本，写锁下更新 hit_count，或使用原子计数器
+  - [x] SubTask 5.2: `cache/memory.v` — 修复过期删除 TOCTOU：读锁发现过期 → 释放读锁 → 写锁重新检查是否仍存在且过期 → 删除
+  - [x] SubTask 5.3: `cache/cache_tags.v` — `tag_to_keys` 反向索引所有读写加 `mu sync.RwMutex`
+  - [x] SubTask 5.4: `cache/cache_tags.v` — `flush_tag()` 删除 key 时同步更新 `tag_to_keys`
+  - [x] SubTask 5.5: `cache/cache_tags.v` — TTL 过期清理时同步更新 `tag_to_keys`（订阅 memory cache 的删除事件或定期扫描）
+  - [x] SubTask 5.6: `cache/cache.v` — `CacheRegistry` 增加 `unregister(name)` 方法
+  - [x] SubTask 5.7: `cache/memory.v` — 启动后台 GC 协程定期清理过期条目，stop_signal 控制
+  - [x] SubTask 5.8: 编写 `cache_concurrency_test.v` 验证并发读写、tag flush 一致性
 
 - [x] Task 6: 修复 locking/queue/web/storage 资源泄漏（HIGH #7/#8/#9/#10/#15/#16/#17/#19 + C7 + M6/M21/M23/M25）
   - [x] SubTask 6.1: `locking/lock.v` — `unlock_and_cleanup()` 修复竞态：先 unlock 再加写锁删除，或使用 try_lock 检查引用计数
@@ -90,32 +90,32 @@
 
 ## Phase P1 — Spring 逻辑对齐（12 个 P0 缺口）
 
-- [ ] Task 9: 实现 @ConfigurationProperties 类型安全绑定（P0 3.1）
-  - [ ] SubTask 9.1: `core/environment.v` — 新增 `bind_to_struct[T](prefix) !T` 泛型函数，comptime 遍历结构体字段，按 `prefix.field_name` 绑定
-  - [ ] SubTask 9.2: `core/environment.v` — 支持嵌套结构体（递归绑定）、数组、基本类型（string/int/f64/bool）
-  - [ ] SubTask 9.3: `core/environment.v` — 支持 `@[config_field('custom_key')]` 注解自定义配置键
-  - [ ] SubTask 9.4: `core/core.v` — 注册 `@[configuration_properties]` 标注的 bean 时自动调用 `bind_to_struct`
-  - [ ] SubTask 9.5: 旧 `bind_to` 标记 `@[deprecated]`
-  - [ ] SubTask 9.6: 编写 `config_binding_test.v` 验证嵌套、数组、默认值
+- [x] Task 9: 实现 @ConfigurationProperties 类型安全绑定（P0 3.1）
+  - [x] SubTask 9.1: `core/environment.v` — 新增 `bind_to_struct[T](prefix) !T` 泛型函数，comptime 遍历结构体字段，按 `prefix.field_name` 绑定
+  - [x] SubTask 9.2: `core/environment.v` — 支持嵌套结构体（递归绑定）、数组、基本类型（string/int/f64/bool）
+  - [x] SubTask 9.3: `core/environment.v` — 支持 `@[config_field('custom_key')]` 注解自定义配置键
+  - [x] SubTask 9.4: `core/core.v` — 注册 `@[configuration_properties]` 标注的 bean 时自动调用 `bind_to_struct`
+  - [x] SubTask 9.5: 旧 `bind_to` 标记 `@[deprecated]`
+  - [x] SubTask 9.6: 编写 `config_binding_test.v` 验证嵌套、数组、默认值
 
-- [ ] Task 10: 实现 @Conditional 真实条件判断（P0 4.3）
-  - [ ] SubTask 10.1: `core/condition.v` — `OnClassCondition` 实现真实类存在检查（comptime $exists 或运行时注册表）
-  - [ ] SubTask 10.2: `core/condition.v` — 新增 `OnBeanCondition`（检查 bean 是否存在）、`OnPropertyCondition`（检查配置值）
-  - [ ] SubTask 10.3: `core/core.v` — `register_definition()` 时评估 `@[conditional]` 注解，条件不满足则跳过注册
-  - [ ] SubTask 10.4: 编写 `conditional_test.v` 验证条件注册
+- [x] Task 10: 实现 @Conditional 真实条件判断（P0 4.3）
+  - [x] SubTask 10.1: `core/condition.v` — `OnClassCondition` 实现真实类存在检查（comptime $exists 或运行时注册表）
+  - [x] SubTask 10.2: `core/condition.v` — 新增 `OnBeanCondition`（检查 bean 是否存在）、`OnPropertyCondition`（检查配置值）
+  - [x] SubTask 10.3: `core/core.v` — `register_definition()` 时评估 `@[conditional]` 注解，条件不满足则跳过注册
+  - [x] SubTask 10.4: 编写 `conditional_test.v` 验证条件注册
 
-- [ ] Task 11: 实现 BeanPostProcessor 真实 AOP 代理（P0 1.6/5.1/5.4）
-  - [ ] SubTask 11.1: `core/post_processor.v` — `AnnotationAwarePostProcessor` 实现 `before()`，扫描 bean 方法注解
-  - [ ] SubTask 11.2: `core/post_processor.v` — 检测 `@[transactional]` 方法，生成事务包装代理（before: begin, after: commit, error: rollback）
-  - [ ] SubTask 11.3: `core/post_processor.v` — 检测 `@[cacheable]` 方法，生成缓存包装代理（before: 查缓存, hit: 返回, miss: 执行并缓存）
-  - [ ] SubTask 11.4: `core/post_processor.v` — `after()` 调用 `InitializingBean.afterPropertiesSet()` 与 `@post_construct`
-  - [ ] SubTask 11.5: 编写 `aop_proxy_test.v` 验证事务回滚、缓存命中
+- [x] Task 11: 实现 BeanPostProcessor 真实 AOP 代理（P0 1.6/5.1/5.4）
+  - [x] SubTask 11.1: `core/post_processor.v` — `AnnotationAwarePostProcessor` 实现 `before()`，扫描 bean 方法注解
+  - [x] SubTask 11.2: `core/post_processor.v` — 检测 `@[transactional]` 方法，生成事务包装代理（before: begin, after: commit, error: rollback）
+  - [x] SubTask 11.3: `core/post_processor.v` — 检测 `@[cacheable]` 方法，生成缓存包装代理（before: 查缓存, hit: 返回, miss: 执行并缓存）
+  - [x] SubTask 11.4: `core/post_processor.v` — `after()` 调用 `InitializingBean.afterPropertiesSet()` 与 `@post_construct`
+  - [x] SubTask 11.5: 编写 `aop_proxy_test.v` 验证事务回滚、缓存命中
 
-- [ ] Task 12: 实现 @ControllerAdvice 全局异常处理（P0 6.1）
-  - [ ] SubTask 12.1: `web/exception.v` — 新增 `@[controller_advice]` 注解与 `ExceptionHandler` trait
-  - [ ] SubTask 12.2: `web/exception.v` — `ExceptionResolver` 注册全局 advice，异常发生时按类型匹配 handler
-  - [ ] SubTask 12.3: `web/exception.v` — 替换 `extract_http_status` 的 `typeof(err).name` 字符串匹配为类型注册表
-  - [ ] SubTask 12.4: 编写 `controller_advice_test.v` 验证全局异常处理
+- [x] Task 12: 实现 @ControllerAdvice 全局异常处理（P0 6.1）
+  - [x] SubTask 12.1: `web/exception.v` — 新增 `@[controller_advice]` 注解与 `ExceptionHandler` trait
+  - [x] SubTask 12.2: `web/exception.v` — `ExceptionResolver` 注册全局 advice，异常发生时按类型匹配 handler
+  - [x] SubTask 12.3: `web/exception.v` — 替换 `extract_http_status` 的 `typeof(err).name` 字符串匹配为类型注册表
+  - [x] SubTask 12.4: 编写 `controller_advice_test.v` 验证全局异常处理
 
 - [x] Task 13: 实现 JpaRepository 零回调仓库（P0 8.3）
   - [x] SubTask 13.1: `orm/repository.v` — 新增 `JpaRepository[T]` 基类，内置 `find_by_id`/`save`/`delete`/`find_all`/`count`
@@ -123,36 +123,36 @@
   - [x] SubTask 13.3: `orm/repository.v` — `JpaRepository[T]` 实现 `@[autowired]` 自动注入 `OrmManager`
   - [x] SubTask 13.4: 编写 `jpa_repository_test.v` 验证零配置 CRUD
 
-- [ ] Task 14: 实现 MockMvc 测试工具（P0 9.1）
-  - [ ] SubTask 14.1: `web/testing.v` — 新增 `MockMvc` 结构体，封装 `mock_request`/`mock_response`
-  - [ ] SubTask 14.2: `web/testing.v` — `MockMvc.perform(request)` 返回 `MockResult`，含 `status`/`body`/`headers`
-  - [ ] SubTask 14.3: `web/testing.v` — `MockResult` 提供 `assert_status(code)`/`assert_json_contains(path, value)`/`assert_header(k, v)`
-  - [ ] SubTask 14.4: 编写 `mockmvc_test.v` 验证模拟请求
+- [x] Task 14: 实现 MockMvc 测试工具（P0 9.1）
+  - [x] SubTask 14.1: `web/testing.v` — 新增 `MockMvc` 结构体，封装 `mock_request`/`mock_response`
+  - [x] SubTask 14.2: `web/testing.v` — `MockMvc.perform(request)` 返回 `MockResult`，含 `status`/`body`/`headers`
+  - [x] SubTask 14.3: `web/testing.v` — `MockResult` 提供 `assert_status(code)`/`assert_json_contains(path, value)`/`assert_header(k, v)`
+  - [x] SubTask 14.4: 编写 `mockmvc_test.v` 验证模拟请求
 
-- [ ] Task 15: example/ 迁移到 DI 容器（P0 7.1）
-  - [ ] SubTask 15.1: `example/main.v` — 使用 `application_context` 注册 bean，移除手动 wiring
-  - [ ] SubTask 15.2: `example/bootstrap.v` — 使用 `@[configuration]` + `@[bean]` 声明配置
-  - [ ] SubTask 15.3: `example/controllers.v` — 使用 `@[controller]` + `@[autowired]`
-  - [ ] SubTask 15.4: `example/services.v` — 使用 `@[service]` + `@[autowired]` + `@[transactional]`
-  - [ ] SubTask 15.5: 验证 example 编译运行，功能等价
+- [x] Task 15: example/ 迁移到 DI 容器（P0 7.1）
+  - [x] SubTask 15.1: `example/main.v` — 使用 `application_context` 注册 bean，移除手动 wiring
+  - [x] SubTask 15.2: `example/bootstrap.v` — 使用 `@[configuration]` + `@[bean]` 声明配置
+  - [x] SubTask 15.3: `example/controllers.v` — 使用 `@[controller]` + `@[autowired]`
+  - [x] SubTask 15.4: `example/services.v` — 使用 `@[service]` + `@[autowired]` + `@[transactional]`
+  - [x] SubTask 15.5: 验证 example 编译运行，功能等价
 
 ## Phase P2 — 大师级质量与心智成本
 
-- [ ] Task 16: 统一关闭顺序与资源协调
-  - [ ] SubTask 16.1: `core/application_context.v` — `shutdown()` 按 web → queue → ticker → schedule → event → cache → orm → pool → core 顺序关闭
-  - [ ] SubTask 16.2: 每阶段超时 5s，超时记录警告并继续
-  - [ ] SubTask 16.3: 编写 `shutdown_order_test.v` 验证关闭顺序
+- [x] Task 16: 统一关闭顺序与资源协调
+  - [x] SubTask 16.1: `core/application_context.v` — `shutdown()` 按 web → queue → ticker → schedule → event → cache → orm → pool → core 顺序关闭
+  - [x] SubTask 16.2: 每阶段超时 5s，超时记录警告并继续
+  - [x] SubTask 16.3: 编写 `shutdown_order_test.v` 验证关闭顺序
 
-- [ ] Task 17: 资源池生命周期完整化文档与测试
-  - [ ] SubTask 17.1: `pool/pool.v` — 完善资源池七阶段：factory → validate(is_valid) → acquire → use → release → idle_timeout → max_lifetime → close
-  - [ ] SubTask 17.2: 编写 `pool_full_lifecycle_test.v` 验证完整链路
-  - [ ] SubTask 17.3: 验证所有后台协程在 shutdown 后退出（无协程泄漏）
+- [x] Task 17: 资源池生命周期完整化文档与测试
+  - [x] SubTask 17.1: `pool/pool.v` — 完善资源池七阶段：factory → validate(is_valid) → acquire → use → release → idle_timeout → max_lifetime → close
+  - [x] SubTask 17.2: 编写 `pool_full_lifecycle_test.v` 验证完整链路
+  - [x] SubTask 17.3: 验证所有后台协程在 shutdown 后退出（无协程泄漏）
 
-- [ ] Task 18: 最终验证与文档更新
-  - [ ] SubTask 18.1: 运行 `v test photon/...` 确保全部通过
-  - [ ] SubTask 18.2: 运行 `v fmt -w photon/...` 验证格式
-  - [ ] SubTask 18.3: 更新 `优化文档.md` 记录 Phase 3 优化执行记录
-  - [ ] SubTask 18.4: 验证 example/ 编译运行
+- [x] Task 18: 最终验证与文档更新
+  - [x] SubTask 18.1: 运行 `v test photon/...` 确保全部通过
+  - [x] SubTask 18.2: 运行 `v fmt -w photon/...` 验证格式
+  - [x] SubTask 18.3: 更新 `优化文档.md` 记录 Phase 3 优化执行记录
+  - [x] SubTask 18.4: 验证 example/ 编译运行
 
 # Task Dependencies
 

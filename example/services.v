@@ -2,10 +2,13 @@ module main
 
 // services.v — 业务逻辑层（Service 层）
 //
-// Service Registry 模式：通过全局注册表实现手动依赖注入。
-// 在 `core/` DI 容器就绪后，可迁移至注解驱动 @[service] 方式。
+// 注解驱动 DI（P0 7.1 迁移）：
+//   @[service]      — 标记为业务服务 Bean，由 ApplicationContext 统一管理
+//   @[autowired]    — 字段由 DI 容器注入（本示例采用显式 register_instance 注册，
+//                     注解作为文档/未来自动扫描的标记）
+//   @[transactional] — 方法通过 core.transactional_wrap 在事务中执行
 //
-// 当前注册表提供：
+// 当前提供：
 //   1. UserService     — 用户业务逻辑
 //   2. AuthService     — 认证/授权逻辑
 //   3. HealthService   — 健康检查与统计
@@ -14,34 +17,29 @@ import time
 import cache
 import orm
 import logger
-
-// ═══════════════════════════════════════════════════════════
-// Service Registry — 服务注册表（手动 DI 容器）
-// ═══════════════════════════════════════════════════════════
-
-pub struct ServiceRegistry {
-pub mut:
-	user_service   &UserService   = unsafe { nil }
-	auth_service   &AuthService   = unsafe { nil }
-	health_service &HealthService = unsafe { nil }
-	cache_service  &CacheService  = unsafe { nil }
-}
+import core
 
 // ═══════════════════════════════════════════════════════════
 // UserService — 用户业务逻辑
 // ═══════════════════════════════════════════════════════════
 
+@[service]
 pub struct UserService {
 pub mut:
-	log_    &logger.Logger
-	om      &orm.OrmManager
+	log_    &logger.Logger          @[autowired]
+	tm      &orm.TransactionManager @[autowired]
+	om      &orm.OrmManager = unsafe { nil }
 	users   []User // 内存数据存储（演示用，生产应使用数据库）
 	next_id int = 1
 }
 
-pub fn new_user_service(log_ &logger.Logger) &UserService {
+// new_user_service 构造 UserService 并注入依赖。
+// 在 DI 容器就绪后，依赖通过 @[autowired] 自动注入；此处显式传参以兼容
+// 当前显式 register_instance 注册模式。
+pub fn new_user_service(log_ &logger.Logger, tm &orm.TransactionManager) &UserService {
 	mut svc := &UserService{
 		log_:  log_
+		tm:    tm
 		om:    unsafe { nil }
 		users: []User{}
 	}
@@ -161,7 +159,8 @@ pub fn (s &UserService) get_by_username(username string) !User {
 	return error('user not found')
 }
 
-// create 创建新用户
+// create 创建新用户（@[transactional] — 通过 transactional_wrap 在事务中执行）
+@[transactional]
 pub fn (mut s UserService) create(req CreateUserRequest) !User {
 	// 检查用户名唯一性
 	for u in s.users {
@@ -181,8 +180,12 @@ pub fn (mut s UserService) create(req CreateUserRequest) !User {
 		status:   1
 		role:     'USER'
 	}
-	s.next_id++
-	s.users << user
+	// 状态变更（自增 ID + 追加用户）包裹在事务中：
+	// 成功 → commit；失败 → rollback 并传播错误。
+	core.transactional_wrap(mut s.tm, fn [mut s, mut user] () ! {
+		s.next_id++
+		s.users << user
+	})!
 	s.log_.info('[UserService] 创建用户: id=${user.id} username=${user.username}')
 	return user
 }
@@ -237,10 +240,11 @@ pub fn (s &UserService) count() int {
 // AuthService — 认证/授权服务
 // ═══════════════════════════════════════════════════════════
 
+@[service]
 pub struct AuthService {
 pub mut:
-	log_     &logger.Logger
-	user_svc &UserService
+	log_     &logger.Logger @[autowired]
+	user_svc &UserService   @[autowired]
 	jwt_mgr  &JWTManager
 }
 
@@ -395,6 +399,7 @@ pub fn (s &AuthService) get_profile(username string) !UserProfile {
 // HealthService — 健康检查与统计
 // ═══════════════════════════════════════════════════════════
 
+@[service]
 pub struct HealthService {
 pub mut:
 	start_time i64
@@ -423,9 +428,10 @@ pub fn (s &HealthService) uptime_ms() i64 {
 // CacheService — 缓存业务封装
 // ═══════════════════════════════════════════════════════════
 
+@[service]
 pub struct CacheService {
 pub mut:
-	cache_mgr &cache.CacheRegistry
+	cache_mgr &cache.CacheRegistry @[autowired]
 }
 
 pub fn new_cache_service(cache_mgr &cache.CacheRegistry) &CacheService {

@@ -47,7 +47,7 @@ pub fn (mut app App) ping(mut ctx Context) veb.Result {
 
 @['/stats'; get]
 pub fn (mut app App) stats(mut ctx Context) veb.Result {
-	active_users := app.services.user_service.count()
+	active_users := app.user_service.count()
 	return ctx.json({
 		'requests':     '${app.req_count}'
 		'uptime_ms':    '${time.ticks() - app.start_time}'
@@ -59,8 +59,8 @@ pub fn (mut app App) stats(mut ctx Context) veb.Result {
 @['/cache'; get]
 pub fn (mut app App) cache_demo(mut ctx Context) veb.Result {
 	key := ctx.query['key'] or { 'default' }
-	if app.services.cache_service != unsafe { nil } {
-		if val := app.services.cache_service.get(key) {
+	if app.cache_service != unsafe { nil } {
+		if val := app.cache_service.get(key) {
 			return ctx.json({
 				'source': 'cache'
 				'key':    key
@@ -68,7 +68,7 @@ pub fn (mut app App) cache_demo(mut ctx Context) veb.Result {
 			})
 		}
 		value := 'computed_${time.ticks()}'
-		app.services.cache_service.set(key, value, 30) or {
+		app.cache_service.set(key, value, 30) or {
 			return ctx.server_error('cache write failed: ${err}')
 		}
 		return ctx.json({
@@ -118,7 +118,7 @@ pub fn (mut app App) post_login(mut ctx Context) veb.Result {
 		username: username
 		password: password
 	}
-	resp := app.services.auth_service.login(req) or { return ctx.json_error(401, err.msg()) }
+	resp := app.auth_service.login(req) or { return ctx.json_error(401, err.msg()) }
 	return ctx.json_response(200, '${resp}')
 }
 
@@ -137,7 +137,7 @@ pub fn (mut app App) post_register(mut ctx Context) veb.Result {
 		password: password
 		nickname: nickname
 	}
-	user := app.services.user_service.create(req) or { return ctx.json_error(409, err.msg()) }
+	user := app.user_service.create(req) or { return ctx.json_error(409, err.msg()) }
 	_ = user
 	return ctx.json_success('registration successful, please login')
 }
@@ -147,9 +147,7 @@ pub fn (mut app App) get_profile(mut ctx Context) veb.Result {
 	username, _ := app.middleware.apply_auth(mut ctx.Context) or {
 		return ctx.json_error(401, err.msg())
 	}
-	profile := app.services.auth_service.get_profile(username) or {
-		return ctx.json_error(404, err.msg())
-	}
+	profile := app.auth_service.get_profile(username) or { return ctx.json_error(404, err.msg()) }
 	return ctx.json_response(200, '${profile}')
 }
 
@@ -182,7 +180,7 @@ pub fn (mut app App) get_users(mut ctx Context) veb.Result {
 		status:    status_str.int()
 		role:      role
 	}
-	users, total := app.services.user_service.list(query)
+	users, total := app.user_service.list(query)
 	return ctx.json({
 		'code':      '200'
 		'message':   'OK'
@@ -201,7 +199,7 @@ pub fn (mut app App) get_user(mut ctx Context) veb.Result {
 		return ctx.json_error(400, 'missing user ID')
 	}
 	id := id_str.int()
-	user := app.services.user_service.get_by_id(id) or { return ctx.json_error(404, err.msg()) }
+	user := app.user_service.get_by_id(id) or { return ctx.json_error(404, err.msg()) }
 	return ctx.json_response(200, '${UserProfile{
 		id:       user.id
 		username: user.username
@@ -230,7 +228,7 @@ pub fn (mut app App) post_user(mut ctx Context) veb.Result {
 		password: password
 		nickname: nickname
 	}
-	user := app.services.user_service.create(req) or { return ctx.json_error(409, err.msg()) }
+	user := app.user_service.create(req) or { return ctx.json_error(409, err.msg()) }
 	return ctx.json_response(201, '${UserProfile{
 		id:       user.id
 		username: user.username
@@ -258,7 +256,7 @@ pub fn (mut app App) put_user(mut ctx Context) veb.Result {
 		nickname: nickname
 		avatar:   avatar
 	}
-	user := app.services.user_service.update(id, req) or { return ctx.json_error(404, err.msg()) }
+	user := app.user_service.update(id, req) or { return ctx.json_error(404, err.msg()) }
 	return ctx.json_response(200, '${UserProfile{
 		id:       user.id
 		username: user.username
@@ -278,7 +276,7 @@ pub fn (mut app App) delete_user(mut ctx Context) veb.Result {
 		return ctx.json_error(400, 'missing user ID')
 	}
 	id := id_str.int()
-	app.services.user_service.delete(id) or { return ctx.json_error(404, err.msg()) }
+	app.user_service.delete(id) or { return ctx.json_error(404, err.msg()) }
 	return ctx.json_success('user deleted')
 }
 
