@@ -1,4 +1,4 @@
-module main
+module tests
 
 // tests/eager_loading_test.v — 预加载与 N+1 消除测试
 //

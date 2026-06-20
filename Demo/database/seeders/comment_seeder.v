@@ -1,4 +1,4 @@
-module main
+module seeders
 
 // comment_seeder.v — CommentSeeder 评论种子数据
 //

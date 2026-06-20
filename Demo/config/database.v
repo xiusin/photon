@@ -1,4 +1,4 @@
-module main
+module config
 
 // config/database.v — 数据库配置
 //

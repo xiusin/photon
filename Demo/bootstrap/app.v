@@ -1,4 +1,4 @@
-module main
+module bootstrap
 
 // bootstrap/app.v — 应用内核（AppKernel）
 //

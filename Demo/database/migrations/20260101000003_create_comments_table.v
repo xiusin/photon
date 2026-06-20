@@ -1,4 +1,4 @@
-module main
+module migrations
 
 // 20260101000003_create_comments_table.v — 评论表迁移
 //

@@ -1,4 +1,4 @@
-module main
+module factories
 
 // comment_factory.v — CommentFactory 模型工厂
 //

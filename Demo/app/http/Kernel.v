@@ -1,4 +1,4 @@
-module main
+module http
 
 // app/Http/Kernel.v — HTTP 内核（统一响应与异常处理）
 //

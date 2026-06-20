@@ -1,4 +1,4 @@
-module main
+module tests
 
 // tests/soft_delete_test.v — 软删除综合测试
 //

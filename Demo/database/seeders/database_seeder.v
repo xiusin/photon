@@ -1,4 +1,4 @@
-module main
+module seeders
 
 // database_seeder.v — DatabaseSeeder 种子编排器
 //

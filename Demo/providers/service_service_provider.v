@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/service_service_provider.v — 业务服务提供者
 //

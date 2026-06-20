@@ -1,4 +1,4 @@
-module main
+module tests
 
 // tests/validation_test.v — 表单验证规则测试
 //

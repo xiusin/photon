@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/auth_service_provider.v — 认证授权服务提供者
 //

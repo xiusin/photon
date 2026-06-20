@@ -1,4 +1,4 @@
-module main
+module seeders
 
 // post_seeder.v — PostSeeder 文章种子数据
 //

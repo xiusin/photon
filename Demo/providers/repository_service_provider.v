@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/repository_service_provider.v — 仓储服务提供者
 //

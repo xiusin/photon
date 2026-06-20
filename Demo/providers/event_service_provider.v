@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/event_service_provider.v — 事件服务提供者
 //

@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/database_service_provider.v — 数据库服务提供者
 //

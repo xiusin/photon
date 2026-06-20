@@ -1,4 +1,4 @@
-module main
+module seeders
 
 // user_seeder.v — UserSeeder 用户种子数据
 //

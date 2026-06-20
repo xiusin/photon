@@ -1,4 +1,4 @@
-module main
+module tests
 
 // tests/refresh_database.v — RefreshDatabase 数据库刷新 trait
 //

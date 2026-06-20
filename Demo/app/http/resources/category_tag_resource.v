@@ -1,4 +1,4 @@
-module main
+module resources
 
 // app/Http/Resources/category_tag_resource.v — 分类与标签 API Resource
 //

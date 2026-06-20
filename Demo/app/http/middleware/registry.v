@@ -1,4 +1,4 @@
-module main
+module middleware
 
 // app/Http/Middleware/registry.v — 中间件组注册表
 //

@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/web_service_provider.v — Web 基础设施服务提供者
 //

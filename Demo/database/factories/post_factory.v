@@ -1,4 +1,4 @@
-module main
+module factories
 
 // post_factory.v — PostFactory 模型工厂
 //

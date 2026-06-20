@@ -1,4 +1,4 @@
-module main
+module migrations
 
 // 20260101000002_create_posts_table.v — 文章表迁移
 //

@@ -1,4 +1,4 @@
-module main
+module bootstrap
 
 // bootstrap/console.v — 控制台输出工具
 //

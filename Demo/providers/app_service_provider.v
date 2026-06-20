@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/app_service_provider.v — 应用基础服务提供者
 //

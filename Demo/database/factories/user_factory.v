@@ -1,4 +1,4 @@
-module main
+module factories
 
 // user_factory.v — UserFactory 模型工厂
 //

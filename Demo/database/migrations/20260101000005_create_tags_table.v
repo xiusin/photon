@@ -1,4 +1,4 @@
-module main
+module migrations
 
 // 20260101000005_create_tags_table.v — 标签表迁移
 //

@@ -1,4 +1,4 @@
-module main
+module tests
 
 // tests/factory_test.v — Factory 模式与 TestCase 集成测试
 //

@@ -1,4 +1,4 @@
-module main
+module migrations
 
 // 20260101000001_create_users_table.v — 用户表迁移
 //

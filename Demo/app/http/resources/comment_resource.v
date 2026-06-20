@@ -1,4 +1,4 @@
-module main
+module resources
 
 // app/Http/Resources/comment_resource.v — 评论 API Resource
 //

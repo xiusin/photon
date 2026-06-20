@@ -1,4 +1,4 @@
-module main
+module migrations
 
 // 20260101000004_create_categories_table.v — 分类表迁移
 //

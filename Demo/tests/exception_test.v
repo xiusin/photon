@@ -1,4 +1,4 @@
-module main
+module tests
 
 // tests/exception_test.v — 异常处理器测试
 //

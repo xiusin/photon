@@ -1,4 +1,4 @@
-module main
+module migrations
 
 // 20260101000006_create_post_tags_table.v — 文章-标签关联表迁移
 //

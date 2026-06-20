@@ -1,4 +1,4 @@
-module main
+module tests
 
 // tests/test_case.v — TestCase 测试基类
 //

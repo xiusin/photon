@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/queue_service_provider.v — 队列服务提供者
 //

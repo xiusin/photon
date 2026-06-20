@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/boot_context.v — 服务提供者共享上下文
 //
