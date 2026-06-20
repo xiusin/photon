@@ -21,9 +21,16 @@ pub mut:
 }
 
 // PageResult adds pagination to Result
+// Note: fields are flattened (not embedded) to work around a V 0.5.x codegen
+// bug in JSON decoder for structs with embedded sub-structs.
 pub struct PageResult {
-	Result
 pub mut:
+	success    bool
+	code       int
+	message    string
+	data       string
+	timestamp  i64
+	path       string
 	pagination Pagination
 }
 
@@ -73,8 +80,14 @@ pub fn fail(code int, msg string) Result {
 // page creates a paginated Result
 pub fn page(data string, page int, page_size int, total int) PageResult {
 	total_pages := (total + page_size - 1) / page_size
+	base := success(data)
 	return PageResult{
-		Result: success(data)
+		success: base.success
+		code: base.code
+		message: base.message
+		data: base.data
+		timestamp: base.timestamp
+		path: base.path
 		pagination: Pagination{
 			page: page
 			page_size: page_size

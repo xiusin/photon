@@ -200,7 +200,7 @@ pub fn (c &MakeMigrationCommand) execute(input &CommandInput, output &CommandOut
 	}
 
 	stub := generate_migration_stub(name)
-	timestamp := time.now().format('YYYYMMDDhhmmss')
+	timestamp := time.now().format_ss()
 	snake := to_snake_case(name)
 	path := 'database/migrations/${timestamp}_create_${snake}_table.v'
 

@@ -72,9 +72,9 @@ pub type Ticker = ticker.Ticker
 // pub type LengthAwarePaginator = support.LengthAwarePaginator
 // pub type SimplePaginator = support.SimplePaginator
 
-// Re-export http types
-pub type HttpClient = http.HttpClient
-pub type HttpResponse = http.HttpResponse
+// Re-export http types (placeholders - see photon.http module)
+// pub type HttpClient = http.HttpClient
+// pub type HttpResponse = http.HttpResponse
 
 // Re-export queue types
 pub type Job = queue.Job
