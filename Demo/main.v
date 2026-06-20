@@ -56,7 +56,7 @@ fn main() {
 
 	// ── 7. 创建 App（线程安全 req_count） ──
 	// apidoc_handler 仅在非生产环境启用（生产环境避免请求收集开销）
-	apidoc_handler := if cfg.profile != 'prod' { photon.apidoc.enable() } else { unsafe { nil } }
+	apidoc_handler := if cfg.profile != 'prod' { apidoc.enable() } else { &apidoc.ApidocHandler(unsafe { nil }) }
 
 	mut web_app := &App{
 		start_time:          time.ticks()
@@ -81,14 +81,17 @@ fn main() {
 				web_app.middleware_registry.apply_api_group(mut ctx) or {
 					ctx.res.set_status(.too_many_requests)
 					ctx.set_content_type('application/json')
-					return ctx.text(web.fail(429, 'rate limit exceeded / 请求过于频繁，请稍后重试').to_json())
+					ctx.text(web.fail(429, 'rate limit exceeded / 请求过于频繁，请稍后重试').to_json())
+					return false
 				}
 			}
 
 			// apidoc 请求收集（非生产环境）
 			if !isnil(web_app.apidoc_handler) {
-				mut h := web_app.apidoc_handler
-				h.collector.collect(mut ctx.Context)
+				unsafe {
+					mut h := web_app.apidoc_handler
+					h.collector.collect(mut ctx.Context)
+				}
 			}
 			return true
 		}
@@ -99,8 +102,10 @@ fn main() {
 		web_app.use(veb.MiddlewareOptions[Context]{
 			after:   true
 			handler: fn [apidoc_handler](mut ctx Context) bool {
-				mut h := apidoc_handler
-				h.collector.collect_response(mut ctx.Context)
+				unsafe {
+					mut h := apidoc_handler
+					h.collector.collect_response(mut ctx.Context)
+				}
 				return true
 			}
 		})

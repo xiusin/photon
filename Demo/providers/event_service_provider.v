@@ -23,10 +23,11 @@ pub fn new_event_provider(ctx &BootContext) &EventServiceProvider {
 
 // register 创建 EventBus
 pub fn (sp &EventServiceProvider) register(mut app_ctx core.ApplicationContext) ! {
-	log := sp.ctx.log
+	mut ctx := unsafe { sp.ctx }
+	log := ctx.log
 
 	event_bus := core.new_event_bus()
-	sp.ctx.event_bus = event_bus
+	ctx.event_bus = event_bus
 	log.info('EventBus initialized')
 
 	app_ctx.register_instance('EventBus', unsafe { voidptr(event_bus) })!

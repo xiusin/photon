@@ -82,6 +82,7 @@ pub fn (mut ctr CookieCsrfTokenRepository) load_token() !string {
 }
 
 // CsrfManager handles CSRF token lifecycle
+@[heap]
 pub struct CsrfManager {
 pub mut:
 	config     CsrfConfig

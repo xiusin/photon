@@ -24,10 +24,11 @@ pub fn new_queue_provider(ctx &BootContext) &QueueServiceProvider {
 
 // register 创建 QueueWorker
 pub fn (sp &QueueServiceProvider) register(mut app_ctx core.ApplicationContext) ! {
-	log := sp.ctx.log
+	mut ctx := unsafe { sp.ctx }
+	log := ctx.log
 
 	worker := queue.new_worker()
-	sp.ctx.worker = worker
+	ctx.worker = worker
 	log.info('QueueWorker initialized')
 
 	app_ctx.register_instance('QueueWorker', unsafe { voidptr(worker) })!

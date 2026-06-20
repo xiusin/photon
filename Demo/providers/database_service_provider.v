@@ -23,11 +23,12 @@ pub fn new_database_provider(ctx &BootContext) &DatabaseServiceProvider {
 
 // register 创建 OrmManager 并注册到容器
 pub fn (sp &DatabaseServiceProvider) register(mut app_ctx core.ApplicationContext) ! {
-	cfg := sp.ctx.cfg
-	log := sp.ctx.log
+	mut ctx := unsafe { sp.ctx }
+	cfg := ctx.cfg
+	log := ctx.log
 
 	orm_mgr := init_database(cfg.database)!
-	sp.ctx.orm_mgr = orm_mgr
+	ctx.orm_mgr = orm_mgr
 	log.info('OrmManager initialized — ${cfg.database.driver} (${cfg.database.path})')
 
 	app_ctx.register_instance('OrmManager', unsafe { voidptr(orm_mgr) })!

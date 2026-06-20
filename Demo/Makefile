@@ -21,12 +21,17 @@ VFLAGS_DEV := -enable-globals
 VFLAGS_REL := -enable-globals -d release -cflags "-O2"
 BIN        := demo
 BIN_DIR    := bin
-SRC_DIR    := .
 DB_PATH    ?= photonblog.db
 PROFILE    ?= dev
 PORT       ?= 8080
 HOST       ?= 0.0.0.0
 SERVICE    ?=
+
+# V only compiles .v files in the given directory, NOT sub-directories.
+# Demo uses a Laravel-style directory layout (app/, config/, bootstrap/, …)
+# where every .v file declares `module main`.  We flatten them into a
+# single build directory so `v run` sees everything.
+BUILD_DIR  := .build
 
 # ── 跨平台检测 (macOS / Linux) ──
 # 优先使用 docker compose（Docker v2+），回退到 docker-compose（v1）
@@ -55,7 +60,38 @@ endif
 # 环境初始化
 # ═══════════════════════════════════════════════════════════
 
-.PHONY: setup install uninstall
+.PHONY: setup install uninstall flatten
+
+# ── Flatten: collect all `module main` .v files into .build/ ──
+# V's `v run <dir>` only compiles .v files directly in <dir>, not in
+# sub-directories.  Demo uses a Laravel-style layout where every .v
+# file is `module main` but lives in app/, config/, bootstrap/, etc.
+# The `flatten` target symlinks them all into .build/ so V sees them.
+flatten:
+	@rm -rf $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)
+	@for f in $$(find . -name '*.v' \
+		-not -path './.vmodules/*' \
+		-not -path './.build/*' \
+		-not -path './docs/*' \
+		-not -path './.git/*' \
+		-not -path './storage/*' \
+		-not -path './bin/*' \
+		-not -path './dist/*' \
+		-not -name '*_test.v'); do \
+		base=$$(basename $$f); \
+		if [ "$$base" = "v.mod" ]; then continue; fi; \
+		dir=$$(dirname $$f); \
+		if [ "$$dir" = "." ]; then \
+			dest=$(BUILD_DIR)/$$base; \
+		else \
+			prefix=$$(echo $$dir | sed 's|^\./||;s|/|__|g'); \
+			dest=$(BUILD_DIR)/$${prefix}__$$base; \
+		fi; \
+		ln -sf $$(pwd)/$$f $$dest 2>/dev/null || cp $$f $$dest; \
+	done
+	@cp v.mod $(BUILD_DIR)/v.mod
+	@mkdir -p $(BUILD_DIR)/.vmodules && ln -sfn $$(cd .. && pwd) $(BUILD_DIR)/.vmodules/photon 2>/dev/null || true
 
 ## 环境初始化: 一键搭建开发环境
 setup: check-v env build migrate seed
@@ -107,11 +143,11 @@ uninstall:
 # 自动检测 V 编译器版本：
 #   - V 0.5.x: 使用原生 watch（`v watch run . -- args`）
 #   - 旧版 V / 语法不兼容: 回退到 `make watch`（fswatch/inotifywait 跨平台回退）
-dev:
+dev: flatten
 	@echo "启动开发模式（热重载）..."
 	@if $(V) watch --help 2>&1 | grep -q "run"; then \
 		echo "✓ 使用 V 0.5.x 原生 watch..."; \
-		$(V) $(VFLAGS_DEV) watch run . -- serve --host=$(HOST) --port=$(PORT); \
+		$(V) $(VFLAGS_DEV) watch run $(BUILD_DIR) -- serve --host=$(HOST) --port=$(PORT); \
 	else \
 		echo "⚠ V 版本不支持 watch run，回退到 $(WATCHER) 监听..."; \
 		$(MAKE) watch HOST=$(HOST) PORT=$(PORT); \
@@ -131,7 +167,7 @@ watch:
 	@echo "监听文件变更并重启 [$(UNAME_S)/$(WATCHER)]..."
 	$(WATCHER_CHECK)
 	@while true; do \
-		$(V) $(VFLAGS_DEV) $(SRC_DIR) && \
+		$(V) $(VFLAGS_DEV) $(BUILD_DIR) && \
 		./$(BIN) serve --host=$(HOST) --port=$(PORT) & \
 		SERVER_PID=$$!; \
 		$(WATCHER) $(WATCHER_FLAGS) >/dev/null 2>&1; \
@@ -148,16 +184,16 @@ watch:
 .PHONY: build build-release release release-package
 
 ## Debug 构建
-build:
+build: flatten
 	@echo "编译 (debug)..."
-	$(V) $(VFLAGS) -o $(BIN) $(SRC_DIR)
+	$(V) $(VFLAGS) -o $(BIN) $(BUILD_DIR)
 	@echo "✓ 编译完成: ./$(BIN)"
 
 ## 生产优化构建
-build-release:
+build-release: flatten
 	@echo "编译 (release)..."
 	@mkdir -p $(BIN_DIR)
-	$(V) $(VFLAGS_REL) -o $(BIN_DIR)/$(BIN) $(SRC_DIR)
+	$(V) $(VFLAGS_REL) -o $(BIN_DIR)/$(BIN) $(BUILD_DIR)
 	@echo "✓ 生产构建完成: $(BIN_DIR)/$(BIN)"
 
 ## 生产构建（别名）
@@ -357,6 +393,7 @@ clean:
 	@echo "清理构建产物..."
 	@rm -f $(BIN)
 	@rm -rf $(BIN_DIR)/$(BIN)
+	@rm -rf $(BUILD_DIR)
 	@rm -f *.db *.db-journal *.db-wal *.db-shm
 	@echo "✓ 清理完成"
 

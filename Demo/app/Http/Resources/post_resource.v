@@ -15,6 +15,10 @@ import json
 // ═══════════════════════════════════════════════════════════
 
 pub struct PostResource {
+pub mut:
+	author     UserResource @[skip_empty]
+	category   CategoryResource @[skip_empty]
+	tags       []TagResource @[skip_empty]
 pub:
 	id         int
 	title      string
@@ -22,9 +26,6 @@ pub:
 	content    string @[skip_empty]
 	status     string
 	views      int
-	author     UserResource @[skip_empty]
-	category   CategoryResource @[skip_empty]
-	tags       []TagResource @[skip_empty]
 	created_at string
 	updated_at string
 }

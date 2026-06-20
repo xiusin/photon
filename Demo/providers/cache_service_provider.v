@@ -24,13 +24,14 @@ pub fn new_cache_provider(ctx &BootContext) &CacheServiceProvider {
 
 // register 创建 CacheManager 并注册内存缓存驱动
 pub fn (sp &CacheServiceProvider) register(mut app_ctx core.ApplicationContext) ! {
-	log := sp.ctx.log
+	mut ctx := unsafe { sp.ctx }
+	log := ctx.log
 
 	cache_mgr := cache.new_cache_manager()
 	unsafe {
 		cache_mgr.register('default', cache.new_memory_cache('default'))
 	}
-	sp.ctx.cache_mgr = cache_mgr
+	ctx.cache_mgr = cache_mgr
 	log.info('CacheManager initialized — memory driver "default"')
 
 	app_ctx.register_instance('CacheManager', unsafe { voidptr(cache_mgr) })!

@@ -14,12 +14,13 @@ import json
 // ═══════════════════════════════════════════════════════════
 
 pub struct CommentResource {
+pub mut:
+	user       UserResource @[skip_empty]
+	replies    []CommentResource @[skip_empty]
 pub:
 	id         int
 	content    string
 	status     string
-	user       UserResource @[skip_empty]
-	replies    []CommentResource @[skip_empty]
 	created_at string
 	updated_at string
 }

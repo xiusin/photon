@@ -157,7 +157,7 @@ pub fn (repo &PostRepository) find_with_filters(filter PostFilter, sort_str stri
 
 // find_post_with_relations 查询文章并预加载关联（author/category/tags）
 // 应用层实现预加载，替代框架 EagerRepository stub
-pub fn (repo &PostRepository) find_post_with_relations(id int, user_repo &UserRepository, category_repo &CategoryRepository, tag_repo &TagRepository) !(Post, User, Category, []Tag) {
+pub fn (mut repo PostRepository) find_post_with_relations(id int, mut user_repo UserRepository, mut category_repo CategoryRepository, mut tag_repo TagRepository) !(Post, User, Category, []Tag) {
 	post := repo.find_by_id(id)!
 
 	// 预加载 author

@@ -1011,13 +1011,13 @@ pub fn validate_body[T](ctx &veb.Context) (T, ValidationErrors) {
 	// Decode JSON into the struct
 	result = json.decode(T, body) or {
 		// If JSON decode fails, try to validate individual fields
-		return result, ValidationErrors{
-			'_body': [ValidationError{
-				field: '_body'
-				rule: 'json'
-				message: 'invalid JSON body'
-			}]
-		}
+		mut json_errors := map[string][]ValidationError{}
+		json_errors['_body'] = [ValidationError{
+			field: '_body'
+			rule: 'json'
+			message: 'invalid JSON body'
+		}]
+		return result, ValidationErrors(json_errors)
 	}
 
 	// Apply validation rules on the decoded struct
@@ -1038,29 +1038,27 @@ pub fn validate_body[T](ctx &veb.Context) (T, ValidationErrors) {
 			}
 		}
 
-		if validate_str.len == 0 {
-			continue
-		}
+		if validate_str.len > 0 {
+			// Get the value from the struct
+			mut str_val := ''
+			$if field.typ is string {
+				str_val = result.$(field.name)
+			} $else $if field.typ is int {
+				str_val = result.$(field.name).str()
+			} $else $if field.typ is f64 {
+				str_val = result.$(field.name).str()
+			} $else $if field.typ is bool {
+				str_val = if result.$(field.name) { 'true' } else { 'false' }
+			}
 
-		// Get the value from the struct
-		mut str_val := ''
-		$if field.typ is string {
-			str_val = result.$(field.name)
-		} $else $if field.typ is int {
-			str_val = result.$(field.name).str()
-		} $else $if field.typ is f64 {
-			str_val = result.$(field.name).str()
-		} $else $if field.typ is bool {
-			str_val = if result.$(field.name) { 'true' } else { 'false' }
-		}
-
-		// Apply rules
-		rules := parse_rules(validate_str)
-		for rule in rules {
-			ve := apply_rule(field.name, str_val, rule) or { continue }
-			mut field_errors := errors[field.name] or { []ValidationError{} }
-			field_errors << ve
-			errors[field.name] = field_errors
+			// Apply rules
+			rules := parse_rules(validate_str)
+			for rule in rules {
+				ve := apply_rule_detail(field.name, str_val, rule) or { continue }
+				mut field_errors := errors[field.name] or { []ValidationError{} }
+				field_errors << ve
+				errors[field.name] = field_errors
+			}
 		}
 	}
 

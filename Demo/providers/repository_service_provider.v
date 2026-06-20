@@ -22,8 +22,9 @@ pub fn new_repository_provider(ctx &BootContext) &RepositoryServiceProvider {
 
 // register 创建全部仓储
 pub fn (sp &RepositoryServiceProvider) register(mut app_ctx core.ApplicationContext) ! {
-	log := sp.ctx.log
-	orm_mgr := sp.ctx.orm_mgr
+	mut ctx := unsafe { sp.ctx }
+	log := ctx.log
+	orm_mgr := ctx.orm_mgr
 
 	user_repo := new_user_repository(orm_mgr)!
 	post_repo := new_post_repository(orm_mgr)!
@@ -31,11 +32,11 @@ pub fn (sp &RepositoryServiceProvider) register(mut app_ctx core.ApplicationCont
 	category_repo := new_category_repository(orm_mgr)!
 	tag_repo := new_tag_repository(orm_mgr)!
 
-	sp.ctx.user_repo = user_repo
-	sp.ctx.post_repo = post_repo
-	sp.ctx.comment_repo = comment_repo
-	sp.ctx.category_repo = category_repo
-	sp.ctx.tag_repo = tag_repo
+	ctx.user_repo = user_repo
+	ctx.post_repo = post_repo
+	ctx.comment_repo = comment_repo
+	ctx.category_repo = category_repo
+	ctx.tag_repo = tag_repo
 	log.info('Repositories created — User/Post/Comment/Category/Tag')
 
 	app_ctx.register_instance('UserRepository', unsafe { voidptr(user_repo) })!

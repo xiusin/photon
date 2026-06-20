@@ -79,6 +79,13 @@ pub fn (f PostFactory) with_status(status string) PostFactory {
 	return result
 }
 
+// with_summary 设置摘要（支持链式调用）
+pub fn (f PostFactory) with_summary(summary string) PostFactory {
+	mut result := f
+	result.summary = summary
+	return result
+}
+
 // make 构建文章实体（不持久化）
 pub fn (f PostFactory) make() Post {
 	return Post{

@@ -27,8 +27,9 @@ pub fn new_web_provider(ctx &BootContext) &WebServiceProvider {
 
 // register 创建 StorageManager 与 UploadHandler
 pub fn (sp &WebServiceProvider) register(mut app_ctx core.ApplicationContext) ! {
-	cfg := sp.ctx.cfg
-	log := sp.ctx.log
+	mut ctx := unsafe { sp.ctx }
+	cfg := ctx.cfg
+	log := ctx.log
 
 	// ── StorageManager ──
 	storage_mgr := storage.new_manager()
@@ -38,7 +39,7 @@ pub fn (sp &WebServiceProvider) register(mut app_ctx core.ApplicationContext) ! 
 	unsafe {
 		storage_mgr.register('local', storage.new_local_adapter(cfg.storage.base_path))
 	}
-	sp.ctx.storage_mgr = storage_mgr
+	ctx.storage_mgr = storage_mgr
 	log.info('StorageManager initialized — local driver (${cfg.storage.base_path})')
 
 	// ── UploadHandler ──
@@ -47,7 +48,7 @@ pub fn (sp &WebServiceProvider) register(mut app_ctx core.ApplicationContext) ! 
 		upload_handler.max_size = cfg.storage.max_size
 		upload_handler.allowed_extensions = cfg.storage.allowed_ext.clone()
 	}
-	sp.ctx.upload_handler = upload_handler
+	ctx.upload_handler = upload_handler
 	log.info('UploadHandler initialized — max_size=${cfg.storage.max_size}')
 
 	app_ctx.register_instance('StorageManager', unsafe { voidptr(storage_mgr) })!

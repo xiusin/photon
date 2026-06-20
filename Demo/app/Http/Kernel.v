@@ -26,7 +26,7 @@ import photon.web
 
 @[heap]
 pub struct HttpKernel {
-pub:
+pub mut:
 	exception_handler &web.ExceptionHandlerRegistry = unsafe { nil }
 }
 
@@ -138,7 +138,8 @@ pub fn (mut ctx Context) validate_json_or_422[T]() (T, bool) {
 
 // handle_exception 处理异常，返回 JSON 响应
 // 通过 ExceptionHandlerRegistry 查找对应处理器，自动设置 HTTP 状态码
-pub fn (k &HttpKernel) handle_exception(mut ctx Context, err IError) veb.Result {
+pub fn (mut k HttpKernel) handle_exception(mut ctx Context, err_msg string) veb.Result {
+	err := error(err_msg)
 	status, body := k.exception_handler.handle_with_status(err)
 	ctx.res.set_status(unsafe { http.Status(status) })
 	ctx.set_content_type('application/json')
@@ -146,6 +147,6 @@ pub fn (k &HttpKernel) handle_exception(mut ctx Context, err IError) veb.Result 
 }
 
 // handle_exception_or_500 处理异常，若状态码为 0 则回退到 500
-pub fn (k &HttpKernel) handle_exception_or_500(mut ctx Context, err IError) veb.Result {
-	return k.handle_exception(mut ctx, err)
+pub fn (mut k HttpKernel) handle_exception_or_500(mut ctx Context, err_msg string) veb.Result {
+	return k.handle_exception(mut ctx, err_msg)
 }
