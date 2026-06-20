@@ -150,7 +150,7 @@ fn test_role_auth_middleware_any_role() {
 fn test_middleware_group_registry_creation() {
 	boot := test_setup()!
 	cfg := default_web_config()
-	reg := new_middleware_group_registry(cfg, boot.auth_svc, boot.role_hierarchy, boot.log)
+	reg := new_middleware_group_registry(cfg, boot.auth_svc, boot.role_hierarchy, boot.csrf_mgr, boot.log)
 
 	// 所有中间件实例应已装配
 	assert !isnil(reg.cors)
@@ -159,6 +159,7 @@ fn test_middleware_group_registry_creation() {
 	assert !isnil(reg.rate_limit)
 	assert !isnil(reg.jwt_auth)
 	assert !isnil(reg.role_auth)
+	assert !isnil(reg.csrf)
 
 	// CORS 参数从 config 读取
 	assert reg.cors.allowed_methods == cfg.cors_allowed_methods
@@ -171,7 +172,7 @@ fn test_middleware_group_registry_creation() {
 fn test_middleware_group_registry_named_groups() {
 	boot := test_setup()!
 	cfg := default_web_config()
-	reg := new_middleware_group_registry(cfg, boot.auth_svc, boot.role_hierarchy, boot.log)
+	reg := new_middleware_group_registry(cfg, boot.auth_svc, boot.role_hierarchy, boot.csrf_mgr, boot.log)
 
 	// 所有命名组应已注册
 	assert reg.has_group('web')
@@ -180,17 +181,19 @@ fn test_middleware_group_registry_named_groups() {
 	assert reg.has_group('admin')
 	assert reg.has_group('editor')
 
-	// web 组：cors + request_id + request_log
+	// web 组：cors + request_id + request_log + csrf
 	web_mws := reg.middlewares_of('web')
-	assert web_mws.len == 3
+	assert web_mws.len == 4
 	assert 'cors' in web_mws
 	assert 'request_id' in web_mws
 	assert 'request_log' in web_mws
+	assert 'csrf' in web_mws
 
-	// api 组：web + rate_limit
+	// api 组：cors + request_id + request_log + rate_limit（无 CSRF）
 	api_mws := reg.middlewares_of('api')
 	assert api_mws.len == 4
 	assert 'rate_limit' in api_mws
+	assert 'csrf' !in api_mws
 
 	// auth 组：jwt_auth
 	auth_mws := reg.middlewares_of('auth')
@@ -212,7 +215,7 @@ fn test_middleware_group_registry_named_groups() {
 fn test_middleware_group_registry_authorize() {
 	boot := test_setup()!
 	cfg := default_web_config()
-	reg := new_middleware_group_registry(cfg, boot.auth_svc, boot.role_hierarchy, boot.log)
+	reg := new_middleware_group_registry(cfg, boot.auth_svc, boot.role_hierarchy, boot.csrf_mgr, boot.log)
 
 	// ADMIN 通过 EDITOR 校验
 	reg.authorize(['EDITOR'], ['ADMIN']) or { assert false }
@@ -228,7 +231,7 @@ fn test_middleware_group_registry_authorize() {
 fn test_middleware_group_registry_group_names() {
 	boot := test_setup()!
 	cfg := default_web_config()
-	reg := new_middleware_group_registry(cfg, boot.auth_svc, boot.role_hierarchy, boot.log)
+	reg := new_middleware_group_registry(cfg, boot.auth_svc, boot.role_hierarchy, boot.csrf_mgr, boot.log)
 
 	names := reg.group_names()
 	assert names.len >= 5
@@ -287,4 +290,72 @@ fn test_request_id_generation() {
 
 	// 两个 ID 应不同
 	assert id1 != id2
+}
+
+// ═══════════════════════════════════════════════════════════
+// CsrfMiddleware 测试
+// ═══════════════════════════════════════════════════════════
+
+fn test_csrf_manager_token_generation() {
+	boot := test_setup()!
+	mut mgr := boot.csrf_mgr
+
+	// 生成 token 应为非空字符串
+	token := mgr.generate()
+	assert token.len > 0
+
+	// 创建 CsrfToken（含 token/parameter/header）
+	mut cm := boot.csrf_mgr
+	csrf_token := cm.create_token()!
+	assert csrf_token.token.len > 0
+	assert csrf_token.parameter == '_csrf'
+	assert csrf_token.header == 'X-CSRF-TOKEN'
+}
+
+fn test_csrf_manager_is_csrf_required() {
+	boot := test_setup()!
+	mgr := boot.csrf_mgr
+
+	// 安全方法不需要 CSRF 校验
+	assert mgr.is_csrf_required('GET') == false
+	assert mgr.is_csrf_required('HEAD') == false
+	assert mgr.is_csrf_required('OPTIONS') == false
+	assert mgr.is_csrf_required('TRACE') == false
+
+	// 状态变更方法需要 CSRF 校验
+	assert mgr.is_csrf_required('POST') == true
+	assert mgr.is_csrf_required('PUT') == true
+	assert mgr.is_csrf_required('DELETE') == true
+	assert mgr.is_csrf_required('PATCH') == true
+}
+
+fn test_csrf_manager_validate() {
+	boot := test_setup()!
+	mgr := boot.csrf_mgr
+
+	// 相同 token 校验通过
+	mgr.validate('abc123', 'abc123') or { assert false }
+
+	// 不同 token 校验失败
+	mgr.validate('abc123', 'xyz789') or {
+		assert err.msg().contains('mismatch') || err.msg().contains('CSRF')
+		return
+	}
+	assert false
+
+	// 空 token 校验失败
+	mgr.validate('', 'abc123') or {
+		assert err.msg().contains('missing') || err.msg().contains('CSRF')
+		return
+	}
+	assert false
+}
+
+fn test_csrf_middleware_creation() {
+	boot := test_setup()!
+	csrf_mw := new_csrf_middleware(boot.csrf_mgr)
+
+	// 中间件实例应正确装配
+	assert !isnil(csrf_mw)
+	assert !isnil(csrf_mw.mgr)
 }

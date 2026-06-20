@@ -75,6 +75,7 @@ pub fn (k &AppKernel) to_bootstrap() &Bootstrap {
 		scheduler:      ctx.scheduler
 		jwt_mgr:        ctx.jwt_mgr
 		role_hierarchy: ctx.role_hierarchy
+		csrf_mgr:       ctx.csrf_mgr
 		worker:         ctx.worker
 		upload_handler: ctx.upload_handler
 		user_repo:      ctx.user_repo

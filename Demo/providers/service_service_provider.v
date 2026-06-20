@@ -47,7 +47,7 @@ pub fn (sp &ServiceServiceProvider) register(mut app_ctx core.ApplicationContext
 	comment_svc := new_comment_service(comment_repo, event_bus, log)
 	category_svc := new_category_service(category_repo, log)
 	tag_svc := new_tag_service(tag_repo, log)
-	stats_svc := new_stats_service(user_repo, post_repo, comment_repo, cache_mgr, log)
+	stats_svc := new_stats_service(user_repo, post_repo, comment_repo, cache_mgr, lock_mgr, log)
 	upload_svc := new_upload_service(storage_mgr, upload_handler, cfg.storage.base_path, log)
 
 	sp.ctx.user_svc = user_svc

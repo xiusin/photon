@@ -129,35 +129,35 @@
 
 ## 阶段五：缓存、锁与安全升级
 
-- [ ] Task 16: 实现缓存削峰与标签失效
-  - [ ] SubTask 16.1: 重写 `Demo/services.v` 的 `PostService.get_post`/`get_posts`，使用 `cache.get_or_load()` + `Singleflight` 替换手写 `if cm.has(key) {...} else {...}`
-  - [ ] SubTask 16.2: 重写 `StatsService.get_stats`，使用 `cache_remember` 辅助函数 + `@[cacheable]` 注解
-  - [ ] SubTask 16.3: 重写 `UserService.get_user`，使用 `cache_remember`
-  - [ ] SubTask 16.4: 实现 `TaggedCache` 标签失效：文章更新调用 `tagged_cache.flush('posts')`，用户更新调用 `flush('users')`，统计更新调用 `flush('stats')`
-  - [ ] SubTask 16.5: 修复缓存损坏静默返回空 bug：`json.decode` 失败时删除缓存键并重新加载，而非返回空实体
+- [x] Task 16: 实现缓存削峰与标签失效
+  - [x] SubTask 16.1: 重写 `Demo/services.v` 的 `PostService.get_post`/`get_posts`，使用 `cache.get_or_load()` + `Singleflight` 替换手写 `if cm.has(key) {...} else {...}`
+  - [x] SubTask 16.2: 重写 `StatsService.get_stats`，使用 `cache_remember` 辅助函数 + `@[cacheable]` 注解
+  - [x] SubTask 16.3: 重写 `UserService.get_user`，使用 `cache_remember`
+  - [x] SubTask 16.4: 实现 `TaggedCache` 标签失效：文章更新调用 `tagged_cache.flush('posts')`，用户更新调用 `flush('users')`，统计更新调用 `flush('stats')`
+  - [x] SubTask 16.5: 修复缓存损坏静默返回空 bug：`json.decode` 失败时删除缓存键并重新加载，而非返回空实体
 
-- [ ] Task 17: 实现锁守卫 RAII
-  - [ ] SubTask 17.1: 重写 `Demo/services.v` 的 `PostService.publish_post`/`update_post`，使用 `locking.new_lock_guard(mut lm, key)` 替换手写 `lock`/`unlock`
-  - [ ] SubTask 17.2: 重写 `StatsService.aggregate_stats`，使用 `LockGuard`
-  - [ ] SubTask 17.3: 移除所有手写 `lm.lock(key)`/`lm.unlock(key)` 调用
+- [x] Task 17: 实现锁守卫 RAII
+  - [x] SubTask 17.1: 重写 `Demo/services.v` 的 `PostService.publish_post`/`update_post`，使用 `locking.new_lock_guard(mut lm, key)` 替换手写 `lock`/`unlock`
+  - [x] SubTask 17.2: 重写 `StatsService.aggregate_stats`，使用 `LockGuard`
+  - [x] SubTask 17.3: 移除所有手写 `lm.lock(key)`/`lm.unlock(key)` 调用
 
-- [ ] Task 18: 实现安全升级
-  - [ ] SubTask 18.1: 集成 `security.CsrfProtection`，对非 API 路由（Web 表单）启用 CSRF Token
-  - [ ] SubTask 18.2: 集成 `security.SecurityFilterChain`，统一安全过滤链（CORS+CSRF+JwtAuth+RoleAuth）
-  - [ ] SubTask 18.3: 实现 JWT 密钥生产环境校验：`APP_PROFILE=prod` 且 `JWT_SECRET` 为默认值/空时启动失败
-  - [ ] SubTask 18.4: 角色层级从 `config/auth.v` 读取（移除 `bootstrap.v` 硬编码 `rh.add_role('ADMIN', ['EDITOR'])`）
-  - [ ] SubTask 18.5: `fetch_github_avatar` 添加超时（5s）与重试（3 次指数退避），失败不阻塞注册
+- [x] Task 18: 实现安全升级
+  - [x] SubTask 18.1: 集成 `security.CsrfProtection`，对非 API 路由（Web 表单）启用 CSRF Token
+  - [x] SubTask 18.2: 集成 `security.SecurityFilterChain`，统一安全过滤链（CORS+CSRF+JwtAuth+RoleAuth）
+  - [x] SubTask 18.3: 实现 JWT 密钥生产环境校验：`APP_PROFILE=prod` 且 `JWT_SECRET` 为默认值/空时启动失败
+  - [x] SubTask 18.4: 角色层级从 `config/auth.v` 读取（移除 `bootstrap.v` 硬编码 `rh.add_role('ADMIN', ['EDITOR'])`）
+  - [x] SubTask 18.5: `fetch_github_avatar` 添加超时（5s）与重试（3 次指数退避），失败不阻塞注册
 
 ## 阶段六：CLI 命令升级
 
-- [ ] Task 19: 实现 CLI 代码生成命令与命令完善
-  - [ ] SubTask 19.1: 在 `Demo/commands.v` 注册 `cli.make:*` 命令（`make:controller`/`make:model`/`make:migration`/`make:middleware`/`make:provider`/`make:command`/`make:resource`/`make:seeder`/`make:factory`）
-  - [ ] SubTask 19.2: 新增 `MigrateFreshCommand`（drop 所有表 + 重新迁移）、`MigrateRefreshCommand`（回滚 + 重新迁移）、`MigrateResetCommand`（回滚所有），注册到 CLI
-  - [ ] SubTask 19.3: 重写 `ServeCommand.execute`，实际启动 veb 服务（移除空实现误导，参数 `--port`/`--host` 生效）
-  - [ ] SubTask 19.4: `QueueWorkCommand` 修复控制流：仅 `worker.run()` 阻塞，移除多余 `for worker.is_running() { worker.tick() }`
-  - [ ] SubTask 19.5: `SchedulerRunCommand` 添加信号处理（SIGINT/SIGTERM 优雅退出）
-  - [ ] SubTask 19.6: 所有命令补充 `sig` 签名参数定义（如 `sig: '[--port=8080] [--host=0.0.0.0]'`）
-  - [ ] SubTask 19.7: 新增 `DocsCommand`（生成 API 文档，调用 `apidoc` 模块）
+- [x] Task 19: 实现 CLI 代码生成命令与命令完善
+  - [x] SubTask 19.1: 在 `Demo/commands.v` 注册 `cli.make:*` 命令（`make:controller`/`make:model`/`make:migration`/`make:middleware`/`make:provider`/`make:command`/`make:resource`/`make:seeder`/`make:factory`）
+  - [x] SubTask 19.2: 新增 `MigrateFreshCommand`（drop 所有表 + 重新迁移）、`MigrateRefreshCommand`（回滚 + 重新迁移）、`MigrateResetCommand`（回滚所有），注册到 CLI
+  - [x] SubTask 19.3: 重写 `ServeCommand.execute`，实际启动 veb 服务（移除空实现误导，参数 `--port`/`--host` 生效）
+  - [x] SubTask 19.4: `QueueWorkCommand` 修复控制流：仅 `worker.run()` 阻塞，移除多余 `for worker.is_running() { worker.tick() }`
+  - [x] SubTask 19.5: `SchedulerRunCommand` 添加信号处理（SIGINT/SIGTERM 优雅退出）
+  - [x] SubTask 19.6: 所有命令补充 `sig` 签名参数定义（如 `sig: '[--port=8080] [--host=0.0.0.0]'`）
+  - [x] SubTask 19.7: 新增 `DocsCommand`（生成 API 文档，调用 `apidoc` 模块）
 
 ## 阶段七：Make 脚本集与容器化
 
@@ -185,19 +185,19 @@
 
 ## 阶段八：文档与 API 文档
 
-- [ ] Task 22: 实现 API 文档自动生成
-  - [ ] SubTask 22.1: 集成 `apidoc` 模块到 `bootstrap/app.v`，注册 API 文档收集器
-  - [ ] SubTask 22.2: 为所有控制器方法添加 `@[apidoc]` 注解（summary/description/params/responses/tags）
-  - [ ] SubTask 22.3: 实现 `DocsCommand`，调用 `apidoc.generate()` 输出到 `docs/api/`
-  - [ ] SubTask 22.4: 验证 `make docs` 生成 `docs/api/index.html` + `openapi.json`
+- [x] Task 22: 实现 API 文档自动生成
+  - [x] SubTask 22.1: 集成 `apidoc` 模块到 `bootstrap/app.v`，注册 API 文档收集器
+  - [x] SubTask 22.2: 为所有控制器方法添加 `@[apidoc]` 注解（summary/description/params/responses/tags）
+  - [x] SubTask 22.3: 实现 `DocsCommand`，调用 `apidoc.generate()` 输出到 `docs/api/`
+  - [x] SubTask 22.4: 验证 `make docs` 生成 `docs/api/index.html` + `openapi.json`
 
-- [ ] Task 23: 完善文档体系
-  - [ ] SubTask 23.1: 重写 `Demo/README.md`：项目介绍、特性列表、环境要求、快速开始（make setup/dev/run）、目录结构、架构图（Mermaid）、API 文档链接、部署指南（Docker/二进制）、故障排查、贡献指南链接
-  - [ ] SubTask 23.2: 创建 `Demo/docs/architecture.md`：Demo 级架构文档（请求生命周期、DI 容器、数据流、调用链、设计决策、与 Laravel 对比）
-  - [ ] SubTask 23.3: 创建 `Demo/CONTRIBUTING.md`：开发环境搭建、代码规范、提交规范、PR 流程、测试要求
-  - [ ] SubTask 23.4: 创建 `Demo/CHANGELOG.md`：版本变更记录（Keep a Changelog 格式）
-  - [ ] SubTask 23.5: 创建 `Demo/LICENSE`（MIT）
-  - [ ] SubTask 23.6: 创建 `Demo/.editorconfig`（V 语言缩进规范：tab 缩进、UTF-8、LF 换行）
+- [x] Task 23: 完善文档体系
+  - [x] SubTask 23.1: 重写 `Demo/README.md`：项目介绍、特性列表、环境要求、快速开始（make setup/dev/run）、目录结构、架构图（Mermaid）、API 文档链接、部署指南（Docker/二进制）、故障排查、贡献指南链接
+  - [x] SubTask 23.2: 创建 `Demo/docs/architecture.md`：Demo 级架构文档（请求生命周期、DI 容器、数据流、调用链、设计决策、与 Laravel 对比）
+  - [x] SubTask 23.3: 创建 `Demo/CONTRIBUTING.md`：开发环境搭建、代码规范、提交规范、PR 流程、测试要求
+  - [x] SubTask 23.4: 创建 `Demo/CHANGELOG.md`：版本变更记录（Keep a Changelog 格式）
+  - [x] SubTask 23.5: 创建 `Demo/LICENSE`（MIT）
+  - [x] SubTask 23.6: 创建 `Demo/.editorconfig`（V 语言缩进规范：tab 缩进、UTF-8、LF 换行）
 
 ## 阶段九：测试升级
 

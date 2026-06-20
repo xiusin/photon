@@ -62,12 +62,15 @@ pub:
 
 // fetch_github_avatar 通过 GitHub API 获取指定用户的头像 URL
 // 使用 photon.http.RestTemplate 调用 https://api.github.com/users/{username}
-// 返回头像 URL 字符串
+// 配置 5s 超时 + 3 次指数退避重试，失败不阻塞注册（调用方处理错误）
 pub fn fetch_github_avatar(username string) !string {
 	rt := http.new_rest_template().
 		set_base_url('https://api.github.com').
 		set_default_header('Accept', 'application/vnd.github.v3+json').
-		set_default_header('User-Agent', 'PhotonBlog')
+		set_default_header('User-Agent', 'PhotonBlog').
+		set_connect_timeout(5000).   // 5s 连接超时
+		set_read_timeout(5000).      // 5s 读取超时
+		set_retry(3, 200)            // 3 次重试，200ms 基础退避
 
 	github_user := rt.get_for_object[GithubUser]('/users/${username}', {})!
 	return github_user.avatar_url
@@ -444,32 +447,27 @@ pub fn (mut s PostService) create(dto CreatePostDto) !Post {
 	return post
 }
 
-// find_by_id 查询文章详情（带缓存）
-// 缓存策略：缓存 JSON 序列化的 Post，TTL 1 小时，缓存未命中时回源
+// find_by_id 查询文章详情（带缓存 + Singleflight 削峰）
+// 缓存策略：使用 CacheManager.get_or_load 内置 Singleflight 防止缓存击穿，
+// TTL 1 小时。缓存损坏时删除脏键并回源。
 pub fn (mut s PostService) find_by_id(id int) !Post {
-	cache_key := 'post:${id}'
+	cache_key := 'posts:${id}'
 	mut cm := s.cache
+	repo := s.repo
 
-	// 尝试命中缓存
-	if cm.has(cache_key) {
-		cached := cm.get(cache_key) or { '' }
-		if cached.len > 0 {
-			post := json.decode(Post, cached) or {
-				Post{} // 缓存损坏，回源
-			}
-			if post.id > 0 {
-				return post
-			}
-		}
+	// get_or_load 内部使用 Singleflight 合并并发回源请求
+	cached := cm.get_or_load(cache_key, 3600, fn [repo, id] () !string {
+		mut r := repo
+		post := r.find_by_id(id)!
+		return json.encode(post)
+	})!
+
+	// 解码缓存，失败则删除损坏缓存并回源
+	post := json.decode(Post, cached) or {
+		cm.delete(cache_key) or {}
+		mut r := repo
+		return r.find_by_id(id)!
 	}
-
-	// 缓存未命中 — 从仓储加载
-	mut repo := s.repo
-	post := repo.find_by_id(id)!
-
-	// 写入缓存（1 小时 TTL）
-	encoded := json.encode(post)
-	cm.set(cache_key, encoded, 3600) or {}
 
 	return post
 }
@@ -480,31 +478,25 @@ pub fn (mut s PostService) find_all() ![]Post {
 	return repo.find_all()!
 }
 
-// find_published 查询所有已发布文章（带缓存）
+// find_published 查询所有已发布文章（带缓存 + Singleflight 削峰）
 pub fn (mut s PostService) find_published() ![]Post {
 	cache_key := 'posts:published'
 	mut cm := s.cache
+	repo := s.repo
 
-	// 尝试命中缓存
-	if cm.has(cache_key) {
-		cached := cm.get(cache_key) or { '' }
-		if cached.len > 0 {
-			posts := json.decode([]Post, cached) or {
-				[]Post{} // 缓存损坏，回源
-			}
-			if posts.len > 0 {
-				return posts
-			}
-		}
+	// get_or_load 内部使用 Singleflight 合并并发回源请求
+	cached := cm.get_or_load(cache_key, 3600, fn [repo] () !string {
+		mut r := repo
+		posts := r.find_published()!
+		return json.encode(posts)
+	})!
+
+	// 解码缓存，失败则删除损坏缓存并回源
+	posts := json.decode([]Post, cached) or {
+		cm.delete(cache_key) or {}
+		mut r := repo
+		return r.find_published()!
 	}
-
-	// 缓存未命中 — 从仓储加载
-	mut repo := s.repo
-	posts := repo.find_published()!
-
-	// 写入缓存（1 小时 TTL）
-	encoded := json.encode(posts)
-	cm.set(cache_key, encoded, 3600) or {}
 
 	return posts
 }
@@ -519,14 +511,14 @@ pub fn (s &PostService) find_by_category(category_id int) ![]Post {
 	return s.repo.find_by_category(category_id)!
 }
 
-// update 更新文章：加锁 → 事务更新 → 清除缓存 → 分发 post.updated 事件
+// update 更新文章：LockGuard 加锁 → 事务更新 → TaggedCache 失效 → 分发 post.updated 事件
 @[transactional]
 pub fn (mut s PostService) update(id int, dto UpdatePostDto) !Post {
-	// 使用锁防止并发更新冲突
+	// 使用 LockGuard RAII 防止并发更新冲突（defer 保证释放）
 	mut lm := s.lock_mgr
-	lm.lock('post:update:${id}')
+	guard := locking.new_lock_guard(mut lm, 'post:update:${id}')
 	defer {
-		lm.unlock('post:update:${id}') or {}
+		guard.unlock()
 	}
 
 	// 事务保证：更新失败则回滚
@@ -561,10 +553,8 @@ pub fn (mut s PostService) update(id int, dto UpdatePostDto) !Post {
 
 	tx.commit()!
 
-	// 事务后副作用：清除缓存 + 事件分发
-	mut cm := s.cache
-	cm.delete('post:${id}') or {}
-	cm.delete('posts:published') or {}
+	// 事务后副作用：TaggedCache 批量失效 'posts' 标签下所有缓存键
+	flush_cache_tag(s.cache, 'posts')
 
 	s.logger.info('[PostService] 文章更新成功: id=${post.id}')
 
@@ -584,13 +574,14 @@ pub fn (mut s PostService) update(id int, dto UpdatePostDto) !Post {
 	return post
 }
 
-// delete 删除文章：加锁 → 事务删除 → 清除缓存
+// delete 删除文章：LockGuard 加锁 → 事务删除 → TaggedCache 失效
 @[transactional]
 pub fn (mut s PostService) delete(id int) ! {
+	// 使用 LockGuard RAII 防止并发删除冲突
 	mut lm := s.lock_mgr
-	lm.lock('post:delete:${id}')
+	guard := locking.new_lock_guard(mut lm, 'post:delete:${id}')
 	defer {
-		lm.unlock('post:delete:${id}') or {}
+		guard.unlock()
 	}
 
 	// 事务保证：删除失败则回滚
@@ -603,27 +594,32 @@ pub fn (mut s PostService) delete(id int) ! {
 
 	tx.commit()!
 
-	// 事务后副作用：清除缓存
-	mut cm := s.cache
-	cm.delete('post:${id}') or {}
-	cm.delete('posts:published') or {}
+	// 事务后副作用：TaggedCache 批量失效 'posts' 标签下所有缓存键
+	flush_cache_tag(s.cache, 'posts')
 
 	s.logger.info('[PostService] 文章删除成功: id=${id}')
 }
 
-// increment_views 文章浏览数自增（加锁防止并发竞争）
+// increment_views 文章浏览数自增（LockGuard 防止并发竞争）
 pub fn (mut s PostService) increment_views(id int) ! {
 	mut lm := s.lock_mgr
-	lm.lock('post:views:${id}')
+	guard := locking.new_lock_guard(mut lm, 'post:views:${id}')
 	defer {
-		lm.unlock('post:views:${id}') or {}
+		guard.unlock()
 	}
 
 	s.repo.increment_views(id)!
 }
 
-// publish 发布文章：更新状态为 published → 清除缓存 → 分发 post.published 事件
+// publish 发布文章：LockGuard 加锁 → 更新状态 → TaggedCache 失效 → 分发 post.published 事件
 pub fn (mut s PostService) publish(id int) !Post {
+	// 使用 LockGuard 防止并发发布冲突
+	mut lm := s.lock_mgr
+	guard := locking.new_lock_guard(mut lm, 'post:publish:${id}')
+	defer {
+		guard.unlock()
+	}
+
 	mut repo := s.repo
 	mut post := repo.find_by_id(id)!
 
@@ -634,10 +630,8 @@ pub fn (mut s PostService) publish(id int) !Post {
 	post.status = 'published'
 	post = repo.update(mut post)!
 
-	// 清除缓存
-	mut cm := s.cache
-	cm.delete('post:${id}') or {}
-	cm.delete('posts:published') or {}
+	// TaggedCache 批量失效 'posts' 标签下所有缓存键
+	flush_cache_tag(s.cache, 'posts')
 
 	s.logger.info('[PostService] 文章发布成功: id=${post.id} title="${post.title}"')
 
@@ -971,53 +965,54 @@ pub:
 	post_repo    &PostRepository
 	comment_repo &CommentRepository
 	cache        &cache.CacheManager
+	lock_mgr     &locking.LockManager
 	logger       &logger.Logger
 }
 
-// new_stats_service 创建统计服务，注入各仓储和缓存
-pub fn new_stats_service(user_repo &UserRepository, post_repo &PostRepository, comment_repo &CommentRepository, cm &cache.CacheManager, log &logger.Logger) &StatsService {
+// new_stats_service 创建统计服务，注入各仓储、缓存和锁管理器
+pub fn new_stats_service(user_repo &UserRepository, post_repo &PostRepository, comment_repo &CommentRepository, cm &cache.CacheManager, lm &locking.LockManager, log &logger.Logger) &StatsService {
 	return unsafe {
 		&StatsService{
 			user_repo:    user_repo
 			post_repo:    post_repo
 			comment_repo: comment_repo
 			cache:        cm
+			lock_mgr:     lm
 			logger:       log
 		}
 	}
 }
 
-// get_blog_stats 获取博客综合统计（带缓存，TTL 1 小时）
+// get_blog_stats 获取博客综合统计（带缓存 + Singleflight 削峰，TTL 1 小时）
 // 缓存未命中时从各仓储实时聚合
 pub fn (mut s StatsService) get_blog_stats() !BlogStats {
 	cache_key := 'stats:blog'
 	mut cm := s.cache
 
-	// 尝试命中缓存
-	if cm.has(cache_key) {
-		cached := cm.get(cache_key) or { '' }
-		if cached.len > 0 {
-			stats := json.decode(BlogStats, cached) or {
-				BlogStats{} // 缓存损坏，回源
-			}
-			if stats.aggregated_at > 0 {
-				return stats
-			}
-		}
+	// get_or_load 内部使用 Singleflight 合并并发回源请求
+	cached := cm.get_or_load(cache_key, 3600, fn [s] () !string {
+		stats := s.aggregate_stats()!
+		return json.encode(stats)
+	})!
+
+	// 解码缓存，失败则删除损坏缓存并回源
+	stats := json.decode(BlogStats, cached) or {
+		cm.delete(cache_key) or {}
+		return s.aggregate_stats()!
 	}
-
-	// 缓存未命中 — 实时聚合
-	stats := s.aggregate_stats()!
-
-	// 写入缓存（1 小时 TTL）
-	encoded := json.encode(stats)
-	cm.set(cache_key, encoded, 3600) or {}
 
 	return stats
 }
 
-// aggregate_stats 实时聚合统计数据（不经过缓存）
+// aggregate_stats 实时聚合统计数据（LockGuard 防止并发重复聚合）
 pub fn (s &StatsService) aggregate_stats() !BlogStats {
+	// 使用 LockGuard 防止并发聚合（统计聚合涉及多次 DB 查询，避免重复计算）
+	mut lm := s.lock_mgr
+	guard := locking.new_lock_guard(mut lm, 'stats:aggregate')
+	defer {
+		guard.unlock()
+	}
+
 	user_count := s.user_repo.count() or {
 		s.logger.error('[StatsService] 用户计数失败: ${err}')
 		0
@@ -1049,65 +1044,51 @@ pub fn (s &StatsService) aggregate_stats() !BlogStats {
 	}
 }
 
-// get_user_count 获取用户数（带缓存）
+// get_user_count 获取用户数（带缓存 + Singleflight）
 pub fn (mut s StatsService) get_user_count() !int {
 	cache_key := 'stats:user_count'
 	mut cm := s.cache
+	user_repo := s.user_repo
 
-	if cm.has(cache_key) {
-		cached := cm.get(cache_key) or { '' }
-		if cached.len > 0 {
-			return cached.int()
-		}
-	}
+	cached := cm.get_or_load(cache_key, 3600, fn [user_repo] () !string {
+		count := user_repo.count() or { 0 }
+		return count.str()
+	})!
 
-	count := s.user_repo.count() or { 0 }
-	cm.set(cache_key, count.str(), 3600) or {}
-	return count
+	return cached.int()
 }
 
-// get_post_count 获取文章数（带缓存）
+// get_post_count 获取文章数（带缓存 + Singleflight）
 pub fn (mut s StatsService) get_post_count() !int {
 	cache_key := 'stats:post_count'
 	mut cm := s.cache
+	post_repo := s.post_repo
 
-	if cm.has(cache_key) {
-		cached := cm.get(cache_key) or { '' }
-		if cached.len > 0 {
-			return cached.int()
-		}
-	}
+	cached := cm.get_or_load(cache_key, 3600, fn [post_repo] () !string {
+		count := post_repo.count() or { 0 }
+		return count.str()
+	})!
 
-	count := s.post_repo.count() or { 0 }
-	cm.set(cache_key, count.str(), 3600) or {}
-	return count
+	return cached.int()
 }
 
-// get_comment_count 获取评论数（带缓存）
+// get_comment_count 获取评论数（带缓存 + Singleflight）
 pub fn (mut s StatsService) get_comment_count() !int {
 	cache_key := 'stats:comment_count'
 	mut cm := s.cache
+	comment_repo := s.comment_repo
 
-	if cm.has(cache_key) {
-		cached := cm.get(cache_key) or { '' }
-		if cached.len > 0 {
-			return cached.int()
-		}
-	}
+	cached := cm.get_or_load(cache_key, 3600, fn [comment_repo] () !string {
+		count := comment_repo.count() or { 0 }
+		return count.str()
+	})!
 
-	count := s.comment_repo.count() or { 0 }
-	cm.set(cache_key, count.str(), 3600) or {}
-	return count
+	return cached.int()
 }
 
-// invalidate_cache 失效所有统计缓存
+// invalidate_cache 失效所有统计缓存（TaggedCache 批量失效 'stats' 标签）
 pub fn (mut s StatsService) invalidate_cache() ! {
-	mut cm := s.cache
-	cm.delete('stats:blog') or {}
-	cm.delete('stats:user_count') or {}
-	cm.delete('stats:post_count') or {}
-	cm.delete('stats:published_count') or {}
-	cm.delete('stats:comment_count') or {}
+	flush_cache_tag(s.cache, 'stats')
 	s.logger.info('[StatsService] 统计缓存已失效')
 }
 

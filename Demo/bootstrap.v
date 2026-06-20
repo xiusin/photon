@@ -51,6 +51,7 @@ pub:
 	scheduler      &ticker.Scheduler
 	jwt_mgr        &security.JwtManager
 	role_hierarchy &security.RoleHierarchy
+	csrf_mgr       &security.CsrfManager
 	worker         &queue.QueueWorker
 	upload_handler &web.UploadHandler
 

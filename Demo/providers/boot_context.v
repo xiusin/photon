@@ -44,6 +44,7 @@ pub mut:
 	scheduler      &ticker.Scheduler = unsafe { nil }
 	jwt_mgr        &security.JwtManager = unsafe { nil }
 	role_hierarchy &security.RoleHierarchy = unsafe { nil }
+	csrf_mgr       &security.CsrfManager = unsafe { nil }
 	worker         &queue.QueueWorker = unsafe { nil }
 	upload_handler &web.UploadHandler = unsafe { nil }
 	// ── 仓储 ──

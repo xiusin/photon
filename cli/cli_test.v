@@ -237,3 +237,87 @@ fn test_progress_bar_set_no_overflow() {
 	pb.set(200)
 	assert pb.current == 100
 }
+
+// ============================================================
+// Make Command Tests
+// ============================================================
+
+fn test_make_command_command() {
+	cmd := new_make_command_command()
+	assert cmd.name() == 'make:command'
+	assert cmd.description().len > 0
+	assert cmd.signature() == '<name>'
+}
+
+fn test_make_controller_command() {
+	cmd := new_make_controller_command()
+	assert cmd.name() == 'make:controller'
+	assert cmd.description().len > 0
+	assert cmd.signature() == '<name> [--resource]'
+}
+
+fn test_make_middleware_command() {
+	cmd := new_make_middleware_command()
+	assert cmd.name() == 'make:middleware'
+	assert cmd.description().len > 0
+}
+
+fn test_make_provider_command() {
+	cmd := new_make_provider_command()
+	assert cmd.name() == 'make:provider'
+	assert cmd.description().len > 0
+}
+
+fn test_make_entity_command() {
+	cmd := new_make_entity_command()
+	assert cmd.name() == 'make:entity'
+	assert cmd.description().len > 0
+}
+
+fn test_make_model_command() {
+	cmd := new_make_model_command()
+	assert cmd.name() == 'make:model'
+	assert cmd.description().len > 0
+}
+
+fn test_make_migration_command() {
+	cmd := new_make_migration_command()
+	assert cmd.name() == 'make:migration'
+	assert cmd.description().len > 0
+}
+
+fn test_make_resource_command() {
+	cmd := new_make_resource_command()
+	assert cmd.name() == 'make:resource'
+	assert cmd.description().len > 0
+}
+
+fn test_make_seeder_command() {
+	cmd := new_make_seeder_command()
+	assert cmd.name() == 'make:seeder'
+	assert cmd.description().len > 0
+}
+
+fn test_make_factory_command() {
+	cmd := new_make_factory_command()
+	assert cmd.name() == 'make:factory'
+	assert cmd.description().len > 0
+}
+
+// ============================================================
+// Case Conversion Tests
+// ============================================================
+
+fn test_to_snake_case() {
+	assert to_snake_case('HelloWorld') == 'hello_world'
+	assert to_snake_case('PostController') == 'post_controller'
+	assert to_snake_case('Simple') == 'simple'
+	assert to_snake_case('HTMLParser') == 'h_t_m_l_parser'
+}
+
+fn test_to_pascal_case() {
+	assert to_pascal_case('hello_world') == 'HelloWorld'
+	assert to_pascal_case('post_controller') == 'PostController'
+	assert to_pascal_case('simple') == 'Simple'
+	assert to_pascal_case('hello-world') == 'HelloWorld'
+}

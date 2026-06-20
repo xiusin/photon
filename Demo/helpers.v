@@ -114,6 +114,14 @@ pub fn cache_remember[T](mut cm cache.CacheManager, key string, ttl int, loader 
 	return value
 }
 
+// flush_cache_tag 失效指定标签下的所有缓存键
+// 使用 TaggedCache.flush() 批量删除以 tag 为前缀的所有键。
+// 例如 flush_cache_tag(cm, 'posts') 会删除 'posts:1'、'posts:published' 等所有以 'posts:' 开头的键。
+pub fn flush_cache_tag(cm &cache.CacheManager, tag string) {
+	mut tc := cache.new_tagged_cache(cm.default_cache, [tag])
+	tc.flush() or {}
+}
+
 // ═══════════════════════════════════════════════════════════
 // 请求参数解析
 // ═══════════════════════════════════════════════════════════

@@ -8,11 +8,14 @@ module cli
 //   make:middleware   - generate a middleware
 //   make:provider     - generate a service provider
 //   make:entity       - generate an ORM entity
-//   make:repository   - generate a repository
-//   make:job          - generate a queue job
+//   make:model        - generate a model (entity + repository stub)
 //   make:migration    - generate a database migration
+//   make:resource     - generate an API resource transformer
+//   make:seeder       - generate a database seeder
+//   make:factory      - generate a model factory
 
 import os
+import time
 
 // MakeCommandCommand generates a new CLI command file
 pub struct MakeCommandCommand {
@@ -142,6 +145,147 @@ pub fn (c &MakeEntityCommand) execute(input &CommandInput, output &CommandOutput
 
 	stub := generate_entity_stub(name)
 	write_stub(name, 'entities', stub, output)!
+	return
+}
+
+// MakeModelCommand generates a new model (entity + repository stub)
+pub struct MakeModelCommand {
+	BaseCommand
+}
+
+pub fn new_make_model_command() &MakeModelCommand {
+	return &MakeModelCommand{
+		BaseCommand: BaseCommand{
+			name: 'make:model'
+			description: 'Generate a new model (entity + repository stub)'
+			sig: '<name>'
+		}
+	}
+}
+
+pub fn (c &MakeModelCommand) execute(input &CommandInput, output &CommandOutput) ! {
+	name := input.get_arg(0)
+	if name.len == 0 {
+		return error('model name is required. Usage: make:model <Name>')
+	}
+
+	// 生成实体 + 仓储两个文件
+	entity_stub := generate_entity_stub(name)
+	repo_stub := generate_repository_stub(name)
+	write_stub(name, 'entities', entity_stub, output)!
+	write_stub(name, 'repositories', repo_stub, output)!
+	return
+}
+
+// MakeMigrationCommand generates a new database migration file
+// 文件名格式：YYYYMMDDHHMMSS_create_<name>_table.v
+pub struct MakeMigrationCommand {
+	BaseCommand
+}
+
+pub fn new_make_migration_command() &MakeMigrationCommand {
+	return &MakeMigrationCommand{
+		BaseCommand: BaseCommand{
+			name: 'make:migration'
+			description: 'Generate a new database migration'
+			sig: '<name>'
+		}
+	}
+}
+
+pub fn (c &MakeMigrationCommand) execute(input &CommandInput, output &CommandOutput) ! {
+	name := input.get_arg(0)
+	if name.len == 0 {
+		return error('migration name is required. Usage: make:migration <Name>')
+	}
+
+	stub := generate_migration_stub(name)
+	timestamp := time.now().format('YYYYMMDDhhmmss')
+	snake := to_snake_case(name)
+	path := 'database/migrations/${timestamp}_create_${snake}_table.v'
+
+	os.mkdir_all('database/migrations') or {}
+	os.write_file(path, stub)!
+
+	output.success('Created: ${path}')
+	return
+}
+
+// MakeResourceCommand generates a new API resource transformer
+pub struct MakeResourceCommand {
+	BaseCommand
+}
+
+pub fn new_make_resource_command() &MakeResourceCommand {
+	return &MakeResourceCommand{
+		BaseCommand: BaseCommand{
+			name: 'make:resource'
+			description: 'Generate a new API resource transformer'
+			sig: '<name>'
+		}
+	}
+}
+
+pub fn (c &MakeResourceCommand) execute(input &CommandInput, output &CommandOutput) ! {
+	name := input.get_arg(0)
+	if name.len == 0 {
+		return error('resource name is required. Usage: make:resource <Name>')
+	}
+
+	stub := generate_resource_stub(name)
+	write_stub(name, 'resources', stub, output)!
+	return
+}
+
+// MakeSeederCommand generates a new database seeder
+pub struct MakeSeederCommand {
+	BaseCommand
+}
+
+pub fn new_make_seeder_command() &MakeSeederCommand {
+	return &MakeSeederCommand{
+		BaseCommand: BaseCommand{
+			name: 'make:seeder'
+			description: 'Generate a new database seeder'
+			sig: '<name>'
+		}
+	}
+}
+
+pub fn (c &MakeSeederCommand) execute(input &CommandInput, output &CommandOutput) ! {
+	name := input.get_arg(0)
+	if name.len == 0 {
+		return error('seeder name is required. Usage: make:seeder <Name>')
+	}
+
+	stub := generate_seeder_stub(name)
+	write_stub(name, 'database/seeders', stub, output)!
+	return
+}
+
+// MakeFactoryCommand generates a new model factory
+pub struct MakeFactoryCommand {
+	BaseCommand
+}
+
+pub fn new_make_factory_command() &MakeFactoryCommand {
+	return &MakeFactoryCommand{
+		BaseCommand: BaseCommand{
+			name: 'make:factory'
+			description: 'Generate a new model factory'
+			sig: '<name>'
+		}
+	}
+}
+
+pub fn (c &MakeFactoryCommand) execute(input &CommandInput, output &CommandOutput) ! {
+	name := input.get_arg(0)
+	if name.len == 0 {
+		return error('factory name is required. Usage: make:factory <Name>')
+	}
+
+	stub := generate_factory_stub(name)
+	write_stub(name, 'database/factories', stub, output)!
 	return
 }
 
@@ -280,6 +424,202 @@ pub mut:
 	id         int    @[primary_key; sql: \"id\"; sql_type: \"INTEGER\"]
 	created_at i64    @[sql: \"created_at\"; sql_type: \"INTEGER\"]
 	updated_at i64    @[sql: \"updated_at\"; sql_type: \"INTEGER\"]
+}
+'
+}
+
+// generate_repository_stub 生成仓储层 stub（供 make:model 使用）
+fn generate_repository_stub(name string) string {
+	pascal := to_pascal_case(name)
+	snake := to_snake_case(name)
+	return 'module repositories
+
+import photon.orm as phorm
+
+// ${pascal}Repository — generated by Photon CLI
+pub struct ${pascal}Repository {
+pub:
+	om &phorm.OrmManager = unsafe { nil }
+}
+
+pub fn new_${snake}_repository(om &phorm.OrmManager) &${pascal}Repository {
+	return &${pascal}Repository{
+		om: om
+	}
+}
+
+// find_by_id 根据 ID 查询单个 ${pascal}
+pub fn (r &${pascal}Repository) find_by_id(id int) !${pascal} {
+	return phorm.find_by_id[${pascal}](r.om, id)!
+}
+
+// find_all 查询全部 ${pascal}（按 id 升序）
+pub fn (mut r ${pascal}Repository) find_all() ![]${pascal} {
+	return phorm.find_all[${pascal}](r.om)!
+}
+
+// save 插入或更新 ${pascal}
+pub fn (r &${pascal}Repository) save(mut entity ${pascal}) !${pascal} {
+	return phorm.save(r.om, mut entity)!
+}
+
+// delete 按 ID 删除 ${pascal}
+pub fn (r &${pascal}Repository) delete(id int) ! {
+	phorm.delete_by_id[${pascal}](r.om, id)!
+}
+'
+}
+
+// generate_migration_stub 生成迁移文件 stub
+fn generate_migration_stub(name string) string {
+	pascal := to_pascal_case(name)
+	snake := to_snake_case(name)
+	table := snake + 's'
+	return 'module main
+
+// Create${pascal}Table — generated by Photon CLI
+// 创建 ${table} 表
+
+import photon.orm as phorm
+
+pub struct Create${pascal}Table {}
+
+// version 迁移版本号（递增）
+pub fn (m Create${pascal}Table) version() int {
+	return 100 // TODO: 调整为实际版本号，避免与现有迁移冲突
+}
+
+// name 迁移名称
+pub fn (m Create${pascal}Table) name() string {
+	return \"create_${table}_table\"
+}
+
+// up 正向迁移：创建表
+pub fn (m Create${pascal}Table) up(om &phorm.OrmManager) ! {
+	schema := phorm.new_schema()
+	schema.create_table(\"${table}\", fn (t phorm.TableBuilder) {
+		t.id()
+		t.string(\"name\", 255)
+		t.timestamps()
+	})
+	phorm.execute_schema(om, schema)!
+}
+
+// down 回滚迁移：删除表
+pub fn (m Create${pascal}Table) down(om &phorm.OrmManager) ! {
+	schema := phorm.new_schema()
+	schema.drop_table(\"${table}\")
+	phorm.execute_schema(om, schema)!
+}
+'
+}
+
+// generate_resource_stub 生成 API Resource 转换器 stub
+fn generate_resource_stub(name string) string {
+	pascal := to_pascal_case(name)
+	snake := to_snake_case(name)
+	return 'module resources
+
+import json
+
+// ${pascal}Resource — generated by Photon CLI
+// API 资源转换器，将 ${pascal} 实体转换为 API 响应格式
+pub struct ${pascal}Resource {
+pub:
+	id         int
+	name       string
+	created_at i64
+	updated_at i64
+}
+
+// new_${snake}_resource 从实体构造 Resource
+pub fn new_${snake}_resource(id int, name string, created_at i64, updated_at i64) ${pascal}Resource {
+	return ${pascal}Resource{
+		id: id
+		name: name
+		created_at: created_at
+		updated_at: updated_at
+	}
+}
+
+// to_json 序列化为 JSON 字符串
+pub fn (r ${pascal}Resource) to_json() string {
+	return json.encode(r)
+}
+'
+}
+
+// generate_seeder_stub 生成 Seeder stub
+fn generate_seeder_stub(name string) string {
+	pascal := to_pascal_case(name)
+	snake := to_snake_case(name)
+	return 'module seeders
+
+import photon.cli
+
+// ${pascal}Seeder — generated by Photon CLI
+// 数据库种子数据填充器
+pub struct ${pascal}Seeder {}
+
+pub fn new_${snake}_seeder() &${pascal}Seeder {
+	return &${pascal}Seeder{}
+}
+
+// run 执行种子数据填充
+pub fn (s &${pascal}Seeder) run(output &cli.CommandOutput) ! {
+	output.writeln(\"  Seeding ${snake}...\")
+
+	// TODO: 在此插入种子数据逻辑
+	// 推荐使用 Factory 生成测试数据：
+	//   factory := new_${snake}_factory(boot)
+	//   factory.with_name(\"sample\").create()!
+
+	output.success(\"  ${pascal} seeded successfully\")
+}
+'
+}
+
+// generate_factory_stub 生成 Model Factory stub
+fn generate_factory_stub(name string) string {
+	pascal := to_pascal_case(name)
+	snake := to_snake_case(name)
+	return 'module factories
+
+// ${pascal}Factory — generated by Photon CLI
+// 模型工厂，用于生成测试与种子数据（Builder 模式）
+pub struct ${pascal}Factory {
+mut:
+	name string
+}
+
+pub fn new_${snake}_factory() ${pascal}Factory {
+	return ${pascal}Factory{
+		name: \"sample-${snake}\"
+	}
+}
+
+// with_name 设置 name 字段（Builder 链式调用）
+pub fn (mut f ${pascal}Factory) with_name(name string) &${pascal}Factory {
+	f.name = name
+	return &f
+}
+
+// make 构造实体（不持久化）
+pub fn (f &${pascal}Factory) make() ${pascal}Resource {
+	// TODO: 返回实际实体类型
+	return ${pascal}Resource{
+		id: 0
+		name: f.name
+		created_at: 0
+		updated_at: 0
+	}
+}
+
+// create 构造并持久化实体
+pub fn (f &${pascal}Factory) create() !${pascal}Resource {
+	entity := f.make()
+	// TODO: 调用 Repository.save() 持久化
+	return entity
 }
 '
 }

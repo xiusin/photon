@@ -163,7 +163,7 @@ test-coverage:
 # 数据库
 # ═══════════════════════════════════════════════════════════
 
-.PHONY: migrate migrate-rollback migrate-refresh migrate-fresh migrate-reset migrate-status seed seed-fresh db-shell
+.PHONY: migrate migrate-rollback migrate-refresh migrate-fresh migrate-fresh-seed migrate-reset migrate-status seed seed-fresh db-shell
 
 ## 执行数据库迁移
 migrate: build
@@ -173,14 +173,21 @@ migrate: build
 migrate-rollback: build
 	./$(BIN) migrate:rollback
 
-## 回滚并重新迁移
-migrate-refresh: migrate-rollback migrate
+## 回滚并重新迁移（通过 down 方法回滚，保留迁移历史）
+migrate-refresh: build
+	./$(BIN) migrate:refresh
 	@echo "✓ 迁移已刷新"
 
 ## 重置数据库（drop 所有表 + 重新迁移）
 migrate-fresh: build
 	@echo "重置数据库..."
 	./$(BIN) migrate:fresh
+
+## 重置数据库并插入种子数据（一键初始化）
+migrate-fresh-seed: build
+	@echo "重置数据库并插入种子数据..."
+	./$(BIN) migrate:fresh --seed
+	@echo "✓ 数据库已重置并插入种子数据"
 
 ## 回滚所有迁移
 migrate-reset: build
@@ -349,6 +356,62 @@ docs: build
 	./$(BIN) docs
 	@echo "✓ API 文档已生成到 docs/api/"
 
+# ═══════════════════════════════════════════════════════════
+# 代码生成（make:* 命令的 Make 别名）
+# ═══════════════════════════════════════════════════════════
+
+.PHONY: make-controller make-model make-migration make-middleware make-provider make-command make-resource make-seeder make-factory make-entity
+
+## 生成控制器（make:controller）
+make-controller: build
+	@test -n "$(NAME)" || (echo "用法: make make-controller NAME=PostController" && exit 1)
+	./$(BIN) make:controller $(NAME)
+
+## 生成模型（make:model，含实体 + 仓储）
+make-model: build
+	@test -n "$(NAME)" || (echo "用法: make make-model NAME=Post" && exit 1)
+	./$(BIN) make:model $(NAME)
+
+## 生成迁移文件（make:migration）
+make-migration: build
+	@test -n "$(NAME)" || (echo "用法: make make-migration NAME=create_posts_table" && exit 1)
+	./$(BIN) make:migration $(NAME)
+
+## 生成中间件（make:middleware）
+make-middleware: build
+	@test -n "$(NAME)" || (echo "用法: make make-middleware NAME=AuthMiddleware" && exit 1)
+	./$(BIN) make:middleware $(NAME)
+
+## 生成服务提供者（make:provider）
+make-provider: build
+	@test -n "$(NAME)" || (echo "用法: make make-provider NAME=CacheServiceProvider" && exit 1)
+	./$(BIN) make:provider $(NAME)
+
+## 生成 CLI 命令（make:command）
+make-command: build
+	@test -n "$(NAME)" || (echo "用法: make make-command NAME=SendEmailCommand" && exit 1)
+	./$(BIN) make:command $(NAME)
+
+## 生成 API Resource（make:resource）
+make-resource: build
+	@test -n "$(NAME)" || (echo "用法: make make-resource NAME=PostResource" && exit 1)
+	./$(BIN) make:resource $(NAME)
+
+## 生成 Seeder（make:seeder）
+make-seeder: build
+	@test -n "$(NAME)" || (echo "用法: make make-seeder NAME=PostSeeder" && exit 1)
+	./$(BIN) make:seeder $(NAME)
+
+## 生成 Factory（make:factory）
+make-factory: build
+	@test -n "$(NAME)" || (echo "用法: make make-factory NAME=PostFactory" && exit 1)
+	./$(BIN) make:factory $(NAME)
+
+## 生成实体（make:entity）
+make-entity: build
+	@test -n "$(NAME)" || (echo "用法: make make-entity NAME=Post" && exit 1)
+	./$(BIN) make:entity $(NAME)
+
 ## 显示帮助信息
 help:
 	@echo "╔══════════════════════════════════════════════════════════════╗"
@@ -381,6 +444,9 @@ help:
 	@echo ""
 	@echo "清理:"
 	@awk '/^## 清理:/{f=1;next}/^## /{f=0}f && /^[a-zA-Z_-]+:/{split($$0,a,":");printf "  \033[36m%-20s\033[0m %s\n",a[1],desc} /^[a-zA-Z_-]+:.*##/{split($$0,a,":");split(a[2],b,"##");printf "  \033[36m%-20s\033[0m %s\n",a[1],b[2]}' Makefile 2>/dev/null || true
+	@echo ""
+	@echo "代码生成 (需 NAME= 参数):"
+	@awk '/^## 生成/{f=1;next}/^## /{f=0}f && /^[a-zA-Z_-]+:/{split($$0,a,":");printf "  \033[36m%-20s\033[0m %s\n",a[1],desc} /^[a-zA-Z_-]+:.*##/{split($$0,a,":");split(a[2],b,"##");printf "  \033[36m%-20s\033[0m %s\n",a[1],b[2]}' Makefile 2>/dev/null || true
 	@echo ""
 	@echo "辅助:"
 	@awk '/^## 辅助:/{f=1;next}/^## /{f=0}f && /^[a-zA-Z_-]+:/{split($$0,a,":");printf "  \033[36m%-20s\033[0m %s\n",a[1],desc} /^[a-zA-Z_-]+:.*##/{split($$0,a,":");split(a[2],b,"##");printf "  \033[36m%-20s\033[0m %s\n",a[1],b[2]}' Makefile 2>/dev/null || true

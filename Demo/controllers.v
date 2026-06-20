@@ -102,9 +102,57 @@ pub fn (mut app App) index(mut ctx Context) veb.Result {
 		endpoints: ['/health', '/ping', '/stats', '/api/v1/auth/register', '/api/v1/auth/login',
 			'/api/v1/auth/refresh', '/api/v1/auth/profile', '/api/v1/auth/logout', '/api/v1/users',
 			'/api/v1/posts', '/api/v1/posts/:id/comments', '/api/v1/categories', '/api/v1/tags',
-			'/api/v1/uploads/avatar', '/api/v1/uploads/image']
+			'/api/v1/uploads/avatar', '/api/v1/uploads/image', '/__docs']
 	}
 	return ctx.send_data(json.encode(info))
+}
+
+// ═══════════════════════════════════════════════════════════
+// API 文档面板（apidoc 模块，非生产环境启用）
+// ═══════════════════════════════════════════════════════════
+
+// docs_index GET /__docs — API 文档交互式面板
+@[get]
+@['/__docs']
+pub fn (mut app App) docs_index(mut ctx Context) veb.Result {
+	if isnil(app.apidoc_handler) {
+		return ctx.send_result(web.fail(404, 'API docs not available in production / 生产环境未启用 API 文档'))
+	}
+	mut h := app.apidoc_handler
+	return h.serve_index(mut ctx.Context)
+}
+
+// docs_static GET /__docs/static/:file — API 文档静态资源
+@[get]
+@['/__docs/static/:file']
+pub fn (mut app App) docs_static(mut ctx Context, file string) veb.Result {
+	if isnil(app.apidoc_handler) {
+		return ctx.send_result(web.fail(404, 'API docs not available in production'))
+	}
+	mut h := app.apidoc_handler
+	return h.serve_static_file(mut ctx.Context, file)
+}
+
+// docs_entries GET /__docs/api/entries — 所有已记录的 API 端点
+@[get]
+@['/__docs/api/entries']
+pub fn (mut app App) docs_entries(mut ctx Context) veb.Result {
+	if isnil(app.apidoc_handler) {
+		return ctx.send_result(web.fail(404, 'API docs not available in production'))
+	}
+	mut h := app.apidoc_handler
+	return h.serve_entries(mut ctx.Context)
+}
+
+// docs_export GET /__docs/api/export — 导出 OpenAPI 3.0 JSON
+@[get]
+@['/__docs/api/export']
+pub fn (mut app App) docs_export(mut ctx Context) veb.Result {
+	if isnil(app.apidoc_handler) {
+		return ctx.send_result(web.fail(404, 'API docs not available in production'))
+	}
+	mut h := app.apidoc_handler
+	return h.serve_export(mut ctx.Context)
 }
 
 // health GET /health — 健康检查（状态/版本/uptime/时间戳）

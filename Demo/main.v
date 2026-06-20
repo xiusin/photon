@@ -20,6 +20,7 @@ import time
 import sync
 import photon.cli
 import photon.web
+import photon.apidoc
 
 fn main() {
 	// ── 1. 加载 .env 文件（开发环境） ──
@@ -48,18 +49,22 @@ fn main() {
 	boot.print_banner()
 
 	// ── 5. 创建中间件组注册表（CORS/限流参数从 config/web.v 读取） ──
-	middleware_registry := new_middleware_group_registry(cfg.web, boot.auth_svc, boot.role_hierarchy, boot.log)
+	middleware_registry := new_middleware_group_registry(cfg.web, boot.auth_svc, boot.role_hierarchy, boot.csrf_mgr, boot.log)
 
 	// ── 6. 创建 HTTP 内核（统一响应与异常处理） ──
 	http_kernel := new_http_kernel()
 
 	// ── 7. 创建 App（线程安全 req_count） ──
+	// apidoc_handler 仅在非生产环境启用（生产环境避免请求收集开销）
+	apidoc_handler := if cfg.profile != 'prod' { photon.apidoc.enable() } else { unsafe { nil } }
+
 	mut web_app := &App{
 		start_time:          time.ticks()
 		req_mu:              sync.new_mutex()
 		bootstrap:           boot
 		middleware_registry: middleware_registry
 		http_kernel:         http_kernel
+		apidoc_handler:      apidoc_handler
 	}
 
 	// ── 8. 注册全局中间件（每次请求执行） ──
@@ -79,9 +84,27 @@ fn main() {
 					return ctx.text(web.fail(429, 'rate limit exceeded / 请求过于频繁，请稍后重试').to_json())
 				}
 			}
+
+			// apidoc 请求收集（非生产环境）
+			if !isnil(web_app.apidoc_handler) {
+				mut h := web_app.apidoc_handler
+				h.collector.collect(mut ctx.Context)
+			}
 			return true
 		}
 	})
+
+	// apidoc 响应收集（after middleware，非生产环境）
+	if !isnil(apidoc_handler) {
+		web_app.use(veb.MiddlewareOptions[Context]{
+			after:   true
+			handler: fn [apidoc_handler](mut ctx Context) bool {
+				mut h := apidoc_handler
+				h.collector.collect_response(mut ctx.Context)
+				return true
+			}
+		})
+	}
 
 	// ── 9. 注册 CLI 命令 ──
 	mut cmd_app := cli.new_application(cfg.app.name, cfg.app.version)

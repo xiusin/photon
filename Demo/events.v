@@ -56,12 +56,8 @@ pub fn register_event_listeners(bus &core.EventBus, cm &cache.CacheManager, log 
 			log.error('[UserRegisteredListener] 分发 SendWelcomeEmailJob 失败: ${err}')
 		}
 
-		// 失效统计缓存，下次访问时重新聚合
-		unsafe {
-			mut cm_local := cm
-			cm_local.delete('stats:blog') or {}
-			cm_local.delete('stats:user_count') or {}
-		}
+		// 失效统计缓存（TaggedCache 批量失效 'stats' 标签）
+		flush_cache_tag(cm, 'stats')
 		log.info('[UserRegisteredListener] 统计缓存已失效')
 	})
 
@@ -81,15 +77,9 @@ pub fn register_event_listeners(bus &core.EventBus, cm &cache.CacheManager, log 
 
 		log.info('[PostPublishedListener] 处理文章发布事件: id=${post_id} title="${title}"')
 
-		// 清除该文章的缓存
-		unsafe {
-			mut cm_local := cm
-			cm_local.delete('post:${post_id}') or {}
-			cm_local.delete('posts:published') or {}
-			cm_local.delete('stats:post_count') or {}
-			cm_local.delete('stats:published_count') or {}
-			cm_local.delete('stats:blog') or {}
-		}
+		// TaggedCache 批量失效 'posts' 和 'stats' 标签下所有缓存键
+		flush_cache_tag(cm, 'posts')
+		flush_cache_tag(cm, 'stats')
 
 		// 推送通知（演示用 — 实际可接入 WebSocket / 站内信）
 		log.info('[PostPublishedListener] 文章发布通知已推送: "${title}"')
@@ -102,12 +92,8 @@ pub fn register_event_listeners(bus &core.EventBus, cm &cache.CacheManager, log 
 
 		log.info('[PostUpdatedListener] 处理文章更新事件: id=${post_id}')
 
-		// 清除该文章的缓存
-		unsafe {
-			mut cm_local := cm
-			cm_local.delete('post:${post_id}') or {}
-			cm_local.delete('posts:published') or {}
-		}
+		// TaggedCache 批量失效 'posts' 标签下所有缓存键
+		flush_cache_tag(cm, 'posts')
 	})
 
 	// ── CommentPostedListener ──
@@ -131,11 +117,7 @@ pub fn register_event_listeners(bus &core.EventBus, cm &cache.CacheManager, log 
 			log.error('[CommentPostedListener] 分发 SendCommentNotificationJob 失败: ${err}')
 		}
 
-		// 失效评论统计缓存
-		unsafe {
-			mut cm_local := cm
-			cm_local.delete('stats:comment_count') or {}
-			cm_local.delete('stats:blog') or {}
-		}
+		// 失效评论统计缓存（TaggedCache 批量失效 'stats' 标签）
+		flush_cache_tag(cm, 'stats')
 	})
 }

@@ -21,7 +21,7 @@ pub fn new_auth_provider(ctx &BootContext) &AuthServiceProvider {
 	}
 }
 
-// register 创建 JwtManager 与 RoleHierarchy
+// register 创建 JwtManager、RoleHierarchy 与 CsrfManager
 pub fn (sp &AuthServiceProvider) register(mut app_ctx core.ApplicationContext) ! {
 	cfg := sp.ctx.cfg
 	log := sp.ctx.log
@@ -43,10 +43,29 @@ pub fn (sp &AuthServiceProvider) register(mut app_ctx core.ApplicationContext) !
 		rh.add_role(pair.$0, pair.$1)
 	}
 	sp.ctx.role_hierarchy = rh
-	log.info('JwtManager + RoleHierarchy initialized — ${cfg.auth.role_hierarchy}')
+
+	// ── CsrfManager（Double-Submit Cookie 模式，用于 Web 表单路由） ──
+	// API 路由使用 JWT Bearer 令牌，不需要 CSRF 保护；
+	// Web 表单路由（如未来扩展的登录表单）启用 CSRF Token 校验
+	csrf_mgr := security.new_csrf_manager(security.CsrfConfig{
+		enabled:         true
+		cookie_name:     'XSRF-TOKEN'
+		header_name:     'X-CSRF-TOKEN'
+		form_field_name: '_csrf'
+		token_length:    32
+		cookie_path:     '/'
+		cookie_http_only: false // 前端 JS 需读取 cookie 中的 token
+		cookie_secure:   cfg.profile == 'prod'
+		cookie_same_site: 'Lax'
+		ignored_methods: ['GET', 'HEAD', 'OPTIONS', 'TRACE']
+	})
+	sp.ctx.csrf_mgr = csrf_mgr
+
+	log.info('JwtManager + RoleHierarchy + CsrfManager initialized — ${cfg.auth.role_hierarchy}')
 
 	app_ctx.register_instance('JwtManager', unsafe { voidptr(jwt_mgr) })!
 	app_ctx.register_instance('RoleHierarchy', unsafe { voidptr(rh) })!
+	app_ctx.register_instance('CsrfManager', unsafe { voidptr(csrf_mgr) })!
 }
 
 // boot 认证服务无需启动后初始化

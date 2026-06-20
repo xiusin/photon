@@ -250,13 +250,76 @@ pub fn (m &RoleAuthMiddleware) authorize(required_roles []string, user_roles []s
 }
 
 // ═══════════════════════════════════════════════════════════
+// CsrfMiddleware — CSRF 跨站请求伪造防护
+// ═══════════════════════════════════════════════════════════
+//
+// 基于 Double-Submit Cookie 模式（由 security.CsrfManager 实现）：
+//   1. 客户端首次 GET 请求时，服务端通过 Set-Cookie 下发 XSRF-TOKEN
+//   2. 客户端后续状态变更请求（POST/PUT/PATCH/DELETE）需在 X-CSRF-TOKEN
+//      头或 _csrf 表单字段中回传同一 token
+//   3. 本中间件对比 cookie 中的 token 与请求头/表单中的 token
+//
+// 仅对 'web' 中间件组启用（Web 表单路由）；
+// 'api' 组使用 JWT Bearer 令牌，天然免疫 CSRF，无需此中间件。
+//
+// Laravel 等价：VerifyCsrfToken 中间件（$except 配置忽略路径）
+
+pub struct CsrfMiddleware {
+pub:
+	mgr &security.CsrfManager
+}
+
+pub fn new_csrf_middleware(mgr &security.CsrfManager) &CsrfMiddleware {
+	return &CsrfMiddleware{
+		mgr: mgr
+	}
+}
+
+// handle 校验 CSRF token
+// 对 GET/HEAD/OPTIONS/TRACE 等安全方法直接放行（由 CsrfConfig.ignored_methods 配置）
+// 对状态变更方法（POST/PUT/PATCH/DELETE）校验 X-CSRF-TOKEN 头或 _csrf 表单字段
+// 校验失败时抛出错误，由调用方（apply_web_group）转换为 403 响应
+pub fn (m &CsrfMiddleware) handle(mut ctx veb.Context) ! {
+	method := ctx.req.method.str()
+
+	// 安全方法直接放行
+	if !m.mgr.is_csrf_required(method) {
+		return
+	}
+
+	// 提取请求头中的 token（X-CSRF-TOKEN）与表单字段（_csrf）
+	actual_header := ctx.get_custom_header(m.mgr.config.header_name) or { '' }
+	actual_form := ctx.get_custom_header(m.mgr.config.form_field_name) or { '' }
+	actual := m.mgr.get_actual_token(actual_header, actual_form)
+
+	// 从 cookie 存储中读取期望 token
+	mut mgr := m.mgr
+	expected := mgr.get_expected_token()
+
+	// 若期望 token 为空（首次请求或 cookie 失效），跳过校验
+	// 由后续 GET 请求重新下发 cookie，避免首次 POST 即被拒绝
+	if expected.len == 0 {
+		return
+	}
+
+	m.mgr.validate(actual, expected)!
+}
+
+// ═══════════════════════════════════════════════════════════
 // 中间件组编排
 // ═══════════════════════════════════════════════════════════
 //
 // MiddlewareManager 已移除（SubTask 9.4），改由 MiddlewareGroupRegistry 统一编排。
 // 见 app/Http/Middleware/registry.v：
-//   - apply_web_group()  — CORS + RequestId + RequestLog
-//   - apply_api_group()  — web + RateLimit
+//   - apply_web_group()  — CORS + RequestId + RequestLog + CSRF
+//   - apply_api_group()  — web + RateLimit（CSRF 由 api 组跳过，因 API 使用 JWT）
 //   - authenticate()     — JWT 认证（写回 Context）
 //   - authorize()        — 角色校验
 //   - apply_group(name)  — 按命名组应用（auth/admin/editor）
+//
+// 关于 security.SecurityFilterChain：
+//   框架 SecurityFilterChain 基于 &veb.Context（与 veb 中间件签名一致），
+//   但其内置 CSRF/JWT/角色校验逻辑与 Demo 的 MiddlewareGroupRegistry 职责重叠。
+//   为保持单一中间件编排入口与类型安全的 Demo Context 访问（ctx.request_id 等），
+//   Demo 选择复用自研 MiddlewareGroupRegistry，仅在 CsrfMiddleware 内部复用
+//   security.CsrfManager 的 token 生成与校验能力（避免重复造轮子）。

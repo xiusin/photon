@@ -6,9 +6,13 @@ module main
 // 与 Context 请求级上下文。veb 框架在每次请求前自动调用 Context.before_request()
 // 完成请求计数；完整的中间件链（CORS/RequestId/日志/限流）在 main() 中通过 use() 注册，
 // 由 MiddlewareGroupRegistry.apply_api_group() 统一编排。
+//
+// API 文档：集成 apidoc 模块，提供运行时 API 文档收集与交互式文档面板（/__docs）。
+// 静态文档生成由 DocsCommand（make docs）提供，输出 Markdown/HTML 到 docs/api/。
 
 import veb
 import sync
+import photon.apidoc
 
 // ═══════════════════════════════════════════════════════════
 // App — 全局应用结构
@@ -17,18 +21,20 @@ import sync
 // 持有 Bootstrap（所有组件引用）与 MiddlewareGroupRegistry（中间件组注册表）。
 // 由 main() 在启动时创建，所有请求共享同一实例。
 // req_mu 保护 req_count 的并发递增（修复数据竞争）。
+// apidoc_handler 提供运行时 API 文档收集与交互式文档面板。
 // ═══════════════════════════════════════════════════════════
 
 pub struct App {
 	veb.Context
 	veb.Middleware[Context]
 pub mut:
-	start_time         i64
-	req_count          int
-	req_mu             &sync.Mutex = unsafe { nil }
-	bootstrap          &Bootstrap = unsafe { nil }
+	start_time          i64
+	req_count           int
+	req_mu              &sync.Mutex = unsafe { nil }
+	bootstrap           &Bootstrap = unsafe { nil }
 	middleware_registry &MiddlewareGroupRegistry = unsafe { nil }
-	http_kernel        &HttpKernel = unsafe { nil }
+	http_kernel         &HttpKernel = unsafe { nil }
+	apidoc_handler      &apidoc.ApidocHandler = unsafe { nil }
 }
 
 // ═══════════════════════════════════════════════════════════
