@@ -9,7 +9,10 @@ module main
 //   - JWT 令牌刷新
 //   - 角色权限校验
 //
-// test_setup 为所有测试文件共享的辅助函数，创建独立的内存数据库 Bootstrap。
+// 使用 TestCase 基类提供测试基础设施：
+//   - 每个测试获得独立的 :memory: 数据库
+//   - acting_as_role() / acting_as_admin() 等辅助方法
+//   - user_factory() 等工厂访问器
 
 // ═══════════════════════════════════════════════════════════
 // test_setup 已移至 test_helpers.v（非测试文件），所有测试文件共享
@@ -308,4 +311,100 @@ fn test_build_login_response() {
 	assert resp.expires_in == 3600
 	assert resp.user.username == 'loginresp'
 	assert resp.user.email == 'loginresp@example.com'
+}
+
+// ═══════════════════════════════════════════════════════════
+// TestCase 集成测试（演示新版测试基类用法）
+// ═══════════════════════════════════════════════════════════
+
+fn test_testcase_register_admin() {
+	mut t := TestCase{}
+	t.setup()!
+	defer { t.teardown() }
+
+	// 通过 acting_as_role 创建并认证 ADMIN
+	admin := t.acting_as_role('ADMIN')!
+	assert admin.role == 'ADMIN'
+	assert t.is_authenticated()
+
+	// ADMIN 角色可被令牌识别
+	mut auth_svc := t.auth_svc()
+	assert auth_svc.has_role(t.token(), 'ADMIN')
+}
+
+fn test_testcase_login_with_factory_user() {
+	mut t := TestCase{}
+	t.setup()!
+	defer { t.teardown() }
+
+	// 用 Factory 创建用户
+	user := t.user_factory().with_username('testcase_user').with_password('secret').create()!
+
+	// 用 Service 登录
+	logged_in := t.user_svc().login(LoginDto{
+		username: 'testcase_user'
+		password: 'secret'
+	})!
+	assert logged_in.id == user.id
+}
+
+fn test_testcase_refresh_database_resets_state() {
+	mut t := TestCase{}
+	t.setup()!
+	defer { t.teardown() }
+
+	// 创建用户
+	_ := t.user_factory().create()!
+	assert t.bootstrap().user_repo.count()! == 1
+
+	// 刷新数据库
+	t.refresh_database()!
+	assert t.bootstrap().user_repo.count()! == 0
+}
+
+fn test_testcase_acting_as_user_role_check() {
+	mut t := TestCase{}
+	t.setup()!
+	defer { t.teardown() }
+
+	user := t.acting_as_user()
+	_ = user
+
+	// USER 角色不应有 ADMIN 权限
+	mut auth_svc := t.auth_svc()
+	assert !auth_svc.has_role(t.token(), 'ADMIN')
+	assert auth_svc.has_role(t.token(), 'USER')
+}
+
+fn test_testcase_complete_auth_flow() {
+	mut t := TestCase{}
+	t.setup()!
+	defer { t.teardown() }
+
+	// 完整流程：注册 → 登录 → 令牌 → 校验
+	dto := CreateUserDto{
+		username: 'flowuser'
+		email:    'flow@test.com'
+		password: 'pass123'
+		role:     'EDITOR'
+	}
+	user, _ := t.user_svc().register(dto)!
+
+	logged_in := t.user_svc().login(LoginDto{
+		username: 'flowuser'
+		password: 'pass123'
+	})!
+	assert logged_in.id == user.id
+
+	access, refresh := t.auth_svc().generate_token(&user)!
+	assert access.len > 0
+	assert refresh.len > 0
+
+	username := t.auth_svc().validate_token(access)!
+	assert username == 'flowuser'
+
+	// 刷新令牌
+	new_access, new_refresh := t.auth_svc().refresh_token(refresh)!
+	assert new_access.len > 0
+	assert t.auth_svc().validate_token(new_access)! == 'flowuser'
 }

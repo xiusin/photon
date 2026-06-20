@@ -351,9 +351,9 @@ fn test_validation_errors_has_errors() {
 
 fn test_validation_errors_count() {
 	mut errors := web.ValidationErrors{}
-	assert errors.count() == 0
+	assert errors.len == 0
 
 	errors['username'] = [web.ValidationError{field: 'username', message: 'required'}]
 	errors['email'] = [web.ValidationError{field: 'email', message: 'invalid'}]
-	assert errors.count() == 2
+	assert errors.len == 2
 }

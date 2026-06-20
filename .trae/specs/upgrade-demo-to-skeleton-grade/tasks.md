@@ -201,36 +201,36 @@
 
 ## 阶段九：测试升级
 
-- [ ] Task 24: 实现测试基类与工厂集成
-  - [ ] SubTask 24.1: 创建 `Demo/tests/test_case.v`（TestCase 基类：`setup`/`teardown`/`refresh_database`/`acting_as(user)`/`json_request(method, path, body) !TestResponse`）
-  - [ ] SubTask 24.2: 创建 `Demo/tests/refresh_database.v`（RefreshDatabase trait：每个测试前 migrate:fresh）
-  - [ ] SubTask 24.3: 重写所有测试文件（`auth_test.v`/`controller_test.v`/`integration_test.v` 等）继承 `TestCase`，使用 `acting_as`/`json_request` 替换手写请求
-  - [ ] SubTask 24.4: 测试数据改用 Factory 生成（`UserFactory.new().with_role('admin').create()`），移除内联 `seed_user` 重复代码
-  - [ ] SubTask 24.5: 新增 `tests/validation_test.v`（测试 `web.validate[T]` 各规则：required/email/min_len/max_len/confirmed 等）
-  - [ ] SubTask 24.6: 新增 `tests/exception_test.v`（测试异常处理器：各 HttpException 返回正确状态码与格式）
-  - [ ] SubTask 24.7: 新增 `tests/resource_test.v`（测试 API Resource 字段脱敏：UserResource 不输出 password）
-  - [ ] SubTask 24.8: 新增 `tests/pagination_test.v`（测试 LengthAwarePaginator 元数据正确性）
-  - [ ] SubTask 24.9: 新增 `tests/soft_delete_test.v`（测试软删除查询过滤、restore、force_delete）
-  - [ ] SubTask 24.10: 新增 `tests/eager_loading_test.v`（测试预加载 N+1 消除，SQL 计数）
+- [x] Task 24: 实现测试基类与工厂集成
+  - [x] SubTask 24.1: 创建 `Demo/tests/test_case.v`（TestCase 基类：`setup`/`teardown`/`refresh_database`/`acting_as(user)`/`json_request(method, path, body) !TestResponse`）
+  - [x] SubTask 24.2: 创建 `Demo/tests/refresh_database.v`（RefreshDatabase trait：每个测试前 migrate:fresh）
+  - [x] SubTask 24.3: 重写所有测试文件（`auth_test.v`/`controller_test.v`/`integration_test.v` 等）继承 `TestCase`，使用 `acting_as`/`json_request` 替换手写请求
+  - [x] SubTask 24.4: 测试数据改用 Factory 生成（`UserFactory.new().with_role('admin').create()`），移除内联 `seed_user` 重复代码
+  - [x] SubTask 24.5: 新增 `tests/validation_test.v`（测试 `web.validate[T]` 各规则：required/email/min_len/max_len/confirmed 等）
+  - [x] SubTask 24.6: 新增 `tests/exception_test.v`（测试异常处理器：各 HttpException 返回正确状态码与格式）
+  - [x] SubTask 24.7: 新增 `tests/resource_test.v`（测试 API Resource 字段脱敏：UserResource 不输出 password）
+  - [x] SubTask 24.8: 新增 `tests/pagination_test.v`（测试 LengthAwarePaginator 元数据正确性）
+  - [x] SubTask 24.9: 新增 `tests/soft_delete_test.v`（测试软删除查询过滤、restore、force_delete）
+  - [x] SubTask 24.10: 新增 `tests/eager_loading_test.v`（测试预加载 N+1 消除，SQL 计数）
 
 ## 阶段十：最终验证
 
-- [ ] Task 25: 全量验证与回归测试
-  - [ ] SubTask 25.1: 验证 `make setup` 一键初始化成功（编译 + 迁移 + 种子）
-  - [ ] SubTask 25.2: 验证 `make dev` 热重载模式启动
-  - [ ] SubTask 25.3: 验证 `make build` 与 `make release` 均编译成功，release 二进制为优化构建
-  - [ ] SubTask 25.4: 验证 `make test` 全部测试通过（含新增验证/异常/Resource/分页/软删除/预加载测试）
-  - [ ] SubTask 25.5: 验证 `make migrate-fresh && make seed` 重置数据库并插入种子数据
-  - [ ] SubTask 25.6: 验证 `make docker-up` 启动全部服务，`curl localhost:8080/health` 返回 200
-  - [ ] SubTask 25.7: 验证 `make docs` 生成 API 文档，浏览器可访问
-  - [ ] SubTask 25.8: 验证 `make help` 自动生成分类帮助列表
-  - [ ] SubTask 25.9: 验证所有 29 个 API 端点功能正常（curl 全量回归）
-  - [ ] SubTask 25.10: 验证所有 9+ 个 CLI 命令功能正常（serve/migrate/seed/queue/scheduler/stats/routes/make:*）
-  - [ ] SubTask 25.11: 验证生产环境 JWT 密钥校验：`APP_PROFILE=prod JWT_SECRET= ./demo serve` 启动失败
-  - [ ] SubTask 25.12: 验证 `User.password` 字段未在任何 API 响应中泄露
-  - [ ] SubTask 25.13: 验证无 `unsafe { voidptr(x) }` 类型擦除 DI 残留
-  - [ ] SubTask 25.14: 验证无手写 JSON 字符串拼接残留（grep `'{"success"` 应无结果）
-  - [ ] SubTask 25.15: 验证无内联校验残留（grep `if dto.*.len == 0` 应无结果）
+- [x] Task 25: 全量验证与回归测试
+  - [x] SubTask 25.1: 验证 `make setup` 一键初始化成功（编译 + 迁移 + 种子）
+  - [x] SubTask 25.2: 验证 `make dev` 热重载模式启动
+  - [x] SubTask 25.3: 验证 `make build` 与 `make release` 均编译成功，release 二进制为优化构建
+  - [x] SubTask 25.4: 验证 `make test` 全部测试通过（含新增验证/异常/Resource/分页/软删除/预加载测试）
+  - [x] SubTask 25.5: 验证 `make migrate-fresh && make seed` 重置数据库并插入种子数据
+  - [x] SubTask 25.6: 验证 `make docker-up` 启动全部服务，`curl localhost:8080/health` 返回 200
+  - [x] SubTask 25.7: 验证 `make docs` 生成 API 文档，浏览器可访问
+  - [x] SubTask 25.8: 验证 `make help` 自动生成分类帮助列表
+  - [x] SubTask 25.9: 验证所有 29 个 API 端点功能正常（curl 全量回归）
+  - [x] SubTask 25.10: 验证所有 9+ 个 CLI 命令功能正常（serve/migrate/seed/queue/scheduler/stats/routes/make:*）
+  - [x] SubTask 25.11: 验证生产环境 JWT 密钥校验：`APP_PROFILE=prod JWT_SECRET= ./demo serve` 启动失败
+  - [x] SubTask 25.12: 验证 `User.password` 字段未在任何 API 响应中泄露
+  - [x] SubTask 25.13: 验证无 `unsafe { voidptr(x) }` 类型擦除 DI 残留
+  - [x] SubTask 25.14: 验证无手写 JSON 字符串拼接残留（grep `'{"success"` 应无结果）
+  - [x] SubTask 25.15: 验证无内联校验残留（grep `if dto.*.len == 0` 应无结果）
 
 # Task Dependencies
 
