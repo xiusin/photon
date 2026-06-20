@@ -137,7 +137,7 @@ pub fn (f UserFactory) create_or_first() !User {
 fn rand_int_str(digits int) string {
 	mut result := ''
 	mut seed := int(time.now().unix())
-	for i in 0 .. digits {
+	for _ in 0 .. digits {
 		seed = (seed * 1103515245 + 12345) & 0x7fffffff
 		result += ((seed >> 16) % 10).str()
 	}

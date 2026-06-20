@@ -8,7 +8,6 @@ module main
 // Spring 等价：DataSourceAutoConfiguration
 
 import photon.core
-import photon.orm as phorm
 
 pub struct DatabaseServiceProvider {
 	ctx &BootContext

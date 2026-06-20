@@ -61,7 +61,7 @@ pub fn (s &CommentSeeder) run(output &cli.CommandOutput) ! {
 		user := users[((i - 1) % users.len)]
 		content := comment_templates[(i - 1) % comment_templates.len]
 
-		comment := new_comment_factory(s.bootstrap).
+		_ := new_comment_factory(s.bootstrap).
 			with_post(post.id).
 			with_user(user.id).
 			with_content('第 ${i} 条评论: ${content}').

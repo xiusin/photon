@@ -63,7 +63,7 @@ pub fn (s &PostSeeder) run(output &cli.CommandOutput) ! {
 		category_id := ((i - 1) % 3) + 1
 		status := if i <= 7 { 'published' } else { 'draft' }
 
-		post := new_post_factory(s.bootstrap).
+		_ := new_post_factory(s.bootstrap).
 			with_title('文章标题 ${i} - PhotonBlog 示例').
 			with_content('这是第 ${i} 篇示例文章的内容。PhotonBlog 是一个基于 Photon Framework 的完整博客系统示例，展示了 V 语言企业级框架的全部功能，包括依赖注入、ORM、缓存、队列、事件驱动等核心特性。').
 			with_summary('示例文章 ${i} 的摘要').
