@@ -8,7 +8,7 @@
 set -e
 
 VFLAGS="-enable-globals"
-MODULES="config log security cli web orm http queue support ticker cache pool locking"
+MODULES="config log security cli web orm http queue support ticker cache pool locking async"
 
 echo ""
 echo "=============================================="

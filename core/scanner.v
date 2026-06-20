@@ -331,6 +331,56 @@ pub fn extract_scheduled_expr(attrs []string) string {
 	return ''
 }
 
+// ── @[scheduled] Comptime Scanning (Task C4) ──
+//
+// Spring equivalent: @Scheduled annotation post-processor.
+//
+// V comptime scans type T's methods at compile time for @[scheduled('cron')]
+// attributes and returns ScheduledTaskInfo descriptors. This is the
+// compile-time equivalent of Spring's ScheduledAnnotationBeanPostProcessor.
+//
+// The existing `extract_scheduled_expr(attrs)` helper is reused to parse the
+// cron expression from each method's attribute list — it handles both
+// V-normalized forms (`scheduled: 'expr'` and `scheduled('expr')`).
+
+// ScheduledTaskInfo describes a single @[scheduled] method discovered via
+// comptime scanning of type T.
+pub struct ScheduledTaskInfo {
+pub:
+	method_name string
+	cron_expr   string
+}
+
+// extract_scheduled_methods scans type T at compile time for methods annotated
+// with @[scheduled('cron')]. Returns a list of ScheduledTaskInfo descriptors
+// containing the method name and parsed cron expression.
+//
+// Spring equivalent: @Scheduled annotation discovery.
+//
+// V comptime note: method-level attributes are inspected via `method.attrs`
+// inside `$for method in T.methods`. The cron expression is parsed by the
+// existing `extract_scheduled_expr(attrs)` helper which handles both
+// `scheduled('...')` and `scheduled: '...'` forms.
+//
+// Usage:
+//   tasks := core.extract_scheduled_methods[MyService]()
+//   for t in tasks {
+//       println('${t.method_name} -> ${t.cron_expr}')
+//   }
+pub fn extract_scheduled_methods[T]() []ScheduledTaskInfo {
+	mut tasks := []ScheduledTaskInfo{}
+	$for method in T.methods {
+		cron_expr := extract_scheduled_expr(method.attrs)
+		if cron_expr.len > 0 {
+			tasks << ScheduledTaskInfo{
+				method_name: method.name
+				cron_expr:   cron_expr
+			}
+		}
+	}
+	return tasks
+}
+
 // extract_cacheable_key parses @[cacheable('key_pattern')] from attributes.
 // Spring equivalent: @Cacheable(key = "#id")
 pub fn extract_cacheable_key(attrs []string) string {

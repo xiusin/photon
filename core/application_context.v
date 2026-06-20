@@ -24,6 +24,7 @@ module core
 //   app.shutdown()
 import sync
 import time
+import ticker
 
 // ── ApplicationState ──
 
@@ -289,6 +290,67 @@ pub fn (mut ctx ApplicationContext) add_auto_configuration(type_name string, con
 //   app.refresh()!  // apply_all() evaluates conditions during step 3
 pub fn (mut ctx ApplicationContext) register_auto_configuration[T]() ! {
 	ctx.auto_config_manager.register_from_comptime[T]()!
+}
+
+// ── @[scheduled] Auto-Registration (Task C4) ──
+
+// register_scheduled scans type T at compile time for @[scheduled('cron')]
+// methods and registers each one with the provided Scheduler. The bean
+// instance is resolved from the container (must already be registered under
+// T.name), and a comptime closure is generated for each scheduled method
+// that invokes `bean.$method()`.
+//
+// Spring equivalent: ScheduledAnnotationBeanPostProcessor — automatically
+// registers @Scheduled-annotated methods with the TaskScheduler.
+//
+// V comptime pattern: the closure `fn [bean_ptr] () ! { ... bean.$method() }`
+// captures the raw bean pointer (as voidptr) and casts it to a mutable &T
+// reference inside the closure. This is necessary because:
+//   1. V closures capture variables as immutable, but scheduled methods
+//      typically have `mut` receivers (they modify bean state).
+//   2. The `mut bean := unsafe { &T(bean_ptr) }` binding grants mutable
+//      access, allowing `mut`-receiver method calls.
+//   3. `bean.$method()` is a comptime method call — `method` is the comptime
+//      loop variable from `$for method in T.methods`, so each iteration
+//      generates a distinct closure with the specific method baked in.
+//
+// Thread-safety: the Scheduler itself is thread-safe (sync.RwMutex). The
+// bean instance is accessed from the scheduler's background goroutine; the
+// caller is responsible for ensuring the bean's internal state is thread-safe
+// (e.g., via mutex-protected fields).
+//
+// Usage:
+//   mut sched := ticker.new_task_scheduler()
+//   ctx.register_instance('HeartbeatService', &service)!
+//   ctx.register_scheduled[HeartbeatService](mut sched)!
+//   sched.start()  // scheduled methods begin executing
+//   // ...
+//   sched.stop()   // graceful shutdown
+pub fn (mut ctx ApplicationContext) register_scheduled[T](mut scheduler ticker.Scheduler) ! {
+	// Resolve the bean instance from the container by type name.
+	// We use the raw voidptr so the closure can cast it to a mutable &T.
+	bean_ptr := ctx.container.resolve(T.name) or {
+		return error('register_scheduled: bean "${T.name}" not found / 未找到 bean "${T.name}"')
+	}
+
+	// Comptime scan: for each method of T, check if it has @[scheduled(...)]
+	// and generate a per-method closure that calls bean.$method().
+	$for method in T.methods {
+		cron_expr := extract_scheduled_expr(method.attrs)
+		if cron_expr.len > 0 {
+			// Capture the raw bean pointer. Inside the closure, cast it to
+			// a mutable &T so that mut-receiver methods can be called.
+			task_fn := fn [bean_ptr] () ! {
+				mut bean := unsafe { &T(bean_ptr) }
+				bean.$method()
+			}
+
+			mut b := scheduler.cron(cron_expr)
+			b.task(task_fn)
+			b.name('${T.name}.${method.name}')
+			scheduler.register(b)
+		}
+	}
 }
 
 // ── Starter Pattern: Manifest Imports (Task A5) ──

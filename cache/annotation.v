@@ -189,6 +189,116 @@ pub fn build_evict_key(attr CacheEvictAttribute, method_name string, args ...str
 	return '${attr.cache_name}::${method_name}'
 }
 
+// ── Expression Evaluation (condition / unless) ──
+
+// ExpressionContext provides values for condition/unless expression evaluation.
+// #result resolves to the method return value; #param.name resolves to a named parameter.
+pub struct ExpressionContext {
+pub:
+	result         string // #result value (empty string if null)
+	params         map[string]string // #param.name → value
+	is_null_result bool
+}
+
+// evaluate_condition evaluates a simple condition/unless expression.
+//
+// Supported syntax:
+//   - #result                  → the method return value (or 'null' if is_null_result)
+//   - #param.name              → named parameter value
+//   - null                     → null literal
+//   - 'value' / "value"        → string literal
+//   - bare_token               → raw token
+//   - left == right            → equality
+//   - left != right            → inequality
+//   - expr and expr            → logical AND (left-to-right)
+//   - expr or expr             → logical OR (left-to-right)
+//
+// Empty expression returns true (always-pass). Unknown expressions return true
+// (fail-open so a malformed condition never accidentally blocks caching).
+pub fn evaluate_condition(expr string, ctx ExpressionContext) bool {
+	e := expr.trim_space()
+	if e == '' {
+		return true
+	}
+
+	// Logical AND: all parts must be true
+	if e.contains(' and ') {
+		parts := e.split(' and ')
+		for part in parts {
+			if !evaluate_condition(part, ctx) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// Logical OR: any part true → true
+	if e.contains(' or ') {
+		parts := e.split(' or ')
+		for part in parts {
+			if evaluate_condition(part, ctx) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Equality
+	if e.contains('==') {
+		parts := e.split('==')
+		if parts.len == 2 {
+			left := resolve_value(parts[0], ctx)
+			right := resolve_value(parts[1], ctx)
+			return left == right
+		}
+	}
+
+	// Inequality
+	if e.contains('!=') {
+		parts := e.split('!=')
+		if parts.len == 2 {
+			left := resolve_value(parts[0], ctx)
+			right := resolve_value(parts[1], ctx)
+			return left != right
+		}
+	}
+
+	return true
+}
+
+// resolve_value resolves a single token to its string value within the context.
+fn resolve_value(token string, ctx ExpressionContext) string {
+	t := token.trim_space()
+
+	// #result
+	if t == '#result' {
+		if ctx.is_null_result {
+			return 'null'
+		}
+		return ctx.result
+	}
+
+	// #param.name
+	if t.starts_with('#param.') {
+		param_name := t[7..]
+		return ctx.params[param_name] or { '' }
+	}
+
+	// null literal
+	if t == 'null' {
+		return 'null'
+	}
+
+	// String literal 'value' or "value"
+	if (t.starts_with("'") && t.ends_with("'") && t.len >= 2) ||
+		(t.starts_with('"') && t.ends_with('"') && t.len >= 2) {
+		return t[1..t.len - 1]
+	}
+
+	// Bare value
+	return t
+}
+
 // ── CacheableInterceptor ──
 
 // CacheableInterceptor provides around-advice for cacheable methods.
@@ -205,6 +315,13 @@ pub fn new_cacheable_interceptor(cm &CacheRegistry) &CacheableInterceptor {
 }
 
 // get_or_compute checks the cache first; if miss, calls the loader and caches the result.
+//
+// Condition/unless evaluation (Task C5):
+//   - condition: evaluated AFTER compute (supports #result). If false → result is
+//     returned but NOT cached.
+//   - unless: evaluated AFTER compute (supports #result). If true → result is
+//     returned but NOT cached.
+//   - Empty condition/unless = existing behavior (always cache).
 pub fn (mut ci CacheableInterceptor) get_or_compute(attr CacheableAttribute, method_name string, args []string, loader fn () !string) !string {
 	cache_key := build_cache_key(attr, method_name, ...args)
 
@@ -214,6 +331,28 @@ pub fn (mut ci CacheableInterceptor) get_or_compute(attr CacheableAttribute, met
 	}
 
 	result := loader()!
+
+	// Evaluate condition: if false, don't cache
+	if attr.condition.len > 0 {
+		ctx := ExpressionContext{
+			result:         result
+			is_null_result: result == ''
+		}
+		if !evaluate_condition(attr.condition, ctx) {
+			return result
+		}
+	}
+
+	// Evaluate unless: if true, don't cache
+	if attr.unless.len > 0 {
+		ctx := ExpressionContext{
+			result:         result
+			is_null_result: result == ''
+		}
+		if evaluate_condition(attr.unless, ctx) {
+			return result
+		}
+	}
 
 	ci.cache_manager.set(cache_key, result, attr.ttl_seconds) or {
 		eprintln('[CacheableInterceptor] failed to set cache key "${cache_key}": ${err}')
@@ -235,6 +374,9 @@ pub fn (mut ci CacheableInterceptor) evict(attr CacheEvictAttribute, method_name
 }
 
 // put stores a value in the cache without affecting the method return.
+//
+// Unless evaluation (Task C5): if unless evaluates to true (supports #result),
+// the value is NOT cached. Empty unless = existing behavior (always cache).
 pub fn (mut ci CacheableInterceptor) put(attr CachePutAttribute, method_name string, args []string, value string) ! {
 	mut cache_key := '${attr.cache_name}::'
 	if attr.key_pattern.len > 0 {
@@ -247,6 +389,17 @@ pub fn (mut ci CacheableInterceptor) put(attr CachePutAttribute, method_name str
 		cache_key += method_name
 		if args.len > 0 {
 			cache_key += '::${args.join(',')}'
+		}
+	}
+
+	// Evaluate unless: if true, don't cache
+	if attr.unless.len > 0 {
+		ctx := ExpressionContext{
+			result:         value
+			is_null_result: value == ''
+		}
+		if evaluate_condition(attr.unless, ctx) {
+			return
 		}
 	}
 

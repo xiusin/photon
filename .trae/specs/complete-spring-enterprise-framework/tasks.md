@@ -91,10 +91,10 @@
   - [ ] SubTask C1.3：支持 `{0}`/`{1}` 占位符替换
   - [ ] SubTask C1.4：编写 `i18n/message_source_test.v`，覆盖中英文 + 占位符
 
-- [ ] Task C2：`@[async]` 异步执行
-  - [ ] SubTask C2.1：在 `async/task_executor.v`（新增）定义 `TaskExecutor`（线程池 + 任务队列）
-  - [ ] SubTask C2.2：comptime 扫描 `@[async]` 方法，包装为 `TaskExecutor.submit(fn)`
-  - [ ] SubTask C2.3：编写 `async/task_executor_test.v`，验证异步不阻塞 + 结果正确
+- [x] Task C2：`@[async]` 异步执行
+  - [x] SubTask C2.1：在 `async/task_executor.v`（新增）定义 `TaskExecutor`（线程池 + 任务队列）
+  - [x] SubTask C2.2：comptime 扫描 `@[async]` 方法，包装为 `TaskExecutor.submit(fn)`
+  - [x] SubTask C2.3：编写 `async/task_executor_test.v`，验证异步不阻塞 + 结果正确
 
 - [ ] Task C3：`@[retryable]` 重试
   - [ ] SubTask C3.1：在 `retry/retryable.v`（新增）定义 `@[retryable(max_attempts, delay, backoff, retry_for)]` 注解
