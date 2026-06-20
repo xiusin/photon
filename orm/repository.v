@@ -614,6 +614,40 @@ pub type SqlExecFn = fn (db voidptr, query string, args []string) !
 // Each inner []string is one row's column values, in field order.
 pub type SqlQueryFn = fn (db voidptr, query string, args []string) ![][]string
 
+// SqlAffectedRowsFn returns the number of rows affected by the most
+// recent UPDATE/DELETE/INSERT executed on `db` (e.g. sqlite's
+// `db.changes()`).  Required for optimistic-lock conflict detection
+// in JpaRepository.update() when the entity has a `@[version]` field.
+pub type SqlAffectedRowsFn = fn (db voidptr) !int
+
+// ── Optimistic Locking (Task B8) ──
+
+// OptimisticLockException is raised when an UPDATE guarded by a
+// `@[version]` field affects zero rows — i.e. the in-memory entity's
+// version no longer matches the row in the database (another writer
+// committed first).
+//
+// The exception carries the entity type name and the primary-key
+// value (as a string) for diagnostics.  `code` defaults to 409
+// (Conflict), matching the HTTP status used by Spring's
+// ObjectOptimisticLockingFailureException.
+pub struct OptimisticLockException {
+pub:
+	entity_type string
+	id          string
+	code        int = 409
+}
+
+// msg implements IError — bilingual message for user-facing diagnostics.
+pub fn (e OptimisticLockException) msg() string {
+	return 'optimistic lock failed for ${e.entity_type} id=${e.id} / 乐观锁冲突: ${e.entity_type} id=${e.id}'
+}
+
+// code implements IError — returns the HTTP-style status code (409).
+pub fn (e OptimisticLockException) code() int {
+	return e.code
+}
+
 // JpaRepository[T] is a comptime-derived repository backed by two
 // generic SQL execution callbacks.  See the module-level docs above.
 pub struct JpaRepository[T] {
@@ -622,42 +656,72 @@ pub:
 	table_name  string
 	orm_manager &OrmManager = unsafe { nil }
 mut:
-	db_name           string
-	primary_key_field string
-	field_names       []string
-	exec_fn           SqlExecFn  = unsafe { nil }
-	query_fn          SqlQueryFn = unsafe { nil }
+	db_name            string
+	primary_key_field  string
+	primary_key_column string // DB column name of the PK (Task B7)
+	version_field      string // name of the @[version] field ('' if none)
+	version_column     string // DB column name of the version field (Task B7)
+	has_version        bool
+	field_names        []string
+	column_names       []string // DB column names in field order (Task B7)
+	exec_fn            SqlExecFn         = unsafe { nil }
+	query_fn           SqlQueryFn        = unsafe { nil }
+	affected_rows_fn   SqlAffectedRowsFn = unsafe { nil }
 }
 
 // new_jpa_repository creates a JpaRepository[T] with comptime-derived
 // field metadata and two generic SQL execution callbacks.
 //
-// The entity struct T must have either a field with the
+// The entity struct T must have either a field with the @[id] /
 // @[primary_key] attribute or a field named 'id'.
+//
+// JPA entity annotations (Task B7), read at compile time:
+//   - @[table('name')] overrides the passed `table_name` parameter
+//   - @[column('name')] customizes a field's DB column name
+//     (default: snake_case(field.name))
+//   - @[id] / @[primary_key] marks the primary key field
 //
 // `exec_fn`  — executes INSERT/UPDATE/DELETE/DDL statements.
 // `query_fn` — executes SELECT, returns rows as [][]string.
 pub fn new_jpa_repository[T](orm_manager &OrmManager, db_name string, table_name string, exec_fn SqlExecFn, query_fn SqlQueryFn) !JpaRepository[T] {
+	// Extract JPA entity metadata at compile time (Task B7).
+	// @[table('name')] overrides the passed table_name; @[column('name')]
+	// and @[id]/@[primary_key] drive column and PK resolution.
+	meta := extract_entity_metadata[T]()
+	effective_table := if meta.has_table_annotation { meta.table_name } else { table_name }
 	mut repo := JpaRepository[T]{
 		entity_type: typeof[T]().name
-		table_name:  table_name
+		table_name:  effective_table
 		orm_manager: orm_manager
 		db_name:     db_name
 		exec_fn:     exec_fn
 		query_fn:    query_fn
 	}
-	// Comptime: extract field names and find primary key
+	// Comptime: extract field/column names and find primary key + version field
 	$for field in T.fields {
 		repo.field_names << field.name
-		// Detect primary key via @[primary_key] attribute
-		for attr in field.attrs {
-			if attr == 'primary_key' {
-				repo.primary_key_field = field.name
-			}
+		col_name := extract_column_name(field.name, field.attrs)
+		repo.column_names << col_name
+		// Detect primary key via @[id] or @[primary_key] attribute (Task B7)
+		if is_primary_key_field(field.attrs) {
+			repo.primary_key_field = field.name
+			repo.primary_key_column = col_name
 		}
-		// Fallback: field named 'id'
+		// Fallback: field named 'id' (only when no @[id]/@[primary_key] yet)
 		if repo.primary_key_field == '' && field.name == 'id' {
 			repo.primary_key_field = field.name
+			repo.primary_key_column = col_name
+		}
+		// Detect optimistic-lock version field via @[version] attribute (Task B8.1)
+		if !repo.has_version {
+			for attr in field.attrs {
+				if attr == 'version' {
+					repo.version_field = field.name
+					repo.version_column = col_name
+					repo.has_version = true
+					break
+				}
+			}
 		}
 	}
 	if repo.primary_key_field == '' {
@@ -674,7 +738,7 @@ pub fn (mut repo JpaRepository[T]) find_by_id(id i64) !T {
 	if isnil(repo.query_fn) {
 		return error('find_by_id: query_fn not configured')
 	}
-	pk_col := support.snake(repo.primary_key_field)
+	pk_col := repo.primary_key_column
 	query := 'SELECT ${repo.columns_clause()} FROM ${repo.table_name} WHERE ${pk_col} = ?'
 	db := repo.orm_manager.get_conn(repo.db_name)!
 	rows := repo.query_fn(db, query, ['${id}'])!
@@ -688,9 +752,32 @@ pub fn (mut repo JpaRepository[T]) find_by_id(id i64) !T {
 
 // save inserts a new entity.  The primary key field is omitted from
 // the INSERT when its value is 0 (auto-increment support).
+//
+// For entities annotated with `@[version]`, save() routes to update()
+// when the entity is NOT new — i.e. when the version field is non-zero
+// (Spring Data JPA's `@Version`-based isNew() semantics).  A version
+// of 0 means the entity has never been persisted, so save() does an
+// INSERT regardless of the primary key value (Task B8.2).
 pub fn (mut repo JpaRepository[T]) save(entity &T) ! {
 	if isnil(repo.exec_fn) {
 		return error('save: exec_fn not configured')
+	}
+	// Optimistic-lock routing: if the entity has a @[version] field
+	// and the version is non-zero, the entity already exists in the
+	// database — treat save() as an UPDATE with version check
+	// (JPA-style merge semantics).  A version of 0 means the entity
+	// is new and must be INSERTed.
+	if repo.has_version {
+		mut version_val := ''
+		$for field in T.fields {
+			if field.name == repo.version_field {
+				version_val = entity.$(field.name).str()
+			}
+		}
+		if version_val != '' && version_val != '0' {
+			_ = repo.update(entity)!
+			return
+		}
 	}
 	mut columns := []string{}
 	mut placeholders := []string{}
@@ -701,7 +788,7 @@ pub fn (mut repo JpaRepository[T]) save(entity &T) ! {
 		// allowed in comptime $for, so guard with an inverted if)
 		is_auto_pk := field.name == repo.primary_key_field && val_str == '0'
 		if !is_auto_pk {
-			columns << support.snake(field.name)
+			columns << extract_column_name(field.name, field.attrs)
 			placeholders << '?'
 			args << val_str
 		}
@@ -714,12 +801,133 @@ pub fn (mut repo JpaRepository[T]) save(entity &T) ! {
 	repo.exec_fn(db, query, args)!
 }
 
+// update executes an UPDATE for an existing entity.
+//
+// When the entity has a `@[version]` field (Task B8), the UPDATE is
+// guarded by `WHERE <pk> = ? AND <version_col> = ?` and the SET
+// clause includes `<version_col> = <version_col> + 1`.  If the
+// affected-rows count is zero (another writer committed first), an
+// OptimisticLockException is raised (Task B8.3).
+//
+// `affected_rows_fn` MUST be configured (via set_affected_rows_fn)
+// for versioned entities — it reports the row count returned by the
+// driver (e.g. sqlite's `db.changes()`).  Without it, the conflict
+// cannot be detected and update() returns a configuration error.
+//
+// The returned entity is a copy of the input with the version field
+// incremented, so callers can chain updates without re-reading from
+// the database.
+//
+// All user values are bound via positional `?` placeholders — no
+// string interpolation — preventing SQL injection.
+pub fn (mut repo JpaRepository[T]) update(entity &T) !T {
+	if isnil(repo.exec_fn) {
+		return error('update: exec_fn not configured')
+	}
+
+	mut set_cols := []string{}
+	mut args := []string{}
+	mut pk_val := ''
+	mut version_val := ''
+
+	$for field in T.fields {
+		val_str := entity.$(field.name).str()
+		if field.name == repo.primary_key_field {
+			pk_val = val_str
+		} else if repo.has_version && field.name == repo.version_field {
+			version_val = val_str
+		} else {
+			set_cols << '${extract_column_name(field.name, field.attrs)} = ?'
+			args << val_str
+		}
+	}
+	if pk_val == '' || pk_val == '0' {
+		return error('update: entity must have a non-zero primary key / 实体主键不能为空或零')
+	}
+
+	pk_col := repo.primary_key_column
+	mut query := ''
+
+	if repo.has_version {
+		if version_val == '' {
+			return error('update: version field value is empty / 版本字段值为空')
+		}
+		if isnil(repo.affected_rows_fn) {
+			return error('update: affected_rows_fn not configured (required for optimistic locking) / 未配置 affected_rows_fn (乐观锁必需)')
+		}
+		version_col := repo.version_column
+		// SET ... , version = version + 1  WHERE pk = ? AND version = ?
+		set_cols << '${version_col} = ${version_col} + 1'
+		query = 'UPDATE ${repo.table_name} SET ${set_cols.join(', ')} WHERE ${pk_col} = ? AND ${version_col} = ?'
+		args << pk_val
+		args << version_val
+	} else {
+		query = 'UPDATE ${repo.table_name} SET ${set_cols.join(', ')} WHERE ${pk_col} = ?'
+		args << pk_val
+	}
+
+	db := repo.orm_manager.get_conn(repo.db_name)!
+	repo.exec_fn(db, query, args)!
+
+	// Optimistic-lock conflict detection (Task B8.3): zero affected
+	// rows means the WHERE version = ? clause matched nothing — the
+	// row was either deleted or updated by a concurrent writer.
+	if repo.has_version {
+		affected := repo.affected_rows_fn(db)!
+		if affected == 0 {
+			return IError(OptimisticLockException{
+				entity_type: repo.entity_type
+				id:          pk_val
+			})
+		}
+	}
+
+	// Build the returned entity: a copy of the input with the version
+	// field incremented to reflect the new DB state.
+	mut result := T{}
+	$for field in T.fields {
+		$if field.typ is string {
+			result.$(field.name) = entity.$(field.name)
+		} $else $if field.typ is int {
+			if repo.has_version && field.name == repo.version_field {
+				result.$(field.name) = entity.$(field.name) + 1
+			} else {
+				result.$(field.name) = entity.$(field.name)
+			}
+		} $else $if field.typ is i64 {
+			if repo.has_version && field.name == repo.version_field {
+				result.$(field.name) = entity.$(field.name) + 1
+			} else {
+				result.$(field.name) = entity.$(field.name)
+			}
+		} $else $if field.typ is f64 {
+			result.$(field.name) = entity.$(field.name)
+		} $else $if field.typ is bool {
+			result.$(field.name) = entity.$(field.name)
+		}
+	}
+	return result
+}
+
+// set_affected_rows_fn configures the callback used by update() to
+// read the number of rows affected by the most recent UPDATE/DELETE.
+//
+// Required for entities with a `@[version]` field (optimistic
+// locking).  For SQLite, pass a wrapper around `db.changes()`:
+//
+//   repo.set_affected_rows_fn(fn (db voidptr) !int {
+//       return unsafe { &sqlite.DB(db) }.changes()
+//   })
+pub fn (mut repo JpaRepository[T]) set_affected_rows_fn(callback SqlAffectedRowsFn) {
+	repo.affected_rows_fn = callback
+}
+
 // delete removes an entity by primary key.
 pub fn (mut repo JpaRepository[T]) delete(id i64) ! {
 	if isnil(repo.exec_fn) {
 		return error('delete: exec_fn not configured')
 	}
-	pk_col := support.snake(repo.primary_key_field)
+	pk_col := repo.primary_key_column
 	query := 'DELETE FROM ${repo.table_name} WHERE ${pk_col} = ?'
 	db := repo.orm_manager.get_conn(repo.db_name)!
 	repo.exec_fn(db, query, ['${id}'])!
@@ -903,7 +1111,7 @@ pub fn (mut repo JpaRepository[T]) create_table() ! {
 	}
 	mut col_defs := []string{}
 	$for field in T.fields {
-		col_name := support.snake(field.name)
+		col_name := extract_column_name(field.name, field.attrs)
 		mut col_type := 'TEXT'
 		$if field.typ is string {
 			col_type = 'TEXT'
@@ -929,14 +1137,11 @@ pub fn (mut repo JpaRepository[T]) create_table() ! {
 
 // ── Internal helpers ──
 
-// columns_clause returns a comma-separated list of snake_case column
-// names derived from the entity's field names.
+// columns_clause returns a comma-separated list of DB column names
+// derived from the entity's @[column] annotations (or snake_case field
+// names by default). Uses the comptime-extracted column_names slice.
 fn (repo JpaRepository[T]) columns_clause() string {
-	mut cols := []string{cap: repo.field_names.len}
-	for name in repo.field_names {
-		cols << support.snake(name)
-	}
-	return cols.join(', ')
+	return repo.column_names.join(', ')
 }
 
 // jpa_map_row maps a string row (column values in field order) to a

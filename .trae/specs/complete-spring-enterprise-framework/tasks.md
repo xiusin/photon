@@ -77,11 +77,11 @@
   - [ ] SubTask B7.3：`JpaRepository[T]` 的 SQL 生成使用提取的元数据
   - [ ] SubTask B7.4：编写 `orm/entity_annotation_test.v`，覆盖自定义表名/列名/主键
 
-- [ ] Task B8：`@[version]` 乐观锁
-  - [ ] SubTask B8.1：comptime 扫描 `@[version]` 字段，记录字段名
-  - [ ] SubTask B8.2：`save()` 时 UPDATE SQL 增加 `WHERE id = ? AND version = ?`，SET 子句 `version = version + 1`
-  - [ ] SubTask B8.3：影响行数为 0 时抛出 `OptimisticLockException`
-  - [ ] SubTask B8.4：编写 `orm/optimistic_lock_test.v`，覆盖并发冲突
+- [x] Task B8：`@[version]` 乐观锁
+  - [x] SubTask B8.1：comptime 扫描 `@[version]` 字段，记录字段名
+  - [x] SubTask B8.2：`save()` 时 UPDATE SQL 增加 `WHERE id = ? AND version = ?`，SET 子句 `version = version + 1`
+  - [x] SubTask B8.3：影响行数为 0 时抛出 `OptimisticLockException`
+  - [x] SubTask B8.4：编写 `orm/optimistic_lock_test.v`，覆盖并发冲突
 
 ## Phase C — 企业级特性
 
