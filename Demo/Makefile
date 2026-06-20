@@ -91,7 +91,14 @@ flatten:
 		ln -sf $$(pwd)/$$f $$dest 2>/dev/null || cp $$f $$dest; \
 	done
 	@cp v.mod $(BUILD_DIR)/v.mod
-	@mkdir -p $(BUILD_DIR)/.vmodules && ln -sfn $$(cd .. && pwd) $(BUILD_DIR)/.vmodules/photon 2>/dev/null || true
+	@# Ensure photon vmodule is resolvable — try both project-local and global
+	@mkdir -p $(BUILD_DIR)/.vmodules
+	@PHOTON_ROOT=$$(cd .. && pwd); \
+	ln -sfn "$$PHOTON_ROOT" $(BUILD_DIR)/.vmodules/photon; \
+	mkdir -p $(HOME)/.vmodules; \
+	ln -sfn "$$PHOTON_ROOT" $(HOME)/.vmodules/photon
+	@# Verify the link works
+	@test -d $(BUILD_DIR)/.vmodules/photon/apidoc || { echo "ERROR: .build/.vmodules/photon/apidoc not found — symlink broken?"; exit 1; }
 
 ## 环境初始化: 一键搭建开发环境
 setup: check-v env build migrate seed
