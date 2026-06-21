@@ -16,6 +16,7 @@ import photon.core
 import photon.cache
 import photon.queue
 import photon.logger
+import util
 
 // ═══════════════════════════════════════════════════════════
 // 事件常量
@@ -57,7 +58,7 @@ pub fn register_event_listeners(bus &core.EventBus, cm &cache.CacheManager, log 
 		}
 
 		// 失效统计缓存（TaggedCache 批量失效 'stats' 标签）
-		flush_cache_tag(cm, 'stats')
+		util.flush_cache_tag(cm, 'stats')
 		log.info('[UserRegisteredListener] 统计缓存已失效')
 	})
 
@@ -78,8 +79,8 @@ pub fn register_event_listeners(bus &core.EventBus, cm &cache.CacheManager, log 
 		log.info('[PostPublishedListener] 处理文章发布事件: id=${post_id} title="${title}"')
 
 		// TaggedCache 批量失效 'posts' 和 'stats' 标签下所有缓存键
-		flush_cache_tag(cm, 'posts')
-		flush_cache_tag(cm, 'stats')
+		util.flush_cache_tag(cm, 'posts')
+		util.flush_cache_tag(cm, 'stats')
 
 		// 推送通知（演示用 — 实际可接入 WebSocket / 站内信）
 		log.info('[PostPublishedListener] 文章发布通知已推送: "${title}"')
@@ -93,7 +94,7 @@ pub fn register_event_listeners(bus &core.EventBus, cm &cache.CacheManager, log 
 		log.info('[PostUpdatedListener] 处理文章更新事件: id=${post_id}')
 
 		// TaggedCache 批量失效 'posts' 标签下所有缓存键
-		flush_cache_tag(cm, 'posts')
+		util.flush_cache_tag(cm, 'posts')
 	})
 
 	// ── CommentPostedListener ──
@@ -118,6 +119,6 @@ pub fn register_event_listeners(bus &core.EventBus, cm &cache.CacheManager, log 
 		}
 
 		// 失效评论统计缓存（TaggedCache 批量失效 'stats' 标签）
-		flush_cache_tag(cm, 'stats')
+		util.flush_cache_tag(cm, 'stats')
 	})
 }

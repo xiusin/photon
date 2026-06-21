@@ -195,7 +195,7 @@ pub:
 // CreatePostDto — 创建文章请求
 // 注：author_id 由控制器从 JWT 注入，不参与客户端校验
 pub struct CreatePostDto {
-pub:
+pub mut:
 	title       string @[required; validate: 'required|min_len:1|max_len:255']
 	content     string @[required; validate: 'required']
 	summary     string @[validate: 'max_len:500']
@@ -229,7 +229,7 @@ pub:
 // CreateCommentDto — 创建评论请求
 // 注：post_id 与 user_id 由控制器注入，不参与客户端校验
 pub struct CreateCommentDto {
-pub:
+pub mut:
 	post_id   int
 	user_id   int
 	content   string @[required; validate: 'required|min_len:1|max_len:2000']

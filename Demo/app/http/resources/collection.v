@@ -42,6 +42,7 @@ pub:
 	self  string
 	first string
 	last  string
+pub mut:
 	prev  string @[skip_empty]
 	next  string @[skip_empty]
 }

@@ -50,7 +50,7 @@ fn main() {
 		exit(1)
 	}
 	boot := kernel.to_bootstrap()
-	bootstrap.print_banner()
+	boot.print_banner()
 
 	// ── 5. 创建中间件组注册表（CORS/限流参数从 config/web.v 读取） ──
 	middleware_registry := new_middleware_group_registry(cfg.web, boot.auth_svc, boot.role_hierarchy, boot.csrf_mgr, boot.log)
@@ -60,13 +60,13 @@ fn main() {
 
 	// ── 7. 创建 App（线程安全 req_count） ──
 	// apidoc_handler 仅在非生产环境启用（生产环境避免请求收集开销）
-	apidoc_handler := if cfg.profile != 'prod' { apidoc.enable() } else { unsafe { nil } }
+	apidoc_handler := if cfg.profile != 'prod' { apidoc.enable() } else { &apidoc.ApidocHandler(unsafe { nil }) }
 
 	mut web_app := &App{
 		start_time:          time.ticks()
 		req_mu:              sync.new_mutex()
 		bootstrap:           boot
-		middleware_registry: middleware_registry
+		middleware_registry: &middleware_registry
 		http_kernel:         http_kernel
 		apidoc_handler:      apidoc_handler
 	}
@@ -85,13 +85,14 @@ fn main() {
 				web_app.middleware_registry.apply_api_group(mut ctx) or {
 					ctx.res.set_status(.too_many_requests)
 					ctx.set_content_type('application/json')
-					return ctx.text(web.fail(429, 'rate limit exceeded / 请求过于频繁，请稍后重试').to_json())
+					ctx.text(web.fail(429, 'rate limit exceeded / 请求过于频繁，请稍后重试').to_json())
+					return false
 				}
 			}
 
 			// apidoc 请求收集（非生产环境）
 			if !isnil(web_app.apidoc_handler) {
-				mut h := web_app.apidoc_handler
+				mut h := unsafe { web_app.apidoc_handler }
 				h.collector.collect(mut ctx.Context)
 			}
 			return true
@@ -103,7 +104,7 @@ fn main() {
 		web_app.use(veb.MiddlewareOptions[Context]{
 			after:   true
 			handler: fn [apidoc_handler](mut ctx Context) bool {
-				mut h := apidoc_handler
+				mut h := unsafe { apidoc_handler }
 				h.collector.collect_response(mut ctx.Context)
 				return true
 			}

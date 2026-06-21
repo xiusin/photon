@@ -8,6 +8,7 @@ module resources
 // Laravel 等价：App\Http\Resources\CategoryResource / TagResource
 
 import json
+import models
 
 // ═══════════════════════════════════════════════════════════
 // CategoryResource — 分类 API Resource
@@ -24,7 +25,7 @@ pub:
 }
 
 // new_category_resource 从 Category 实体创建 CategoryResource
-pub fn new_category_resource(c &Category) CategoryResource {
+pub fn new_category_resource(c &models.Category) CategoryResource {
 	return CategoryResource{
 		id:          c.id
 		name:        c.name
@@ -48,7 +49,7 @@ pub:
 }
 
 // new_category_resource_collection 从 Category 实体列表创建集合
-pub fn new_category_resource_collection(categories []Category, total int, page int, page_size int) CategoryResourceCollection {
+pub fn new_category_resource_collection(categories []models.Category, total int, page int, page_size int) CategoryResourceCollection {
 	mut resources := []CategoryResource{}
 	for c in categories {
 		resources << new_category_resource(&c)
@@ -78,7 +79,7 @@ pub:
 }
 
 // new_tag_resource 从 Tag 实体创建 TagResource
-pub fn new_tag_resource(t &Tag) TagResource {
+pub fn new_tag_resource(t &models.Tag) TagResource {
 	return TagResource{
 		id:         t.id
 		name:       t.name
@@ -101,7 +102,7 @@ pub:
 }
 
 // new_tag_resource_collection 从 Tag 实体列表创建集合
-pub fn new_tag_resource_collection(tags []Tag, total int, page int, page_size int) TagResourceCollection {
+pub fn new_tag_resource_collection(tags []models.Tag, total int, page int, page_size int) TagResourceCollection {
 	mut resources := []TagResource{}
 	for t in tags {
 		resources << new_tag_resource(&t)

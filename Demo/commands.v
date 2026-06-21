@@ -19,7 +19,7 @@ module main
 //  14-22. make:*         — 代码生成命令（controller/model/migration/middleware/provider/
 //                          command/resource/seeder/factory/entity，由框架 cli 模块提供）
 //
-// 所有命令持有 &Bootstrap 引用，访问已装配的服务与基础设施组件。
+// 所有命令持有 &bootstrap.Bootstrap 引用，访问已装配的服务与基础设施组件。
 // main() 在启动时通过 register_commands() 注册到 CliApplication。
 
 import photon.cli
@@ -43,7 +43,7 @@ pub struct ServeCommand {
 }
 
 // new_serve_command 创建启动 Web 服务的命令
-pub fn new_serve_command(boot &Bootstrap) &ServeCommand {
+pub fn new_serve_command(boot &bootstrap.Bootstrap) &ServeCommand {
 	return &ServeCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'serve'
@@ -78,7 +78,7 @@ pub struct MigrateCommand {
 	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_migrate_command(boot &Bootstrap) &MigrateCommand {
+pub fn new_migrate_command(boot &bootstrap.Bootstrap) &MigrateCommand {
 	return &MigrateCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'migrate'
@@ -92,8 +92,8 @@ pub fn new_migrate_command(boot &Bootstrap) &MigrateCommand {
 pub fn (c &MigrateCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Running database migrations')
 
-	mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
-	database.migrations.register_all(mut mm)
+	mut mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
+	migrations.register_all(mut mm)
 	database.run_migrations(mm) or {
 		output.error('Migration failed: ${err}')
 		return
@@ -112,7 +112,7 @@ pub struct MigrateRollbackCommand {
 	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_migrate_rollback_command(boot &Bootstrap) &MigrateRollbackCommand {
+pub fn new_migrate_rollback_command(boot &bootstrap.Bootstrap) &MigrateRollbackCommand {
 	return &MigrateRollbackCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'migrate:rollback'
@@ -126,9 +126,9 @@ pub fn new_migrate_rollback_command(boot &Bootstrap) &MigrateRollbackCommand {
 pub fn (c &MigrateRollbackCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Rolling back database migrations')
 
-	mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
-	database.migrations.register_all(mut mm)
-	rollback_migrations(mm) or {
+	mut mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
+	migrations.register_all(mut mm)
+	database.rollback_migrations(mm) or {
 		output.error('Rollback failed: ${err}')
 		return
 	}
@@ -146,7 +146,7 @@ pub struct MigrateStatusCommand {
 	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_migrate_status_command(boot &Bootstrap) &MigrateStatusCommand {
+pub fn new_migrate_status_command(boot &bootstrap.Bootstrap) &MigrateStatusCommand {
 	return &MigrateStatusCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'migrate:status'
@@ -160,9 +160,9 @@ pub fn new_migrate_status_command(boot &Bootstrap) &MigrateStatusCommand {
 pub fn (c &MigrateStatusCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Migration Status')
 
-	mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
-	database.migrations.register_all(mut mm)
-	migration_status(mm) or {
+	mut mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
+	migrations.register_all(mut mm)
+	database.migration_status(mm) or {
 		output.error('Failed to get migration status: ${err}')
 		return
 	}
@@ -181,7 +181,7 @@ pub struct MigrateFreshCommand {
 	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_migrate_fresh_command(boot &Bootstrap) &MigrateFreshCommand {
+pub fn new_migrate_fresh_command(boot &bootstrap.Bootstrap) &MigrateFreshCommand {
 	return &MigrateFreshCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'migrate:fresh'
@@ -195,9 +195,9 @@ pub fn new_migrate_fresh_command(boot &Bootstrap) &MigrateFreshCommand {
 pub fn (c &MigrateFreshCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Fresh migration (drop all + re-migrate)')
 
-	mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
-	database.migrations.register_all(mut mm)
-	fresh_migrations(mm) or {
+	mut mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
+	migrations.register_all(mut mm)
+	database.fresh_migrations(mm) or {
 		output.error('Fresh migration failed: ${err}')
 		return
 	}
@@ -206,7 +206,7 @@ pub fn (c &MigrateFreshCommand) execute(input &cli.CommandInput, output &cli.Com
 	// --seed 标志：迁移后自动执行种子
 	if input.has_flag('seed') {
 		output.writeln('')
-		mut seeder := new_database_seeder(c.bootstrap)
+		mut seeder := seeders.new_database_seeder(c.bootstrap)
 		seeder.run(output)!
 	}
 
@@ -225,7 +225,7 @@ pub struct MigrateRefreshCommand {
 	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_migrate_refresh_command(boot &Bootstrap) &MigrateRefreshCommand {
+pub fn new_migrate_refresh_command(boot &bootstrap.Bootstrap) &MigrateRefreshCommand {
 	return &MigrateRefreshCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'migrate:refresh'
@@ -239,12 +239,12 @@ pub fn new_migrate_refresh_command(boot &Bootstrap) &MigrateRefreshCommand {
 pub fn (c &MigrateRefreshCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Refresh migration (rollback all + re-migrate)')
 
-	mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
-	database.migrations.register_all(mut mm)
+	mut mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
+	migrations.register_all(mut mm)
 
 	// 1. 回滚所有迁移
 	output.writeln('  Rolling back all migrations...')
-	reset_migrations(mm) or {
+	database.reset_migrations(mm) or {
 		output.error('Reset failed: ${err}')
 		return
 	}
@@ -261,7 +261,7 @@ pub fn (c &MigrateRefreshCommand) execute(input &cli.CommandInput, output &cli.C
 	// --seed 标志：迁移后自动执行种子
 	if input.has_flag('seed') {
 		output.writeln('')
-		mut seeder := new_database_seeder(c.bootstrap)
+		mut seeder := seeders.new_database_seeder(c.bootstrap)
 		seeder.run(output)!
 	}
 
@@ -278,7 +278,7 @@ pub struct MigrateResetCommand {
 	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_migrate_reset_command(boot &Bootstrap) &MigrateResetCommand {
+pub fn new_migrate_reset_command(boot &bootstrap.Bootstrap) &MigrateResetCommand {
 	return &MigrateResetCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'migrate:reset'
@@ -292,9 +292,9 @@ pub fn new_migrate_reset_command(boot &Bootstrap) &MigrateResetCommand {
 pub fn (c &MigrateResetCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Reset migration (rollback all)')
 
-	mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
-	database.migrations.register_all(mut mm)
-	reset_migrations(mm) or {
+	mut mm := database.new_migration_manager(c.bootstrap.orm_mgr)!
+	migrations.register_all(mut mm)
+	database.reset_migrations(mm) or {
 		output.error('Reset failed: ${err}')
 		return
 	}
@@ -312,7 +312,7 @@ pub struct SeedCommand {
 	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_seed_command(boot &Bootstrap) &SeedCommand {
+pub fn new_seed_command(boot &bootstrap.Bootstrap) &SeedCommand {
 	return &SeedCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'seed'
@@ -324,7 +324,7 @@ pub fn new_seed_command(boot &Bootstrap) &SeedCommand {
 }
 
 pub fn (c &SeedCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
-	mut seeder := new_database_seeder(c.bootstrap)
+	mut seeder := seeders.new_database_seeder(c.bootstrap)
 
 	// 支持 --only 参数选择性执行种子
 	only := input.get_option_or('only', '')
@@ -346,7 +346,7 @@ pub struct QueueWorkCommand {
 	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_queue_work_command(boot &Bootstrap) &QueueWorkCommand {
+pub fn new_queue_work_command(boot &bootstrap.Bootstrap) &QueueWorkCommand {
 	return &QueueWorkCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'queue:work'
@@ -379,7 +379,7 @@ pub struct SchedulerRunCommand {
 	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_scheduler_run_command(boot &Bootstrap) &SchedulerRunCommand {
+pub fn new_scheduler_run_command(boot &bootstrap.Bootstrap) &SchedulerRunCommand {
 	return &SchedulerRunCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'scheduler:run'
@@ -395,8 +395,8 @@ pub fn (c &SchedulerRunCommand) execute(input &cli.CommandInput, output &cli.Com
 	output.writeln('Press Ctrl+C to stop (or use process manager: systemd/Docker for graceful shutdown)')
 	output.writeln('')
 
-	sched := new_scheduler(c.bootstrap.stats_svc, c.bootstrap.cache_mgr, c.bootstrap.log)!
-	start_scheduler(sched)
+	sched := services.new_scheduler(c.bootstrap.stats_svc, c.bootstrap.cache_mgr, c.bootstrap.log)!
+	services.start_scheduler(sched)
 
 	output.success('Scheduler is running (${sched.task_count()} tasks registered)')
 	sched.print_status()
@@ -418,7 +418,7 @@ pub struct StatsCommand {
 	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_stats_command(boot &Bootstrap) &StatsCommand {
+pub fn new_stats_command(boot &bootstrap.Bootstrap) &StatsCommand {
 	return &StatsCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'stats'
@@ -462,7 +462,7 @@ pub struct RoutesCommand {
 	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_routes_command(boot &Bootstrap) &RoutesCommand {
+pub fn new_routes_command(boot &bootstrap.Bootstrap) &RoutesCommand {
 	return &RoutesCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'routes'
@@ -505,7 +505,7 @@ pub struct DocsCommand {
 	bootstrap &bootstrap.Bootstrap = unsafe { nil }
 }
 
-pub fn new_docs_command(boot &Bootstrap) &DocsCommand {
+pub fn new_docs_command(boot &bootstrap.Bootstrap) &DocsCommand {
 	return &DocsCommand{
 		BaseCommand: cli.BaseCommand{
 			name:        'docs'
@@ -650,7 +650,7 @@ ${rows}
 // 包括：业务命令（serve/migrate/seed/queue/scheduler/stats/routes/docs）
 //       + 迁移命令（migrate:fresh/refresh/reset）
 //       + 框架提供的 make:* 代码生成命令
-pub fn register_commands(mut app &cli.CliApplication, boot &Bootstrap) {
+pub fn register_commands(mut app &cli.CliApplication, boot &bootstrap.Bootstrap) {
 	// 业务命令
 	app.add_command(new_serve_command(boot))
 	app.add_command(new_migrate_command(boot))

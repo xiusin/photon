@@ -306,7 +306,7 @@ fn test_migration_and_rollback() {
 
 	// 回滚迁移
 	mm := database.new_migration_manager(boot.orm_mgr)!
-	database.migrations.register_all(mut mm)
+	migrations.register_all(mut mm)
 	database.rollback_migrations(mm) or {}
 
 	// 重新迁移

@@ -28,7 +28,7 @@ pub fn (s &CommentSeeder) run(output &cli.CommandOutput) ! {
 	output.section('  Seeding comments')
 
 	// ── 1. 检查是否已有评论 ──
-	existing_count := s.bootstrap.comment_svc.count_by_post(1)
+	existing_count := s.bootstrap.comment_svc.count_by_post(1)!
 	if existing_count > 0 {
 		output.writeln('    Comments already seeded, skipping')
 		return
@@ -36,9 +36,9 @@ pub fn (s &CommentSeeder) run(output &cli.CommandOutput) ! {
 
 	// ── 2. 获取用户与文章列表 ──
 	mut user_repo := unsafe { s.bootstrap.user_repo }
-	users := user_repo.find_all()
+	users := user_repo.find_all()!
 	mut post_repo := unsafe { s.bootstrap.post_repo }
-	posts := post_repo.find_all()
+	posts := post_repo.find_all()!
 	if users.len == 0 || posts.len == 0 {
 		output.warning('    No users or posts found, skipping comment seeding')
 		return

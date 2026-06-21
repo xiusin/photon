@@ -18,6 +18,7 @@ import photon.web
 import time
 import sync
 import services
+import util
 
 // ═══════════════════════════════════════════════════════════
 // RequestLogMiddleware — 请求日志 + 耗时统计
@@ -255,8 +256,10 @@ pub:
 }
 
 pub fn new_csrf_middleware(mgr &security.CsrfManager) &CsrfMiddleware {
-	return &CsrfMiddleware{
-		mgr: mgr
+	return unsafe {
+		&CsrfMiddleware{
+			mgr: mgr
+		}
 	}
 }
 
@@ -277,7 +280,7 @@ pub fn (m &CsrfMiddleware) handle(mut ctx veb.Context) ! {
 	actual := m.mgr.get_actual_token(actual_header, actual_form)
 
 	// 从 cookie 存储中读取期望 token
-	mut mgr := m.mgr
+	mut mgr := unsafe { m.mgr }
 	expected := mgr.get_expected_token()
 
 	// 若期望 token 为空（首次请求或 cookie 失效），跳过校验

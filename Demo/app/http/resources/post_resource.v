@@ -9,6 +9,7 @@ module resources
 // Spring 等价：PostDTO + @JsonView
 
 import json
+import models
 
 // ═══════════════════════════════════════════════════════════
 // PostResource — 文章 API Resource
@@ -22,15 +23,16 @@ pub:
 	content    string @[skip_empty]
 	status     string
 	views      int
+	created_at string
+	updated_at string
+pub mut:
 	author     UserResource @[skip_empty]
 	category   CategoryResource @[skip_empty]
 	tags       []TagResource @[skip_empty]
-	created_at string
-	updated_at string
 }
 
 // new_post_resource 从 Post 实体创建 PostResource（不含关联）
-pub fn new_post_resource(p &Post) PostResource {
+pub fn new_post_resource(p &models.Post) PostResource {
 	return PostResource{
 		id:         p.id
 		title:      p.title
@@ -44,7 +46,7 @@ pub fn new_post_resource(p &Post) PostResource {
 }
 
 // new_post_resource_with_relations 从 Post 实体创建 PostResource（含关联）
-pub fn new_post_resource_with_relations(p &Post, author &User, category &Category, tags []Tag) PostResource {
+pub fn new_post_resource_with_relations(p &models.Post, author &models.User, category &models.Category, tags []models.Tag) PostResource {
 	mut resource := new_post_resource(p)
 	if !isnil(author) && author.id > 0 {
 		resource.author = new_user_resource(author)
@@ -78,7 +80,7 @@ pub:
 }
 
 // new_post_resource_collection 从 Post 实体列表创建集合
-pub fn new_post_resource_collection(posts []Post, total int, page int, page_size int) PostResourceCollection {
+pub fn new_post_resource_collection(posts []models.Post, total int, page int, page_size int) PostResourceCollection {
 	mut resources := []PostResource{}
 	for p in posts {
 		resources << new_post_resource(&p)

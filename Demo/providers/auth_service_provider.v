@@ -9,8 +9,10 @@ module providers
 
 import photon.core
 import photon.security
+import config
 
 pub struct AuthServiceProvider {
+mut:
 	ctx &BootContext
 }
 
@@ -33,16 +35,14 @@ pub fn (sp &AuthServiceProvider) register(mut app_ctx core.ApplicationContext) !
 		expiration_minutes:             cfg.jwt.expiration_minutes
 		refresh_token_expiration_hours: cfg.jwt.refresh_hours
 	})
-	sp.ctx.jwt_mgr = jwt_mgr
 
 	// ── RoleHierarchy（从 config/auth.v 读取，非硬编码） ──
 	mut rh := security.new_role_hierarchy()
 	// 解析配置中的角色层级字符串（如 "ADMIN>EDITOR>USER"）
-	hierarchy_pairs := parse_role_hierarchy(cfg.auth.role_hierarchy)
+	hierarchy_pairs := config.parse_role_hierarchy(cfg.auth.role_hierarchy)
 	for pair in hierarchy_pairs {
 		rh.add_role(pair.role, pair.subordinates)
 	}
-	sp.ctx.role_hierarchy = rh
 
 	// ── CsrfManager（Double-Submit Cookie 模式，用于 Web 表单路由） ──
 	// API 路由使用 JWT Bearer 令牌，不需要 CSRF 保护；
@@ -59,7 +59,13 @@ pub fn (sp &AuthServiceProvider) register(mut app_ctx core.ApplicationContext) !
 		cookie_same_site: 'Lax'
 		ignored_methods: ['GET', 'HEAD', 'OPTIONS', 'TRACE']
 	})
-	sp.ctx.csrf_mgr = csrf_mgr
+
+	unsafe {
+		mut bctx := sp.ctx
+		bctx.jwt_mgr = jwt_mgr
+		bctx.role_hierarchy = rh
+		bctx.csrf_mgr = csrf_mgr
+	}
 
 	log.info('JwtManager + RoleHierarchy + CsrfManager initialized — ${cfg.auth.role_hierarchy}')
 

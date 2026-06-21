@@ -144,7 +144,7 @@ pub fn (mut s UserService) register(dto models.CreateUserDto) !(models.User, str
 	}
 
 	// 事务保证：用户持久化原子性（为未来多步操作如初始化统计预留事务边界）
-	mut tx := begin_transaction(s.repo.db)!
+	mut tx := database.begin_transaction(s.repo.db)!
 	defer {
 		tx.auto_rollback()
 	}
@@ -431,7 +431,7 @@ pub fn (mut s PostService) create(dto models.CreatePostDto) !models.Post {
 	}
 
 	// 事务保证：持久化失败则回滚（单写操作事务，为未来多步扩展预留原子性边界）
-	mut tx := begin_transaction(s.repo.db)!
+	mut tx := database.begin_transaction(s.repo.db)!
 	defer {
 		tx.auto_rollback()
 	}
@@ -526,7 +526,7 @@ pub fn (mut s PostService) update(id int, dto models.UpdatePostDto) !models.Post
 	}
 
 	// 事务保证：更新失败则回滚
-	mut tx := begin_transaction(s.repo.db)!
+	mut tx := database.begin_transaction(s.repo.db)!
 	defer {
 		tx.auto_rollback()
 	}
@@ -558,7 +558,7 @@ pub fn (mut s PostService) update(id int, dto models.UpdatePostDto) !models.Post
 	tx.commit()!
 
 	// 事务后副作用：TaggedCache 批量失效 'posts' 标签下所有缓存键
-	flush_cache_tag(s.cache, 'posts')
+	util.flush_cache_tag(s.cache, 'posts')
 
 	s.logger.info('[PostService] 文章更新成功: id=${post.id}')
 
@@ -589,7 +589,7 @@ pub fn (mut s PostService) delete(id int) ! {
 	}
 
 	// 事务保证：删除失败则回滚
-	mut tx := begin_transaction(s.repo.db)!
+	mut tx := database.begin_transaction(s.repo.db)!
 	defer {
 		tx.auto_rollback()
 	}
@@ -599,7 +599,7 @@ pub fn (mut s PostService) delete(id int) ! {
 	tx.commit()!
 
 	// 事务后副作用：TaggedCache 批量失效 'posts' 标签下所有缓存键
-	flush_cache_tag(s.cache, 'posts')
+	util.flush_cache_tag(s.cache, 'posts')
 
 	s.logger.info('[PostService] 文章删除成功: id=${id}')
 }
@@ -635,7 +635,7 @@ pub fn (mut s PostService) publish(id int) !models.Post {
 	post = repo.update(mut post)!
 
 	// TaggedCache 批量失效 'posts' 标签下所有缓存键
-	flush_cache_tag(s.cache, 'posts')
+	util.flush_cache_tag(s.cache, 'posts')
 
 	s.logger.info('[PostService] 文章发布成功: id=${post.id} title="${post.title}"')
 
@@ -695,7 +695,7 @@ pub fn (mut s CommentService) create(dto models.CreateCommentDto) !models.Commen
 
 	// 事务保证：评论创建 + 文章活动时间更新原子性
 	// 任一步骤失败则整体回滚（评论不会孤立存在）
-	mut tx := begin_transaction(s.repo.db)!
+	mut tx := database.begin_transaction(s.repo.db)!
 	defer {
 		tx.auto_rollback()
 	}
@@ -780,7 +780,7 @@ pub fn (mut s CategoryService) create(dto models.CreateCategoryDto) !models.Cate
 	// 生成 slug（若未提供，从 name 生成）
 	mut slug := dto.slug
 	if slug.len == 0 {
-		slug = generate_slug(dto.name)
+		slug = util.generate_slug(dto.name)
 	}
 
 	// 校验 slug 唯一性
@@ -873,7 +873,7 @@ pub fn (mut s TagService) create(dto models.CreateTagDto) !models.Tag {
 	// 生成 slug
 	mut slug := dto.slug
 	if slug.len == 0 {
-		slug = generate_slug(dto.name)
+		slug = util.generate_slug(dto.name)
 	}
 
 	// 校验 slug 唯一性
@@ -1092,7 +1092,7 @@ pub fn (mut s StatsService) get_comment_count() !int {
 
 // invalidate_cache 失效所有统计缓存（TaggedCache 批量失效 'stats' 标签）
 pub fn (mut s StatsService) invalidate_cache() ! {
-	flush_cache_tag(s.cache, 'stats')
+	util.flush_cache_tag(s.cache, 'stats')
 	s.logger.info('[StatsService] 统计缓存已失效')
 }
 

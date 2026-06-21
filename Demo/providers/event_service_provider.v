@@ -9,8 +9,10 @@ module providers
 // Spring 等价：@EventListener + ApplicationEventPublisher
 
 import photon.core
+import services
 
 pub struct EventServiceProvider {
+mut:
 	ctx &BootContext
 }
 
@@ -26,7 +28,10 @@ pub fn (sp &EventServiceProvider) register(mut app_ctx core.ApplicationContext) 
 	log := sp.ctx.log
 
 	event_bus := core.new_event_bus()
-	sp.ctx.event_bus = event_bus
+	unsafe {
+		mut bctx := sp.ctx
+		bctx.event_bus = event_bus
+	}
 	log.info('EventBus initialized')
 
 	app_ctx.register_instance('EventBus', unsafe { voidptr(event_bus) })!
@@ -38,6 +43,6 @@ pub fn (sp &EventServiceProvider) boot(mut app_ctx core.ApplicationContext) ! {
 	event_bus := sp.ctx.event_bus
 	cache_mgr := sp.ctx.cache_mgr
 
-	register_event_listeners(event_bus, cache_mgr, log)
+	services.register_event_listeners(event_bus, cache_mgr, log)
 	log.info('Event listeners registered')
 }

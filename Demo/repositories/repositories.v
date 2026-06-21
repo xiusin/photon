@@ -98,9 +98,10 @@ fn user_exec_exists(conn voidptr, id int) bool {
 // ── 仓储结构体 ──
 
 pub struct UserRepository {
-pub:
+mut:
 	base &phorm.BaseRepository[models.User]
-	db   &sqlite.DB
+pub:
+	db &sqlite.DB
 }
 
 // new_user_repository 创建用户仓储，注册 7 个原生 SQL 回调到 BaseRepository[User]
@@ -257,9 +258,10 @@ fn post_exec_exists(conn voidptr, id int) bool {
 // ── 仓储结构体 ──
 
 pub struct PostRepository {
-pub:
+mut:
 	base &phorm.BaseRepository[models.Post]
-	db   &sqlite.DB
+pub:
+	db &sqlite.DB
 }
 
 pub fn new_post_repository(manager &phorm.OrmManager) !&PostRepository {
@@ -433,9 +435,10 @@ fn comment_exec_exists(conn voidptr, id int) bool {
 // ── 仓储结构体 ──
 
 pub struct CommentRepository {
-pub:
+mut:
 	base &phorm.BaseRepository[models.Comment]
-	db   &sqlite.DB
+pub:
+	db &sqlite.DB
 }
 
 pub fn new_comment_repository(manager &phorm.OrmManager) !&CommentRepository {
@@ -592,9 +595,10 @@ fn category_exec_exists(conn voidptr, id int) bool {
 // ── 仓储结构体 ──
 
 pub struct CategoryRepository {
-pub:
+mut:
 	base &phorm.BaseRepository[models.Category]
-	db   &sqlite.DB
+pub:
+	db &sqlite.DB
 }
 
 pub fn new_category_repository(manager &phorm.OrmManager) !&CategoryRepository {
@@ -729,9 +733,10 @@ fn tag_exec_exists(conn voidptr, id int) bool {
 // ── 仓储结构体 ──
 
 pub struct TagRepository {
-pub:
+mut:
 	base &phorm.BaseRepository[models.Tag]
-	db   &sqlite.DB
+pub:
+	db &sqlite.DB
 }
 
 pub fn new_tag_repository(manager &phorm.OrmManager) !&TagRepository {

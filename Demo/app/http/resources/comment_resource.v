@@ -8,6 +8,7 @@ module resources
 // Laravel 等价：App\Http\Resources\CommentResource
 
 import json
+import models
 
 // ═══════════════════════════════════════════════════════════
 // CommentResource — 评论 API Resource
@@ -18,14 +19,15 @@ pub:
 	id         int
 	content    string
 	status     string
-	user       UserResource @[skip_empty]
-	replies    []CommentResource @[skip_empty]
 	created_at string
 	updated_at string
+pub mut:
+	user       UserResource @[skip_empty]
+	replies    []CommentResource @[skip_empty]
 }
 
 // new_comment_resource 从 Comment 实体创建 CommentResource（不含关联）
-pub fn new_comment_resource(c &Comment) CommentResource {
+pub fn new_comment_resource(c &models.Comment) CommentResource {
 	return CommentResource{
 		id:         c.id
 		content:    c.content
@@ -36,7 +38,7 @@ pub fn new_comment_resource(c &Comment) CommentResource {
 }
 
 // new_comment_resource_with_user 从 Comment 实体创建 CommentResource（含用户）
-pub fn new_comment_resource_with_user(c &Comment, user &User) CommentResource {
+pub fn new_comment_resource_with_user(c &models.Comment, user &models.User) CommentResource {
 	mut resource := new_comment_resource(c)
 	if !isnil(user) && user.id > 0 {
 		resource.user = new_user_resource(user)
@@ -45,7 +47,7 @@ pub fn new_comment_resource_with_user(c &Comment, user &User) CommentResource {
 }
 
 // new_comment_resource_with_replies 从 Comment 实体创建 CommentResource（含用户和回复）
-pub fn new_comment_resource_with_replies(c &Comment, user &User, replies []CommentResource) CommentResource {
+pub fn new_comment_resource_with_replies(c &models.Comment, user &models.User, replies []CommentResource) CommentResource {
 	mut resource := new_comment_resource_with_user(c, user)
 	if replies.len > 0 {
 		resource.replies = replies
@@ -69,7 +71,7 @@ pub:
 }
 
 // new_comment_resource_collection 从 Comment 实体列表创建集合
-pub fn new_comment_resource_collection(comments []Comment, total int, page int, page_size int) CommentResourceCollection {
+pub fn new_comment_resource_collection(comments []models.Comment, total int, page int, page_size int) CommentResourceCollection {
 	mut resources := []CommentResource{}
 	for c in comments {
 		resources << new_comment_resource(&c)

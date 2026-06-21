@@ -18,8 +18,8 @@ pub fn test_setup() !&bootstrap.Bootstrap {
 	kernel := bootstrap.new_app_kernel(cfg)!
 	kernel.bootstrap()!
 	boot := kernel.to_bootstrap()
-	mm := database.new_migration_manager(boot.orm_mgr)!
-	database.migrations.register_all(mut mm)
+	mut mm := database.new_migration_manager(boot.orm_mgr)!
+	migrations.register_all(mut mm)
 	database.run_migrations(mm)!
 	return boot
 }

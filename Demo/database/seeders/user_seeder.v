@@ -30,15 +30,15 @@ pub fn new_user_seeder(boot &bootstrap.Bootstrap) &UserSeeder {
 pub fn (s &UserSeeder) run(output &cli.CommandOutput) ! {
 	output.section('  Seeding users')
 
-	admin_password := os.getenv('SEED_ADMIN_PASSWORD')
+	mut admin_password := os.getenv('SEED_ADMIN_PASSWORD')
 	if admin_password.len == 0 {
 		admin_password = 'admin123'
 	}
-	editor_password := os.getenv('SEED_EDITOR_PASSWORD')
+	mut editor_password := os.getenv('SEED_EDITOR_PASSWORD')
 	if editor_password.len == 0 {
 		editor_password = 'editor123'
 	}
-	user_password := os.getenv('SEED_USER_PASSWORD')
+	mut user_password := os.getenv('SEED_USER_PASSWORD')
 	if user_password.len == 0 {
 		user_password = 'user123'
 	}

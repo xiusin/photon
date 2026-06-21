@@ -10,6 +10,7 @@ module resources
 
 import time
 import json
+import models
 
 // ═══════════════════════════════════════════════════════════
 // UserResource — 用户 API Resource
@@ -29,7 +30,7 @@ pub:
 }
 
 // new_user_resource 从 User 实体创建 UserResource
-pub fn new_user_resource(u &User) UserResource {
+pub fn new_user_resource(u &models.User) UserResource {
 	return UserResource{
 		id:         u.id
 		username:   u.username
@@ -59,7 +60,7 @@ pub:
 }
 
 // new_user_resource_collection 从 User 实体列表创建集合
-pub fn new_user_resource_collection(users []User, total int, page int, page_size int) UserResourceCollection {
+pub fn new_user_resource_collection(users []models.User, total int, page int, page_size int) UserResourceCollection {
 	mut resources := []UserResource{}
 	for u in users {
 		resources << new_user_resource(&u)

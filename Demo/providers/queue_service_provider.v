@@ -10,8 +10,10 @@ module providers
 
 import photon.core
 import photon.queue
+import services
 
 pub struct QueueServiceProvider {
+mut:
 	ctx &BootContext
 }
 
@@ -27,7 +29,10 @@ pub fn (sp &QueueServiceProvider) register(mut app_ctx core.ApplicationContext) 
 	log := sp.ctx.log
 
 	worker := queue.new_worker()
-	sp.ctx.worker = worker
+	unsafe {
+		mut bctx := sp.ctx
+		bctx.worker = worker
+	}
 	log.info('QueueWorker initialized')
 
 	app_ctx.register_instance('QueueWorker', unsafe { voidptr(worker) })!
@@ -44,9 +49,9 @@ pub fn (sp &QueueServiceProvider) boot(mut app_ctx core.ApplicationContext) ! {
 	post_repo := sp.ctx.post_repo
 	comment_repo := sp.ctx.comment_repo
 
-	init_job_globals(mailer_inst, cache_mgr, log, user_repo, post_repo, comment_repo)
+	services.init_job_globals(mailer_inst, cache_mgr, log, user_repo, post_repo, comment_repo)
 	log.info('Job globals initialized')
 
-	register_jobs(worker)
+	services.register_jobs(worker)
 	log.info('Job factories registered')
 }

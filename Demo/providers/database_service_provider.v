@@ -13,6 +13,7 @@ import database
 import database.migrations
 
 pub struct DatabaseServiceProvider {
+mut:
 	ctx &BootContext
 }
 
@@ -29,7 +30,10 @@ pub fn (sp &DatabaseServiceProvider) register(mut app_ctx core.ApplicationContex
 	log := sp.ctx.log
 
 	orm_mgr := database.init_database(cfg.database)!
-	sp.ctx.orm_mgr = orm_mgr
+	unsafe {
+		mut bctx := sp.ctx
+		bctx.orm_mgr = orm_mgr
+	}
 	log.info('OrmManager initialized — ${cfg.database.driver} (${cfg.database.path})')
 
 	app_ctx.register_instance('OrmManager', unsafe { voidptr(orm_mgr) })!
@@ -40,8 +44,8 @@ pub fn (sp &DatabaseServiceProvider) boot(mut app_ctx core.ApplicationContext) !
 	log := sp.ctx.log
 	orm_mgr := sp.ctx.orm_mgr
 
-	mm := database.new_migration_manager(orm_mgr)!
-	database.migrations.register_all(mut mm)
+	mut mm := database.new_migration_manager(orm_mgr)!
+	migrations.register_all(mut mm)
 	log.info('Running database migrations...')
 	database.run_migrations(mm)!
 	log.info('Database migrations applied')

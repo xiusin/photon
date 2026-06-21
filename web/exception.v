@@ -240,7 +240,7 @@ pub fn (mut r ExceptionHandlerRegistry) handle_with_status(err IError) (int, str
 
 	// Try specific handler first
 	if handler := r.handlers[err_type] {
-		status := extract_http_status(err)
+		mut status := extract_http_status(err)
 		if status == 0 {
 			status = 500
 		}

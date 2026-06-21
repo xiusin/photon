@@ -12,6 +12,7 @@ import photon.core
 import photon.cache
 
 pub struct CacheServiceProvider {
+mut:
 	ctx &BootContext
 }
 
@@ -30,7 +31,10 @@ pub fn (sp &CacheServiceProvider) register(mut app_ctx core.ApplicationContext) 
 	unsafe {
 		cache_mgr.register('default', cache.new_memory_cache('default'))
 	}
-	sp.ctx.cache_mgr = cache_mgr
+	unsafe {
+		mut bctx := sp.ctx
+		bctx.cache_mgr = cache_mgr
+	}
 	log.info('CacheManager initialized — memory driver "default"')
 
 	app_ctx.register_instance('CacheManager', unsafe { voidptr(cache_mgr) })!

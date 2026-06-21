@@ -12,6 +12,7 @@ import photon.core
 import services
 
 pub struct ServiceServiceProvider {
+mut:
 	ctx &BootContext
 }
 
@@ -51,14 +52,17 @@ pub fn (sp &ServiceServiceProvider) register(mut app_ctx core.ApplicationContext
 	stats_svc := services.new_stats_service(user_repo, post_repo, comment_repo, cache_mgr, lock_mgr, log)
 	upload_svc := services.new_upload_service(storage_mgr, upload_handler, cfg.storage.base_path, log)
 
-	sp.ctx.user_svc = user_svc
-	sp.ctx.auth_svc = auth_svc
-	sp.ctx.post_svc = post_svc
-	sp.ctx.comment_svc = comment_svc
-	sp.ctx.category_svc = category_svc
-	sp.ctx.tag_svc = tag_svc
-	sp.ctx.stats_svc = stats_svc
-	sp.ctx.upload_svc = upload_svc
+	unsafe {
+		mut bctx := sp.ctx
+		bctx.user_svc = user_svc
+		bctx.auth_svc = auth_svc
+		bctx.post_svc = post_svc
+		bctx.comment_svc = comment_svc
+		bctx.category_svc = category_svc
+		bctx.tag_svc = tag_svc
+		bctx.stats_svc = stats_svc
+		bctx.upload_svc = upload_svc
+	}
 	log.info('Services created — User/Auth/Post/Comment/Category/Tag/Stats/Upload')
 
 	// 注册到 ApplicationContext
