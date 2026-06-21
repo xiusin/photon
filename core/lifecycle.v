@@ -465,7 +465,7 @@ pub struct ShutdownStage {
 pub:
 	name     string
 	priority int @[required]
-	hook     fn () !
+	hook     fn () ! = unsafe { nil }
 }
 
 // OrderedShutdownManager manages ordered shutdown stages.

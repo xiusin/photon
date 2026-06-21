@@ -90,7 +90,7 @@ pub fn (mut r RateLimiter) hit(key string) {
 	attempts << now
 	// Bound the slice: trim oldest entries if over threshold
 	if attempts.len > max_attempts_per_key {
-		attempts = attempts[attempts.len - max_attempts_per_key..]
+		attempts = attempts[attempts.len - max_attempts_per_key..].clone()
 	}
 	r.attempts[key] = attempts
 }
@@ -219,7 +219,7 @@ pub fn (mut r RateLimiter) hit_and_record(key string, max_attempts int, decay_se
 	attempts << now
 	// Bound the slice: trim oldest entries if over threshold
 	if attempts.len > max_attempts_per_key {
-		attempts = attempts[attempts.len - max_attempts_per_key..]
+		attempts = attempts[attempts.len - max_attempts_per_key..].clone()
 	}
 	r.attempts[key] = attempts
 

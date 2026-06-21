@@ -36,7 +36,7 @@ pub type HandlerFn = fn (ctx voidptr) !voidptr
 struct KernelListenerEntry {
 pub:
 	id       int
-	listener KernelListener
+	listener KernelListener = unsafe { nil }
 }
 
 // HandlerResolver resolves a request to a handler function.

@@ -1157,7 +1157,7 @@ pub fn (mut c Container) set_instance(type_name string, instance voidptr) {
 
 	// Transition bean state from instantiating → ready
 	if type_name in c.definitions {
-		mut def := c.definitions[type_name]
+		mut def := unsafe { c.definitions[type_name] }
 		def.state = .ready
 		c.definitions[type_name] = def
 	}
@@ -1304,7 +1304,7 @@ pub fn (mut c Container) remove_definition(type_name string) ! {
 	}
 
 	// Remove qualifier mapping if present
-	def := c.definitions[type_name]
+	def := unsafe { c.definitions[type_name] }
 	if def.qualifier.len > 0 && c.qualifiers[def.qualifier] == type_name {
 		c.qualifiers.delete(def.qualifier)
 	}
@@ -1679,7 +1679,7 @@ pub fn (mut c Container) replace_definition(def BeanDefinition) ! {
 	}
 
 	// Update qualifier mapping
-	old_def := c.definitions[def.type_name]
+	old_def := unsafe { c.definitions[def.type_name] }
 	if old_def.qualifier.len > 0 && c.qualifiers[old_def.qualifier] == def.type_name {
 		c.qualifiers.delete(old_def.qualifier)
 	}

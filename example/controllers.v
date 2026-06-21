@@ -247,7 +247,7 @@ pub fn (mut app App) put_user(mut ctx Context) veb.Result {
 	if id_str.len == 0 {
 		return ctx.json_error(400, 'missing user ID')
 	}
-	uid := id.int()
+	uid := id_str.int()
 	email := ctx.query['email'] or { ctx.form['email'] or { '' } }
 	nickname := ctx.query['nickname'] or { ctx.form['nickname'] or { '' } }
 	avatar := ctx.query['avatar'] or { ctx.form['avatar'] or { '' } }
@@ -256,7 +256,7 @@ pub fn (mut app App) put_user(mut ctx Context) veb.Result {
 		nickname: nickname
 		avatar:   avatar
 	}
-	user := app.user_service.update(id, req) or { return ctx.json_error(404, err.msg()) }
+	user := app.user_service.update(uid, req) or { return ctx.json_error(404, err.msg()) }
 	return ctx.json_response(200, '${UserProfile{
 		id:       user.id
 		username: user.username

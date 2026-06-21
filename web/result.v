@@ -74,7 +74,6 @@ pub fn fail(code int, msg string) Result {
 // page creates a paginated Result
 pub fn page(data string, page int, page_size int, total int) PageResult {
 	total_pages := (total + page_size - 1) / page_size
-	base := success(data)
 	return PageResult{
 		Result:     success(data)
 		pagination: Pagination{
