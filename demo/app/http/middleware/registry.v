@@ -7,7 +7,7 @@ import photon.logger
 import photon.security
 import photon.web
 import util
-import config
+import appconfig
 import services
 
 // ═══════════════════════════════════════════════════════════
@@ -31,7 +31,7 @@ pub mut:
 
 // new_middleware_group_registry 创建中间件组注册表
 pub fn new_middleware_group_registry(
-	cfg config.WebConfig,
+	cfg appconfig.WebConfig,
 	auth_svc &services.AuthService,
 	rh &security.RoleHierarchy,
 	csrf_mgr &security.CsrfManager,
@@ -381,8 +381,8 @@ pub fn (m &CsrfMiddleware) handle(mut ctx veb.Context) ! {
 		return
 	}
 
-	actual_header := ctx.get_custom_header(m.mgr.config.header_name) or { '' }
-	actual_form := ctx.get_custom_header(m.mgr.config.form_field_name) or { '' }
+	actual_header := ctx.get_custom_header(m.mgr.appconfig.header_name) or { '' }
+	actual_form := ctx.get_custom_header(m.mgr.appconfig.form_field_name) or { '' }
 	actual := m.mgr.get_actual_token(actual_header, actual_form)
 
 	mut mgr := m.mgr

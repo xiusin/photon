@@ -1,4 +1,4 @@
-module config
+module appconfig
 
 // config/app.v — 应用元信息配置
 //

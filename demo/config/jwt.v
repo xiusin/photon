@@ -1,4 +1,4 @@
-module config
+module appconfig
 
 // config/jwt.v — JWT 认证配置
 //

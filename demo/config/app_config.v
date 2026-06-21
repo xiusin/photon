@@ -1,4 +1,4 @@
-module config
+module appconfig
 
 import util
 
