@@ -95,5 +95,6 @@ pub fn (f CommentFactory) create() !models.Comment {
 		parent_id: f.parent_id
 	}
 	mut svc := unsafe { f.bootstrap.comment_svc }
-	return svc.create(dto)!
+	comment, _ := svc.create(dto, f.user_id)!
+	return comment
 }

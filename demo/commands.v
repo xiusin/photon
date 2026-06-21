@@ -91,11 +91,10 @@ pub fn new_migrate_command(boot &bootstrap.Bootstrap) &MigrateCommand {
 pub fn (c &MigrateCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Running database migrations')
 
-	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)!
-	database.run_migrations(mm) or {
-		output.error('Migration failed: ${err}')
-		return
-	}
+	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)
+	mut mm_mut := unsafe { mut mm }
+	mm_mut.initialize()!
+	mm_mut.migrate()!
 
 	output.success('Migrations completed successfully')
 	return
@@ -124,11 +123,9 @@ pub fn new_migrate_rollback_command(boot &bootstrap.Bootstrap) &MigrateRollbackC
 pub fn (c &MigrateRollbackCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Rolling back database migrations')
 
-	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)!
-	database.rollback_migrations(mm) or {
-		output.error('Rollback failed: ${err}')
-		return
-	}
+	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)
+	mut mm_mut := unsafe { mut mm }
+	mm_mut.rollback() or { return }
 
 	output.success('Rollback completed successfully')
 	return
@@ -157,11 +154,9 @@ pub fn new_migrate_status_command(boot &bootstrap.Bootstrap) &MigrateStatusComma
 pub fn (c &MigrateStatusCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Migration Status')
 
-	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)!
-	database.migration_status(mm) or {
-		output.error('Failed to get migration status: ${err}')
-		return
-	}
+	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)
+	mut mm_mut := unsafe { mut mm }
+	mm_mut.status()!
 
 	return
 }
@@ -191,11 +186,9 @@ pub fn new_migrate_fresh_command(boot &bootstrap.Bootstrap) &MigrateFreshCommand
 pub fn (c &MigrateFreshCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Fresh migration (drop all + re-migrate)')
 
-	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)!
-	database.fresh_migrations(mm) or {
-		output.error('Fresh migration failed: ${err}')
-		return
-	}
+	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)
+	mut mm_mut := unsafe { mut mm }
+	mm_mut.fresh()!
 	output.success('Fresh migration completed successfully')
 
 	// --seed 标志：迁移后自动执行种子
@@ -234,22 +227,19 @@ pub fn new_migrate_refresh_command(boot &bootstrap.Bootstrap) &MigrateRefreshCom
 pub fn (c &MigrateRefreshCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Refresh migration (rollback all + re-migrate)')
 
-	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)!
+	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)
 
 	// 1. 回滚所有迁移
 	output.writeln('  Rolling back all migrations...')
-	database.reset_migrations(mm) or {
-		output.error('Reset failed: ${err}')
-		return
-	}
+	mut mm_mut2 := unsafe { mut mm }
+	mm_mut2.reset()!
 	output.success('  All migrations rolled back')
 
 	// 2. 重新执行迁移
 	output.writeln('  Re-running migrations...')
-	database.run_migrations(mm) or {
-		output.error('Re-migration failed: ${err}')
-		return
-	}
+	mut mm_mut := unsafe { mut mm }
+	mm_mut.initialize()!
+	mm_mut.migrate()!
 	output.success('  Migrations re-run successfully')
 
 	// --seed 标志：迁移后自动执行种子
@@ -286,11 +276,9 @@ pub fn new_migrate_reset_command(boot &bootstrap.Bootstrap) &MigrateResetCommand
 pub fn (c &MigrateResetCommand) execute(input &cli.CommandInput, output &cli.CommandOutput) ! {
 	output.title('Reset migration (rollback all)')
 
-	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)!
-	database.reset_migrations(mm) or {
-		output.error('Reset failed: ${err}')
-		return
-	}
+	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)
+	mut mm_mut := unsafe { mut mm }
+	mm_mut.reset()!
 
 	output.success('All migrations rolled back successfully')
 	return
@@ -388,7 +376,7 @@ pub fn (c &SchedulerRunCommand) execute(input &cli.CommandInput, output &cli.Com
 	output.writeln('Press Ctrl+C to stop (or use process manager: systemd/Docker for graceful shutdown)')
 	output.writeln('')
 
-	sched := services.new_scheduler(c.bootstrap.stats_svc, c.bootstrap.cache_mgr, c.bootstrap.log)!
+	mut sched := services.new_scheduler(c.bootstrap.stats_svc, c.bootstrap.cmgr, c.bootstrap.log)!
 	services.start_scheduler(sched)
 
 	output.success('Scheduler is running (${sched.task_count()} tasks registered)')

@@ -114,6 +114,9 @@ pub fn (f UserFactory) make() models.User {
 // 通过 UserService.register() 持久化，自动处理密码哈希、
 // 唯一性校验、事件分发。若用户名已存在则返回错误。
 pub fn (f UserFactory) create() !models.User {
+	hasher := security.BcryptHasher{}
+	hashed_password := hasher.make(f.password)
+
 	dto := models.CreateUserDto{
 		username: f.username
 		email:    f.email
@@ -123,7 +126,7 @@ pub fn (f UserFactory) create() !models.User {
 		github:   f.github
 	}
 	mut svc := unsafe { f.bootstrap.user_svc }
-	user, _ := svc.register(dto)!
+	user, _ := svc.register(dto, hashed_password)!
 	return user
 }
 

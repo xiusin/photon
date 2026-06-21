@@ -278,7 +278,7 @@ pub fn (mut m SmartLifecycleManager) stop_all() {
 	}
 
 	done := chan bool{cap: 1}
-	spawn fn (entries []core.SmartLifecycleEntry, d chan bool) {
+	spawn fn (entries []SmartLifecycleEntry, d chan bool) {
 		for entry in entries {
 			if !isnil(entry.bean) && entry.bean.is_running() {
 				entry.bean.stop() or {

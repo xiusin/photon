@@ -11,6 +11,7 @@ module seeders
 import bootstrap
 import photon.cli
 import os
+import database.factories
 
 // UserSeeder 用户种子
 pub struct UserSeeder {
@@ -45,7 +46,7 @@ pub fn (s &UserSeeder) run(output &cli.CommandOutput) ! {
 	mut created_count := 0
 
 	// ── 1. 创建 1 个 ADMIN ──
-	admin := new_user_factory(s.bootstrap).
+	admin := factories.new_user_factory(s.bootstrap).
 		with_username('admin').
 		with_email('admin@photonblog.dev').
 		with_password(admin_password).
@@ -60,7 +61,7 @@ pub fn (s &UserSeeder) run(output &cli.CommandOutput) ! {
 	// ── 2. 创建 2 个 EDITOR ──
 	editor_names := ['editor1', 'editor2']
 	for i, name in editor_names {
-		user := new_user_factory(s.bootstrap).
+		user := factories.new_user_factory(s.bootstrap).
 			with_username(name).
 			with_email('${name}@photonblog.dev').
 			with_password(editor_password).
@@ -79,7 +80,7 @@ pub fn (s &UserSeeder) run(output &cli.CommandOutput) ! {
 	// ── 3. 创建 5 个 USER ──
 	for i in 1 .. 6 {
 		name := 'user${i}'
-		user := new_user_factory(s.bootstrap).
+		user := factories.new_user_factory(s.bootstrap).
 			with_username(name).
 			with_email('${name}@photonblog.dev').
 			with_password(user_password).

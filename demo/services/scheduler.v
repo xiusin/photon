@@ -3,14 +3,14 @@ module services
 // scheduler.v — PhotonBlog 定时调度任务
 
 import photon.ticker
-import photon.cache
+import photon.cache as pcache
 import photon.logger
 import photon.queue
 import json
 import time
 
 // new_scheduler 创建并配置调度器
-pub fn new_scheduler(stats_svc &StatsService, cache_mgr &cache.CacheManager, log &logger.Logger) !&ticker.Scheduler {
+pub fn new_scheduler(stats_svc &StatsService, cache_mgr pcache.Cache, log &logger.Logger) !&ticker.Scheduler {
 	mut sched := ticker.new_task_scheduler()
 
 	// 每分钟：统计聚合

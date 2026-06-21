@@ -16,6 +16,7 @@ import photon.security
 import photon.queue
 import photon.orm as phorm
 import photon.web
+import db.sqlite
 import config
 import repositories
 import services
@@ -31,7 +32,7 @@ pub:
 	log            &logger.Logger
 	app_context    &core.ApplicationContext
 	event_bus      &core.EventBus
-	cache_mgr      &cache.CacheManager
+	cmgr           cache.Cache
 	orm_mgr        &phorm.OrmManager
 	lock_mgr       &locking.LockManager
 	storage_mgr    &storage.StorageManager
@@ -80,7 +81,7 @@ pub mut:
 	log            &logger.Logger
 	app_context    &core.ApplicationContext
 	event_bus      &core.EventBus
-	cache_mgr      &cache.CacheManager
+	cmgr           cache.Cache
 	orm_mgr        &phorm.OrmManager
 	lock_mgr       &locking.LockManager
 	storage_mgr    &storage.StorageManager
@@ -113,31 +114,36 @@ pub mut:
 pub fn new_app_kernel(cfg config.AppConfig) !&AppKernel {
 	return &AppKernel{
 		cfg: cfg
+		boot_context: unsafe { nil }
 	}
 }
 
 // bootstrap 执行启动流程
 pub fn (mut k AppKernel) bootstrap() ! {
 	// 简化实现：直接创建所有组件
-	log := logger.new_logger()
+	log := logger.new()
 	app_ctx := core.new_application_context()
 	event_bus := core.new_event_bus()
 
-	cache_mgr := cache.new_cache_manager()
-	cache_mgr.add_cache('default', cache.new_memory_cache())
+	cache_mgr := cache.new_memory_cache('default')
 
-	orm_mgr := phorm.new_orm_manager()
+	mut orm_mgr := phorm.new_orm_manager()
+	db_cfg := config.default_database_config(k.cfg.profile)
+	db := sqlite.connect(db_cfg.path)!
+	orm_mgr.register_connection('default', .sqlite, voidptr(&db))!
 	lock_mgr := locking.new_lock_manager()
-	storage_mgr := storage.new_storage_manager()
+	storage_mgr := storage.new_manager()
 
 	jwt_cfg := security.JwtConfig{
-		secret:     k.cfg.jwt_secret
-		expiry_secs: k.cfg.jwt_expiry_secs
+		secret:                         k.cfg.jwt.secret
+		expiration_minutes:             k.cfg.jwt.expiration_minutes
+		refresh_token_expiration_hours: k.cfg.jwt.refresh_hours
+		issuer:                         k.cfg.jwt.issuer
 	}
 	jwt_mgr := security.new_jwt_manager(jwt_cfg)
 	role_hierarchy := security.new_role_hierarchy()
 	csrf_mgr := security.new_csrf_manager(security.CsrfConfig{
-		enabled: k.cfg.csrf_enabled
+		enabled: k.cfg.web.csrf_enabled
 	})
 
 	// 创建仓储
@@ -149,7 +155,7 @@ pub fn (mut k AppKernel) bootstrap() ! {
 
 	// 创建服务
 	user_svc := services.new_user_service(user_repo, cache_mgr, log)
-	auth_svc := services.new_auth_service(user_repo, security.new_bcrypt_hasher(), jwt_mgr, cache_mgr, log)
+	auth_svc := services.new_auth_service(user_repo, &security.BcryptHasher{}, jwt_mgr, cache_mgr, log)
 	post_svc := services.new_post_service(post_repo, user_repo, category_repo, tag_repo, cache_mgr, log)
 	comment_svc := services.new_comment_service(comment_repo, post_repo, user_repo, cache_mgr, log)
 	category_svc := services.new_category_service(category_repo, post_repo, cache_mgr, log)
@@ -158,8 +164,11 @@ pub fn (mut k AppKernel) bootstrap() ! {
 	upload_svc := services.new_upload_service(log)
 
 	// 创建 Mailer
-	mailer_cfg := mailer.MailerConfig{
-		transport: mailer.Transport.log
+	mailer_cfg := mailer.SmtpConfig{
+		host:     'localhost'
+		port:     587
+		username: ''
+		password: ''
 	}
 	mailer_inst := mailer.new_mailer(mailer_cfg)
 
@@ -186,7 +195,7 @@ pub fn (mut k AppKernel) bootstrap() ! {
 		log:            log
 		app_context:    app_ctx
 		event_bus:      event_bus
-		cache_mgr:      cache_mgr
+		cmgr:           cache_mgr
 		orm_mgr:        orm_mgr
 		lock_mgr:       lock_mgr
 		storage_mgr:    storage_mgr
@@ -221,7 +230,7 @@ pub fn (k &AppKernel) to_bootstrap() &Bootstrap {
 		log:            ctx.log
 		app_context:    ctx.app_context
 		event_bus:      ctx.event_bus
-		cache_mgr:      ctx.cache_mgr
+		cmgr:           ctx.cmgr
 		orm_mgr:        ctx.orm_mgr
 		lock_mgr:       ctx.lock_mgr
 		storage_mgr:    ctx.storage_mgr

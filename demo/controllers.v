@@ -14,7 +14,7 @@ module main
 //   {"success":bool,"code":int,"message":string,"data":...,"timestamp":i64,"path":""}
 //
 // 认证流程：
-//   1. app.middleware_registry.authenticate(mut ctx) → (username, roles)
+//   1. app.middleware_registry.authenticate(mut ctx.Context) → (username, roles)
 //   2. app.middleware_registry.authorize(['ADMIN'], roles) → 通过或抛错
 //
 // 控制器清单（27 个端点）：
@@ -29,7 +29,9 @@ module main
 import veb
 import json
 import time
+import os
 import photon.web
+import photon.security
 import models
 import app.http.resources
 
@@ -221,7 +223,7 @@ pub fn (mut app App) stats(mut ctx Context) veb.Result {
 @['/api/v1/auth/register']
 pub fn (mut app App) post_auth_register(mut ctx Context) veb.Result {
 	// 校验请求体
-	dto := ctx.validate_json[models.CreateUserDto]() or {
+	dto := web.bind_json[models.CreateUserDto](ctx) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	return app.do_register(mut ctx, dto)
@@ -229,9 +231,13 @@ pub fn (mut app App) post_auth_register(mut ctx Context) veb.Result {
 
 // do_register 执行注册逻辑（内部辅助方法）
 fn (mut app App) do_register(mut ctx Context, dto models.CreateUserDto) veb.Result {
+	// 哈希密码
+	hasher := security.BcryptHasher{}
+	hashed_password := hasher.make(dto.password)
+
 	// 调用服务层注册（触发 user.registered 事件）
 	mut user_svc := app.bootstrap.user_svc
-	user, _ := user_svc.register(dto) or {
+	user, _ := user_svc.register(dto, hashed_password) or {
 		return ctx.send_bad_request(err.msg())
 	}
 
@@ -244,7 +250,7 @@ fn (mut app App) do_register(mut ctx Context, dto models.CreateUserDto) veb.Resu
 @['/api/v1/auth/login']
 pub fn (mut app App) post_auth_login(mut ctx Context) veb.Result {
 	// 校验请求体
-	dto := ctx.validate_json[models.LoginDto]() or {
+	dto := web.bind_json[models.LoginDto](ctx) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	return app.do_login(mut ctx, dto)
@@ -252,16 +258,34 @@ pub fn (mut app App) post_auth_login(mut ctx Context) veb.Result {
 
 // do_login 执行登录逻辑（内部辅助方法）
 fn (mut app App) do_login(mut ctx Context, dto models.LoginDto) veb.Result {
-	// 调用服务层登录
-	mut user_svc := app.bootstrap.user_svc
-	user := user_svc.login(dto) or {
+	// 调用认证服务验证凭据并生成 JWT
+	mut auth_svc := app.bootstrap.auth_svc
+	token, roles := auth_svc.authenticate(dto.username, dto.password) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 
-	// 构建登录响应（生成 JWT 令牌）
-	mut auth_svc := app.bootstrap.auth_svc
-	resp := auth_svc.build_login_response(&user) or {
-		return ctx.send_internal_error('failed to generate token / 令牌生成失败: ${err}')
+	// 查询用户信息
+	user_svc := app.bootstrap.user_svc
+	user := user_svc.find_by_username(dto.username) or {
+		return ctx.send_unauthorized('user not found / 用户不存在')
+	}
+
+	// 构建登录响应
+	resp := models.LoginResponseDto{
+		access_token:  token
+		token_type:    'Bearer'
+		expires_in:    3600
+		refresh_token: ''
+		user: models.UserProfileDto{
+			id:       user.id
+			username: user.username
+			nickname: user.nickname
+			avatar:   user.avatar
+			email:    user.email
+			role:     user.role
+			status:   user.status
+			created:  user.created_at.str()
+		}
 	}
 
 	return ctx.send_data(json.encode(resp))
@@ -285,19 +309,25 @@ struct TokenResponseDto {
 @['/api/v1/auth/refresh']
 pub fn (mut app App) post_auth_refresh(mut ctx Context) veb.Result {
 	// 校验请求体
-	dto := ctx.validate_json[RefreshTokenDto]() or {
+	dto := web.bind_json[RefreshTokenDto](ctx) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 
-	// 调用服务层刷新令牌
+	// 验证旧 token 并生成新 token
 	mut auth_svc := app.bootstrap.auth_svc
-	access_token, new_refresh_token := auth_svc.refresh_token(dto.refresh_token) or {
-		return ctx.send_unauthorized(err.msg())
+	username := auth_svc.validate_token(dto.refresh_token) or {
+		return ctx.send_unauthorized('invalid refresh token / 无效的刷新令牌: ${err}')
+	}
+
+	// 生成新的 access token
+	jwt_mgr := app.bootstrap.jwt_mgr
+	access_token := jwt_mgr.create_token(username, []) or {
+		return ctx.send_internal_error('failed to generate token / 令牌生成失败: ${err}')
 	}
 
 	resp := TokenResponseDto{
 		access_token:  access_token
-		refresh_token: new_refresh_token
+		refresh_token: dto.refresh_token
 	}
 	return ctx.send_data(json.encode(resp))
 }
@@ -307,7 +337,7 @@ pub fn (mut app App) post_auth_refresh(mut ctx Context) veb.Result {
 @['/api/v1/auth/profile']
 pub fn (mut app App) get_auth_profile(mut ctx Context) veb.Result {
 	// JWT 认证
-	username, _ := app.middleware_registry.authenticate(mut ctx) or {
+	username, _ := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 
@@ -331,7 +361,7 @@ struct MessageDto {
 @['/api/v1/auth/logout']
 pub fn (mut app App) post_auth_logout(mut ctx Context) veb.Result {
 	// JWT 认证（可选，即使 token 过期也允许登出）
-	_, _ = app.middleware_registry.authenticate(mut ctx) or {
+	_, _ = app.middleware_registry.authenticate(mut ctx.Context) or {
 		// 即使认证失败也返回成功（客户端应清除 token）
 		return ctx.send_data(json.encode(MessageDto{message: 'logged out / 已登出'}))
 	}
@@ -349,7 +379,7 @@ pub fn (mut app App) post_auth_logout(mut ctx Context) veb.Result {
 @['/api/v1/users']
 pub fn (mut app App) get_users(mut ctx Context) veb.Result {
 	// 认证 + 角色校验
-	_, roles := app.middleware_registry.authenticate(mut ctx) or {
+	_, roles := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 	app.middleware_registry.authorize(['ADMIN'], roles) or {
@@ -402,7 +432,7 @@ pub fn (mut app App) get_users(mut ctx Context) veb.Result {
 @['/api/v1/users/:id']
 pub fn (mut app App) get_user(mut ctx Context, id string) veb.Result {
 	// 认证 + 角色校验
-	_, roles := app.middleware_registry.authenticate(mut ctx) or {
+	_, roles := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 	app.middleware_registry.authorize(['ADMIN'], roles) or {
@@ -427,7 +457,7 @@ pub fn (mut app App) get_user(mut ctx Context, id string) veb.Result {
 @['/api/v1/users']
 pub fn (mut app App) post_user(mut ctx Context) veb.Result {
 	// 认证 + 角色校验
-	_, roles := app.middleware_registry.authenticate(mut ctx) or {
+	_, roles := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 	app.middleware_registry.authorize(['ADMIN'], roles) or {
@@ -435,7 +465,7 @@ pub fn (mut app App) post_user(mut ctx Context) veb.Result {
 	}
 
 	// 校验请求体
-	dto := ctx.validate_json[models.CreateUserDto]() or {
+	dto := web.bind_json[models.CreateUserDto](ctx) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	return app.do_admin_create_user(mut ctx, dto)
@@ -443,8 +473,12 @@ pub fn (mut app App) post_user(mut ctx Context) veb.Result {
 
 // do_admin_create_user 管理员创建用户（内部辅助方法）
 fn (mut app App) do_admin_create_user(mut ctx Context, dto models.CreateUserDto) veb.Result {
+	// 哈希密码
+	hasher := security.BcryptHasher{}
+	hashed_password := hasher.make(dto.password)
+
 	mut user_svc := app.bootstrap.user_svc
-	user, _ := user_svc.register(dto) or {
+	user, _ := user_svc.register(dto, hashed_password) or {
 		return ctx.send_bad_request(err.msg())
 	}
 
@@ -456,7 +490,7 @@ fn (mut app App) do_admin_create_user(mut ctx Context, dto models.CreateUserDto)
 @['/api/v1/users/:id']
 pub fn (mut app App) put_user(mut ctx Context, id string) veb.Result {
 	// 认证 + 角色校验
-	_, roles := app.middleware_registry.authenticate(mut ctx) or {
+	_, roles := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 	app.middleware_registry.authorize(['ADMIN'], roles) or {
@@ -469,7 +503,7 @@ pub fn (mut app App) put_user(mut ctx Context, id string) veb.Result {
 	}
 
 	// 校验请求体
-	dto := ctx.validate_json[models.UpdateUserDto]() or {
+	dto := web.bind_json[models.UpdateUserDto](ctx) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	return app.do_update_user(mut ctx, user_id, dto)
@@ -478,7 +512,7 @@ pub fn (mut app App) put_user(mut ctx Context, id string) veb.Result {
 // do_update_user 执行用户更新（内部辅助方法）
 fn (mut app App) do_update_user(mut ctx Context, user_id int, dto models.UpdateUserDto) veb.Result {
 	mut user_svc := app.bootstrap.user_svc
-	user := user_svc.update(user_id, dto) or {
+	user := user_svc.update_profile(user_id, dto) or {
 		return ctx.send_not_found(err.msg())
 	}
 
@@ -490,7 +524,7 @@ fn (mut app App) do_update_user(mut ctx Context, user_id int, dto models.UpdateU
 @['/api/v1/users/:id']
 pub fn (mut app App) delete_user(mut ctx Context, id string) veb.Result {
 	// 认证 + 角色校验
-	_, roles := app.middleware_registry.authenticate(mut ctx) or {
+	_, roles := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 	app.middleware_registry.authorize(['ADMIN'], roles) or {
@@ -587,7 +621,7 @@ pub fn (mut app App) get_post(mut ctx Context, id string) veb.Result {
 @['/api/v1/posts']
 pub fn (mut app App) post_post(mut ctx Context) veb.Result {
 	// 认证 + 角色校验（EDITOR+ 包含 ADMIN）
-	username, roles := app.middleware_registry.authenticate(mut ctx) or {
+	username, roles := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 	app.middleware_registry.authorize(['EDITOR', 'ADMIN'], roles) or {
@@ -601,7 +635,7 @@ pub fn (mut app App) post_post(mut ctx Context) veb.Result {
 	}
 
 	// 校验请求体
-	mut dto := ctx.validate_json[models.CreatePostDto]() or {
+	mut dto := web.bind_json[models.CreatePostDto](ctx) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	// 注入作者 ID（由控制器从 JWT 设置，非客户端输入）
@@ -613,7 +647,7 @@ pub fn (mut app App) post_post(mut ctx Context) veb.Result {
 // do_create_post 执行文章创建（内部辅助方法）
 fn (mut app App) do_create_post(mut ctx Context, dto models.CreatePostDto) veb.Result {
 	mut post_svc := app.bootstrap.post_svc
-	post := post_svc.create(dto) or {
+	post, _ := post_svc.create(dto, dto.author_id) or {
 		return ctx.send_bad_request(err.msg())
 	}
 
@@ -625,7 +659,7 @@ fn (mut app App) do_create_post(mut ctx Context, dto models.CreatePostDto) veb.R
 @['/api/v1/posts/:id']
 pub fn (mut app App) put_post(mut ctx Context, id string) veb.Result {
 	// 认证 + 角色校验
-	_, roles := app.middleware_registry.authenticate(mut ctx) or {
+	_, roles := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 	app.middleware_registry.authorize(['EDITOR', 'ADMIN'], roles) or {
@@ -638,7 +672,7 @@ pub fn (mut app App) put_post(mut ctx Context, id string) veb.Result {
 	}
 
 	// 校验请求体
-	dto := ctx.validate_json[models.UpdatePostDto]() or {
+	dto := web.bind_json[models.UpdatePostDto](ctx) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	return app.do_update_post(mut ctx, post_id, dto)
@@ -647,7 +681,7 @@ pub fn (mut app App) put_post(mut ctx Context, id string) veb.Result {
 // do_update_post 执行文章更新（内部辅助方法）
 fn (mut app App) do_update_post(mut ctx Context, post_id int, dto models.UpdatePostDto) veb.Result {
 	mut post_svc := app.bootstrap.post_svc
-	post := post_svc.update(post_id, dto) or {
+	post, _ := post_svc.update(post_id, dto) or {
 		return ctx.send_not_found(err.msg())
 	}
 
@@ -659,7 +693,7 @@ fn (mut app App) do_update_post(mut ctx Context, post_id int, dto models.UpdateP
 @['/api/v1/posts/:id']
 pub fn (mut app App) delete_post(mut ctx Context, id string) veb.Result {
 	// 认证 + 角色校验
-	_, roles := app.middleware_registry.authenticate(mut ctx) or {
+	_, roles := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 	app.middleware_registry.authorize(['ADMIN'], roles) or {
@@ -732,7 +766,7 @@ pub fn (mut app App) get_post_comments(mut ctx Context, id string) veb.Result {
 @['/api/v1/posts/:id/comments']
 pub fn (mut app App) post_post_comment(mut ctx Context, id string) veb.Result {
 	// 认证 + 角色校验（USER+ 包含 EDITOR 和 ADMIN）
-	username, roles := app.middleware_registry.authenticate(mut ctx) or {
+	username, roles := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 	app.middleware_registry.authorize(['USER', 'EDITOR', 'ADMIN'], roles) or {
@@ -751,7 +785,7 @@ pub fn (mut app App) post_post_comment(mut ctx Context, id string) veb.Result {
 	}
 
 	// 校验请求体
-	mut dto := ctx.validate_json[models.CreateCommentDto]() or {
+	mut dto := web.bind_json[models.CreateCommentDto](ctx) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	// 注入 post_id 与 user_id（由控制器设置，非客户端输入）
@@ -759,7 +793,7 @@ pub fn (mut app App) post_post_comment(mut ctx Context, id string) veb.Result {
 	dto.user_id = user.id
 
 	mut comment_svc := app.bootstrap.comment_svc
-	comment := comment_svc.create(dto) or {
+	comment, _ := comment_svc.create(dto, user.id) or {
 		return ctx.send_bad_request(err.msg())
 	}
 
@@ -771,7 +805,7 @@ pub fn (mut app App) post_post_comment(mut ctx Context, id string) veb.Result {
 @['/api/v1/comments/:id']
 pub fn (mut app App) delete_comment(mut ctx Context, id string) veb.Result {
 	// 认证（必须登录）
-	username, roles := app.middleware_registry.authenticate(mut ctx) or {
+	username, roles := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 
@@ -828,7 +862,7 @@ pub fn (mut app App) get_categories(mut ctx Context) veb.Result {
 	}
 
 	// 使用 web.page 构建分页响应
-	page_result := web.page(json.encode(resources), 1, resources.len, resources.len)
+	page_result := web.page(json.encode(res_list), 1, res_list.len, res_list.len)
 	return ctx.send_page_result(page_result)
 }
 
@@ -837,7 +871,7 @@ pub fn (mut app App) get_categories(mut ctx Context) veb.Result {
 @['/api/v1/categories']
 pub fn (mut app App) post_category(mut ctx Context) veb.Result {
 	// 认证 + 角色校验
-	_, roles := app.middleware_registry.authenticate(mut ctx) or {
+	_, roles := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 	app.middleware_registry.authorize(['ADMIN'], roles) or {
@@ -845,7 +879,7 @@ pub fn (mut app App) post_category(mut ctx Context) veb.Result {
 	}
 
 	// 校验请求体
-	dto := ctx.validate_json[models.CreateCategoryDto]() or {
+	dto := web.bind_json[models.CreateCategoryDto](ctx) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	return app.do_create_category(mut ctx, dto)
@@ -854,7 +888,7 @@ pub fn (mut app App) post_category(mut ctx Context) veb.Result {
 // do_create_category 执行分类创建（内部辅助方法）
 fn (mut app App) do_create_category(mut ctx Context, dto models.CreateCategoryDto) veb.Result {
 	mut category_svc := app.bootstrap.category_svc
-	category := category_svc.create(dto) or {
+	category, _ := category_svc.create(dto) or {
 		return ctx.send_bad_request(err.msg())
 	}
 
@@ -877,7 +911,7 @@ pub fn (mut app App) get_tags(mut ctx Context) veb.Result {
 	}
 
 	// 使用 web.page 构建分页响应
-	page_result := web.page(json.encode(resources), 1, resources.len, resources.len)
+	page_result := web.page(json.encode(res_list), 1, res_list.len, res_list.len)
 	return ctx.send_page_result(page_result)
 }
 
@@ -886,7 +920,7 @@ pub fn (mut app App) get_tags(mut ctx Context) veb.Result {
 @['/api/v1/tags']
 pub fn (mut app App) post_tag(mut ctx Context) veb.Result {
 	// 认证 + 角色校验
-	_, roles := app.middleware_registry.authenticate(mut ctx) or {
+	_, roles := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 	app.middleware_registry.authorize(['EDITOR', 'ADMIN'], roles) or {
@@ -894,7 +928,7 @@ pub fn (mut app App) post_tag(mut ctx Context) veb.Result {
 	}
 
 	// 校验请求体
-	dto := ctx.validate_json[models.CreateTagDto]() or {
+	dto := web.bind_json[models.CreateTagDto](ctx) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	return app.do_create_tag(mut ctx, dto)
@@ -903,7 +937,7 @@ pub fn (mut app App) post_tag(mut ctx Context) veb.Result {
 // do_create_tag 执行标签创建（内部辅助方法）
 fn (mut app App) do_create_tag(mut ctx Context, dto models.CreateTagDto) veb.Result {
 	mut tag_svc := app.bootstrap.tag_svc
-	tag := tag_svc.create(dto) or {
+	tag, _ := tag_svc.create(dto) or {
 		return ctx.send_bad_request(err.msg())
 	}
 
@@ -931,7 +965,7 @@ struct UploadResponseDto {
 @['/api/v1/uploads/avatar']
 pub fn (mut app App) post_upload_avatar(mut ctx Context) veb.Result {
 	// 认证 + 角色校验
-	_, roles := app.middleware_registry.authenticate(mut ctx) or {
+	_, roles := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 	app.middleware_registry.authorize(['USER', 'EDITOR', 'ADMIN'], roles) or {
@@ -951,22 +985,22 @@ pub fn (mut app App) post_upload_avatar(mut ctx Context) veb.Result {
 		return ctx.send_bad_request('empty file / 文件为空')
 	}
 
-	// 调用上传服务（内部校验大小与扩展名）
+	// 调用上传服务
 	mut upload_svc := app.bootstrap.upload_svc
-	result := upload_svc.upload_avatar(file.filename, file.data.bytes()) or {
+	stored_name, _ := upload_svc.upload(file.filename, file.data.bytes()) or {
 		return ctx.send_bad_request(err.msg())
 	}
 
 	// 构建响应数据
 	resp := UploadResponseDto{
-		original_name: result.original_name
-		stored_name:   result.stored_name
-		path:          result.path
-		size:          result.size
-		extension:     result.extension
-		mime_type:     result.mime_type
-		hash:          result.hash
-		url:           '/api/v1/uploads/${result.stored_name}'
+		original_name: file.filename
+		stored_name:   stored_name
+		path:          '/uploads/${stored_name}'
+		size:          file.data.len
+		extension:     file.filename.all_after_last('.')
+		mime_type:     file.filename.all_after_last('.')
+		hash:          ''
+		url:           '/api/v1/uploads/${stored_name}'
 	}
 	return ctx.send_data(json.encode(resp))
 }
@@ -976,7 +1010,7 @@ pub fn (mut app App) post_upload_avatar(mut ctx Context) veb.Result {
 @['/api/v1/uploads/image']
 pub fn (mut app App) post_upload_image(mut ctx Context) veb.Result {
 	// 认证 + 角色校验
-	_, roles := app.middleware_registry.authenticate(mut ctx) or {
+	_, roles := app.middleware_registry.authenticate(mut ctx.Context) or {
 		return ctx.send_unauthorized(err.msg())
 	}
 	app.middleware_registry.authorize(['EDITOR', 'ADMIN'], roles) or {
@@ -996,22 +1030,22 @@ pub fn (mut app App) post_upload_image(mut ctx Context) veb.Result {
 		return ctx.send_bad_request('empty file / 文件为空')
 	}
 
-	// 调用上传服务（内部校验大小与扩展名）
+	// 调用上传服务
 	mut upload_svc := app.bootstrap.upload_svc
-	result := upload_svc.upload_image(file.filename, file.data.bytes()) or {
+	stored_name, _ := upload_svc.upload(file.filename, file.data.bytes()) or {
 		return ctx.send_bad_request(err.msg())
 	}
 
 	// 构建响应数据
 	resp := UploadResponseDto{
-		original_name: result.original_name
-		stored_name:   result.stored_name
-		path:          result.path
-		size:          result.size
-		extension:     result.extension
-		mime_type:     result.mime_type
-		hash:          result.hash
-		url:           '/api/v1/uploads/${result.stored_name}'
+		original_name: file.filename
+		stored_name:   stored_name
+		path:          '/uploads/${stored_name}'
+		size:          file.data.len
+		extension:     file.filename.all_after_last('.')
+		mime_type:     file.filename.all_after_last('.')
+		hash:          ''
+		url:           '/api/v1/uploads/${stored_name}'
 	}
 	return ctx.send_data(json.encode(resp))
 }
@@ -1030,8 +1064,7 @@ pub fn (mut app App) get_upload_file(mut ctx Context, file string) veb.Result {
 	}
 
 	// 读取文件内容
-	upload_svc := app.bootstrap.upload_svc
-	content := upload_svc.get_file(file) or {
+	content := os.read_file('uploads/${file}') or {
 		return ctx.send_not_found('file not found / 文件不存在: ${file}')
 	}
 
