@@ -31,11 +31,11 @@ echo "→ Step 3: Module Tests"
 PASS=0
 FAIL=0
 for mod in $MODULES; do
-    if v $VFLAGS test "$mod/" >/dev/null 2>&1; then
-        echo "  [OK]   $mod/"
+    if v $VFLAGS test "src/$mod/" >/dev/null 2>&1; then
+        echo "  [OK]   src/$mod/"
         PASS=$((PASS + 1))
     else
-        echo "  [FAIL] $mod/"
+        echo "  [FAIL] src/$mod/"
         FAIL=$((FAIL + 1))
     fi
 done

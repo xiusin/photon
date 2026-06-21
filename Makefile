@@ -25,24 +25,24 @@ V       ?= $(shell test -x $$V && echo $$V)
 V       ?= $(error "Could not find 'v' compiler. Install V or set $$V in your environment.")
 
 # Detect if we're inside photon/ directory (no photon/ prefix needed)
-ROOT_PREFIX := $(if $(wildcard photon.v),,photon/)
+ROOT_PREFIX := $(if $(wildcard src/photon.v),,photon/)
 
 # ── Module directories ──
-MODULES := $(ROOT_PREFIX)config/ $(ROOT_PREFIX)logger/ $(ROOT_PREFIX)security/ $(ROOT_PREFIX)cli/ $(ROOT_PREFIX)web/ $(ROOT_PREFIX)orm/ $(ROOT_PREFIX)http/ $(ROOT_PREFIX)queue/ $(ROOT_PREFIX)support/ $(ROOT_PREFIX)ticker/ $(ROOT_PREFIX)cache/ $(ROOT_PREFIX)pool/ $(ROOT_PREFIX)locking/ $(ROOT_PREFIX)async/
+MODULES := $(ROOT_PREFIX)src/config/ $(ROOT_PREFIX)src/logger/ $(ROOT_PREFIX)src/security/ $(ROOT_PREFIX)src/cli/ $(ROOT_PREFIX)src/web/ $(ROOT_PREFIX)src/orm/ $(ROOT_PREFIX)src/http/ $(ROOT_PREFIX)src/queue/ $(ROOT_PREFIX)src/support/ $(ROOT_PREFIX)src/ticker/ $(ROOT_PREFIX)src/cache/ $(ROOT_PREFIX)src/pool/ $(ROOT_PREFIX)src/locking/ $(ROOT_PREFIX)src/async/
 EXAMPLE := $(ROOT_PREFIX)example/
 
 # ── ORM test files ──
 # v test only accepts folders or *_test.v files; non-test helpers (like
 # orm/query_test.v) are listed under TEST_HELPERS for typecheck only.
-ORM_TESTS := $(ROOT_PREFIX)orm/orm_test.v \
-             $(ROOT_PREFIX)orm/entity_test.v \
-             $(ROOT_PREFIX)orm/derive_test.v \
-             $(ROOT_PREFIX)orm/transaction_test.v \
-             $(ROOT_PREFIX)orm/relation_test.v \
-             $(ROOT_PREFIX)orm/migration_test.v \
-             $(ROOT_PREFIX)orm/adapter_test.v \
-             $(ROOT_PREFIX)orm/transaction_annotation_test.v \
-             $(ROOT_PREFIX)orm/repository_test.v
+ORM_TESTS := $(ROOT_PREFIX)src/orm/orm_test.v \
+             $(ROOT_PREFIX)src/orm/entity_test.v \
+             $(ROOT_PREFIX)src/orm/derive_test.v \
+             $(ROOT_PREFIX)src/orm/transaction_test.v \
+             $(ROOT_PREFIX)src/orm/relation_test.v \
+             $(ROOT_PREFIX)src/orm/migration_test.v \
+             $(ROOT_PREFIX)src/orm/adapter_test.v \
+             $(ROOT_PREFIX)src/orm/transaction_annotation_test.v \
+             $(ROOT_PREFIX)src/orm/repository_test.v
 
 # ── Targets ──
 

@@ -57,7 +57,7 @@ jobs:
       - name: Test ${{ matrix.module }}
         run: |
           cd photon
-          v -enable-globals test ${{ matrix.module }}/ -stats 2>&1 || {
+          v -enable-globals test src/${{ matrix.module }}/ -stats 2>&1 || {
             echo "::error::Module ${{ matrix.module }} tests failed"
             exit 1
           }
