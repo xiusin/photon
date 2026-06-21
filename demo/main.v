@@ -26,7 +26,7 @@ fn main() {
 	}
 
 	// ── 4. 创建 AppKernel 并 bootstrap ──
-	kernel := bootstrap.new_app_kernel(cfg) or {
+	mut kernel := bootstrap.new_app_kernel(cfg) or {
 		eprintln('AppKernel creation failed: ${err}')
 		exit(1)
 	}

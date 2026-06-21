@@ -223,14 +223,9 @@ pub fn (mut app App) stats(mut ctx Context) veb.Result {
 @['/api/v1/auth/register']
 pub fn (mut app App) post_auth_register(mut ctx Context) veb.Result {
 	// 校验请求体
-	dto := web.bind_json[models.CreateUserDto](ctx) or {
+	dto := web.bind_json[models.CreateUserDto](ctx.Context) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
-	return app.do_register(mut ctx, dto)
-}
-
-// do_register 执行注册逻辑（内部辅助方法）
-fn (mut app App) do_register(mut ctx Context, dto models.CreateUserDto) veb.Result {
 	// 哈希密码
 	hasher := security.BcryptHasher{}
 	hashed_password := hasher.make(dto.password)
@@ -250,14 +245,14 @@ fn (mut app App) do_register(mut ctx Context, dto models.CreateUserDto) veb.Resu
 @['/api/v1/auth/login']
 pub fn (mut app App) post_auth_login(mut ctx Context) veb.Result {
 	// 校验请求体
-	dto := web.bind_json[models.LoginDto](ctx) or {
+	dto := web.bind_json[models.LoginDto](ctx.Context) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
-	return app.do_login(mut ctx, dto)
+	return do_login(mut app, mut ctx, dto)
 }
 
 // do_login 执行登录逻辑（内部辅助方法）
-fn (mut app App) do_login(mut ctx Context, dto models.LoginDto) veb.Result {
+fn do_login(mut app App, mut ctx Context, dto models.LoginDto) veb.Result {
 	// 调用认证服务验证凭据并生成 JWT
 	mut auth_svc := app.bootstrap.auth_svc
 	token, roles := auth_svc.authenticate(dto.username, dto.password) or {
@@ -309,7 +304,7 @@ struct TokenResponseDto {
 @['/api/v1/auth/refresh']
 pub fn (mut app App) post_auth_refresh(mut ctx Context) veb.Result {
 	// 校验请求体
-	dto := web.bind_json[RefreshTokenDto](ctx) or {
+	dto := web.bind_json[RefreshTokenDto](ctx.Context) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 
@@ -465,14 +460,14 @@ pub fn (mut app App) post_user(mut ctx Context) veb.Result {
 	}
 
 	// 校验请求体
-	dto := web.bind_json[models.CreateUserDto](ctx) or {
+	dto := web.bind_json[models.CreateUserDto](ctx.Context) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
-	return app.do_admin_create_user(mut ctx, dto)
+	return do_admin_create_user(mut app, mut ctx, dto)
 }
 
 // do_admin_create_user 管理员创建用户（内部辅助方法）
-fn (mut app App) do_admin_create_user(mut ctx Context, dto models.CreateUserDto) veb.Result {
+fn do_admin_create_user(mut app App, mut ctx Context, dto models.CreateUserDto) veb.Result {
 	// 哈希密码
 	hasher := security.BcryptHasher{}
 	hashed_password := hasher.make(dto.password)
@@ -503,14 +498,14 @@ pub fn (mut app App) put_user(mut ctx Context, id string) veb.Result {
 	}
 
 	// 校验请求体
-	dto := web.bind_json[models.UpdateUserDto](ctx) or {
+	dto := web.bind_json[models.UpdateUserDto](ctx.Context) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
-	return app.do_update_user(mut ctx, user_id, dto)
+	return do_update_user(mut app, mut ctx, user_id, dto)
 }
 
 // do_update_user 执行用户更新（内部辅助方法）
-fn (mut app App) do_update_user(mut ctx Context, user_id int, dto models.UpdateUserDto) veb.Result {
+fn do_update_user(mut app App, mut ctx Context, user_id int, dto models.UpdateUserDto) veb.Result {
 	mut user_svc := app.bootstrap.user_svc
 	user := user_svc.update_profile(user_id, dto) or {
 		return ctx.send_not_found(err.msg())
@@ -585,10 +580,15 @@ pub fn (mut app App) get_posts(mut ctx Context) veb.Result {
 		return ctx.send_internal_error('failed to fetch posts / 获取文章列表失败: ${err}')
 	}
 
-	// 转换为 PostResource 集合
+	// 转换为 PostResource 集合（加载作者与分类关联）
+	mut user_svc := app.bootstrap.user_svc
+	mut category_svc := app.bootstrap.category_svc
 	mut res_list := []resources.PostResource{}
 	for p in posts {
-		res_list << resources.new_post_resource(&p)
+		post_author := user_svc.find_by_id(p.author_id) or { models.User{} }
+		post_category := category_svc.find_by_id(p.category_id) or { models.Category{} }
+		res_list << resources.new_post_resource_with_relations(&p, &post_author,
+			&post_category, []models.Tag{})
 	}
 
 	// 使用 web.page 构建分页响应（含 pagination 元数据）
@@ -610,10 +610,19 @@ pub fn (mut app App) get_post(mut ctx Context, id string) veb.Result {
 		return ctx.send_not_found('post not found / 文章不存在: ${id}')
 	}
 
-	// 异步自增浏览量（不阻塞响应）
-	go post_svc.increment_views(post_id)
+	// 自增浏览量（同步执行：共享单个 sqlite 连接，禁止用 go 协程并发访问，
+	// 否则与请求处理线程并发 prepare/exec 会导致 SQLite 崩溃）
+	post_svc.increment_views(post_id) or {
+		app.bootstrap.log.error('[get_post] increment_views failed: ${err}')
+	}
 
-	return ctx.send_data(resources.new_post_resource(&post).to_json())
+	// 加载关联：作者与分类
+	mut user_svc := app.bootstrap.user_svc
+	mut category_svc := app.bootstrap.category_svc
+	author := user_svc.find_by_id(post.author_id) or { models.User{} }
+	category := category_svc.find_by_id(post.category_id) or { models.Category{} }
+	return ctx.send_data(resources.new_post_resource_with_relations(&post, &author, &category,
+		[]models.Tag{}).to_json())
 }
 
 // post_post POST /api/v1/posts — 创建文章（需 EDITOR+，触发 post.published 事件）
@@ -635,17 +644,17 @@ pub fn (mut app App) post_post(mut ctx Context) veb.Result {
 	}
 
 	// 校验请求体
-	mut dto := web.bind_json[models.CreatePostDto](ctx) or {
+	mut dto := web.bind_json[models.CreatePostDto](ctx.Context) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	// 注入作者 ID（由控制器从 JWT 设置，非客户端输入）
 	dto.author_id = user.id
 
-	return app.do_create_post(mut ctx, dto)
+	return do_create_post(mut app, mut ctx, dto)
 }
 
 // do_create_post 执行文章创建（内部辅助方法）
-fn (mut app App) do_create_post(mut ctx Context, dto models.CreatePostDto) veb.Result {
+fn do_create_post(mut app App, mut ctx Context, dto models.CreatePostDto) veb.Result {
 	mut post_svc := app.bootstrap.post_svc
 	post, _ := post_svc.create(dto, dto.author_id) or {
 		return ctx.send_bad_request(err.msg())
@@ -672,14 +681,14 @@ pub fn (mut app App) put_post(mut ctx Context, id string) veb.Result {
 	}
 
 	// 校验请求体
-	dto := web.bind_json[models.UpdatePostDto](ctx) or {
+	dto := web.bind_json[models.UpdatePostDto](ctx.Context) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
-	return app.do_update_post(mut ctx, post_id, dto)
+	return do_update_post(mut app, mut ctx, post_id, dto)
 }
 
 // do_update_post 执行文章更新（内部辅助方法）
-fn (mut app App) do_update_post(mut ctx Context, post_id int, dto models.UpdatePostDto) veb.Result {
+fn do_update_post(mut app App, mut ctx Context, post_id int, dto models.UpdatePostDto) veb.Result {
 	mut post_svc := app.bootstrap.post_svc
 	post, _ := post_svc.update(post_id, dto) or {
 		return ctx.send_not_found(err.msg())
@@ -785,7 +794,7 @@ pub fn (mut app App) post_post_comment(mut ctx Context, id string) veb.Result {
 	}
 
 	// 校验请求体
-	mut dto := web.bind_json[models.CreateCommentDto](ctx) or {
+	mut dto := web.bind_json[models.CreateCommentDto](ctx.Context) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 	// 注入 post_id 与 user_id（由控制器设置，非客户端输入）
@@ -879,14 +888,14 @@ pub fn (mut app App) post_category(mut ctx Context) veb.Result {
 	}
 
 	// 校验请求体
-	dto := web.bind_json[models.CreateCategoryDto](ctx) or {
+	dto := web.bind_json[models.CreateCategoryDto](ctx.Context) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
-	return app.do_create_category(mut ctx, dto)
+	return do_create_category(mut app, mut ctx, dto)
 }
 
 // do_create_category 执行分类创建（内部辅助方法）
-fn (mut app App) do_create_category(mut ctx Context, dto models.CreateCategoryDto) veb.Result {
+fn do_create_category(mut app App, mut ctx Context, dto models.CreateCategoryDto) veb.Result {
 	mut category_svc := app.bootstrap.category_svc
 	category, _ := category_svc.create(dto) or {
 		return ctx.send_bad_request(err.msg())
@@ -928,14 +937,14 @@ pub fn (mut app App) post_tag(mut ctx Context) veb.Result {
 	}
 
 	// 校验请求体
-	dto := web.bind_json[models.CreateTagDto](ctx) or {
+	dto := web.bind_json[models.CreateTagDto](ctx.Context) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
-	return app.do_create_tag(mut ctx, dto)
+	return do_create_tag(mut app, mut ctx, dto)
 }
 
 // do_create_tag 执行标签创建（内部辅助方法）
-fn (mut app App) do_create_tag(mut ctx Context, dto models.CreateTagDto) veb.Result {
+fn do_create_tag(mut app App, mut ctx Context, dto models.CreateTagDto) veb.Result {
 	mut tag_svc := app.bootstrap.tag_svc
 	tag, _ := tag_svc.create(dto) or {
 		return ctx.send_bad_request(err.msg())

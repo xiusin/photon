@@ -46,13 +46,13 @@ pub fn (s &UserSeeder) run(output &cli.CommandOutput) ! {
 	mut created_count := 0
 
 	// ── 1. 创建 1 个 ADMIN ──
-	admin := factories.new_user_factory(s.bootstrap).
-		with_username('admin').
-		with_email('admin@photonblog.dev').
-		with_password(admin_password).
-		with_nickname('Administrator').
-		with_role('ADMIN').
-		create_or_first()!
+	admin := factories.new_user_factory(s.bootstrap)
+		.with_username('admin')
+		.with_email('admin@photonblog.dev')
+		.with_password(admin_password)
+		.with_nickname('Administrator')
+		.with_role('ADMIN')
+		.create_or_first()!
 	if admin.id > 0 {
 		output.success('    Created admin: ${admin.username} (id=${admin.id})')
 		created_count++
@@ -61,13 +61,13 @@ pub fn (s &UserSeeder) run(output &cli.CommandOutput) ! {
 	// ── 2. 创建 2 个 EDITOR ──
 	editor_names := ['editor1', 'editor2']
 	for i, name in editor_names {
-		user := factories.new_user_factory(s.bootstrap).
-			with_username(name).
-			with_email('${name}@photonblog.dev').
-			with_password(editor_password).
-			with_nickname('Editor ${i + 1}').
-			with_role('EDITOR').
-			create_or_first() or {
+		user := factories.new_user_factory(s.bootstrap)
+			.with_username(name)
+			.with_email('${name}@photonblog.dev')
+			.with_password(editor_password)
+			.with_nickname('Editor ${i + 1}')
+			.with_role('EDITOR')
+			.create_or_first() or {
 			output.warning('    Failed to create editor ${name}: ${err}')
 			continue
 		}
@@ -80,13 +80,13 @@ pub fn (s &UserSeeder) run(output &cli.CommandOutput) ! {
 	// ── 3. 创建 5 个 USER ──
 	for i in 1 .. 6 {
 		name := 'user${i}'
-		user := factories.new_user_factory(s.bootstrap).
-			with_username(name).
-			with_email('${name}@photonblog.dev').
-			with_password(user_password).
-			with_nickname('User ${i}').
-			with_role('USER').
-			create_or_first() or {
+		user := factories.new_user_factory(s.bootstrap)
+			.with_username(name)
+			.with_email('${name}@photonblog.dev')
+			.with_password(user_password)
+			.with_nickname('User ${i}')
+			.with_role('USER')
+			.create_or_first() or {
 			output.warning('    Failed to create user ${name}: ${err}')
 			continue
 		}

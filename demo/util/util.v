@@ -43,7 +43,13 @@ pub fn generate_slug(title string) string {
 		slug = slug[..slug.len - 1]
 	}
 	if slug.len == 0 {
-		slug = 'item'
+		// 非 ASCII 标题（如中文）剥离后为空：用标题的 FNV-1a 哈希生成
+		// 稳定且唯一的别名，避免不同名称产生相同 slug 触发唯一约束冲突。
+		mut h := u32(2166136261)
+		for b in title.bytes() {
+			h = (h ^ u32(b)) * u32(16777619)
+		}
+		slug = 'c-' + h.hex()
 	}
 	return slug
 }

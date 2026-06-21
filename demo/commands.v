@@ -31,6 +31,7 @@ import bootstrap
 import database
 import services
 import database.seeders
+import database.migrations
 
 // ═══════════════════════════════════════════════════════════
 // ServeCommand — 启动 Web 服务
@@ -93,6 +94,9 @@ pub fn (c &MigrateCommand) execute(input &cli.CommandInput, output &cli.CommandO
 
 	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)
 	mut mm_mut := unsafe { mut mm }
+	for m in migrations.all() {
+		mm_mut.add(m)
+	}
 	mm_mut.initialize()!
 	mm_mut.migrate()!
 
@@ -188,6 +192,9 @@ pub fn (c &MigrateFreshCommand) execute(input &cli.CommandInput, output &cli.Com
 
 	mm := phorm.new_migration_manager(c.bootstrap.orm_mgr)
 	mut mm_mut := unsafe { mut mm }
+	for m in migrations.all() {
+		mm_mut.add(m)
+	}
 	mm_mut.fresh()!
 	output.success('Fresh migration completed successfully')
 

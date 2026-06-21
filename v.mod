@@ -5,5 +5,4 @@ Module {
 	license: 'MIT'
 	repo_url: 'https://github.com/photon-framework/photon'
 	dependencies: []
-	base_url: 'src'
 }

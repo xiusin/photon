@@ -969,7 +969,7 @@ pub fn (repo &TagRepository) exists_by_slug(slug string) bool {
 }
 
 pub fn (repo &TagRepository) attach_tag(post_id int, tag_id int) ! {
-	rows := repo.db.exec_param2('SELECT 1 FROM post_tags WHERE post_id = ? AND tag_id = ?', post_id.str(), tag_id.str())!
+	rows := repo.db.exec_param_many('SELECT 1 FROM post_tags WHERE post_id = ? AND tag_id = ?', [post_id.str(), tag_id.str()])!
 	if rows.len > 0 {
 		return
 	}
@@ -979,7 +979,7 @@ pub fn (repo &TagRepository) attach_tag(post_id int, tag_id int) ! {
 }
 
 pub fn (repo &TagRepository) detach_tag(post_id int, tag_id int) ! {
-	_ = repo.db.exec_param2('DELETE FROM post_tags WHERE post_id = ? AND tag_id = ?', post_id.str(), tag_id.str())!
+	repo.db.exec_param_many('DELETE FROM post_tags WHERE post_id = ? AND tag_id = ?', [post_id.str(), tag_id.str()])!
 }
 
 pub fn (repo &TagRepository) find_tags_by_post(post_id int) ![]models.Tag {

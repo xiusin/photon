@@ -7,19 +7,20 @@ module migrations
 // deleted_at 为未来 SoftDeletableEntity 自动过滤预留）。
 
 import photon.orm as phorm
+import database
 
 struct CreateUsersTable {}
 
-fn (m CreateUsersTable) version() int {
+pub fn (m CreateUsersTable) version() int {
 	return 1
 }
 
-fn (m CreateUsersTable) name() string {
+pub fn (m CreateUsersTable) name() string {
 	return 'create_users_table'
 }
 
-fn (m CreateUsersTable) up(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
+pub fn (m CreateUsersTable) up(mut manager phorm.OrmManager) ! {
+	db := database.get_db(&manager)!
 	mut schema := phorm.new_schema(.sqlite)
 	schema.create_table('users', fn (mut t phorm.TableDef) {
 		t.id()
@@ -45,10 +46,10 @@ fn (m CreateUsersTable) up(mut manager phorm.OrmManager) ! {
 		t.index_(['status'], 'idx_users_status')
 		t.index_(['role'], 'idx_users_role')
 	})
-	execute_schema(db, schema)!
+	database.execute_schema(db, schema)!
 }
 
-fn (m CreateUsersTable) down(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
+pub fn (m CreateUsersTable) down(mut manager phorm.OrmManager) ! {
+	db := database.get_db(&manager)!
 	db.exec('DROP TABLE IF EXISTS users')!
 }

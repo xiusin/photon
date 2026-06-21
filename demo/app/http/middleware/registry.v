@@ -381,8 +381,8 @@ pub fn (m &CsrfMiddleware) handle(mut ctx veb.Context) ! {
 		return
 	}
 
-	actual_header := ctx.get_custom_header(m.mgr.appconfig.header_name) or { '' }
-	actual_form := ctx.get_custom_header(m.mgr.appconfig.form_field_name) or { '' }
+	actual_header := ctx.get_custom_header(m.mgr.config.header_name) or { '' }
+	actual_form := ctx.get_custom_header(m.mgr.config.form_field_name) or { '' }
 	actual := m.mgr.get_actual_token(actual_header, actual_form)
 
 	mut mgr := m.mgr

@@ -6,19 +6,20 @@ module migrations
 // 添加 deleted_at 列以支持框架级软删除（当前实现使用 status='archived' 状态删除）。
 
 import photon.orm as phorm
+import database
 
 struct CreatePostsTable {}
 
-fn (m CreatePostsTable) version() int {
+pub fn (m CreatePostsTable) version() int {
 	return 2
 }
 
-fn (m CreatePostsTable) name() string {
+pub fn (m CreatePostsTable) name() string {
 	return 'create_posts_table'
 }
 
-fn (m CreatePostsTable) up(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
+pub fn (m CreatePostsTable) up(mut manager phorm.OrmManager) ! {
+	db := database.get_db(&manager)!
 	mut schema := phorm.new_schema(.sqlite)
 	schema.create_table('posts', fn (mut t phorm.TableDef) {
 		t.id()
@@ -44,10 +45,10 @@ fn (m CreatePostsTable) up(mut manager phorm.OrmManager) ! {
 		t.index_(['status'], 'idx_posts_status')
 		t.index_(['created_at'], 'idx_posts_created_at')
 	})
-	execute_schema(db, schema)!
+	database.execute_schema(db, schema)!
 }
 
-fn (m CreatePostsTable) down(mut manager phorm.OrmManager) ! {
-	db := get_db(&manager)!
+pub fn (m CreatePostsTable) down(mut manager phorm.OrmManager) ! {
+	db := database.get_db(&manager)!
 	db.exec('DROP TABLE IF EXISTS posts')!
 }

@@ -528,7 +528,7 @@ pub fn (s &CommentService) find_by_post(post_id int) ![]models.Comment {
 }
 
 // find_by_id 根据 ID 查询评论
-pub fn (s &CommentService) find_by_id(id int) !models.Comment {
+pub fn (mut s CommentService) find_by_id(id int) !models.Comment {
 	return s.repo.find_by_id(id)!
 }
 
@@ -598,12 +598,12 @@ pub fn (mut s CategoryService) create(dto models.CreateCategoryDto) !(models.Cat
 }
 
 // find_all 查询所有分类
-pub fn (s &CategoryService) find_all() ![]models.Category {
+pub fn (mut s CategoryService) find_all() ![]models.Category {
 	return s.repo.find_all()!
 }
 
 // find_by_id 根据 ID 查询分类
-pub fn (s &CategoryService) find_by_id(id int) !models.Category {
+pub fn (mut s CategoryService) find_by_id(id int) !models.Category {
 	return s.repo.find_by_id(id)!
 }
 
@@ -680,12 +680,12 @@ pub fn (mut s TagService) create(dto models.CreateTagDto) !(models.Tag, string) 
 }
 
 // find_all 查询所有标签
-pub fn (s &TagService) find_all() ![]models.Tag {
+pub fn (mut s TagService) find_all() ![]models.Tag {
 	return s.repo.find_all()!
 }
 
 // find_by_id 根据 ID 查询标签
-pub fn (s &TagService) find_by_id(id int) !models.Tag {
+pub fn (mut s TagService) find_by_id(id int) !models.Tag {
 	return s.repo.find_by_id(id)!
 }
 

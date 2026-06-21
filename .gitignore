@@ -295,3 +295,5 @@ Makefile.local
 # Just in case: ignore any file named "core" dump
 example/main
 /example/server
+*.db
+/demo/demo
