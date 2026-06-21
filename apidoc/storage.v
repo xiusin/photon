@@ -82,7 +82,7 @@ pub fn get_store() &ApiDocStore {
 }
 
 // get_entries returns all entries as copies
-pub fn (mut s ApiDocStore) get_entries() []apidoc.ApiDocEntry {
+pub fn (mut s ApiDocStore) get_entries() []ApiDocEntry {
 	s.mu.@lock()
 	mut result := []ApiDocEntry{cap: s.entries.len}
 	for _, ep in s.entries {
