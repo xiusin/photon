@@ -20,11 +20,11 @@ pub fn new_list_command(app &CliApplication) &ListCommand {
 	return unsafe {
 		&ListCommand{
 			BaseCommand: BaseCommand{
-				name: 'list'
+				name:        'list'
 				description: 'List all available commands'
-				sig: ''
+				sig:         ''
 			}
-			app: app
+			app:         app
 		}
 	}
 }
@@ -59,11 +59,11 @@ pub fn new_help_command(app &CliApplication) &HelpCommand {
 	return unsafe {
 		&HelpCommand{
 			BaseCommand: BaseCommand{
-				name: 'help'
+				name:        'help'
 				description: 'Display help for a command'
-				sig: '[command]'
+				sig:         '[command]'
 			}
-			app: app
+			app:         app
 		}
 	}
 }
@@ -111,9 +111,9 @@ pub struct ServeCommand {
 pub fn new_serve_command() &ServeCommand {
 	return &ServeCommand{
 		BaseCommand: BaseCommand{
-			name: 'serve'
+			name:        'serve'
 			description: 'Start the HTTP server'
-			sig: '[--port=8080] [--host=localhost]'
+			sig:         '[--port=8080] [--host=localhost]'
 		}
 	}
 }

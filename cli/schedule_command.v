@@ -11,8 +11,8 @@ mut:
 // TaskRunner is the interface for individual scheduled tasks
 pub interface TaskRunner {
 mut:
-	execute_with_result() !bool
 	name string
+	execute_with_result() !bool
 }
 
 // ScheduleCommand executes due scheduled tasks
@@ -26,11 +26,11 @@ pub fn new_schedule_command(schedule &ScheduleRunner) &ScheduleCommand {
 	return unsafe {
 		&ScheduleCommand{
 			BaseCommand: BaseCommand{
-				name: 'schedule:run'
+				name:        'schedule:run'
 				description: 'Run due scheduled tasks'
-				sig: '[--quiet]'
+				sig:         '[--quiet]'
 			}
-			schedule: schedule
+			schedule:    schedule
 		}
 	}
 }

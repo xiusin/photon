@@ -7,7 +7,6 @@ module web
 // - Two-type pattern: App (global state) + Context (per-request)
 // - Route handlers: fn (mut app App) handler(mut ctx Context) veb.Result
 // - HTTP responses work correctly with this pattern
-
 import veb
 
 // ── Test App & Context (two-type pattern) ──

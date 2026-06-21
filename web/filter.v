@@ -6,7 +6,6 @@ module web
 // Filters are similar to middleware but more fine-grained:
 // - RequestFilter: runs before the handler
 // - ResponseFilter: runs after the handler, before the response is sent
-
 import veb
 
 // FilterChain manages request and response filters
@@ -67,7 +66,7 @@ pub fn (fc &FilterChain) apply_response(ctx &veb.Context, body string) !string {
 //   Referrer-Policy: strict-origin-when-cross-origin
 //   Permissions-Policy: geolocation=(), microphone=(), camera=()
 //   Strict-Transport-Security: max-age=31536000; includeSubDomains
-pub fn security_headers_filter(mut ctx &veb.Context, body string) !string {
+pub fn security_headers_filter(mut ctx veb.Context, body string) !string {
 	// Set headers best-effort — veb may not support all header operations
 	ctx.set_custom_header('X-Content-Type-Options', 'nosniff') or {
 		eprintln('[SecurityFilter] Failed to set X-Content-Type-Options')
@@ -81,7 +80,7 @@ pub fn security_headers_filter(mut ctx &veb.Context, body string) !string {
 }
 
 // cache_control_filter adds cache control headers
-pub fn cache_control_filter(mut ctx &veb.Context, body string) !string {
+pub fn cache_control_filter(mut ctx veb.Context, body string) !string {
 	ctx.set_custom_header('Cache-Control', 'no-cache, no-store, must-revalidate') or {}
 	ctx.set_custom_header('Pragma', 'no-cache') or {}
 	ctx.set_custom_header('Expires', '0') or {}
@@ -90,12 +89,13 @@ pub fn cache_control_filter(mut ctx &veb.Context, body string) !string {
 
 // body_size_filter limits request body size
 pub fn body_size_filter(max_bytes int) RequestFilterFn {
-	return fn [max_bytes] (mut ctx &veb.Context) !bool {
+	return fn [max_bytes] (mut ctx veb.Context) !bool {
 		content_length := ctx.get_custom_header('Content-Length') or { '' }
 		if content_length.len > 0 {
 			size := content_length.int()
 			if size > max_bytes {
-				ctx.send_response_to_client('application/json', '{\"error\":\"Request entity too large\"}')
+				ctx.send_response_to_client('application/json',
+					'{"error":"Request entity too large"}')
 
 				return error('request body too large: ${size} > ${max_bytes}')
 			}
@@ -106,7 +106,7 @@ pub fn body_size_filter(max_bytes int) RequestFilterFn {
 
 // content_type_filter validates Content-Type header
 pub fn content_type_filter(allowed_types []string) RequestFilterFn {
-	return fn [allowed_types] (mut ctx &veb.Context) !bool {
+	return fn [allowed_types] (mut ctx veb.Context) !bool {
 		content_type := ctx.get_custom_header('Content-Type') or { '' }
 		if content_type.len > 0 {
 			for allowed in allowed_types {
@@ -114,7 +114,7 @@ pub fn content_type_filter(allowed_types []string) RequestFilterFn {
 					return true
 				}
 			}
-			ctx.send_response_to_client('application/json', '{\"error\":\"Unsupported Media Type\"}')
+			ctx.send_response_to_client('application/json', '{"error":"Unsupported Media Type"}')
 
 			return false
 		}

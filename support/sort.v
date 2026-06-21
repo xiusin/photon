@@ -24,14 +24,14 @@ pub:
 // by creates a Sort for a single property ascending
 pub fn by(property string) Sort {
 	return Sort{
-		orders: [SortOrder{property: property, direction: .asc}]
+		orders: [SortOrder{ property: property, direction: .asc }]
 	}
 }
 
 // by_desc creates a Sort for a single property descending
 pub fn by_desc(property string) Sort {
 	return Sort{
-		orders: [SortOrder{property: property, direction: .desc}]
+		orders: [SortOrder{ property: property, direction: .desc }]
 	}
 }
 
@@ -43,7 +43,9 @@ pub fn (s Sort) ascending() Sort {
 		orders[i].direction = .asc
 		i++
 	}
-	return Sort{orders: orders}
+	return Sort{
+		orders: orders
+	}
 }
 
 // descending returns a copy with all orders set to descending
@@ -54,14 +56,18 @@ pub fn (s Sort) descending() Sort {
 		orders[i].direction = .desc
 		i++
 	}
-	return Sort{orders: orders}
+	return Sort{
+		orders: orders
+	}
 }
 
 // and combines two sorts
 pub fn (s Sort) and(other Sort) Sort {
 	mut orders := s.orders.clone()
 	orders << other.orders
-	return Sort{orders: orders}
+	return Sort{
+		orders: orders
+	}
 }
 
 // is_empty checks if no orders are defined

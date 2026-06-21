@@ -12,7 +12,6 @@ module main
 // 生命周期钩子：before_request / after_request 自动调用
 //
 // 注意：注解必须是真正的 V 属性 @[attr]，不是注释。
-
 import veb
 import time
 
@@ -20,8 +19,7 @@ import time
 // HomeController — 首页 & 系统信息
 // ═══════════════════════════════════════════════════════════
 
-@[get]
-@['/']
+@['/'; get]
 pub fn (mut app App) index(mut ctx Context) veb.Result {
 	return ctx.json({
 		'app':       'Photon API Server'
@@ -32,8 +30,7 @@ pub fn (mut app App) index(mut ctx Context) veb.Result {
 	})
 }
 
-@[get]
-@['/health']
+@['/health'; get]
 pub fn (mut app App) health(mut ctx Context) veb.Result {
 	return ctx.json({
 		'status':    'UP'
@@ -43,16 +40,14 @@ pub fn (mut app App) health(mut ctx Context) veb.Result {
 	})
 }
 
-@[get]
-@['/ping']
+@['/ping'; get]
 pub fn (mut app App) ping(mut ctx Context) veb.Result {
 	return ctx.text('pong')
 }
 
-@[get]
-@['/stats']
+@['/stats'; get]
 pub fn (mut app App) stats(mut ctx Context) veb.Result {
-	active_users := app.services.user_service.count()
+	active_users := app.user_service.count()
 	return ctx.json({
 		'requests':     '${app.req_count}'
 		'uptime_ms':    '${time.ticks() - app.start_time}'
@@ -61,25 +56,31 @@ pub fn (mut app App) stats(mut ctx Context) veb.Result {
 	})
 }
 
-@[get]
-@['/cache']
+@['/cache'; get]
 pub fn (mut app App) cache_demo(mut ctx Context) veb.Result {
 	key := ctx.query['key'] or { 'default' }
-	if app.services.cache_service != unsafe { nil } {
-		if val := app.services.cache_service.get(key) {
-			return ctx.json({'source': 'cache', 'key': key, 'value': val})
+	if app.cache_service != unsafe { nil } {
+		if val := app.cache_service.get(key) {
+			return ctx.json({
+				'source': 'cache'
+				'key':    key
+				'value':  val
+			})
 		}
 		value := 'computed_${time.ticks()}'
-		app.services.cache_service.set(key, value, 30) or {
+		app.cache_service.set(key, value, 30) or {
 			return ctx.server_error('cache write failed: ${err}')
 		}
-		return ctx.json({'source': 'computed', 'key': key, 'value': value})
+		return ctx.json({
+			'source': 'computed'
+			'key':    key
+			'value':  value
+		})
 	}
 	return ctx.server_error('cache not initialized')
 }
 
-@[get]
-@['/request-info']
+@['/request-info'; get]
 pub fn (mut app App) request_info(mut ctx Context) veb.Result {
 	method := ctx.req.method.str()
 	path := ctx.req.url
@@ -105,8 +106,7 @@ pub fn (mut app App) request_info(mut ctx Context) veb.Result {
 // ═══════════════════════════════════════════════════════════
 // API 前缀：/api/v1/auth
 
-@[post]
-@['/api/v1/auth/login']
+@['/api/v1/auth/login'; post]
 pub fn (mut app App) post_login(mut ctx Context) veb.Result {
 	// 从 query/form 参数读取
 	username := ctx.query['username'] or { ctx.form['username'] or { '' } }
@@ -114,15 +114,15 @@ pub fn (mut app App) post_login(mut ctx Context) veb.Result {
 	if username.len == 0 || password.len == 0 {
 		return ctx.json_error(400, 'username and password required')
 	}
-	mut req := LoginRequest{username: username, password: password}
-	resp := app.services.auth_service.login(req) or {
-		return ctx.json_error(401, err.msg())
+	mut req := LoginRequest{
+		username: username
+		password: password
 	}
+	resp := app.auth_service.login(req) or { return ctx.json_error(401, err.msg()) }
 	return ctx.json_response(200, '${resp}')
 }
 
-@[post]
-@['/api/v1/auth/register']
+@['/api/v1/auth/register'; post]
 pub fn (mut app App) post_register(mut ctx Context) veb.Result {
 	username := ctx.query['username'] or { ctx.form['username'] or { '' } }
 	email := ctx.query['email'] or { ctx.form['email'] or { '' } }
@@ -133,26 +133,21 @@ pub fn (mut app App) post_register(mut ctx Context) veb.Result {
 	}
 	req := CreateUserRequest{
 		username: username
-		email: email
+		email:    email
 		password: password
 		nickname: nickname
 	}
-	user := app.services.user_service.create(req) or {
-		return ctx.json_error(409, err.msg())
-	}
+	user := app.user_service.create(req) or { return ctx.json_error(409, err.msg()) }
 	_ = user
 	return ctx.json_success('registration successful, please login')
 }
 
-@[get]
-@['/api/v1/auth/profile']
+@['/api/v1/auth/profile'; get]
 pub fn (mut app App) get_profile(mut ctx Context) veb.Result {
 	username, _ := app.middleware.apply_auth(mut ctx.Context) or {
 		return ctx.json_error(401, err.msg())
 	}
-	profile := app.services.auth_service.get_profile(username) or {
-		return ctx.json_error(404, err.msg())
-	}
+	profile := app.auth_service.get_profile(username) or { return ctx.json_error(404, err.msg()) }
 	return ctx.json_response(200, '${profile}')
 }
 
@@ -161,22 +156,17 @@ pub fn (mut app App) get_profile(mut ctx Context) veb.Result {
 // ═══════════════════════════════════════════════════════════
 // API 前缀：/api/v1/users
 
-@[get]
-@['/api/v1/users']
+@['/api/v1/users'; get]
 pub fn (mut app App) get_users(mut ctx Context) veb.Result {
 	// required
-	app.middleware.apply_role(mut ctx.Context, 'ADMIN') or {
-		return ctx.json_error(403, err.msg())
-	}
+	app.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
 	// rate limit
 	mut ip := '-'
 	if ctx.conn != unsafe { nil } {
 		addr := ctx.conn.peer_ip() or { return ctx.text('') }
 		ip = addr.str()
 	}
-	app.middleware.apply_rate_limit(ip) or {
-		return ctx.json_error(429, err.msg())
-	}
+	app.middleware.apply_rate_limit(ip) or { return ctx.json_error(429, err.msg()) }
 	// 解析查询参数
 	page := ctx.query['page'] or { '1' }
 	page_size := ctx.query['page_size'] or { '20' }
@@ -184,54 +174,47 @@ pub fn (mut app App) get_users(mut ctx Context) veb.Result {
 	status_str := ctx.query['status'] or { '0' }
 	role := ctx.query['role'] or { '' }
 	query := UserListQuery{
-		page: page.int()
+		page:      page.int()
 		page_size: page_size.int()
-		keyword: keyword
-		status: status_str.int()
-		role: role
+		keyword:   keyword
+		status:    status_str.int()
+		role:      role
 	}
-	users, total := app.services.user_service.list(query)
+	users, total := app.user_service.list(query)
 	return ctx.json({
-		'code':    '200'
-		'message': 'OK'
-		'data':    json_data(users)
-		'total':   '${total}'
-		'page':    '${query.page}'
+		'code':      '200'
+		'message':   'OK'
+		'data':      json_data(users)
+		'total':     '${total}'
+		'page':      '${query.page}'
 		'page_size': '${query.page_size}'
 	})
 }
 
-@[get]
-@['/api/v1/users/:id']
-pub fn (mut app App) get_user(mut ctx Context, id string) veb.Result {
-	app.middleware.apply_role(mut ctx.Context, 'ADMIN') or {
-		return ctx.json_error(403, err.msg())
-	}
-	if id.len == 0 {
+@['/api/v1/users/:id'; get]
+pub fn (mut app App) get_user(mut ctx Context) veb.Result {
+	app.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
+	id_str := ctx.query['id'] or { '' }
+	if id_str.len == 0 {
 		return ctx.json_error(400, 'missing user ID')
 	}
-	uid := id.int()
-	user := app.services.user_service.get_by_id(uid) or {
-		return ctx.json_error(404, err.msg())
-	}
+	id := id_str.int()
+	user := app.user_service.get_by_id(id) or { return ctx.json_error(404, err.msg()) }
 	return ctx.json_response(200, '${UserProfile{
-		id: user.id
+		id:       user.id
 		username: user.username
 		nickname: user.nickname
-		avatar: user.avatar
-		email: user.email
-		role: user.role
-		status: user.status
-		created: time.unix(user.created_at).format_ss()
+		avatar:   user.avatar
+		email:    user.email
+		role:     user.role
+		status:   user.status
+		created:  time.unix(user.created_at).format_ss()
 	}}')
 }
 
-@[post]
-@['/api/v1/users']
+@['/api/v1/users'; post]
 pub fn (mut app App) post_user(mut ctx Context) veb.Result {
-	app.middleware.apply_role(mut ctx.Context, 'ADMIN') or {
-		return ctx.json_error(403, err.msg())
-	}
+	app.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
 	username := ctx.query['username'] or { ctx.form['username'] or { '' } }
 	email := ctx.query['email'] or { ctx.form['email'] or { '' } }
 	password := ctx.query['password'] or { ctx.form['password'] or { '' } }
@@ -239,62 +222,61 @@ pub fn (mut app App) post_user(mut ctx Context) veb.Result {
 	if username.len == 0 || email.len == 0 || password.len == 0 {
 		return ctx.json_error(400, 'username, email, password required')
 	}
-	req := CreateUserRequest{username: username, email: email, password: password, nickname: nickname}
-	user := app.services.user_service.create(req) or {
-		return ctx.json_error(409, err.msg())
+	req := CreateUserRequest{
+		username: username
+		email:    email
+		password: password
+		nickname: nickname
 	}
+	user := app.user_service.create(req) or { return ctx.json_error(409, err.msg()) }
 	return ctx.json_response(201, '${UserProfile{
-		id: user.id
+		id:       user.id
 		username: user.username
 		nickname: user.nickname
-		email: user.email
-		role: user.role
-		status: user.status
-		created: time.unix(user.created_at).format_ss()
+		email:    user.email
+		role:     user.role
+		status:   user.status
+		created:  time.unix(user.created_at).format_ss()
 	}}')
 }
 
-@[put]
-@['/api/v1/users/:id']
-pub fn (mut app App) put_user(mut ctx Context, id string) veb.Result {
-	app.middleware.apply_role(mut ctx.Context, 'ADMIN') or {
-		return ctx.json_error(403, err.msg())
-	}
-	if id.len == 0 {
+@['/api/v1/users/:id'; put]
+pub fn (mut app App) put_user(mut ctx Context) veb.Result {
+	app.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
+	id_str := ctx.query['id'] or { '' }
+	if id_str.len == 0 {
 		return ctx.json_error(400, 'missing user ID')
 	}
 	uid := id.int()
 	email := ctx.query['email'] or { ctx.form['email'] or { '' } }
 	nickname := ctx.query['nickname'] or { ctx.form['nickname'] or { '' } }
 	avatar := ctx.query['avatar'] or { ctx.form['avatar'] or { '' } }
-	req := UpdateUserRequest{email: email, nickname: nickname, avatar: avatar}
-	user := app.services.user_service.update(uid, req) or {
-		return ctx.json_error(404, err.msg())
+	req := UpdateUserRequest{
+		email:    email
+		nickname: nickname
+		avatar:   avatar
 	}
+	user := app.user_service.update(id, req) or { return ctx.json_error(404, err.msg()) }
 	return ctx.json_response(200, '${UserProfile{
-		id: user.id
+		id:       user.id
 		username: user.username
 		nickname: user.nickname
-		email: user.email
-		role: user.role
-		status: user.status
-		created: time.unix(user.created_at).format_ss()
+		email:    user.email
+		role:     user.role
+		status:   user.status
+		created:  time.unix(user.created_at).format_ss()
 	}}')
 }
 
-@[delete]
-@['/api/v1/users/:id']
-pub fn (mut app App) delete_user(mut ctx Context, id string) veb.Result {
-	app.middleware.apply_role(mut ctx.Context, 'ADMIN') or {
-		return ctx.json_error(403, err.msg())
-	}
-	if id.len == 0 {
+@['/api/v1/users/:id'; delete]
+pub fn (mut app App) delete_user(mut ctx Context) veb.Result {
+	app.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
+	id_str := ctx.query['id'] or { '' }
+	if id_str.len == 0 {
 		return ctx.json_error(400, 'missing user ID')
 	}
-	uid := id.int()
-	app.services.user_service.delete(uid) or {
-		return ctx.json_error(404, err.msg())
-	}
+	id := id_str.int()
+	app.user_service.delete(id) or { return ctx.json_error(404, err.msg()) }
 	return ctx.json_success('user deleted')
 }
 
@@ -321,8 +303,8 @@ pub fn (mut ctx Context) json_error(code int, message string) veb.Result {
 // json_response 返回带数据的 JSON
 pub fn (mut ctx Context) json_response(code int, data string) veb.Result {
 	return ctx.json({
-		'code':    '${code}'
-		'data':    data
+		'code': '${code}'
+		'data': data
 	})
 }
 
@@ -346,45 +328,37 @@ fn json_data[T](items []T) string {
 // ApiDocController — API 文档路由（thin wrapper → apidoc.ApidocHandler）
 // ═══════════════════════════════════════════════════════════
 
-@[get]
-@["/__docs"]
+@["/__docs"; get]
 pub fn (mut app App) api_docs_index(mut ctx Context) veb.Result {
 	return app.apidoc_handler.serve_index(mut ctx.Context)
 }
 
-@[get]
-@["/__docs/static/:file"]
+@["/__docs/static/:file"; get]
 pub fn (mut app App) api_docs_static(mut ctx Context, file string) veb.Result {
 	return app.apidoc_handler.serve_static_file(mut ctx.Context, file)
 }
 
-@[get]
-@["/__docs/api/entries"]
+@["/__docs/api/entries"; get]
 pub fn (mut app App) api_docs_entries(mut ctx Context) veb.Result {
 	return app.apidoc_handler.serve_entries(mut ctx.Context)
 }
 
-@[get]
-@["/__docs/api/entries/:id"]
+@["/__docs/api/entries/:id"; get]
 pub fn (mut app App) api_docs_entry_get(mut ctx Context, id string) veb.Result {
 	return app.apidoc_handler.serve_entry(mut ctx.Context, id)
 }
 
-@[put]
-@["/__docs/api/entries/:id"]
+@["/__docs/api/entries/:id"; put]
 pub fn (mut app App) api_docs_entry_put(mut ctx Context, id string) veb.Result {
 	return app.apidoc_handler.serve_entry(mut ctx.Context, id)
 }
 
-@[delete]
-@["/__docs/api/entries/:id"]
+@["/__docs/api/entries/:id"; delete]
 pub fn (mut app App) api_docs_entry_delete(mut ctx Context, id string) veb.Result {
 	return app.apidoc_handler.serve_entry(mut ctx.Context, id)
 }
 
-@[get]
-@["/__docs/api/export"]
+@["/__docs/api/export"; get]
 pub fn (mut app App) api_docs_export(mut ctx Context) veb.Result {
 	return app.apidoc_handler.serve_export(mut ctx.Context)
 }
-

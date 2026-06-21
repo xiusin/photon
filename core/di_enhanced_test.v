@@ -18,7 +18,7 @@ module core
 fn test_method_injection_struct() {
 	mi := MethodInjection{
 		method_name: 'set_cache'
-		params: [Dependency{field_name: 'cache', type_name: 'CacheService'}]
+		params:      [Dependency{ field_name: 'cache', type_name: 'CacheService' }]
 	}
 	assert mi.method_name == 'set_cache'
 	assert mi.params.len == 1
@@ -26,10 +26,17 @@ fn test_method_injection_struct() {
 }
 
 fn test_dependency_is_required_default() {
-	dep := Dependency{field_name: 'repo', type_name: 'UserRepository'}
+	dep := Dependency{
+		field_name: 'repo'
+		type_name:  'UserRepository'
+	}
 	assert dep.is_required == true // default should be true
 
-	dep2 := Dependency{field_name: 'cache', type_name: 'CacheService', is_required: false}
+	dep2 := Dependency{
+		field_name:  'cache'
+		type_name:   'CacheService'
+		is_required: false
+	}
 	assert dep2.is_required == false
 }
 
@@ -39,7 +46,7 @@ fn test_dependency_is_required_default() {
 
 fn test_collection_injection_struct() {
 	ci := CollectionInjection{
-		field_name: 'handlers'
+		field_name:     'handlers'
 		interface_name: 'EventHandler'
 	}
 	assert ci.field_name == 'handlers'
@@ -49,9 +56,9 @@ fn test_collection_injection_struct() {
 
 fn test_collection_injection_with_tag() {
 	ci := CollectionInjection{
-		field_name: 'caches'
+		field_name:     'caches'
 		interface_name: 'CacheService'
-		tag: 'distributed'
+		tag:            'distributed'
 	}
 	assert ci.tag == 'distributed'
 }
@@ -352,8 +359,18 @@ fn test_bean_definition_enhanced_fields() {
 	assert def.collection_injections.len == 0
 
 	def.interfaces = ['CacheService', 'LogService']
-	def.method_injections = [MethodInjection{method_name: 'set_cache', params: []Dependency{}}]
-	def.collection_injections = [CollectionInjection{field_name: 'handlers', interface_name: 'EventHandler'}]
+	def.method_injections = [
+		MethodInjection{
+			method_name: 'set_cache'
+			params:      []Dependency{}
+		},
+	]
+	def.collection_injections = [
+		CollectionInjection{
+			field_name:     'handlers'
+			interface_name: 'EventHandler'
+		},
+	]
 
 	assert def.interfaces.len == 2
 	assert def.method_injections.len == 1
@@ -365,10 +382,10 @@ fn test_bean_definition_builder_enhanced() {
 	builder.add_interface('CacheService')
 	builder.add_method_injection(MethodInjection{
 		method_name: 'set_cache'
-		params: [Dependency{field_name: 'cache', type_name: 'CacheService'}]
+		params:      [Dependency{ field_name: 'cache', type_name: 'CacheService' }]
 	})
 	builder.add_collection_injection(CollectionInjection{
-		field_name: 'handlers'
+		field_name:     'handlers'
 		interface_name: 'EventHandler'
 	})
 
@@ -617,7 +634,9 @@ fn test_on_bean_condition_present() {
 	c.register(new_bean_definition('CacheService')) or { assert false }
 	ctx = ctx.with_container(c)
 
-	cond := OnBeanCondition{bean_type: 'CacheService'}
+	cond := OnBeanCondition{
+		bean_type: 'CacheService'
+	}
 	assert cond.evaluate(mut ctx) == true
 }
 
@@ -626,7 +645,9 @@ fn test_on_bean_condition_absent() {
 	mut c := new_container()
 	ctx = ctx.with_container(c)
 
-	cond := OnBeanCondition{bean_type: 'NonExistentService'}
+	cond := OnBeanCondition{
+		bean_type: 'NonExistentService'
+	}
 	assert cond.evaluate(mut ctx) == false
 }
 
@@ -636,7 +657,9 @@ fn test_on_missing_bean_condition_present() {
 	c.register(new_bean_definition('CacheService')) or { assert false }
 	ctx = ctx.with_container(c)
 
-	cond := OnMissingBeanCondition{bean_type: 'CacheService'}
+	cond := OnMissingBeanCondition{
+		bean_type: 'CacheService'
+	}
 	assert cond.evaluate(mut ctx) == false
 }
 
@@ -645,14 +668,18 @@ fn test_on_missing_bean_condition_absent() {
 	mut c := new_container()
 	ctx = ctx.with_container(c)
 
-	cond := OnMissingBeanCondition{bean_type: 'NonExistentService'}
+	cond := OnMissingBeanCondition{
+		bean_type: 'NonExistentService'
+	}
 	assert cond.evaluate(mut ctx) == true
 }
 
 fn test_on_missing_bean_condition_no_container() {
 	mut ctx := new_condition_context()
 	// No container set — bean is "missing" by definition
-	cond := OnMissingBeanCondition{bean_type: 'AnyService'}
+	cond := OnMissingBeanCondition{
+		bean_type: 'AnyService'
+	}
 	assert cond.evaluate(mut ctx) == true
 }
 
@@ -665,7 +692,7 @@ fn test_conditional_on_bean_attribute_skips() {
 	// (conditional_on_bean:PrimaryCache) — should succeed
 	def := BeanDefinition{
 		type_name: 'BackupCache'
-		tags: ['conditional_on_bean:PrimaryCache']
+		tags:      ['conditional_on_bean:PrimaryCache']
 	}
 	ctx.register(def) or {}
 	assert ctx.has('BackupCache') == true
@@ -679,7 +706,7 @@ fn test_conditional_on_missing_bean_attribute_skips() {
 	// Try to register a fallback that should only exist when PrimaryCache is missing
 	def := BeanDefinition{
 		type_name: 'FallbackCache'
-		tags: ['conditional_on_missing_bean:PrimaryCache']
+		tags:      ['conditional_on_missing_bean:PrimaryCache']
 	}
 	ctx.register(def) or {}
 	// Should be skipped because PrimaryCache exists
@@ -746,7 +773,10 @@ fn test_application_context_replace_definition() {
 	new_def.is_lazy = true
 	ctx.replace_definition(new_def) or { assert false }
 
-	def := ctx.get_definition('OldService') or { assert false; return }
+	def := ctx.get_definition('OldService') or {
+		assert false
+		return
+	}
 	assert def.is_lazy == true
 }
 
@@ -757,7 +787,7 @@ fn test_application_context_replace_definition() {
 fn test_container_resolve_or_found() {
 	mut c := new_container()
 	c.register_instance('TestService', unsafe { voidptr(42) }) or { assert false }
-	result := c.resolve_or('TestService', unsafe { voidptr(0) })
+	result := c.resolve_or('TestService', unsafe { nil })
 	assert result == unsafe { voidptr(42) }
 }
 
@@ -770,7 +800,7 @@ fn test_container_resolve_or_missing() {
 fn test_application_context_resolve_or() {
 	mut ctx := new_application_context()
 	ctx.register_instance('TestService', unsafe { voidptr(42) }) or { assert false }
-	result := ctx.resolve_or('TestService', unsafe { voidptr(0) })
+	result := ctx.resolve_or('TestService', unsafe { nil })
 	assert result == unsafe { voidptr(42) }
 
 	result2 := ctx.resolve_or('NonExistent', unsafe { voidptr(99) })
@@ -814,8 +844,8 @@ fn test_container_freeze_double_freeze() {
 fn test_lookup_injection_struct() {
 	li := LookupInjection{
 		method_name: 'create_command'
-		type_name: 'Command'
-		qualifier: 'async'
+		type_name:   'Command'
+		qualifier:   'async'
 	}
 	assert li.method_name == 'create_command'
 	assert li.type_name == 'Command'
@@ -825,7 +855,7 @@ fn test_lookup_injection_struct() {
 fn test_lookup_injection_no_qualifier() {
 	li := LookupInjection{
 		method_name: 'get_handler'
-		type_name: 'Handler'
+		type_name:   'Handler'
 	}
 	assert li.qualifier == ''
 }
@@ -892,9 +922,9 @@ fn test_bean_type_index_full_rebuild_with_parent() {
 fn test_bean_registration_options_interfaces() {
 	mut ctx := new_application_context()
 	ctx.register_bean('CacheService', BeanRegistrationOptions{
-		scope: .singleton
+		scope:      .singleton
 		interfaces: ['ICache', 'IInvalidation']
-		tags: ['cache']
+		tags:       ['cache']
 	}) or { assert false }
 
 	assert ctx.has('CacheService') == true
@@ -908,13 +938,23 @@ fn test_bean_registration_options_interfaces() {
 fn test_bean_registration_options_method_injections() {
 	mut ctx := new_application_context()
 	ctx.register_bean('OrderService', BeanRegistrationOptions{
-		method_injections: [MethodInjection{
-			method_name: 'set_payment'
-			params: [Dependency{field_name: 'payment', type_name: 'PaymentService'}]
-		}]
+		method_injections: [
+			MethodInjection{
+				method_name: 'set_payment'
+				params:      [
+					Dependency{
+						field_name: 'payment'
+						type_name:  'PaymentService'
+					},
+				]
+			},
+		]
 	}) or { assert false }
 
-	def := ctx.get_definition('OrderService') or { assert false; return }
+	def := ctx.get_definition('OrderService') or {
+		assert false
+		return
+	}
 	assert def.method_injections.len == 1
 	assert def.method_injections[0].method_name == 'set_payment'
 }
@@ -922,14 +962,19 @@ fn test_bean_registration_options_method_injections() {
 fn test_bean_registration_options_collection_injections() {
 	mut ctx := new_application_context()
 	ctx.register_bean('EventHandlerChain', BeanRegistrationOptions{
-		collection_injections: [CollectionInjection{
-			field_name: 'handlers'
-			interface_name: 'IEventHandler'
-			tag: 'event'
-		}]
+		collection_injections: [
+			CollectionInjection{
+				field_name:     'handlers'
+				interface_name: 'IEventHandler'
+				tag:            'event'
+			},
+		]
 	}) or { assert false }
 
-	def := ctx.get_definition('EventHandlerChain') or { assert false; return }
+	def := ctx.get_definition('EventHandlerChain') or {
+		assert false
+		return
+	}
 	assert def.collection_injections.len == 1
 	assert def.collection_injections[0].interface_name == 'IEventHandler'
 }
@@ -942,11 +987,13 @@ fn test_lookup_injection_in_bean_definition() {
 	mut def := new_bean_definition('OrderService')
 	assert def.lookup_injections.len == 0
 
-	def.lookup_injections = [LookupInjection{
-		method_name: 'create_command'
-		type_name: 'Command'
-		qualifier: 'async'
-	}]
+	def.lookup_injections = [
+		LookupInjection{
+			method_name: 'create_command'
+			type_name:   'Command'
+			qualifier:   'async'
+		},
+	]
 	assert def.lookup_injections.len == 1
 	assert def.lookup_injections[0].method_name == 'create_command'
 	assert def.lookup_injections[0].type_name == 'Command'
@@ -957,12 +1004,12 @@ fn test_lookup_injection_builder() {
 	mut builder := new_bean_definition_builder('OrderService')
 	builder.add_lookup_injection(LookupInjection{
 		method_name: 'create_command'
-		type_name: 'Command'
+		type_name:   'Command'
 	})
 	builder.add_lookup_injection(LookupInjection{
 		method_name: 'get_handler'
-		type_name: 'Handler'
-		qualifier: 'sync'
+		type_name:   'Handler'
+		qualifier:   'sync'
 	})
 
 	def := builder.build()
@@ -1012,8 +1059,14 @@ fn test_container_resolve_lookup_for_bean() {
 
 	mut def := new_bean_definition('OrderService')
 	def.lookup_injections = [
-		LookupInjection{method_name: 'create_command', type_name: 'Command'},
-		LookupInjection{method_name: 'get_handler', type_name: 'Handler'},
+		LookupInjection{
+			method_name: 'create_command'
+			type_name:   'Command'
+		},
+		LookupInjection{
+			method_name: 'get_handler'
+			type_name:   'Handler'
+		},
 	]
 	c.register(def) or { assert false }
 
@@ -1063,7 +1116,12 @@ fn test_application_context_resolve_lookup_for_bean() {
 	ctx.register_instance('Command', unsafe { voidptr(42) }) or { assert false }
 
 	mut def := new_bean_definition('OrderService')
-	def.lookup_injections = [LookupInjection{method_name: 'create_command', type_name: 'Command'}]
+	def.lookup_injections = [
+		LookupInjection{
+			method_name: 'create_command'
+			type_name:   'Command'
+		},
+	]
 	ctx.register(def) or { assert false }
 
 	result := ctx.resolve_lookup_for_bean('OrderService') or {
@@ -1077,13 +1135,18 @@ fn test_application_context_resolve_lookup_for_bean() {
 fn test_bean_registration_options_lookup_injections() {
 	mut ctx := new_application_context()
 	ctx.register_bean('OrderService', BeanRegistrationOptions{
-		lookup_injections: [LookupInjection{
-			method_name: 'create_command'
-			type_name: 'Command'
-		}]
+		lookup_injections: [
+			LookupInjection{
+				method_name: 'create_command'
+				type_name:   'Command'
+			},
+		]
 	}) or { assert false }
 
-	def := ctx.get_definition('OrderService') or { assert false; return }
+	def := ctx.get_definition('OrderService') or {
+		assert false
+		return
+	}
 	assert def.lookup_injections.len == 1
 	assert def.lookup_injections[0].method_name == 'create_command'
 }

@@ -1,6 +1,7 @@
 module pool
 
 import orm
+import sync
 
 // db_pool.v - Database Connection Pool
 //
@@ -25,18 +26,26 @@ pub fn new_db_pool(driver orm.DriverType, min_size int, max_size int, factory fn
 	}
 }
 
-// db_pool_id_counter is used by the test factory to generate unique connection IDs
-__global db_pool_id_counter i64
+// db_pool_id_counter is used by the test factory to generate unique connection IDs.
+// Protected by db_pool_id_mu (M3): the counter is incremented from factory
+// callbacks that may run concurrently (e.g. pool.initialize() creating multiple
+// connections in parallel). Without the mutex, concurrent increments would
+// produce duplicate IDs and lost updates.
+__global (
+	db_pool_id_counter i64
+	db_pool_id_mu      sync.Mutex
+)
 
 // new_test_db_pool creates a DbPool with a test factory.
 // Each connection is a unique voidptr (just a counter value).
 // This is suitable for unit testing pool operations without a real database.
 pub fn new_test_db_pool(driver orm.DriverType, min_size int, max_size int) &DbPool {
 	return new_db_pool(driver, min_size, max_size, fn () !voidptr {
-		unsafe {
-			db_pool_id_counter++
-			return voidptr(db_pool_id_counter)
-		}
+		db_pool_id_mu.@lock()
+		db_pool_id_counter++
+		id := db_pool_id_counter
+		db_pool_id_mu.unlock()
+		return unsafe { voidptr(id) }
 	})
 }
 

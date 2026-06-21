@@ -5,7 +5,6 @@ module security
 // Implements the Double-Submit Cookie pattern for CSRF protection.
 // A random token is set as a cookie and must be submitted as a header
 // (X-CSRF-TOKEN) or form field (_csrf) on state-changing requests.
-
 import rand
 
 // CsrfConfig configures CSRF protection behavior
@@ -19,7 +18,7 @@ pub:
 	cookie_path      string = '/'
 	cookie_http_only bool
 	cookie_secure    bool
-	cookie_same_site string = 'Lax'
+	cookie_same_site string   = 'Lax'
 	ignored_methods  []string = ['GET', 'HEAD', 'OPTIONS', 'TRACE']
 }
 
@@ -42,7 +41,7 @@ mut:
 // CookieCsrfTokenRepository implements the double-submit cookie pattern
 pub struct CookieCsrfTokenRepository {
 pub mut:
-	config    CsrfConfig
+	config       CsrfConfig
 	cached_token string
 }
 
@@ -92,7 +91,7 @@ pub mut:
 // new_csrf_manager creates a new CsrfManager
 pub fn new_csrf_manager(config CsrfConfig) &CsrfManager {
 	return &CsrfManager{
-		config: config
+		config:     config
 		repository: new_cookie_token_repo(config)
 	}
 }
@@ -111,9 +110,9 @@ pub fn (mut cm CsrfManager) create_token() !CsrfToken {
 	cm.repository.save_token(token)!
 
 	return CsrfToken{
-		token: token
+		token:     token
 		parameter: cm.config.form_field_name
-		header: cm.config.header_name
+		header:    cm.config.header_name
 	}
 }
 

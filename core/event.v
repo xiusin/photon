@@ -12,7 +12,6 @@ module core
 //       println('New user: ${e.payload_str}')
 //   })
 //   bus.dispatch(core.new_event('user.registered', 'alice')) or { 0 }
-
 import sync
 import time
 
@@ -24,30 +23,30 @@ import time
 pub struct Event {
 pub:
 	name        string
-	payload     voidptr           // typed payload pointer
-	payload_str string            // string representation of payload
+	payload     voidptr // typed payload pointer
+	payload_str string  // string representation of payload
 pub mut:
-	timestamp   i64               // unix timestamp
-	stopped     bool              // set to true to stop propagation
-	data        map[string]string // arbitrary metadata
+	timestamp i64               // unix timestamp
+	stopped   bool              // set to true to stop propagation
+	data      map[string]string // arbitrary metadata
 }
 
 // new_event creates a new Event with the current timestamp.
 pub fn new_event(name string, payload_str string) &Event {
 	return &Event{
-		name: name
+		name:        name
 		payload_str: payload_str
-		timestamp: time.now().unix()
+		timestamp:   time.now().unix()
 	}
 }
 
 // new_event_with_data creates a new Event with metadata.
 pub fn new_event_with_data(name string, payload_str string, data map[string]string) &Event {
 	return &Event{
-		name: name
+		name:        name
 		payload_str: payload_str
-		data: data
-		timestamp: time.now().unix()
+		data:        data
+		timestamp:   time.now().unix()
 	}
 }
 
@@ -83,8 +82,9 @@ pub enum ListenerPriority {
 // RegisteredListener wraps an EventListener with priority and metadata.
 pub struct RegisteredListener {
 pub:
+	id         int // unique id for fine-grained removal via off_listener(id)
 	listener   EventListener = unsafe { nil }
-	priority   int    = 50 // ListenerPriority.normal
+	priority   int           = 50 // ListenerPriority.normal
 	event_name string
 pub mut:
 	called_count int
@@ -94,36 +94,52 @@ pub mut:
 
 // EventBus manages event listeners and dispatches events.
 // Thread-safe via sync.RwMutex.
+//
+// dispatch_async() tracks spawned goroutines via sync.WaitGroup so that
+// wait_async()/shutdown() can block until all in-flight async listeners
+// complete. Listeners are assigned unique ids (returned by on()) so they
+// can be removed individually via off_listener(id) — this works for
+// closures where function-pointer comparison would fail.
 @[heap]
 pub struct EventBus {
 pub mut:
-	listeners map[string][]RegisteredListener
+	listeners               map[string][]RegisteredListener
+	transactional_listeners map[string][]TransactionalRegisteredListener
 mut:
-	mu sync.RwMutex
+	mu      sync.RwMutex
+	wg      sync.WaitGroup
+	next_id int
 }
 
 // new_event_bus creates an empty EventBus.
 pub fn new_event_bus() &EventBus {
 	return &EventBus{
-		listeners: map[string][]RegisteredListener{}
+		listeners:               map[string][]RegisteredListener{}
+		transactional_listeners: map[string][]TransactionalRegisteredListener{}
 	}
 }
 
 // on registers a listener for an event name with normal priority.
-pub fn (mut bus EventBus) on(event_name string, listener EventListener) {
-	bus.on_with_priority(event_name, listener, int(ListenerPriority.normal))
+// Returns a unique listener id that can be passed to off_listener(id)
+// to remove this specific listener later.
+pub fn (mut bus EventBus) on(event_name string, listener EventListener) int {
+	return bus.on_with_priority(event_name, listener, int(ListenerPriority.normal))
 }
 
 // on_with_priority registers a listener with a specific priority.
 // Lower priority values fire first.
-pub fn (mut bus EventBus) on_with_priority(event_name string, listener EventListener, priority int) {
+// Returns a unique listener id.
+pub fn (mut bus EventBus) on_with_priority(event_name string, listener EventListener, priority int) int {
 	bus.mu.@lock()
 	defer { bus.mu.unlock() }
 
+	bus.next_id++
+	id := bus.next_id
 	mut listeners := bus.listeners[event_name] or { []RegisteredListener{} }
 	listeners << RegisteredListener{
-		listener: listener
-		priority: priority
+		id:         id
+		listener:   listener
+		priority:   priority
 		event_name: event_name
 	}
 	// Sort by priority (ascending — lower fires first)
@@ -136,6 +152,7 @@ pub fn (mut bus EventBus) on_with_priority(event_name string, listener EventList
 		return 0
 	})
 	bus.listeners[event_name] = listeners
+	return id
 }
 
 // off removes all listeners for an event name.
@@ -145,32 +162,48 @@ pub fn (mut bus EventBus) off(event_name string) {
 	bus.listeners.delete(event_name)
 }
 
-// off_listener removes a specific listener from an event.
-// This allows fine-grained unsubscription without removing all listeners.
-//
-// Note: Function pointer comparison works for top-level functions and
-// closures captured with `[mut]` or `[var]` syntax. Anonymous closures
-// created inline in `on()` calls will NOT match — use `off(event_name)`
-// to remove all listeners for an event in that case.
+// off_listener removes a specific listener by its unique id (returned by on()).
+// This works reliably for closures (unlike function-pointer comparison).
+// Searches all event names since the id is globally unique.
 //
 // Spring equivalent: ApplicationListener removal
 // Laravel equivalent: Event::forget()
-pub fn (mut bus EventBus) off_listener(event_name string, listener EventListener) {
+pub fn (mut bus EventBus) off_listener(id int) {
 	bus.mu.@lock()
 	defer { bus.mu.unlock() }
 
-	listeners := bus.listeners[event_name] or { return }
-	mut new_listeners := []RegisteredListener{}
-	for rl in listeners {
-		// Keep listeners that are nil or don't match the target
-		if isnil(rl.listener) || rl.listener != listener {
-			new_listeners << rl
+	for event_name, listeners in bus.listeners {
+		mut new_listeners := []RegisteredListener{}
+		for rl in listeners {
+			if rl.id != id {
+				new_listeners << rl
+			}
+		}
+		if new_listeners.len == 0 {
+			bus.listeners.delete(event_name)
+		} else {
+			bus.listeners[event_name] = new_listeners
 		}
 	}
-	if new_listeners.len == 0 {
-		bus.listeners.delete(event_name)
-	} else {
-		bus.listeners[event_name] = new_listeners
+}
+
+// off_transactional_listener removes a transactional listener by its unique id.
+pub fn (mut bus EventBus) off_transactional_listener(id int) {
+	bus.mu.@lock()
+	defer { bus.mu.unlock() }
+
+	for event_name, listeners in bus.transactional_listeners {
+		mut new_listeners := []TransactionalRegisteredListener{}
+		for rl in listeners {
+			if rl.id != id {
+				new_listeners << rl
+			}
+		}
+		if new_listeners.len == 0 {
+			bus.transactional_listeners.delete(event_name)
+		} else {
+			bus.transactional_listeners[event_name] = new_listeners
+		}
 	}
 }
 
@@ -235,8 +268,10 @@ pub fn (mut bus EventBus) dispatch(event &Event) int {
 }
 
 // dispatch_async fires an event asynchronously using goroutines.
-// Does not wait for listeners to complete.
+// Does not wait for listeners to complete — use wait_async() to block
+// until all in-flight async dispatches finish.
 // Each listener runs in its own thread — a failing listener does not affect others.
+// Goroutines are tracked via sync.WaitGroup so shutdown() can drain them.
 pub fn (mut bus EventBus) dispatch_async(event &Event) {
 	if event.timestamp == 0 {
 		unsafe {
@@ -256,12 +291,35 @@ pub fn (mut bus EventBus) dispatch_async(event &Event) {
 		if isnil(rl.listener) {
 			continue
 		}
+		bus.wg.add(1)
 		captured_event := event
 		captured_listener := rl.listener
-		spawn fn (e &Event, l EventListener) {
+		bus_ref := bus
+		spawn fn (e &Event, l EventListener, gb &EventBus) {
+			defer {
+				unsafe { gb.wg.done() }
+			}
 			l(e)
-		}(captured_event, captured_listener)
+		}(captured_event, captured_listener, bus_ref)
 	}
+}
+
+// wait_async blocks until all in-flight async dispatch goroutines complete.
+// Useful for graceful shutdown — call before exiting to ensure all async
+// event listeners have finished processing.
+pub fn (mut bus EventBus) wait_async() {
+	bus.wg.wait()
+}
+
+// shutdown waits for all in-flight async dispatches to complete and then
+// clears all listeners. After shutdown(), the EventBus is empty and no
+// further events will be dispatched.
+pub fn (mut bus EventBus) shutdown() {
+	bus.wait_async()
+	bus.mu.@lock()
+	defer { bus.mu.unlock() }
+	bus.listeners = map[string][]RegisteredListener{}
+	bus.transactional_listeners = map[string][]TransactionalRegisteredListener{}
 }
 
 // ── Diagnostic ──
@@ -278,4 +336,101 @@ pub fn (mut bus EventBus) print_listeners() {
 			println('    priority=${rl.priority} called=${rl.called_count}')
 		}
 	}
+}
+
+// ── Transactional Event Support ──
+
+// TransactionPhase defines when a transactional event listener fires.
+// Spring equivalent: org.springframework.transaction.event.TransactionPhase
+pub enum TransactionPhase {
+	before_commit    // before transaction commit
+	after_commit     // after successful commit
+	after_rollback   // after transaction rollback
+	after_completion // after commit or rollback
+}
+
+// TransactionalEventListener handles events at specific transaction phases.
+// Spring equivalent: @TransactionalEventListener
+pub interface TransactionalEventListener {
+	phase() TransactionPhase
+mut:
+	handle(event &Event)
+}
+
+// TransactionalRegisteredListener wraps a TransactionalEventListener with metadata.
+pub struct TransactionalRegisteredListener {
+pub:
+	id         int
+	phase      TransactionPhase
+	event_name string
+pub mut:
+	listener TransactionalEventListener
+}
+
+// on_transactional registers a transactional event listener.
+// The listener will only be invoked when dispatch_transactional is called
+// with the matching phase.
+// Returns a unique listener id that can be passed to off_transactional_listener(id).
+pub fn (mut bus EventBus) on_transactional(event_name string, listener TransactionalEventListener) int {
+	bus.mu.@lock()
+	defer { bus.mu.unlock() }
+
+	bus.next_id++
+	id := bus.next_id
+	mut listeners := bus.transactional_listeners[event_name] or {
+		[]TransactionalRegisteredListener{}
+	}
+	listeners << TransactionalRegisteredListener{
+		id:         id
+		listener:   listener
+		phase:      listener.phase()
+		event_name: event_name
+	}
+	bus.transactional_listeners[event_name] = listeners
+	return id
+}
+
+// dispatch_transactional fires an event for a specific transaction phase.
+// Only listeners registered for the matching phase are invoked.
+// Returns the number of listeners that were called.
+pub fn (mut bus EventBus) dispatch_transactional(event &Event, phase TransactionPhase) int {
+	bus.mu.rlock()
+	mut listeners := bus.transactional_listeners[event.name] or {
+		[]TransactionalRegisteredListener{}
+	}
+	bus.mu.runlock()
+
+	mut called := 0
+	for mut rl in listeners {
+		if event.is_propagation_stopped() {
+			break
+		}
+		// Match phase: after_completion fires for both commit and rollback
+		if rl.phase == phase || (rl.phase == .after_completion && (phase == .after_commit
+			|| phase == .after_rollback)) {
+			rl.listener.handle(event)
+			called++
+		}
+	}
+	return called
+}
+
+// dispatch_transactional_all fires an event for all phases.
+// Useful for after_completion which should fire regardless of commit/rollback.
+pub fn (mut bus EventBus) dispatch_transactional_all(event &Event) int {
+	bus.mu.rlock()
+	mut listeners := bus.transactional_listeners[event.name] or {
+		[]TransactionalRegisteredListener{}
+	}
+	bus.mu.runlock()
+
+	mut called := 0
+	for mut rl in listeners {
+		if event.is_propagation_stopped() {
+			break
+		}
+		rl.listener.handle(event)
+		called++
+	}
+	return called
 }

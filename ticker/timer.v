@@ -12,7 +12,6 @@ module ticker
 //   after(d)       - convenience: returns channel that fires after d
 //   after_func(d,f)- runs f after d, returns Timer for cancellation
 //   sleep(d)       - blocks current thread for duration d
-
 import time
 
 // ============================================================
@@ -36,11 +35,11 @@ pub fn new_timer(d time.Duration) &Timer {
 	when := time.now().unix_nano() + i64(d)
 
 	mut t := &Timer{
-		c: ch
+		c:    ch
 		when: when
 	}
 
-	callback := fn [ch]() {
+	callback := fn [ch] () {
 		select {
 			ch <- time.now() {}
 			0 {}
@@ -62,7 +61,7 @@ pub fn (mut t Timer) reset(d time.Duration) bool {
 	t.when = time.now().unix_nano() + i64(d)
 
 	ch := t.c
-	callback := fn [ch]() {
+	callback := fn [ch] () {
 		select {
 			ch <- time.now() {}
 			0 {}
@@ -110,7 +109,7 @@ pub fn new_ticker(d time.Duration) &Ticker {
 		period: period
 	}
 
-	callback := fn [ch]() {
+	callback := fn [ch] () {
 		select {
 			ch <- time.now() {}
 			0 {}
@@ -139,7 +138,7 @@ pub fn (mut t Ticker) reset(d time.Duration) {
 	when := time.now().unix_nano() + t.period
 
 	ch := t.c
-	callback := fn [ch]() {
+	callback := fn [ch] () {
 		select {
 			ch <- time.now() {}
 			0 {}

@@ -1,7 +1,6 @@
 module ticker
 
 // ticker_test.v - Tests for the Photon Ticker module
-
 import time
 
 // ============================================================

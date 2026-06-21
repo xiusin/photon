@@ -71,18 +71,18 @@ fn test_new_repository_succeeds() {
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
 
-	repo := new_repository[RepoTestEntity](om, 'default', stub_find[RepoTestEntity], stub_find_all[RepoTestEntity],
-		stub_insert[RepoTestEntity], stub_update[RepoTestEntity], stub_delete, stub_count,
-		stub_exists)!
+	repo := new_repository[RepoTestEntity](om, 'default', stub_find[RepoTestEntity],
+		stub_find_all[RepoTestEntity], stub_insert[RepoTestEntity], stub_update[RepoTestEntity],
+		stub_delete, stub_count, stub_exists)!
 	assert true // reached without crash
 	_ = repo
 }
 
 fn test_new_repository_missing_connection() {
 	om := new_orm_manager()
-	if _ := new_repository[RepoTestEntity](om, 'missing', stub_find[RepoTestEntity], stub_find_all[RepoTestEntity],
-		stub_insert[RepoTestEntity], stub_update[RepoTestEntity], stub_delete, stub_count,
-		stub_exists)
+	if _ := new_repository[RepoTestEntity](om, 'missing', stub_find[RepoTestEntity],
+		stub_find_all[RepoTestEntity], stub_insert[RepoTestEntity], stub_update[RepoTestEntity],
+		stub_delete, stub_count, stub_exists)
 	{
 		assert false, 'expected error'
 	} else {

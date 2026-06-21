@@ -1,7 +1,7 @@
 module cache
 
 // cache_test.v - Unit tests for Photon Cache Module
-// Tests: MemoryCache set/get/delete, TTL expiration, LRU eviction, CacheStats, CacheManager
+// Tests: MemoryCache set/get/delete, TTL expiration, LRU eviction, CacheStats, CacheRegistry
 
 // ============================================================
 // MemoryCache Creation Tests
@@ -236,16 +236,16 @@ fn test_cache_stats_with_entries_only() {
 }
 
 // ============================================================
-// CacheManager Tests
+// CacheRegistry Tests
 // ============================================================
 
-fn test_new_cache_manager() {
-	mut cm := new_cache_manager()
+fn test_new_cache_registry() {
+	mut cm := new_cache_registry()
 	assert cm.caches.len == 0
 }
 
-fn test_cache_manager_register() {
-	mut cm := new_cache_manager()
+fn test_cache_registry_register() {
+	mut cm := new_cache_registry()
 	mut mem := new_memory_cache('named')
 	unsafe {
 		cm.register('named', mem)
@@ -253,8 +253,8 @@ fn test_cache_manager_register() {
 	assert cm.caches.len == 1
 }
 
-fn test_cache_manager_get_cache() {
-	mut cm := new_cache_manager()
+fn test_cache_registry_get_cache() {
+	mut cm := new_cache_registry()
 	mut mem := new_memory_cache('named')
 	unsafe {
 		cm.register('named', mem)
@@ -264,16 +264,16 @@ fn test_cache_manager_get_cache() {
 	_ = retrieved
 }
 
-fn test_cache_manager_get_cache_default() {
-	mut cm := new_cache_manager()
+fn test_cache_registry_get_cache_default() {
+	mut cm := new_cache_registry()
 	default := cm.get_cache('nonexistent')
 	// Default cache should exist (not nil)
 	assert true // reaches here without crash
 	_ = default
 }
 
-fn test_cache_manager_operations() {
-	mut cm := new_cache_manager()
+fn test_cache_registry_operations() {
+	mut cm := new_cache_registry()
 	cm.set('key', 'value', 3600)!
 	val := cm.get('key')!
 	assert val == 'value'
@@ -282,8 +282,8 @@ fn test_cache_manager_operations() {
 	assert cm.has('key') == false
 }
 
-fn test_cache_manager_clear() {
-	mut cm := new_cache_manager()
+fn test_cache_registry_clear() {
+	mut cm := new_cache_registry()
 	cm.set('a', '1', 0)!
 	cm.set('b', '2', 0)!
 	cm.clear()!
@@ -298,10 +298,10 @@ fn test_cache_manager_clear() {
 
 fn test_mem_cache_entry_creation() {
 	entry := MemCacheEntry{
-		key: 'k'
-		value: 'v'
-		expires_at: 0
-		created_at: 100
+		key:         'k'
+		value:       'v'
+		expires_at:  0
+		created_at:  100
 		accessed_at: 100
 	}
 	assert entry.key == 'k'
@@ -311,7 +311,9 @@ fn test_mem_cache_entry_creation() {
 }
 
 fn test_mem_cache_entry_not_expired_with_zero() {
-	entry := MemCacheEntry{ expires_at: 0 }
+	entry := MemCacheEntry{
+		expires_at: 0
+	}
 	assert entry.is_expired() == false
 }
 
@@ -331,7 +333,8 @@ fn test_singleflight_do_error_propagation() {
 	mut sf := new_singleflight()
 	if _ := sf.do('key-b', fn () !string {
 		return error('load failed')
-	}) {
+	})
+	{
 		assert false, 'expected error'
 	} else {
 		assert true
@@ -405,11 +408,11 @@ fn test_singleflight_empty_key() {
 }
 
 // ============================================================
-// CacheManager get_or_load Tests (Singleflight + Cache integration)
+// CacheRegistry get_or_load Tests (Singleflight + Cache integration)
 // ============================================================
 
-fn test_cache_manager_get_or_load_cache_miss() {
-	mut cm := new_cache_manager()
+fn test_cache_registry_get_or_load_cache_miss() {
+	mut cm := new_cache_registry()
 	val := cm.get_or_load('missing-key', 60, fn () !string {
 		return 'loaded-from-source'
 	})!
@@ -418,8 +421,8 @@ fn test_cache_manager_get_or_load_cache_miss() {
 	assert cm.has('missing-key') == true
 }
 
-fn test_cache_manager_get_or_load_cache_hit() {
-	mut cm := new_cache_manager()
+fn test_cache_registry_get_or_load_cache_hit() {
+	mut cm := new_cache_registry()
 	// Pre-populate cache
 	cm.set('cached-key', 'cached-value', 60)!
 
@@ -431,11 +434,12 @@ fn test_cache_manager_get_or_load_cache_hit() {
 	assert val == 'cached-value'
 }
 
-fn test_cache_manager_get_or_load_loader_error() {
-	mut cm := new_cache_manager()
+fn test_cache_registry_get_or_load_loader_error() {
+	mut cm := new_cache_registry()
 	if _ := cm.get_or_load('error-key', 60, fn () !string {
 		return error('source unavailable')
-	}) {
+	})
+	{
 		assert false, 'expected error from loader'
 	} else {
 		assert true
@@ -444,8 +448,8 @@ fn test_cache_manager_get_or_load_loader_error() {
 	assert cm.has('error-key') == false
 }
 
-fn test_cache_manager_get_or_load_deduplication() {
-	mut cm := new_cache_manager()
+fn test_cache_registry_get_or_load_deduplication() {
+	mut cm := new_cache_registry()
 	// First call loads and caches
 	val1 := cm.get_or_load('dedup-key', 60, fn () !string {
 		return 'first-load'
@@ -459,8 +463,8 @@ fn test_cache_manager_get_or_load_deduplication() {
 	assert val2 == 'first-load'
 }
 
-fn test_cache_manager_get_or_load_caches_with_ttl() {
-	mut cm := new_cache_manager()
+fn test_cache_registry_get_or_load_caches_with_ttl() {
+	mut cm := new_cache_registry()
 	cm.get_or_load('ttl-key', 3600, fn () !string {
 		return 'ttl-value'
 	}) or {}
@@ -469,13 +473,19 @@ fn test_cache_manager_get_or_load_caches_with_ttl() {
 	assert val == 'ttl-value'
 }
 
-fn test_cache_manager_get_or_load_multiple_keys() {
-	mut cm := new_cache_manager()
+fn test_cache_registry_get_or_load_multiple_keys() {
+	mut cm := new_cache_registry()
 
 	// Load multiple keys through get_or_load — each should cache its result
-	cm.get_or_load('a', 60, fn () !string { return 'A' }) or {}
-	cm.get_or_load('b', 60, fn () !string { return 'B' }) or {}
-	cm.get_or_load('c', 60, fn () !string { return 'C' }) or {}
+	cm.get_or_load('a', 60, fn () !string {
+		return 'A'
+	}) or {}
+	cm.get_or_load('b', 60, fn () !string {
+		return 'B'
+	}) or {}
+	cm.get_or_load('c', 60, fn () !string {
+		return 'C'
+	}) or {}
 
 	// Verify all values are cached and retrievable
 	assert cm.has('a') == true

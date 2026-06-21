@@ -83,9 +83,9 @@ pub fn (c &OnProfileCondition) evaluate(mut ctx ConditionContext) bool {
 // OnPropertyCondition checks if a configuration property exists.
 pub struct OnPropertyCondition {
 pub:
-	key           string
-	having_value  string // if non-empty, property must equal this value
-	match_if_missing bool // if true, matches when property is absent
+	key              string
+	having_value     string // if non-empty, property must equal this value
+	match_if_missing bool   // if true, matches when property is absent
 }
 
 pub fn (c &OnPropertyCondition) evaluate(mut ctx ConditionContext) bool {
@@ -149,8 +149,10 @@ pub fn (c &OnExpressionCondition) evaluate(mut ctx ConditionContext) bool {
 }
 
 // OnClassCondition checks if a class/struct type is available.
-// Since V is compiled, this is effectively a no-op at runtime,
-// but the condition can be used by the comptime scanner.
+// V is a compiled language with no runtime class loading, so "class existence"
+// is evaluated by checking whether a bean of that type is registered in the
+// container (the practical approach noted in the framework spec). This makes
+// the condition perform a real check instead of unconditionally returning true.
 //
 // Spring equivalent: @ConditionalOnClass
 pub struct OnClassCondition {
@@ -159,14 +161,17 @@ pub:
 }
 
 pub fn (c &OnClassCondition) evaluate(mut ctx ConditionContext) bool {
-	// At runtime, if this code exists, the class exists (V is compiled)
-	// The real check happens at comptime by the scanner
-	return true
+	// Real class existence check: query the container for a bean of that type.
+	// If no container is available, the condition cannot be verified → false.
+	if isnil(ctx.container) {
+		return false
+	}
+	return ctx.container.has_definition(c.class_name) || ctx.container.has_instance(c.class_name)
 }
 
 // OnMissingClassCondition checks if a class/struct type is NOT available.
-// Since V is compiled, this always returns false at runtime.
-// The real check happens at comptime by the scanner.
+// This is the negation of OnClassCondition: it returns true when no bean of
+// the given type is registered in the container.
 //
 // Spring equivalent: @ConditionalOnMissingClass
 pub struct OnMissingClassCondition {
@@ -175,8 +180,10 @@ pub:
 }
 
 pub fn (c &OnMissingClassCondition) evaluate(mut ctx ConditionContext) bool {
-	// At runtime, if this code exists, the class exists (V is compiled)
-	return false
+	if isnil(ctx.container) {
+		return true // no container → cannot confirm class exists → treat as missing
+	}
+	return !(ctx.container.has_definition(c.class_name) || ctx.container.has_instance(c.class_name))
 }
 
 // OnCloudPlatformCondition checks if running on a specific cloud platform.
@@ -234,38 +241,65 @@ pub fn parse_conditions(attrs []string, mut ctx ConditionContext) []&Condition {
 	mut conditions := []&Condition{}
 
 	for attr in attrs {
-		if attr.starts_with('conditional_on_profile:') || attr.starts_with('conditional_on_profile(') {
+		if attr.starts_with('conditional_on_profile:')
+			|| attr.starts_with('conditional_on_profile(') {
 			profile := extract_conditional_arg(attr)
-			conditions << &Condition(&OnProfileCondition{profile: profile})
-		} else if attr.starts_with('conditional_on_property:') || attr.starts_with('conditional_on_property(') {
+			conditions << &Condition(&OnProfileCondition{
+				profile: profile
+			})
+		} else if attr.starts_with('conditional_on_property:')
+			|| attr.starts_with('conditional_on_property(') {
 			// Support: conditional_on_property('key') or conditional_on_property('key','value')
 			arg := extract_conditional_arg(attr)
 			parts := arg.split_nth(',', 2)
 			if parts.len == 2 {
-				key := parts[0].trim(' ').trim('\'').trim('"')
-				having_value := parts[1].trim(' ').trim('\'').trim('"')
-				conditions << &Condition(&OnPropertyCondition{key: key, having_value: having_value})
+				key := parts[0].trim(' ').trim("'").trim('"')
+				having_value := parts[1].trim(' ').trim("'").trim('"')
+				conditions << &Condition(&OnPropertyCondition{
+					key:          key
+					having_value: having_value
+				})
 			} else {
-				conditions << &Condition(&OnPropertyCondition{key: parts[0].trim(' ').trim('\'').trim('"')})
+				conditions << &Condition(&OnPropertyCondition{
+					key: parts[0].trim(' ').trim("'").trim('"')
+				})
 			}
-		} else if attr.starts_with('conditional_on_bean:') || attr.starts_with('conditional_on_bean(') {
+		} else if attr.starts_with('conditional_on_bean:')
+			|| attr.starts_with('conditional_on_bean(') {
 			bean_type := extract_conditional_arg(attr)
-			conditions << &Condition(&OnBeanCondition{bean_type: bean_type})
-		} else if attr.starts_with('conditional_on_missing_bean:') || attr.starts_with('conditional_on_missing_bean(') {
+			conditions << &Condition(&OnBeanCondition{
+				bean_type: bean_type
+			})
+		} else if attr.starts_with('conditional_on_missing_bean:')
+			|| attr.starts_with('conditional_on_missing_bean(') {
 			bean_type := extract_conditional_arg(attr)
-			conditions << &Condition(&OnMissingBeanCondition{bean_type: bean_type})
-		} else if attr.starts_with('conditional_on_expression:') || attr.starts_with('conditional_on_expression(') {
+			conditions << &Condition(&OnMissingBeanCondition{
+				bean_type: bean_type
+			})
+		} else if attr.starts_with('conditional_on_expression:')
+			|| attr.starts_with('conditional_on_expression(') {
 			expression := extract_conditional_arg(attr)
-			conditions << &Condition(&OnExpressionCondition{expression: expression})
-		} else if attr.starts_with('conditional_on_class:') || attr.starts_with('conditional_on_class(') {
+			conditions << &Condition(&OnExpressionCondition{
+				expression: expression
+			})
+		} else if attr.starts_with('conditional_on_class:')
+			|| attr.starts_with('conditional_on_class(') {
 			class_name := extract_conditional_arg(attr)
-			conditions << &Condition(&OnClassCondition{class_name: class_name})
-		} else if attr.starts_with('conditional_on_missing_class:') || attr.starts_with('conditional_on_missing_class(') {
+			conditions << &Condition(&OnClassCondition{
+				class_name: class_name
+			})
+		} else if attr.starts_with('conditional_on_missing_class:')
+			|| attr.starts_with('conditional_on_missing_class(') {
 			class_name := extract_conditional_arg(attr)
-			conditions << &Condition(&OnMissingClassCondition{class_name: class_name})
-		} else if attr.starts_with('conditional_on_cloud_platform:') || attr.starts_with('conditional_on_cloud_platform(') {
+			conditions << &Condition(&OnMissingClassCondition{
+				class_name: class_name
+			})
+		} else if attr.starts_with('conditional_on_cloud_platform:')
+			|| attr.starts_with('conditional_on_cloud_platform(') {
 			platform := extract_conditional_arg(attr)
-			conditions << &Condition(&OnCloudPlatformCondition{platform: platform})
+			conditions << &Condition(&OnCloudPlatformCondition{
+				platform: platform
+			})
 		}
 	}
 
@@ -304,14 +338,14 @@ fn extract_conditional_arg(attr string) string {
 		if val.ends_with(')') {
 			val = val[..val.len - 1]
 		}
-		return val.trim('\'').trim('"').trim_space()
+		return val.trim("'").trim('"').trim_space()
 	}
 	if paren_pos := attr.index('(') {
 		mut val := attr[paren_pos + 1..]
 		if val.ends_with(')') {
 			val = val[..val.len - 1]
 		}
-		return val.trim('\'').trim('"').trim_space()
+		return val.trim("'").trim('"').trim_space()
 	}
 	return ''
 }

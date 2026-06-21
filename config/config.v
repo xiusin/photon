@@ -5,7 +5,6 @@ module config
 // Provides a unified configuration system supporting multiple sources
 // (files, environment variables, command-line flags) with property binding
 // and profile-based configuration.
-
 import json
 
 // Config manages application configuration from multiple sources
@@ -68,9 +67,7 @@ pub fn (c &Config) get_or(key string, default_val string) string {
 
 // get_int returns a configuration value as int
 pub fn (c &Config) get_int(key string) !int {
-	val := c.properties[key] or {
-		return error('config key "${key}" not found')
-	}
+	val := c.properties[key] or { return error('config key "${key}" not found') }
 	return val.int()
 }
 
@@ -82,9 +79,7 @@ pub fn (c &Config) get_int_or(key string, default_val int) int {
 
 // get_bool returns a configuration value as bool
 pub fn (c &Config) get_bool(key string) !bool {
-	val := c.properties[key] or {
-		return error('config key "${key}" not found')
-	}
+	val := c.properties[key] or { return error('config key "${key}" not found') }
 	return val.bool()
 }
 
@@ -96,9 +91,7 @@ pub fn (c &Config) get_bool_or(key string, default_val bool) bool {
 
 // get_f64 returns a configuration value as f64
 pub fn (c &Config) get_f64(key string) !f64 {
-	val := c.properties[key] or {
-		return error('config key "${key}" not found')
-	}
+	val := c.properties[key] or { return error('config key "${key}" not found') }
 	return val.f64()
 }
 

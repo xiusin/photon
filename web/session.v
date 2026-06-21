@@ -4,7 +4,6 @@ module web
 //
 // Provides server-side session management with pluggable backends.
 // Supports cookie-based session IDs and flash data.
-
 import veb
 import net.http
 import crypto.sha256
@@ -29,29 +28,33 @@ mut:
 // Session represents an HTTP session with get/set/flash operations.
 pub struct Session {
 pub mut:
-	id            string
-	data          map[string]string
-	flash_data    map[string]string
-	old_flash     map[string]string  // flash from previous request
-	is_new        bool
-	is_dirty      bool
-	ttl_seconds   int = 1800  // default 30 min
+	id          string
+	data        map[string]string
+	flash_data  map[string]string
+	old_flash   map[string]string // flash from previous request
+	is_new      bool
+	is_dirty    bool
+	ttl_seconds int = 1800 // default 30 min
+mut:
+	mu sync.RwMutex
 }
 
 // new_session creates a new Session with the given ID.
 pub fn new_session(id string) &Session {
 	return &Session{
-		id: id
-		data: map[string]string{}
+		id:         id
+		data:       map[string]string{}
 		flash_data: map[string]string{}
-		old_flash: map[string]string{}
-		is_new: true
-		is_dirty: false
+		old_flash:  map[string]string{}
+		is_new:     true
+		is_dirty:   false
 	}
 }
 
 // get retrieves a value from the session.
 pub fn (s &Session) get(key string) !string {
+	s.mu.rlock()
+	defer { s.mu.runlock() }
 	if val := s.data[key] {
 		return val
 	}
@@ -63,29 +66,39 @@ pub fn (s &Session) get(key string) !string {
 
 // set stores a value in the session.
 pub fn (mut s Session) set(key string, value string) {
+	s.mu.@lock()
+	defer { s.mu.unlock() }
 	s.data[key] = value
 	s.is_dirty = true
 }
 
 // has checks if a key exists in the session.
 pub fn (s &Session) has(key string) bool {
+	s.mu.rlock()
+	defer { s.mu.runlock() }
 	return key in s.data || key in s.old_flash
 }
 
 // delete removes a key from the session.
 pub fn (mut s Session) delete(key string) {
+	s.mu.@lock()
+	defer { s.mu.unlock() }
 	s.data.delete(key)
 	s.is_dirty = true
 }
 
 // flash stores a value that will only be available on the next request.
 pub fn (mut s Session) flash(key string, value string) {
+	s.mu.@lock()
+	defer { s.mu.unlock() }
 	s.flash_data[key] = value
 	s.is_dirty = true
 }
 
 // get_flash retrieves a flash value from the previous request.
 pub fn (s &Session) get_flash(key string) !string {
+	s.mu.rlock()
+	defer { s.mu.runlock() }
 	if val := s.old_flash[key] {
 		return val
 	}
@@ -94,11 +107,15 @@ pub fn (s &Session) get_flash(key string) !string {
 
 // has_flash checks if a flash key exists from the previous request.
 pub fn (s &Session) has_flash(key string) bool {
+	s.mu.rlock()
+	defer { s.mu.runlock() }
 	return key in s.old_flash
 }
 
 // all returns all session data.
 pub fn (s &Session) all() map[string]string {
+	s.mu.rlock()
+	defer { s.mu.runlock() }
 	mut result := map[string]string{}
 	for key, val in s.data {
 		result[key] = val
@@ -108,12 +125,16 @@ pub fn (s &Session) all() map[string]string {
 
 // clear removes all session data.
 pub fn (mut s Session) clear() {
+	s.mu.@lock()
+	defer { s.mu.unlock() }
 	s.data = map[string]string{}
 	s.is_dirty = true
 }
 
 // invalidate regenerates the session ID and clears all data.
 pub fn (mut s Session) invalidate() {
+	s.mu.@lock()
+	defer { s.mu.unlock() }
 	s.id = generate_session_id()
 	s.data = map[string]string{}
 	s.flash_data = map[string]string{}
@@ -124,6 +145,8 @@ pub fn (mut s Session) invalidate() {
 
 // regenerate generates a new session ID while keeping data.
 pub fn (mut s Session) regenerate() {
+	s.mu.@lock()
+	defer { s.mu.unlock() }
 	s.id = generate_session_id()
 	s.is_dirty = true
 }
@@ -131,11 +154,16 @@ pub fn (mut s Session) regenerate() {
 // ── MemorySessionStore ──
 
 // MemorySessionStore is an in-memory session store for development.
+// Starts a background GC goroutine that periodically removes expired
+// sessions. Call close() to stop the GC goroutine.
 pub struct MemorySessionStore {
 pub mut:
 	sessions map[string]&MemorySessionEntry
 mut:
-	mu sync.RwMutex
+	mu         sync.RwMutex
+	stop_gc    chan bool = chan bool{cap: 1}
+	gc_started bool
+	wg         sync.WaitGroup
 }
 
 struct MemorySessionEntry {
@@ -146,11 +174,83 @@ pub mut:
 	updated_at i64
 }
 
-// new_memory_session_store creates a new MemorySessionStore.
+// new_memory_session_store creates a new MemorySessionStore and starts
+// the background GC goroutine.
 pub fn new_memory_session_store() &MemorySessionStore {
-	return &MemorySessionStore{
+	mut s := &MemorySessionStore{
 		sessions: map[string]&MemorySessionEntry{}
 	}
+	s.start_gc()
+	return s
+}
+
+// start_gc launches the background GC goroutine that periodically removes
+// expired sessions. Safe to call multiple times; only the first call starts
+// the goroutine. Called automatically by new_memory_session_store().
+fn (mut s MemorySessionStore) start_gc() {
+	s.mu.@lock()
+	if s.gc_started {
+		s.mu.unlock()
+		return
+	}
+	s.gc_started = true
+	s.stop_gc = chan bool{cap: 1}
+	sig := s.stop_gc
+	s.mu.unlock()
+
+	s.wg.add(1)
+	spawn fn (gs &MemorySessionStore, stop_sig chan bool) {
+		defer {
+			unsafe { gs.wg.done() }
+		}
+		mut elapsed := 0
+		for {
+			// Sleep in 100ms increments so close() can stop us promptly.
+			time.sleep(100 * time.millisecond)
+			elapsed += 100
+
+			// Non-blocking check for stop signal.
+			mut should_stop := false
+			select {
+				_ := <-stop_sig {
+					should_stop = true
+				}
+				else {}
+			}
+			if should_stop {
+				break
+			}
+
+			// Sweep every 60 seconds (max_age = 1800s default session TTL)
+			if elapsed >= 60000 {
+				elapsed = 0
+				unsafe {
+					mut m := gs
+					m.gc(1800) or {}
+				}
+			}
+		}
+	}(s, sig)
+}
+
+// close stops the background GC goroutine and waits for it to exit.
+// Safe to call multiple times. After close(), expired sessions are no
+// longer swept automatically (but gc() can still be called manually).
+pub fn (mut s MemorySessionStore) close() {
+	s.mu.@lock()
+	if !s.gc_started {
+		s.mu.unlock()
+		return
+	}
+	s.gc_started = false
+	sig := s.stop_gc
+	s.mu.unlock()
+
+	select {
+		sig <- true {}
+		else {}
+	}
+	s.wg.wait()
 }
 
 // read reads session data from memory.
@@ -168,7 +268,7 @@ pub fn (mut s MemorySessionStore) write(session_id string, data map[string]strin
 	now_ := time.now().unix()
 	mut entry := s.sessions[session_id] or {
 		&MemorySessionEntry{
-			data: map[string]string{}
+			data:       map[string]string{}
 			flash_data: map[string]string{}
 			created_at: now_
 			updated_at: now_
@@ -207,13 +307,13 @@ pub fn (mut s MemorySessionStore) gc(max_age_seconds int) ! {
 // SessionManager manages session lifecycle with a pluggable store.
 pub struct SessionManager {
 pub mut:
-	store        &SessionStore = unsafe { nil }
-	cookie_name  string = 'PHOTON_SESSION'
-	ttl_seconds  int    = 1800
-	cookie_path  string = '/'
-	secure       bool
-	http_only    bool   = true
-	same_site    string = 'Lax'
+	store       &SessionStore = unsafe { nil }
+	cookie_name string        = 'PHOTON_SESSION'
+	ttl_seconds int           = 1800
+	cookie_path string        = '/'
+	secure      bool
+	http_only   bool   = true
+	same_site   string = 'Lax'
 }
 
 // new_session_manager creates a SessionManager with a given store.
@@ -230,7 +330,9 @@ pub fn (mut sm SessionManager) start(ctx &veb.Context) &Session {
 	mut session_id := ctx.get_cookie(sm.cookie_name) or { '' }
 
 	if session_id.len > 0 && !isnil(sm.store) {
-		data := sm.store.read(session_id) or { map[string]string{} }
+		data := sm.store.read(session_id) or {
+			map[string]string{}
+		}
 		if data.len > 0 {
 			mut sess := new_session(session_id)
 			sess.data = data.clone()
@@ -257,10 +359,10 @@ pub fn (mut sm SessionManager) save(mut ctx veb.Context, sess &Session) ! {
 		sm.store.write(sess.id, sess.data.clone(), sm.ttl_seconds)!
 	}
 	ctx.set_cookie(http.Cookie{
-		name: sm.cookie_name
-		value: sess.id
-		path: sm.cookie_path
-		secure: sm.secure
+		name:      sm.cookie_name
+		value:     sess.id
+		path:      sm.cookie_path
+		secure:    sm.secure
 		http_only: sm.http_only
 	})
 }
@@ -271,19 +373,25 @@ pub fn (mut sm SessionManager) destroy(mut ctx veb.Context, sess &Session) ! {
 		sm.store.destroy(sess.id)!
 	}
 	ctx.set_cookie(http.Cookie{
-		name: sm.cookie_name
-		value: ''
-		path: sm.cookie_path
-		secure: sm.secure
+		name:      sm.cookie_name
+		value:     ''
+		path:      sm.cookie_path
+		secure:    sm.secure
 		http_only: sm.http_only
-		max_age: -1
+		max_age:   -1
 	})
 }
 
 // ── Session Middleware ──
 
 // session_middleware is a middleware that starts and saves sessions.
-pub fn session_middleware(mut ctx &MiddlewareContext) !bool {
+//
+// Placeholder middleware. Actual session start/save lifecycle is handled by
+// the SessionManager and veb's request hooks. This middleware exists for API
+// compatibility with middleware chains that expect a session step. It only
+// marks that a session is active in the middleware data map; it does not
+// perform any session work.
+pub fn session_middleware(mut ctx MiddlewareContext) !bool {
 	ctx.data['_session_active'] = 'true'
 	return true
 }

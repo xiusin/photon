@@ -3,8 +3,7 @@ module main
 // middleware.v — HTTP 中间件
 //
 // 中间件通过 @[middleware('name')] 注解挂载到路由。
-// 当前采用"手动注册+检查"模式，未来可迁移至注解驱动。
-
+// MiddlewareManager 作为 @[component] Bean 注册到 DI 容器，由 ApplicationContext 统一管理。
 import veb
 import logger
 import time
@@ -20,7 +19,9 @@ pub mut:
 }
 
 pub fn new_request_log_middleware(log_ &logger.Logger) &RequestLogMiddleware {
-	return &RequestLogMiddleware{log_: log_}
+	return &RequestLogMiddleware{
+		log_: log_
+	}
 }
 
 pub fn (m &RequestLogMiddleware) handle(mut ctx veb.Context) ! {
@@ -70,7 +71,11 @@ pub fn (m &CorsMiddleware) handle(mut ctx veb.Context) ! {
 			}
 		}
 		if allowed {
-			ctx.set_custom_header('Access-Control-Allow-Origin', if m.allowed_origins[0] == '*' { '*' } else { origin }) or {}
+			ctx.set_custom_header('Access-Control-Allow-Origin', if m.allowed_origins[0] == '*' {
+				'*'
+			} else {
+				origin
+			}) or {}
 			ctx.set_custom_header('Access-Control-Allow-Methods', m.allowed_methods) or {}
 			ctx.set_custom_header('Access-Control-Allow-Headers', m.allowed_headers) or {}
 			ctx.set_custom_header('Access-Control-Allow-Credentials', 'true') or {}
@@ -89,12 +94,16 @@ pub fn (m &CorsMiddleware) handle(mut ctx veb.Context) ! {
 
 pub struct AuthMiddleware {
 pub mut:
-	auth_svc   &AuthService
+	auth_svc      &AuthService
 	required_role string // 空字符串=仅需登录, 非空=需要指定角色
 }
 
 pub fn new_auth_middleware(auth_svc &AuthService) &AuthMiddleware {
-	return unsafe { &AuthMiddleware{auth_svc: auth_svc} }
+	return unsafe {
+		&AuthMiddleware{
+			auth_svc: auth_svc
+		}
+	}
 }
 
 // authenticate 提取并验证 JWT token，返回用户名和角色
@@ -134,7 +143,7 @@ pub fn (m &AuthMiddleware) authorize_role(role string, required_role string) boo
 
 pub struct RateLimitMiddleware {
 pub mut:
-	limits map[string][]i64
+	limits       map[string][]i64
 	max_requests int = 60
 	window_secs  int = 60
 mut:
@@ -144,7 +153,7 @@ mut:
 pub fn new_rate_limit_middleware(max_requests int, window_secs int) &RateLimitMiddleware {
 	return &RateLimitMiddleware{
 		max_requests: max_requests
-		window_secs: window_secs
+		window_secs:  window_secs
 	}
 }
 
@@ -171,20 +180,21 @@ pub fn (mut m RateLimitMiddleware) handle(ip string) ! {
 // 中间件管理器 — 统一挂载和编排
 // ═══════════════════════════════════════════════════════════
 
+@[component]
 pub struct MiddlewareManager {
 pub mut:
-	request_log  &RequestLogMiddleware
-	cors         &CorsMiddleware
-	auth         &AuthMiddleware
-	rate_limit   &RateLimitMiddleware
+	request_log &RequestLogMiddleware @[autowired]
+	cors        &CorsMiddleware
+	auth        &AuthMiddleware @[autowired]
+	rate_limit  &RateLimitMiddleware
 }
 
 pub fn new_middleware_manager(log_ &logger.Logger, auth_svc &AuthService) &MiddlewareManager {
 	return &MiddlewareManager{
 		request_log: new_request_log_middleware(log_)
-		cors: new_cors_middleware()
-		auth: new_auth_middleware(auth_svc)
-		rate_limit: new_rate_limit_middleware(120, 60) // 每分钟 120 次
+		cors:        new_cors_middleware()
+		auth:        new_auth_middleware(auth_svc)
+		rate_limit:  new_rate_limit_middleware(120, 60) // 每分钟 120 次
 	}
 }
 

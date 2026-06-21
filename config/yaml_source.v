@@ -20,7 +20,6 @@ module config
 //   mgr.add_source(config.new_env_source('APP_'))
 //
 //   db_host := mgr.get('database.host') or { 'localhost' }
-
 import os
 import toml
 
@@ -186,8 +185,7 @@ fn clean_yaml_value(value string) string {
 	}
 
 	// Remove quotes
-	if (v.starts_with('"') && v.ends_with('"')) ||
-		(v.starts_with("'") && v.ends_with("'")) {
+	if (v.starts_with('"') && v.ends_with('"')) || (v.starts_with("'") && v.ends_with("'")) {
 		v = v[1..v.len - 1]
 	}
 

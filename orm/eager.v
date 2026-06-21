@@ -30,7 +30,7 @@ pub mut:
 // new_eager_loader creates an EagerLoader
 pub fn new_eager_loader[T](manager &OrmManager, table_name string) &EagerLoader[T] {
 	return &EagerLoader[T]{
-		manager: manager
+		manager:    manager
 		table_name: table_name
 	}
 }
@@ -40,9 +40,9 @@ pub fn new_eager_loader[T](manager &OrmManager, table_name string) &EagerLoader[
 pub fn (mut el EagerLoader[T]) with(relations []string) &EagerLoader[T] {
 	for rel in relations {
 		el.withs << EagerLoadSpec{
-			name: rel
+			name:        rel
 			foreign_key: get_relation_fk(rel)
-			local_key: 'id'
+			local_key:   'id'
 		}
 	}
 	return el
@@ -115,8 +115,8 @@ pub mut:
 // new_eager_repository creates an EagerRepository
 pub fn new_eager_repository[T](manager &OrmManager, table_name string) &EagerRepository[T] {
 	return &EagerRepository[T]{
-		manager: manager
-		table_name: table_name
+		manager:      manager
+		table_name:   table_name
 		eager_loader: new_eager_loader[T](manager, table_name)
 	}
 }

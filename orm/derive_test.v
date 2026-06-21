@@ -32,10 +32,17 @@ fn test_parse_missing_by() {
 
 fn test_query_parts_to_where_cond() {
 	parts := QueryParts{
-		operation: .find
+		operation:  .find
 		conditions: [
-			QueryCondition{property: 'name', operator: '='},
-			QueryCondition{property: 'age', operator: '>', logic: 'AND'},
+			QueryCondition{
+				property: 'name'
+				operator: '='
+			},
+			QueryCondition{
+				property: 'age'
+				operator: '>'
+				logic:    'AND'
+			},
 		]
 	}
 	result := parts.to_where_cond()
@@ -46,8 +53,11 @@ fn test_query_parts_to_where_cond() {
 fn test_query_parts_to_order() {
 	parts := QueryParts{
 		operation: .find
-		order_by: [
-			OrderPart{property: 'created_at', direction: 'DESC'},
+		order_by:  [
+			OrderPart{
+				property:  'created_at'
+				direction: 'DESC'
+			},
 		]
 	}
 	assert parts.to_order_field() == 'created_at'
@@ -55,7 +65,9 @@ fn test_query_parts_to_order() {
 }
 
 fn test_query_parts_to_limit() {
-	parts := QueryParts{limit_val: 10}
+	parts := QueryParts{
+		limit_val: 10
+	}
 	assert parts.to_limit() == 10
 }
 
@@ -74,19 +86,28 @@ fn test_query_parts_empty_where() {
 fn test_query_parts_param_count() {
 	parts := QueryParts{
 		conditions: [
-			QueryCondition{property: 'name'},
-			QueryCondition{property: 'age', operator: '>'},
+			QueryCondition{
+				property: 'name'
+			},
+			QueryCondition{
+				property: 'age'
+				operator: '>'
+			},
 		]
 	}
 	assert parts.to_where_param_count() == 2
 }
 
 fn test_query_parts_is_count() {
-	parts := QueryParts{operation: .count}
+	parts := QueryParts{
+		operation: .count
+	}
 	assert parts.is_count() == true
 }
 
 fn test_query_parts_is_delete() {
-	parts := QueryParts{operation: .delete_all}
+	parts := QueryParts{
+		operation: .delete_all
+	}
 	assert parts.is_delete() == true
 }

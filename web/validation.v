@@ -53,10 +53,10 @@ import json
 // ValidationError represents a single validation failure.
 pub struct ValidationError {
 pub:
-	field   string   // field name that failed
-	rule    string   // the rule that failed (e.g., 'required', 'email')
-	message string   // human-readable error message
-	value   string   // the actual value that was provided
+	field   string // field name that failed
+	rule    string // the rule that failed (e.g., 'required', 'email')
+	message string // human-readable error message
+	value   string // the actual value that was provided
 }
 
 // str returns a formatted validation error string.
@@ -158,7 +158,7 @@ pub struct CustomValidator {
 pub:
 	name           string
 	validator_func ValidatorFunc = unsafe { nil }
-	msg_func       MsgFunc = unsafe { nil } // (field, arg) -> error message
+	msg_func       MsgFunc       = unsafe { nil } // (field, arg) -> error message
 }
 
 // Global registry for custom validators
@@ -172,9 +172,9 @@ pub fn register_validator(name string, validator ValidatorFunc, msg MsgFunc) {
 		custom_validators = map[string]CustomValidator{}
 	}
 	custom_validators[name] = CustomValidator{
-		name: name
+		name:           name
 		validator_func: validator
-		msg_func: msg
+		msg_func:       msg
 	}
 }
 
@@ -193,11 +193,11 @@ pub fn clear_custom_validators() {
 // ValidationCondition defines when a rule should be applied.
 pub struct ValidationCondition {
 pub:
-	field_name    string // the field this condition applies to
-	rule_name     string // only apply if this rule is for this field
-	dep_field     string // dependent field name
-	dep_value     string // expected/excluded value
-	is_unless     bool   // true = required_unless, false = required_if
+	field_name string // the field this condition applies to
+	rule_name  string // only apply if this rule is for this field
+	dep_field  string // dependent field name
+	dep_value  string // expected/excluded value
+	is_unless  bool   // true = required_unless, false = required_if
 }
 
 // check evaluates the condition against the given params.
@@ -229,7 +229,7 @@ pub fn validate_with_conditions[T](ctx &veb.Context, conditions []ValidationCond
 						val = val[..val.len - 1]
 					}
 				}
-				validate_str = val.trim('\'').trim('"').trim_space()
+				validate_str = val.trim("'").trim('"').trim_space()
 			}
 		}
 
@@ -286,7 +286,6 @@ pub fn validate_with_conditions[T](ctx &veb.Context, conditions []ValidationCond
 			result.$(field.name) = val in ['1', 'true', 'on', 'yes']
 		}
 	}
-
 	return result, errors
 }
 
@@ -294,10 +293,10 @@ pub fn validate_with_conditions[T](ctx &veb.Context, conditions []ValidationCond
 pub fn required_if(dep_field string, dep_value string) ValidationCondition {
 	return ValidationCondition{
 		field_name: dep_field
-		rule_name: 'required'
-		dep_field: dep_field
-		dep_value: dep_value
-		is_unless: false
+		rule_name:  'required'
+		dep_field:  dep_field
+		dep_value:  dep_value
+		is_unless:  false
 	}
 }
 
@@ -305,10 +304,10 @@ pub fn required_if(dep_field string, dep_value string) ValidationCondition {
 pub fn required_unless(dep_field string, dep_value string) ValidationCondition {
 	return ValidationCondition{
 		field_name: dep_field
-		rule_name: 'required'
-		dep_field: dep_field
-		dep_value: dep_value
-		is_unless: true
+		rule_name:  'required'
+		dep_field:  dep_field
+		dep_value:  dep_value
+		is_unless:  true
 	}
 }
 
@@ -317,8 +316,8 @@ pub fn required_unless(dep_field string, dep_value string) ValidationCondition {
 // NestedValidationError represents an error in a nested object.
 pub struct NestedValidationError {
 pub:
-	path    string // dot-separated path to the field (e.g., "address.street")
-	errors  ValidationErrors
+	path   string // dot-separated path to the field (e.g., "address.street")
+	errors ValidationErrors
 }
 
 // NestedValidationErrors collects errors from nested validations.
@@ -378,7 +377,7 @@ pub fn validate_nested(nested_params map[string]string, prefix string, field_rul
 
 	if errors.has_errors() {
 		result << NestedValidationError{
-			path: prefix
+			path:   prefix
 			errors: errors
 		}
 	}
@@ -401,7 +400,8 @@ pub fn validate_uuid(value string) bool {
 	if parts.len != 5 {
 		return false
 	}
-	if parts[0].len != 8 || parts[1].len != 4 || parts[2].len != 4 || parts[3].len != 4 || parts[4].len != 12 {
+	if parts[0].len != 8 || parts[1].len != 4 || parts[2].len != 4 || parts[3].len != 4
+		|| parts[4].len != 12 {
 		return false
 	}
 	// Check version (4)
@@ -480,7 +480,8 @@ pub fn validate_phone(value string) bool {
 		return false
 	}
 	for ch in value {
-		if !((ch >= `0` && ch <= `9`) || ch == ` ` || ch == `-` || ch == `(` || ch == `)` || ch == `+`) {
+		if !((ch >= `0` && ch <= `9`) || ch == ` ` || ch == `-` || ch == `(`
+			|| ch == `)` || ch == `+`) {
 			return false
 		}
 	}
@@ -521,8 +522,8 @@ pub fn validate_password_strength(value string, arg string) bool {
 		}
 	}
 
-	return upper_count >= min_upper && lower_count >= min_lower &&
-		digit_count >= min_digit && special_count >= min_special
+	return upper_count >= min_upper && lower_count >= min_lower && digit_count >= min_digit
+		&& special_count >= min_special
 }
 
 // validate_confirmed checks if field has a matching {field}_confirmation value.
@@ -614,7 +615,9 @@ pub fn validate_email(value string) bool {
 	if value.len == 0 {
 		return true // empty passes (use required for emptiness)
 	}
-	return value.contains('@') && value.contains('.') && value.index('@') or { 0 } > 0 && value.index('.') or { 0 } > value.index('@') or { 0 }
+	return value.contains('@') && value.contains('.') && value.index('@') or { 0 } > 0 && value.index('.') or {
+		0
+	} > value.index('@') or { 0 }
 }
 
 // validate_url checks basic URL format.
@@ -644,7 +647,8 @@ pub fn validate_alpha_num(value string) bool {
 		return true
 	}
 	for ch in value {
-		if !((ch >= `a` && ch <= `z`) || (ch >= `A` && ch <= `Z`) || (ch >= `0` && ch <= `9`) || ch == `_`) {
+		if !((ch >= `a` && ch <= `z`) || (ch >= `A` && ch <= `Z`)
+			|| (ch >= `0` && ch <= `9`) || ch == `_`) {
 			return false
 		}
 	}
@@ -799,8 +803,8 @@ pub fn validate_vjson(value string) bool {
 	if value.len == 0 {
 		return true
 	}
-	return (value.starts_with('{') && value.ends_with('}')) ||
-		(value.starts_with('[') && value.ends_with(']'))
+	return (value.starts_with('{') && value.ends_with('}'))
+		|| (value.starts_with('[') && value.ends_with(']'))
 }
 
 // ── Rule Application ──
@@ -812,9 +816,7 @@ pub fn validate_vjson(value string) bool {
 // This is a convenience wrapper around apply_rule that avoids Option types
 // for simpler usage in tests and non-Result contexts.
 pub fn check_rule(field_name string, value string, rule string) (bool, string) {
-	apply_rule(field_name, value, rule) or {
-		return false, err.msg()
-	}
+	apply_rule(field_name, value, rule) or { return false, err.msg() }
 	return true, ''
 }
 
@@ -879,10 +881,10 @@ pub fn apply_rule_detail(field_name string, value string, rule string) ?Validati
 	apply_rule(field_name, value, rule) or {
 		rule_name, _ := parse_rule(rule)
 		return ValidationError{
-			field: field_name
-			rule: rule_name
+			field:   field_name
+			rule:    rule_name
 			message: err.msg()
-			value: value
+			value:   value
 		}
 	}
 	return none
@@ -912,13 +914,13 @@ pub fn default_error_message(field string, rule string, arg string) string {
 		'ends_with' { '${field} must end with "${arg}"' }
 		'digits' { '${field} must be exactly ${arg} digits' }
 		'ip' { '${field} must be a valid IP address' }
-	'vjson' { '${field} must be valid JSON' }
-	'uuid' { '${field} must be a valid UUID' }
-	'date' { '${field} must be a valid date (YYYY-MM-DD)' }
-	'timezone' { '${field} must be a valid timezone' }
-	'phone' { '${field} must be a valid phone number' }
-	'password_strength' { '${field} does not meet password strength requirements' }
-	else { '${field} failed validation: ${rule}' }
+		'vjson' { '${field} must be valid JSON' }
+		'uuid' { '${field} must be a valid UUID' }
+		'date' { '${field} must be a valid date (YYYY-MM-DD)' }
+		'timezone' { '${field} must be a valid timezone' }
+		'phone' { '${field} must be a valid phone number' }
+		'password_strength' { '${field} does not meet password strength requirements' }
+		else { '${field} failed validation: ${rule}' }
 	}
 }
 
@@ -951,7 +953,7 @@ pub fn validate[T](ctx &veb.Context) (T, ValidationErrors) {
 						val = val[..val.len - 1]
 					}
 				}
-				validate_str = val.trim('\'').trim('"').trim_space()
+				validate_str = val.trim("'").trim('"').trim_space()
 			}
 		}
 
@@ -993,7 +995,6 @@ pub fn validate[T](ctx &veb.Context) (T, ValidationErrors) {
 			result.$(field.name) = val in ['1', 'true', 'on', 'yes']
 		}
 	}
-
 	return result, errors
 }
 
@@ -1011,13 +1012,15 @@ pub fn validate_body[T](ctx &veb.Context) (T, ValidationErrors) {
 	// Decode JSON into the struct
 	result = json.decode(T, body) or {
 		// If JSON decode fails, try to validate individual fields
-		mut json_errors := map[string][]ValidationError{}
-		json_errors['_body'] = [ValidationError{
-			field: '_body'
-			rule: 'json'
-			message: 'invalid JSON body'
-		}]
-		return result, ValidationErrors(json_errors)
+		return result, ValidationErrors{
+			_body: [
+				ValidationError{
+					field:   '_body'
+					rule:    'json'
+					message: 'invalid JSON body'
+				},
+			]
+		}
 	}
 
 	// Apply validation rules on the decoded struct
@@ -1034,7 +1037,7 @@ pub fn validate_body[T](ctx &veb.Context) (T, ValidationErrors) {
 						val = val[..val.len - 1]
 					}
 				}
-				validate_str = val.trim('\'').trim('"').trim_space()
+				validate_str = val.trim("'").trim('"').trim_space()
 			}
 		}
 
@@ -1061,7 +1064,6 @@ pub fn validate_body[T](ctx &veb.Context) (T, ValidationErrors) {
 			}
 		}
 	}
-
 	return result, errors
 }
 
@@ -1096,4 +1098,252 @@ fn extract_validation_params(ctx &veb.Context) map[string]string {
 	}
 
 	return params
+}
+
+// ── Method-Level Validation (@[valid]) ──
+//
+// Provides method-level parameter validation via the @[valid] attribute.
+// Analogous to Spring's @Valid on method parameters and JSR-303 Bean Validation.
+//
+// V comptime limitation: V does not support attributes on individual function
+// parameters (FunctionParam only exposes `name` and `typ`). Parameter
+// constraints are therefore encoded in the method-level @[valid] attribute
+// string and parsed at compile time via `$for method in T.methods`.
+//
+// Supported @[valid] forms:
+//   @[valid]                              — marker only (no primitive-param rules)
+//   @[valid: 'name:required|min_len:2; age:min:1|max:150; email:email']
+//   @[valid('name:required; age:min:1')]  — equivalent to the colon form
+//
+// Constraint string format:
+//   param_name:rule1|rule2|...; param2:rule1|rule2|...
+// Rules reuse the same syntax as @[validate] (required, min:N, max:N,
+// min_len:N, max_len:N, email, url, alpha, alpha_num, numeric, in:A,B, ...).
+//
+// Usage:
+//   @[valid: 'name:required|min_len:2; age:min:1|max:150; email:email']
+//   fn (s &UserService) create_user(name string, age int, email string) ! {
+//       ...
+//   }
+//
+//   web.validate_method_params[UserService]('create_user', {
+//       'name': 'John',
+//       'age': '5',
+//       'email': 'user@example.com',
+//   }) or {
+//       return err  // ConstraintViolationException
+//   }
+
+// ConstraintViolation represents a single constraint violation from
+// method-level parameter validation.
+pub struct ConstraintViolation {
+pub:
+	field      string // parameter name that failed
+	value      string // the actual value that was provided
+	constraint string // the rule that failed (e.g., 'required', 'min', 'email')
+	message    string // human-readable error message
+}
+
+// ConstraintViolationException is raised when method parameter validation
+// fails. Implements IError so it can be propagated with V's `!`/`return` and
+// resolved by the ExceptionResolver. Default HTTP status code is 400.
+pub struct ConstraintViolationException {
+pub:
+	violations []ConstraintViolation
+	code       int = 400
+}
+
+// msg implements the IError interface — returns a bilingual summary of all
+// violations.
+pub fn (e ConstraintViolationException) msg() string {
+	mut msgs := []string{}
+	for v in e.violations {
+		msgs << '${v.field}: ${v.message}'
+	}
+	joined := msgs.join('; ')
+	return 'validation failed: ${joined} / 校验失败: ${joined}'
+}
+
+// code implements the IError interface — returns the HTTP status code.
+pub fn (e ConstraintViolationException) code() int {
+	return e.code
+}
+
+// str returns a readable representation of the exception.
+pub fn (e ConstraintViolationException) str() string {
+	return e.msg()
+}
+
+// ── Field / Parameter Validation Helpers ──
+
+// validate_field validates a single field value against a list of rules.
+// Returns a list of ConstraintViolation entries (empty if all rules pass).
+// Rules use the same syntax as @[validate] (e.g., 'required', 'min:1', 'email').
+pub fn validate_field(field_name string, value string, rules []string) []ConstraintViolation {
+	mut violations := []ConstraintViolation{}
+	for rule in rules {
+		ve := apply_rule_detail(field_name, value, rule) or { continue }
+		violations << ConstraintViolation{
+			field:      field_name
+			value:      value
+			constraint: ve.rule
+			message:    ve.message
+		}
+	}
+	return violations
+}
+
+// parse_param_constraints parses a constraint string into a map of
+// parameter name → list of rules.
+// Format: 'name:required|min_len:2; age:min:1|max:150; email:email'
+pub fn parse_param_constraints(constraint_str string) map[string][]string {
+	mut result := map[string][]string{}
+	entries := constraint_str.split(';')
+	for entry in entries {
+		trimmed := entry.trim_space()
+		if trimmed.len == 0 {
+			continue
+		}
+		param_name, rules_str := parse_rule(trimmed) // split_nth(':', 2)
+		if param_name.len == 0 {
+			continue
+		}
+		result[param_name] = parse_rules(rules_str)
+	}
+	return result
+}
+
+// validate_params validates a params map against a constraint string.
+// Returns a ConstraintViolationException if any parameter fails validation.
+// Constraint string format: 'name:required|min_len:2; age:min:1|max:150'
+pub fn validate_params(constraints string, params map[string]string) ! {
+	constraint_map := parse_param_constraints(constraints)
+	mut violations := []ConstraintViolation{}
+	for param_name, rules in constraint_map {
+		value := params[param_name] or { '' }
+		violations << validate_field(param_name, value, rules)
+	}
+	if violations.len > 0 {
+		return ConstraintViolationException{violations: violations}
+	}
+}
+
+// is_valid_email checks whether a value is a valid email address.
+// Uses a simple split-on-'@' check that correctly handles dots in the local
+// part (e.g., 'john.doe@company.co.uk'). Empty values are considered valid
+// (use the 'required' rule to reject empty).
+pub fn is_valid_email(value string) bool {
+	if value.len == 0 {
+		return true
+	}
+	if !value.contains('@') {
+		return false
+	}
+	parts := value.split('@')
+	if parts.len != 2 {
+		return false
+	}
+	if parts[0].len == 0 || parts[1].len == 0 {
+		return false
+	}
+	// Domain part must contain at least one dot
+	return parts[1].contains('.')
+}
+
+// ── Comptime Method Validation ──
+
+// validate_method_params validates parameters for a method annotated with
+// @[valid]. Uses comptime `$for method in T.methods` to locate the method by
+// name and extract the constraint string from the @[valid] attribute — zero
+// runtime reflection.
+//
+// The @[valid] attribute supports two forms:
+//   @[valid]                              — marker only (no primitive-param rules)
+//   @[valid: 'name:required; age:min:1']  — constraint string for primitive params
+//
+// Throws ConstraintViolationException if any parameter fails validation.
+// Returns silently if the method is not found or has no @[valid] attribute.
+pub fn validate_method_params[T](method_name string, params map[string]string) ! {
+	mut violations := []ConstraintViolation{}
+	mut constraint_str := ''
+	mut found_valid := false
+
+	$for method in T.methods {
+		mname := method.name
+		if mname == method_name {
+			// Check for @[valid] annotation and extract constraint string
+			for attr in method.attrs {
+				if attr == 'valid' {
+					found_valid = true
+				} else if attr.starts_with('valid:') {
+					found_valid = true
+					raw := attr['valid:'.len..]
+					constraint_str = raw.trim_space().trim("'").trim('"')
+				} else if attr.starts_with('valid(') {
+					found_valid = true
+					end_idx := attr.last_index(')') or { attr.len }
+					raw := attr['valid('.len..end_idx]
+					constraint_str = raw.trim_space().trim("'").trim('"')
+				}
+			}
+		}
+	}
+
+	// No @[valid] annotation → skip validation
+	if !found_valid {
+		return
+	}
+
+	// If a constraint string is provided, validate primitive params
+	if constraint_str.len > 0 {
+		constraint_map := parse_param_constraints(constraint_str)
+		for param_name, rules in constraint_map {
+			value := params[param_name] or { '' }
+			violations << validate_field(param_name, value, rules)
+		}
+	}
+
+	if violations.len > 0 {
+		return ConstraintViolationException{violations: violations}
+	}
+}
+
+// has_valid_annotation returns true if type T has a method with the given name
+// that is annotated with @[valid]. Uses comptime scanning — no runtime reflection.
+pub fn has_valid_annotation[T](method_name string) bool {
+	mut result := false
+	$for method in T.methods {
+		mname := method.name
+		if mname == method_name {
+			for attr in method.attrs {
+				if attr == 'valid' || attr.starts_with('valid:') || attr.starts_with('valid(') {
+					result = true
+				}
+			}
+		}
+	}
+	return result
+}
+
+// extract_valid_constraints returns the constraint string from the @[valid]
+// attribute on the named method of type T, or an empty string if the method
+// has no @[valid] attribute or uses the bare @[valid] marker form.
+pub fn extract_valid_constraints[T](method_name string) string {
+	mut result := ''
+	$for method in T.methods {
+		mname := method.name
+		if mname == method_name {
+			for attr in method.attrs {
+				if attr.starts_with('valid:') {
+					raw := attr['valid:'.len..]
+					result = raw.trim_space().trim("'").trim('"')
+				} else if attr.starts_with('valid(') {
+					end_idx := attr.last_index(')') or { attr.len }
+					raw := attr['valid('.len..end_idx]
+					result = raw.trim_space().trim("'").trim('"')
+				}
+			}
+		}
+	}
+	return result
 }

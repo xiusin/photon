@@ -4,7 +4,6 @@ module queue
 //
 // Uses a head-pointer ring-buffer approach for O(1) amortized pop,
 // avoiding the O(n) delete(0) shift cost for large queues.
-
 import sync
 
 // queued_jobs implements a ring-buffer-like queue for O(1) pop.
@@ -99,9 +98,10 @@ pub fn (mut d MemoryDriver) pop(queue_name string) !string {
 }
 
 // count returns the approximate number of pending jobs.
-// This is an eventually-consistent snapshot — for exact counts,
-// use a separate locking mechanism at the caller level.
-pub fn (d &MemoryDriver) count(queue_name string) int {
+// Acquires the mutex for a consistent snapshot of the map.
+pub fn (mut d MemoryDriver) count(queue_name string) int {
+	d.mu.@lock()
+	defer { d.mu.unlock() }
 	qb := d.jobs[queue_name] or { return 0 }
 	return qb.len()
 }

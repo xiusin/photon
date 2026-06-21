@@ -4,20 +4,43 @@ module queue
 import time
 import sync
 
-// get_dispatcher returns the global queue singleton (thread-safe)
+// get_dispatcher returns the global queue singleton (thread-safe).
+// Uses double-checked locking with a read lock on the fast path so the
+// write mutex is only contended during the very first initialization.
+//
+// IMPORTANT (H5): the fast-path read of global_dispatcher MUST be under at
+// least a read lock. A bare `if global_dispatcher != nil` read has no memory
+// barrier — on weak-memory architectures (ARM, Apple Silicon) another
+// goroutine's write to global_dispatcher may not be visible, leading to
+// duplicate initialization or use of a partially-constructed object.
 fn get_dispatcher() &QueueDispatcher {
-	unsafe {
-		dispatcher_mu.@lock()
-		defer { dispatcher_mu.unlock() }
-		if global_dispatcher == nil {
-			global_dispatcher = new_dispatcher(new_memory_driver())
-		}
-		return global_dispatcher
+	// Fast path: read under read lock for memory visibility.
+	dispatcher_mu.rlock()
+	d := unsafe { global_dispatcher }
+	dispatcher_mu.runlock()
+	if !isnil(d) {
+		return d
 	}
+
+	// Slow path: acquire write lock to create the dispatcher.
+	dispatcher_mu.@lock()
+	// Double-check after acquiring write lock (another goroutine may have
+	// created it while we waited).
+	if !isnil(unsafe { global_dispatcher }) {
+		d2 := unsafe { global_dispatcher }
+		dispatcher_mu.unlock()
+		return d2
+	}
+	unsafe {
+		global_dispatcher = new_dispatcher(new_memory_driver())
+	}
+	d3 := unsafe { global_dispatcher }
+	dispatcher_mu.unlock()
+	return d3
 }
 
 __global (
-	dispatcher_mu     sync.Mutex
+	dispatcher_mu     sync.RwMutex
 	global_dispatcher &QueueDispatcher
 )
 
@@ -26,7 +49,7 @@ pub struct QueueDispatcher {
 pub:
 	default_queue string = 'default'
 pub mut:
-	driver &MemoryDriver = new_memory_driver()
+	driver &QueueDriver = new_memory_driver()
 }
 
 // new_dispatcher creates a QueueDispatcher
@@ -85,7 +108,7 @@ pub fn dispatch_batch(jobs []Job) !string {
 
 // count returns the number of pending jobs
 pub fn count() int {
-	d := get_dispatcher()
+	mut d := get_dispatcher()
 	return d.driver.count(d.default_queue)
 }
 

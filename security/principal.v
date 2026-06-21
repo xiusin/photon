@@ -20,13 +20,13 @@ pub interface UserDetails {
 // SimpleUserDetails is a concrete UserDetails implementation
 pub struct SimpleUserDetails {
 pub:
-	username_str  string
-	password_str  string
-	roles         []string
+	username_str string
+	password_str string
+	roles        []string
 pub mut:
-	enabled       bool = true
-	account_expired bool
-	account_locked  bool
+	enabled             bool = true
+	account_expired     bool
+	account_locked      bool
 	credentials_expired bool
 }
 
@@ -35,8 +35,8 @@ pub fn new_user(username string, password string, roles []string) &SimpleUserDet
 	return &SimpleUserDetails{
 		username_str: username
 		password_str: password
-		roles: roles
-		enabled: true
+		roles:        roles
+		enabled:      true
 	}
 }
 
@@ -102,7 +102,5 @@ pub fn (mut s InMemoryUserDetailsService) add_user(user &UserDetails) {
 
 // load_user_by_username finds a user by username
 pub fn (s &InMemoryUserDetailsService) load_user_by_username(username string) !&UserDetails {
-	return s.users[username] or {
-		return error('user not found: ${username}')
-	}
+	return s.users[username] or { return error('user not found: ${username}') }
 }

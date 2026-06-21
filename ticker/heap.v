@@ -8,7 +8,6 @@ module ticker
 // 3. ~5% performance advantage at 50K+ entries (libev benchmark)
 //
 // This is the same data structure used by Go's runtime timer implementation.
-
 import sync
 
 // TimerCallback is called when a timer fires
@@ -17,8 +16,8 @@ pub type TimerCallback = fn ()
 // TimerEntry represents a single timer/ticker in the heap
 pub struct TimerEntry {
 pub mut:
-	when   i64           // trigger time (unix nano timestamp)
-	period i64           // 0 = one-shot timer, >0 = periodic tick interval (ns)
+	when   i64 // trigger time (unix nano timestamp)
+	period i64 // 0 = one-shot timer, >0 = periodic tick interval (ns)
 	f      TimerCallback = unsafe { nil }
 	index  int           = -1 // position in heap (-1 = removed)
 }
@@ -26,10 +25,10 @@ pub mut:
 // new_timer_entry creates a TimerEntry
 pub fn new_timer_entry(when i64, period i64, f TimerCallback) TimerEntry {
 	return TimerEntry{
-		when: when
+		when:   when
 		period: period
-		f: f
-		index: -1
+		f:      f
+		index:  -1
 	}
 }
 

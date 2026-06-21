@@ -51,10 +51,10 @@ pub fn (v Visibility) str() string {
 // FileMetadata holds information about a stored file
 pub struct FileMetadata {
 pub:
-	path          string
-	size          i64
-	mime_type     string
-	etag          string
+	path      string
+	size      i64
+	mime_type string
+	etag      string
 pub mut:
 	last_modified i64
 	visibility    Visibility = .private_
@@ -64,10 +64,10 @@ pub mut:
 // new_file_metadata creates FileMetadata (last_modified defaults to 0)
 pub fn new_file_metadata(path string, size i64, mime_type string) &FileMetadata {
 	return &FileMetadata{
-		path: path
-		size: size
+		path:      path
+		size:      size
 		mime_type: mime_type
-		extra: map[string]string{}
+		extra:     map[string]string{}
 	}
 }
 
@@ -78,7 +78,7 @@ pub fn new_file_metadata(path string, size i64, mime_type string) &FileMetadata 
 // StorageWriteOptions configures write operations
 pub struct StorageWriteOptions {
 pub:
-	visibility Visibility = .private_
+	visibility   Visibility = .private_
 	content_type string
 	metadata     map[string]string
 }
@@ -94,7 +94,7 @@ pub fn default_options() StorageWriteOptions {
 pub fn public_options() StorageWriteOptions {
 	return StorageWriteOptions{
 		visibility: .public_
-		metadata: map[string]string{}
+		metadata:   map[string]string{}
 	}
 }
 
@@ -119,7 +119,6 @@ pub interface Storage {
 	temporary_url(path string, expiration_sec i64) !string
 	read_stream(path string) !string
 	adapter_name() string
-
 mut:
 	// — Write operations (mutable) —
 	write(path string, contents string, options StorageWriteOptions) !
@@ -144,7 +143,7 @@ mut:
 @[heap]
 pub struct StorageManager {
 pub mut:
-	disks    map[string]&Storage
+	disks        map[string]&Storage
 	default_disk string = 'local'
 }
 
@@ -170,9 +169,7 @@ pub fn (mut sm StorageManager) register(name string, adapter &Storage) {
 // Returns an error if no disk is registered.
 pub fn (sm &StorageManager) disk(name string) !&Storage {
 	return sm.disks[name] or {
-		return sm.disks[sm.default_disk] or {
-			return error('no storage disk registered')
-		}
+		return sm.disks[sm.default_disk] or { return error('no storage disk registered') }
 	}
 }
 

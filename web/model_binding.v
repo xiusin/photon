@@ -15,9 +15,9 @@ module web
 // ModelBindingConfig configures route model binding behavior
 pub struct ModelBindingConfig {
 pub:
-	field        string  // The route parameter to bind (e.g., 'id')
-	entity_type  string  // The entity struct name (e.g., 'User')
-	column       string  = 'id' // Column to query (default: 'id')
+	field         string // The route parameter to bind (e.g., 'id')
+	entity_type   string // The entity struct name (e.g., 'User')
+	column        string = 'id' // Column to query (default: 'id')
 	not_found_msg string = 'Resource not found'
 }
 
@@ -39,7 +39,7 @@ pub fn new_model_binding_registry() &ModelBindingRegistry {
 pub fn (mut mbr ModelBindingRegistry) bind(method_key string, field string, entity_type string) {
 	mut bindings := mbr.bindings[method_key] or { []ModelBindingConfig{} }
 	bindings << ModelBindingConfig{
-		field: field
+		field:       field
 		entity_type: entity_type
 	}
 	mbr.bindings[method_key] = bindings
@@ -82,13 +82,12 @@ pub fn discover_bindings[T]() []ModelBindingConfig {
 			// If the param type is an entity struct, auto-bind it
 			if param_type !in ['string', 'int', 'bool', 'voidptr'] {
 				bindings << ModelBindingConfig{
-					field: param.name
+					field:       param.name
 					entity_type: param_type
 				}
 			}
 		}
 	}
-
 	return bindings
 }
 

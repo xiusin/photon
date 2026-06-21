@@ -30,7 +30,8 @@ fn test_parse_transactional_attr_nested() {
 }
 
 fn test_parse_transactional_attr_complex() {
-	attr := parse_transactional_attr('propagation:requires_new;isolation:read_committed;readonly;timeout:5000')
+	attr :=
+		parse_transactional_attr('propagation:requires_new;isolation:read_committed;readonly;timeout:5000')
 	assert attr.propagation == .requires_new
 	assert attr.isolation == .read_committed
 	assert attr.readonly
@@ -91,9 +92,9 @@ fn test_new_transaction_attribute() {
 fn test_new_transaction_context() {
 	attr := TransactionAttribute{
 		propagation: .requires_new
-		isolation: .read_committed
-		readonly: true
-		timeout_ms: 5000
+		isolation:   .read_committed
+		readonly:    true
+		timeout_ms:  5000
 	}
 	ctx := new_transaction_context(attr)
 	assert ctx.propagation == .requires_new
@@ -115,4 +116,41 @@ fn test_transactional_interceptor_begin_nil_manager() {
 	mut ti := new_transactional_interceptor(unsafe { nil })
 	ti.begin_if_needed(new_transaction_attribute()) or { return }
 	assert false // should have errored
+}
+
+// ── Transactional Event Listener Attribute Parsing Tests ──
+
+fn test_parse_transactional_event_listener_default() {
+	phase := parse_transactional_event_listener_attr('')
+	assert phase == 'after_commit'
+}
+
+fn test_parse_transactional_event_listener_before_commit() {
+	phase := parse_transactional_event_listener_attr('before_commit')
+	assert phase == 'before_commit'
+}
+
+fn test_parse_transactional_event_listener_after_rollback() {
+	phase := parse_transactional_event_listener_attr('after_rollback')
+	assert phase == 'after_rollback'
+}
+
+fn test_parse_transactional_event_listener_after_completion() {
+	phase := parse_transactional_event_listener_attr('after_completion')
+	assert phase == 'after_completion'
+}
+
+fn test_parse_transactional_event_listener_quoted() {
+	phase := parse_transactional_event_listener_attr("'before_commit'")
+	assert phase == 'before_commit'
+}
+
+fn test_parse_transactional_event_listener_phase_prefix() {
+	phase := parse_transactional_event_listener_attr("phase: 'after_rollback'")
+	assert phase == 'after_rollback'
+}
+
+fn test_parse_transactional_event_listener_invalid_defaults() {
+	phase := parse_transactional_event_listener_attr('invalid_phase')
+	assert phase == 'after_commit'
 }

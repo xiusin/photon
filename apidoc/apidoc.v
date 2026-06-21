@@ -3,7 +3,6 @@ module apidoc
 // apidoc.v — Module Entry Point
 //
 // init(), encode_response(), api_error() for the example application.
-
 import os
 
 // init initializes the API documentation module.
@@ -11,9 +10,7 @@ pub fn init(storage_path string) !(&ApiDocStore, &Collector) {
 	store := get_store()
 
 	if storage_path.len > 0 && !os.exists(storage_path) {
-		os.mkdir_all(storage_path) or {
-			return error('failed to create apidoc storage: ${err}')
-		}
+		os.mkdir_all(storage_path) or { return error('failed to create apidoc storage: ${err}') }
 	}
 
 	coll := new_collector(store)
@@ -24,9 +21,7 @@ pub fn init(storage_path string) !(&ApiDocStore, &Collector) {
 pub fn init_store(storage_path string) !&ApiDocStore {
 	store := get_store()
 	if storage_path.len > 0 && !os.exists(storage_path) {
-		os.mkdir_all(storage_path) or {
-			return error('failed to create apidoc storage: ${err}')
-		}
+		os.mkdir_all(storage_path) or { return error('failed to create apidoc storage: ${err}') }
 	}
 	return store
 }

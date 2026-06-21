@@ -5,7 +5,7 @@ module ticker
 // Uses 64 buckets to reduce lock contention, inspired by Go's runtime timer design.
 // Uses a simple polling approach compatible with V's threading model.
 // Timers are checked lazily when the user blocks on a channel receive.
-
+import sync
 import time
 
 const num_buckets = 64
@@ -16,16 +16,23 @@ mut:
 	heap &TimerHeap = new_heap()
 }
 
-// TimerScheduler manages all timer buckets
+// TimerScheduler manages all timer buckets.
+// The background goroutine lifecycle is controlled via stop_signal and
+// tracked with wg so that stop() can guarantee the goroutine has fully exited.
 struct TimerScheduler {
 mut:
-	buckets [num_buckets]Bucket
-	running bool
-	counter u64
+	buckets     [num_buckets]Bucket
+	running     bool
+	counter     u64
+	mu          sync.Mutex
+	wg          sync.WaitGroup
+	stop_signal chan bool
 }
 
 fn new_scheduler() &TimerScheduler {
-	mut s := &TimerScheduler{}
+	mut s := &TimerScheduler{
+		stop_signal: chan bool{cap: 1}
+	}
 	for i in 0 .. num_buckets {
 		s.buckets[i] = Bucket{}
 	}
@@ -33,33 +40,93 @@ fn new_scheduler() &TimerScheduler {
 }
 
 fn get_scheduler() &TimerScheduler {
+	scheduler_mu.@lock()
+	defer {
+		scheduler_mu.unlock()
+	}
 	if global_scheduler == unsafe { nil } {
 		global_scheduler = new_scheduler()
-		spawn scheduler_run()
+		global_scheduler.start()
 	}
 	return global_scheduler
 }
 
 __global (
 	global_scheduler &TimerScheduler
+	scheduler_mu     sync.Mutex
 )
 
-// scheduler_run is the background scheduling loop
-fn scheduler_run() {
-	mut running := true
-	for running {
-		sched := global_scheduler
-		if sched == unsafe { nil } {
-			time.sleep(50 * time.millisecond)
-			continue
+// start spawns the background scheduling goroutine. Idempotent.
+fn (mut s TimerScheduler) start() {
+	s.mu.@lock()
+	if s.running {
+		s.mu.unlock()
+		return
+	}
+	s.running = true
+	sig := s.stop_signal
+	s.mu.unlock()
+
+	s.wg.add(1)
+	spawn scheduler_run(s, sig)
+}
+
+// stop signals the background goroutine to exit and blocks until it has
+// fully terminated (via wg.wait()). Idempotent.
+fn (mut s TimerScheduler) stop() {
+	s.mu.@lock()
+	if !s.running {
+		s.mu.unlock()
+		return
+	}
+	s.running = false
+	s.mu.unlock()
+
+	// Non-blocking send to wake the goroutine from its sleep.
+	select {
+		s.stop_signal <- true {}
+		else {}
+	}
+	// Wait for the goroutine to fully exit before returning.
+	s.wg.wait()
+}
+
+// scheduler_run is the background scheduling loop.
+// It exits when stop_signal receives a value or running becomes false.
+fn scheduler_run(s &TimerScheduler, stop_signal chan bool) {
+	defer {
+		unsafe {
+			s.wg.done()
 		}
+	}
+	for {
+		// Non-blocking check for stop signal at the top of each iteration.
+		mut should_stop := false
+		select {
+			_ := <-stop_signal {
+				should_stop = true
+			}
+			else {}
+		}
+		if should_stop {
+			break
+		}
+
+		// Check running flag under lock for memory visibility on weak architectures.
+		s.mu.@lock()
+		running := s.running
+		s.mu.unlock()
+		if !running {
+			break
+		}
+
 		mut min_when := i64(0)
 		mut has_timer := false
 
 		now := time.now().unix_nano()
 
 		for i in 0 .. num_buckets {
-			mut bucket := &sched.buckets[i]
+			mut bucket := &s.buckets[i]
 			bucket.heap.mu.@lock()
 			for !bucket.heap.is_empty() {
 				top := bucket.heap.peek()
@@ -108,8 +175,10 @@ fn scheduler_run() {
 }
 
 fn (mut s TimerScheduler) add_entry(entry TimerEntry) int {
+	s.mu.@lock()
 	idx := int(s.counter % num_buckets)
 	s.counter++
+	s.mu.unlock()
 	mut bucket := &s.buckets[idx]
 	bucket.heap.mu.@lock()
 	bucket.heap.push(entry)
@@ -117,6 +186,12 @@ fn (mut s TimerScheduler) add_entry(entry TimerEntry) int {
 	return idx
 }
 
+// remove_entry removes a timer/ticker entry from the specified bucket.
+// For periodic entries (period > 0, i.e. tickers), matching is done by period
+// only, because the `when` field changes dynamically on each re-insertion by the
+// scheduler — Ticker.stop() cannot know the current `when`. This fixes the bug
+// where Ticker.stop() passed when=0 and never matched any entry.
+// For one-shot entries (period == 0, i.e. timers), matching is done by `when`.
 fn (mut s TimerScheduler) remove_entry(bucket_idx int, when i64, period i64) {
 	if bucket_idx < 0 || bucket_idx >= num_buckets {
 		return
@@ -125,7 +200,13 @@ fn (mut s TimerScheduler) remove_entry(bucket_idx int, when i64, period i64) {
 	bucket.heap.mu.@lock()
 	for i in 0 .. bucket.heap.entries.len {
 		e := &bucket.heap.entries[i]
-		if e.when == when && e.period == period && e.f != unsafe { nil } {
+		mut matched := false
+		if period > 0 {
+			matched = e.period == period && e.f != unsafe { nil }
+		} else {
+			matched = e.when == when && e.period == period && e.f != unsafe { nil }
+		}
+		if matched {
 			bucket.heap.remove(i)
 			break
 		}

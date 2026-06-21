@@ -4,19 +4,19 @@ module queue
 //
 // Provides a failed_jobs table abstraction for persisting jobs that
 // exhaust all retry attempts. Allows replaying failed jobs via CLI.
-
+import sync
 import time
 
 // FailedJob represents a job that failed after exhausting retries
 pub struct FailedJob {
 pub:
-	id          string
-	job_type    string
-	payload     string
-	exception   string
-	failed_at   i64
-	queue_name  string
-	attempts    int
+	id         string
+	job_type   string
+	payload    string
+	exception  string
+	failed_at  i64
+	queue_name string
+	attempts   int
 }
 
 // FailedJobRepository persists and retrieves failed jobs
@@ -30,10 +30,12 @@ mut:
 	count() int
 }
 
-// MemoryFailedJobRepository stores failed jobs in memory
+// MemoryFailedJobRepository stores failed jobs in memory (thread-safe)
 pub struct MemoryFailedJobRepository {
 pub mut:
 	jobs []FailedJob
+mut:
+	mu sync.Mutex
 }
 
 // new_memory_failed_repo creates an in-memory failed job repository
@@ -43,16 +45,22 @@ pub fn new_memory_failed_repo() &MemoryFailedJobRepository {
 
 // save records a failed job
 pub fn (mut r MemoryFailedJobRepository) save(job FailedJob) ! {
+	r.mu.@lock()
+	defer { r.mu.unlock() }
 	r.jobs << job
 }
 
 // all returns all failed jobs
-pub fn (r &MemoryFailedJobRepository) all() ![]FailedJob {
+pub fn (mut r MemoryFailedJobRepository) all() ![]FailedJob {
+	r.mu.@lock()
+	defer { r.mu.unlock() }
 	return r.jobs.clone()
 }
 
 // find_by_id finds a failed job by ID
-pub fn (r &MemoryFailedJobRepository) find_by_id(id string) !FailedJob {
+pub fn (mut r MemoryFailedJobRepository) find_by_id(id string) !FailedJob {
+	r.mu.@lock()
+	defer { r.mu.unlock() }
 	for job in r.jobs {
 		if job.id == id {
 			return job
@@ -63,6 +71,8 @@ pub fn (r &MemoryFailedJobRepository) find_by_id(id string) !FailedJob {
 
 // delete_by_id removes a failed job
 pub fn (mut r MemoryFailedJobRepository) delete_by_id(id string) ! {
+	r.mu.@lock()
+	defer { r.mu.unlock() }
 	mut idx := -1
 	for i, job in r.jobs {
 		if job.id == id {
@@ -77,11 +87,15 @@ pub fn (mut r MemoryFailedJobRepository) delete_by_id(id string) ! {
 
 // clear removes all failed jobs
 pub fn (mut r MemoryFailedJobRepository) clear() ! {
+	r.mu.@lock()
+	defer { r.mu.unlock() }
 	r.jobs.clear()
 }
 
 // count returns the number of failed jobs
-pub fn (r &MemoryFailedJobRepository) count() int {
+pub fn (mut r MemoryFailedJobRepository) count() int {
+	r.mu.@lock()
+	defer { r.mu.unlock() }
 	return r.jobs.len
 }
 
@@ -89,8 +103,8 @@ pub fn (r &MemoryFailedJobRepository) count() int {
 @[heap]
 pub struct FailedJobHandler {
 pub mut:
-	repository       &FailedJobRepository
-	max_retries      int = 3
+	repository  &FailedJobRepository
+	max_retries int = 3
 }
 
 // new_failed_job_handler creates a FailedJobHandler
@@ -103,13 +117,13 @@ pub fn new_failed_job_handler(repo &FailedJobRepository) &FailedJobHandler {
 // handle records a job as failed
 pub fn (mut h FailedJobHandler) handle(job_type string, payload string, exception string, queue_name string, attempts int) ! {
 	failed := FailedJob{
-		id: 'failed_${time.now().unix_nano()}'
-		job_type: job_type
-		payload: payload
-		exception: exception
-		failed_at: time.now().unix()
+		id:         'failed_${time.now().unix_nano()}'
+		job_type:   job_type
+		payload:    payload
+		exception:  exception
+		failed_at:  time.now().unix()
 		queue_name: queue_name
-		attempts: attempts
+		attempts:   attempts
 	}
 	h.repository.save(failed)!
 }

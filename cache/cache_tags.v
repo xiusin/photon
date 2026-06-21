@@ -6,9 +6,9 @@ module cache
 //   - Cache tags: group related cache entries for bulk invalidation
 //   - Atomic locks: distributed mutex via cache backend
 //   - remember_forever: cache helper with callback fallback
-
 import time
 import sync
+import strings
 
 // ============================================================
 // Cache Tags
@@ -22,32 +22,52 @@ pub:
 
 // new_tag_set creates a TagSet from tag names
 pub fn new_tag_set(tags []string) &TagSet {
-	return &TagSet{tags: tags}
-}
-
-// get_namespace returns a unique namespace key for this tag set
-pub fn (ts &TagSet) get_namespace() string {
-	mut ns := ''
-	for tag in ts.tags {
-		ns += '${tag}:'
+	return &TagSet{
+		tags: tags
 	}
-	return ns
 }
 
-// TaggedCache wraps a cache with tag-based grouping
+// get_namespace returns a unique namespace key for this tag set.
+// Uses a strings.Builder to avoid O(n²) string concatenation.
+pub fn (ts &TagSet) get_namespace() string {
+	mut sb := strings.new_builder(64)
+	for tag in ts.tags {
+		sb.write_string2(tag, ':')
+	}
+	return sb.str()
+}
+
+// TaggedCache wraps a cache with tag-based grouping.
+// Maintains a reverse index (tag -> set of keys) so that flush() is O(k)
+// in the number of keys actually tagged, instead of O(n*m) scanning the
+// whole store for each tag prefix.
+//
+// The reverse index uses `[]string` (deduplicated on insert) as the per-tag
+// key set. V forbids copying map value, so a nested `map[string]bool` cannot
+// be extracted into a local variable (which `v fmt` does when desugaring
+// chained map access). Arrays can be copied freely, making the index safe to
+// mutate through the extract/modify/reassign pattern.
+//
+// Concurrency (C6 fix): tag_to_keys is protected by mu (RwMutex). All reads
+// use rlock, all writes use @lock. The store is accessed OUTSIDE tc.mu to
+// avoid holding the index lock during potentially slow store operations.
 @[heap]
 pub struct TaggedCache {
 pub mut:
-	store   &Cache
-	tags    []string
+	store       &Cache
+	tags        []string
+	tag_to_keys map[string][]string
+mut:
+	mu sync.RwMutex
 }
 
 // new_tagged_cache creates a TaggedCache for the given tags
 pub fn new_tagged_cache(store &Cache, tags []string) &TaggedCache {
 	return unsafe {
 		&TaggedCache{
-			store: store
-			tags: tags
+			store:       store
+			tags:        tags
+			tag_to_keys: map[string][]string{}
 		}
 	}
 }
@@ -58,10 +78,23 @@ pub fn (mut tc TaggedCache) get(key string) !string {
 	return tc.store.get(full_key)
 }
 
-// set stores a tagged value
+// set stores a tagged value and updates the reverse index under write lock.
 pub fn (mut tc TaggedCache) set(key string, value string, ttl_seconds int) ! {
 	full_key := tagged_key(tc.tags, key)
 	tc.store.set(full_key, value, ttl_seconds)!
+	// Maintain reverse index (tag -> set of keys) for O(k) flush.
+	tc.mu.@lock()
+	defer { tc.mu.unlock() }
+	for tag in tc.tags {
+		if tag !in tc.tag_to_keys {
+			tc.tag_to_keys[tag] = []string{}
+		}
+		mut key_set := tc.tag_to_keys[tag] or { []string{} }
+		if full_key !in key_set {
+			key_set << full_key
+		}
+		tc.tag_to_keys[tag] = key_set
+	}
 }
 
 // has checks if a tagged key exists
@@ -70,32 +103,106 @@ pub fn (mut tc TaggedCache) has(key string) bool {
 	return tc.store.has(full_key)
 }
 
-// delete removes a tagged key
+// delete removes a tagged key and updates the reverse index under write lock.
 pub fn (mut tc TaggedCache) delete(key string) ! {
 	full_key := tagged_key(tc.tags, key)
 	tc.store.delete(full_key)!
-}
-
-// flush invalidates ALL keys belonging to any of the tags
-pub fn (mut tc TaggedCache) flush() ! {
-	// For memory cache: iterate and delete keys matching any tag prefix
+	// Keep reverse index in sync: remove the key from every tag's set.
+	tc.mu.@lock()
+	defer { tc.mu.unlock() }
 	for tag in tc.tags {
-		prefix := '${tag}:'
-		for key in tc.store.keys() {
-			if key.starts_with(prefix) {
-				tc.store.delete(key) or {}
+		if tag in tc.tag_to_keys {
+			mut key_set := tc.tag_to_keys[tag] or { []string{} }
+			mut new_set := []string{cap: key_set.len}
+			for k in key_set {
+				if k != full_key {
+					new_set << k
+				}
 			}
+			tc.tag_to_keys[tag] = new_set
 		}
 	}
 }
 
-// tagged_key builds a cache key from tags
-fn tagged_key(tags []string, key string) string {
-	mut prefix := ''
-	for tag in tags {
-		prefix += '${tag}:'
+// flush invalidates ALL keys belonging to any of the tags.
+// Uses the reverse index for O(k) lookup (k = tagged keys) instead of
+// scanning every key in the store for each tag prefix.
+//
+// The index is updated under write lock; store deletions happen after the
+// lock is released to avoid holding tc.mu during store I/O.
+pub fn (mut tc TaggedCache) flush() ! {
+	// Collect keys to delete and clear the index under write lock.
+	tc.mu.@lock()
+	mut keys_to_delete := []string{}
+	for tag in tc.tags {
+		if tag !in tc.tag_to_keys {
+			continue
+		}
+		keys := tc.tag_to_keys[tag] or { []string{} }
+		keys_to_delete << keys
+		tc.tag_to_keys.delete(tag)
 	}
-	return '${prefix}${key}'
+	tc.mu.unlock()
+
+	// Delete from store without holding tc.mu.
+	for key in keys_to_delete {
+		tc.store.delete(key) or {}
+	}
+}
+
+// cleanup_stale removes keys from the reverse index that no longer exist in
+// the backing store (e.g. expired via TTL and swept by the store's GC).
+//
+// This is the periodic-scan approach for SubTask 5.5: since MemoryCache's GC
+// does not call back into TaggedCache, the index is reconciled on demand.
+// Call this periodically (or after a GC sweep) to keep tag_to_keys tight.
+pub fn (mut tc TaggedCache) cleanup_stale() ! {
+	tc.mu.@lock()
+	defer { tc.mu.unlock() }
+
+	mut tags_to_delete := []string{}
+	mut tags_to_update := map[string][]string{}
+
+	for tag, keys in tc.tag_to_keys {
+		mut new_keys := []string{}
+		for key in keys {
+			if tc.store.has(key) {
+				new_keys << key
+			}
+		}
+		if new_keys.len == 0 {
+			tags_to_delete << tag
+		} else if new_keys.len != keys.len {
+			tags_to_update[tag] = new_keys
+		}
+	}
+
+	for tag in tags_to_delete {
+		tc.tag_to_keys.delete(tag)
+	}
+	for tag, keys in tags_to_update {
+		tc.tag_to_keys[tag] = keys
+	}
+}
+
+// tag_key_count returns the number of keys indexed under the given tag.
+// Intended for testing and diagnostics.
+pub fn (tc &TaggedCache) tag_key_count(tag string) int {
+	tc.mu.rlock()
+	defer { tc.mu.runlock() }
+	keys := tc.tag_to_keys[tag] or { []string{} }
+	return keys.len
+}
+
+// tagged_key builds a cache key from tags.
+// Uses a strings.Builder to avoid O(n²) string concatenation.
+fn tagged_key(tags []string, key string) string {
+	mut sb := strings.new_builder(64)
+	for tag in tags {
+		sb.write_string2(tag, ':')
+	}
+	sb.write_string(key)
+	return sb.str()
 }
 
 // ============================================================
@@ -113,16 +220,16 @@ pub mut:
 	owner    string
 	acquired bool
 mut:
-	mu       sync.Mutex
+	mu sync.Mutex
 }
 
 // new_cache_lock creates a CacheLock
 pub fn new_cache_lock(store &Cache, name string, ttl_sec int) &CacheLock {
 	return &CacheLock{
-		store: store
-		name: name
+		store:   store
+		name:    name
 		ttl_sec: ttl_sec
-		owner: 'lock_${time.now().unix_nano()}'
+		owner:   'lock_${time.now().unix_nano()}'
 	}
 }
 
@@ -199,7 +306,7 @@ pub fn (mut cl CacheLock) force_release() ! {
 // remember gets a value from cache or calls the callback to produce it.
 // If the key exists and is not expired, returns cached value.
 // Otherwise calls the callback, caches the result, and returns it.
-pub fn remember(mut cm CacheManager, key string, ttl_seconds int, callback fn () !string) !string {
+pub fn remember(mut cm CacheRegistry, key string, ttl_seconds int, callback fn () !string) !string {
 	if cm.has(key) {
 		return cm.get(key)
 	}
@@ -210,24 +317,24 @@ pub fn remember(mut cm CacheManager, key string, ttl_seconds int, callback fn ()
 }
 
 // remember_forever is like remember but with no expiration (TTL=0)
-pub fn remember_forever(mut cm CacheManager, key string, callback fn () !string) !string {
+pub fn remember_forever(mut cm CacheRegistry, key string, callback fn () !string) !string {
 	return remember(mut cm, key, 0, callback)
 }
 
 // sear retrieves from cache or stores a permanent value.
-pub fn sear(mut cm CacheManager, key string, callback fn () !string) !string {
+pub fn sear(mut cm CacheRegistry, key string, callback fn () !string) !string {
 	return remember_forever(mut cm, key, callback)
 }
 
 // put_many stores multiple key-value pairs with the same TTL
-pub fn put_many(mut cm CacheManager, values map[string]string, ttl_seconds int) ! {
+pub fn put_many(mut cm CacheRegistry, values map[string]string, ttl_seconds int) ! {
 	for key, value in values {
 		cm.set(key, value, ttl_seconds)!
 	}
 }
 
 // get_many retrieves multiple keys at once
-pub fn get_many(mut cm CacheManager, keys []string) map[string]string {
+pub fn get_many(mut cm CacheRegistry, keys []string) map[string]string {
 	mut result := map[string]string{}
 	for key in keys {
 		if val := cm.get(key) {
@@ -239,12 +346,10 @@ pub fn get_many(mut cm CacheManager, keys []string) map[string]string {
 
 // delete_many deletes multiple keys at once.
 // Returns an aggregated error if any single deletion fails.
-pub fn delete_many(mut cm CacheManager, keys []string) ! {
+pub fn delete_many(mut cm CacheRegistry, keys []string) ! {
 	mut errors := []string{}
 	for key in keys {
-		cm.delete(key) or {
-			errors << '${key}: ${err}'
-		}
+		cm.delete(key) or { errors << '${key}: ${err}' }
 	}
 	if errors.len > 0 {
 		return error('delete_many: ${errors.len}/${keys.len} keys failed: ${errors.join('; ')}')
@@ -252,6 +357,6 @@ pub fn delete_many(mut cm CacheManager, keys []string) ! {
 }
 
 // flush_all clears the entire default cache
-pub fn flush_all(mut cm CacheManager) ! {
+pub fn flush_all(mut cm CacheRegistry) ! {
 	cm.clear()!
 }

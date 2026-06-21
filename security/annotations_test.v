@@ -77,7 +77,7 @@ fn test_parse_roles_allowed_trims_whitespace_in_roles() {
 }
 
 fn test_parse_pre_authorize_has_permission() {
-	config := parse_security_attrs(["pre_authorize:\"hasPermission('read')\""])
+	config := parse_security_attrs(['pre_authorize:"hasPermission(\'read\')"'])
 	assert config.is_secured == true
 	assert config.required_perms.len == 1
 	assert config.required_perms[0] == 'read'
@@ -131,7 +131,7 @@ fn test_sms_new_and_get_missing() {
 fn test_sms_register_and_get() {
 	mut sms := new_security_metadata_source()
 	sms.register('/api/admin', SecuredConfig{
-		is_secured: true
+		is_secured:     true
 		required_roles: ['ADMIN']
 	})
 	config := sms.get_config('/api/admin')

@@ -30,19 +30,19 @@ module orm
 // TransactionAttribute holds parsed attributes from @[transactional].
 pub struct TransactionAttribute {
 pub mut:
-	propagation  Propagation = .required
-	isolation    Isolation   = .default_
-	readonly     bool
-	timeout_ms   int            // 0 = no timeout
-	rollback_for []string         // exception type names that trigger rollback
-	no_rollback_for []string     // exception type names that do NOT trigger rollback
+	propagation     Propagation = .required
+	isolation       Isolation   = .default_
+	readonly        bool
+	timeout_ms      int      // 0 = no timeout
+	rollback_for    []string // exception type names that trigger rollback
+	no_rollback_for []string // exception type names that do NOT trigger rollback
 }
 
 // new_transaction_attribute creates a TransactionAttribute with defaults.
 pub fn new_transaction_attribute() TransactionAttribute {
 	return TransactionAttribute{
 		propagation: .required
-		isolation: .default_
+		isolation:   .default_
 	}
 }
 
@@ -132,29 +132,65 @@ pub fn isolation_from_str(s string) Isolation {
 	}
 }
 
+// parse_transactional_event_listener_attr parses the @[transactional_event_listener]
+// attribute string and returns the transaction phase as a string identifier.
+// Returns one of: 'before_commit', 'after_commit', 'after_rollback', 'after_completion'.
+// This string can be mapped to core.TransactionPhase by the caller, avoiding a
+// circular dependency between orm and core.
+pub fn parse_transactional_event_listener_attr(attr string) string {
+	// Expected formats:
+	//   @[transactional_event_listener]                         → 'after_commit' (default)
+	//   @[transactional_event_listener('before_commit')]        → 'before_commit'
+	//   @[transactional_event_listener(phase: 'after_rollback')] → 'after_rollback'
+	s := attr.trim_space()
+	if s.len == 0 {
+		return 'after_commit'
+	}
+
+	// Strip surrounding quotes if present
+	cleaned := s.trim('"').trim("'").trim_space()
+	if cleaned.len == 0 {
+		return 'after_commit'
+	}
+
+	// Handle 'phase: value' format
+	mut phase_str := cleaned
+	if cleaned.starts_with('phase:') {
+		phase_str = cleaned[6..].trim_space().trim('"').trim("'").trim_space()
+	}
+
+	return match phase_str.to_lower() {
+		'before_commit', 'beforecommit' { 'before_commit' }
+		'after_commit', 'aftercommit' { 'after_commit' }
+		'after_rollback', 'afterrollback' { 'after_rollback' }
+		'after_completion', 'aftercompletion' { 'after_completion' }
+		else { 'after_commit' }
+	}
+}
+
 // ── TransactionContext ──
 
 // TransactionContext holds the current transaction state for the active scope.
 pub struct TransactionContext {
 pub:
-	propagation  Propagation
-	isolation    Isolation
-	readonly     bool
-	timeout_ms   int
+	propagation Propagation
+	isolation   Isolation
+	readonly    bool
+	timeout_ms  int
 pub mut:
-	is_active    bool
-	savepoints   []string  // named savepoints for nested transactions
+	is_active  bool
+	savepoints []string // named savepoints for nested transactions
 }
 
 // new_transaction_context creates a TransactionContext from a TransactionAttribute.
 pub fn new_transaction_context(attr TransactionAttribute) &TransactionContext {
 	return &TransactionContext{
 		propagation: attr.propagation
-		isolation: attr.isolation
-		readonly: attr.readonly
-		timeout_ms: attr.timeout_ms
-		is_active: true
-		savepoints: []string{}
+		isolation:   attr.isolation
+		readonly:    attr.readonly
+		timeout_ms:  attr.timeout_ms
+		is_active:   true
+		savepoints:  []string{}
 	}
 }
 
@@ -183,7 +219,7 @@ pub fn (mut ti TransactionalInterceptor) begin_if_needed(attr TransactionAttribu
 
 	return match attr.propagation {
 		.required {
-			if !ti.tx_manager.active {
+			if !ti.tx_manager.is_active() {
 				ti.tx_manager.begin()!
 				true
 			} else {
@@ -192,14 +228,14 @@ pub fn (mut ti TransactionalInterceptor) begin_if_needed(attr TransactionAttribu
 		}
 		.requires_new {
 			// If existing tx, commit/rollback it first, then start new
-			if ti.tx_manager.active {
+			if ti.tx_manager.is_active() {
 				ti.tx_manager.commit() or { ti.tx_manager.rollback() or {} }
 			}
 			ti.tx_manager.begin()!
 			true
 		}
 		.nested {
-			if ti.tx_manager.active {
+			if ti.tx_manager.is_active() {
 				// Use savepoint_count to track nesting
 				ti.tx_manager.savepoint_count++
 				false
@@ -212,20 +248,20 @@ pub fn (mut ti TransactionalInterceptor) begin_if_needed(attr TransactionAttribu
 			false
 		}
 		.not_supported {
-			if ti.tx_manager.active {
+			if ti.tx_manager.is_active() {
 				ti.tx_manager.commit() or {}
 			}
 			false
 		}
 		.mandatory {
-			if !ti.tx_manager.active {
+			if !ti.tx_manager.is_active() {
 				error('no existing transaction found for MANDATORY propagation')
 			} else {
 				false
 			}
 		}
 		.never {
-			if ti.tx_manager.active {
+			if ti.tx_manager.is_active() {
 				error('existing transaction found for NEVER propagation')
 			} else {
 				false
@@ -236,14 +272,30 @@ pub fn (mut ti TransactionalInterceptor) begin_if_needed(attr TransactionAttribu
 
 // commit_if_needed commits the transaction if it was started by this interceptor.
 pub fn (mut ti TransactionalInterceptor) commit_if_needed(started bool) ! {
-	if started && !isnil(ti.tx_manager) && ti.tx_manager.active {
+	if started && !isnil(ti.tx_manager) && ti.tx_manager.is_active() {
 		ti.tx_manager.commit()!
 	}
 }
 
 // rollback_if_needed rolls back the transaction on error.
 pub fn (mut ti TransactionalInterceptor) rollback_if_needed(started bool) {
-	if started && !isnil(ti.tx_manager) && ti.tx_manager.active {
+	if started && !isnil(ti.tx_manager) && ti.tx_manager.is_active() {
 		ti.tx_manager.rollback() or { return }
 	}
+}
+
+// rollback_if_needed_with_attr rolls back the transaction on error,
+// consulting the rollback_for / no_rollback_for rules from the
+// TransactionAttribute (B3.4).
+//
+// Unlike rollback_if_needed(started) which always rolls back on any
+// error, this method:
+//   - Skips rollback if the error matches no_rollback_for.
+//   - Only rolls back if the error matches rollback_for (when specified).
+//   - Rolls back on any error when rollback_for is empty (default).
+pub fn (mut ti TransactionalInterceptor) rollback_if_needed_with_attr(started bool, err IError, attr TransactionAttribute) {
+	if !started || isnil(ti.tx_manager) || !ti.tx_manager.is_active() {
+		return
+	}
+	ti.tx_manager.rollback_if_needed(err, attr) or { return }
 }

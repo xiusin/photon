@@ -19,8 +19,8 @@ fn test_csrf_config_defaults() {
 
 fn test_csrf_config_custom() {
 	config := CsrfConfig{
-		enabled: false
-		header_name: 'X-CUSTOM-TOKEN'
+		enabled:      false
+		header_name:  'X-CUSTOM-TOKEN'
 		token_length: 16
 	}
 	assert config.enabled == false
@@ -31,21 +31,27 @@ fn test_csrf_config_custom() {
 // -- CookieCsrfTokenRepository tests --
 
 fn test_new_cookie_token_repo() {
-	config := CsrfConfig{ token_length: 16 }
+	config := CsrfConfig{
+		token_length: 16
+	}
 	repo := new_cookie_token_repo(config)
 	assert repo.config.token_length == 16
 	assert repo.cached_token == ''
 }
 
 fn test_generate_token_length() {
-	config := CsrfConfig{ token_length: 32 }
+	config := CsrfConfig{
+		token_length: 32
+	}
 	repo := new_cookie_token_repo(config)
 	token := repo.generate_token()
 	assert token.len == 32
 }
 
 fn test_generate_token_is_alphanumeric() {
-	config := CsrfConfig{ token_length: 32 }
+	config := CsrfConfig{
+		token_length: 32
+	}
 	repo := new_cookie_token_repo(config)
 	token := repo.generate_token()
 	for c in token {
@@ -54,7 +60,9 @@ fn test_generate_token_is_alphanumeric() {
 }
 
 fn test_generate_token_randomness() {
-	config := CsrfConfig{ token_length: 32 }
+	config := CsrfConfig{
+		token_length: 32
+	}
 	repo := new_cookie_token_repo(config)
 	token1 := repo.generate_token()
 	token2 := repo.generate_token()
@@ -62,21 +70,27 @@ fn test_generate_token_randomness() {
 }
 
 fn test_generate_token_custom_length() {
-	config := CsrfConfig{ token_length: 8 }
+	config := CsrfConfig{
+		token_length: 8
+	}
 	repo := new_cookie_token_repo(config)
 	token := repo.generate_token()
 	assert token.len == 8
 }
 
 fn test_generate_token_length_64() {
-	config := CsrfConfig{ token_length: 64 }
+	config := CsrfConfig{
+		token_length: 64
+	}
 	repo := new_cookie_token_repo(config)
 	token := repo.generate_token()
 	assert token.len == 64
 }
 
 fn test_save_token() {
-	config := CsrfConfig{ token_length: 16 }
+	config := CsrfConfig{
+		token_length: 16
+	}
 	mut repo := new_cookie_token_repo(config)
 	repo.save_token('my-csrf-token') or {
 		assert false, 'save should succeed'
@@ -86,7 +100,9 @@ fn test_save_token() {
 }
 
 fn test_load_token_success() {
-	config := CsrfConfig{ token_length: 16 }
+	config := CsrfConfig{
+		token_length: 16
+	}
 	mut repo := new_cookie_token_repo(config)
 	repo.save_token('stored-token') or {}
 	token := repo.load_token() or { '' }
@@ -94,7 +110,9 @@ fn test_load_token_success() {
 }
 
 fn test_load_token_not_found() {
-	config := CsrfConfig{ token_length: 16 }
+	config := CsrfConfig{
+		token_length: 16
+	}
 	mut repo := new_cookie_token_repo(config)
 	mut caught := false
 	if _ := repo.load_token() {
@@ -105,7 +123,9 @@ fn test_load_token_not_found() {
 }
 
 fn test_save_token_overwrites() {
-	config := CsrfConfig{ token_length: 16 }
+	config := CsrfConfig{
+		token_length: 16
+	}
 	mut repo := new_cookie_token_repo(config)
 	repo.save_token('first') or {}
 	repo.save_token('second') or {}
@@ -117,9 +137,9 @@ fn test_save_token_overwrites() {
 
 fn test_csrf_token_struct() {
 	t := CsrfToken{
-		token: 'abc123'
+		token:     'abc123'
 		parameter: '_csrf'
-		header: 'X-CSRF-TOKEN'
+		header:    'X-CSRF-TOKEN'
 	}
 	assert t.token == 'abc123'
 	assert t.parameter == '_csrf'
@@ -129,7 +149,9 @@ fn test_csrf_token_struct() {
 // -- CsrfManager tests --
 
 fn test_new_csrf_manager() {
-	config := CsrfConfig{ enabled: true }
+	config := CsrfConfig{
+		enabled: true
+	}
 	cm := new_csrf_manager(config)
 	assert cm.config.enabled == true
 	assert cm.repository != unsafe { nil }
@@ -143,9 +165,9 @@ fn test_csrf_manager_generate() {
 
 fn test_csrf_manager_create_token() {
 	mut cm := new_csrf_manager(CsrfConfig{
-		enabled: true
-		token_length: 32
-		header_name: 'X-CSRF-TOKEN'
+		enabled:         true
+		token_length:    32
+		header_name:     'X-CSRF-TOKEN'
 		form_field_name: '_csrf'
 	})
 	csrf_token := cm.create_token() or {
@@ -161,9 +183,7 @@ fn test_csrf_manager_create_token() {
 
 fn test_validate_matching_tokens() {
 	cm := new_csrf_manager(CsrfConfig{ enabled: true })
-	cm.validate('token-abc', 'token-abc') or {
-		assert false, 'matching tokens should validate'
-	}
+	cm.validate('token-abc', 'token-abc') or { assert false, 'matching tokens should validate' }
 	assert true
 }
 
@@ -190,17 +210,13 @@ fn test_validate_missing_token() {
 fn test_validate_disabled_csrf() {
 	cm := new_csrf_manager(CsrfConfig{ enabled: false })
 	// Validation should pass when CSRF is disabled, even with mismatched tokens
-	cm.validate('a', 'b') or {
-		assert false, 'disabled CSRF should pass validation'
-	}
+	cm.validate('a', 'b') or { assert false, 'disabled CSRF should pass validation' }
 	assert true
 }
 
 fn test_validate_disabled_with_empty_tokens() {
 	cm := new_csrf_manager(CsrfConfig{ enabled: false })
-	cm.validate('', '') or {
-		assert false, 'disabled CSRF should pass empty validation'
-	}
+	cm.validate('', '') or { assert false, 'disabled CSRF should pass empty validation' }
 	assert true
 }
 

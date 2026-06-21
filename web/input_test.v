@@ -1,7 +1,6 @@
 module web
 
 // input_test.v — Tests for Laravel-style Input service
-
 import veb
 
 fn ctx_with_query(query_string string) &veb.Context {

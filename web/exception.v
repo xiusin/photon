@@ -25,8 +25,23 @@ module web
 //       }
 //       return ctx.json(user)
 //   }
-
+//
+// @ControllerAdvice (global exception handling):
+//   Annotate an advice struct with @[controller_advice] and implement the
+//   ExceptionHandler interface, then register it with ExceptionResolver:
+//
+//   @[controller_advice]
+//   struct NotFoundAdvice {}
+//
+//   fn (h &NotFoundAdvice) handle_exception(err IError) !(int, string) {
+//       return 404, '{"error":"not found"}'
+//   }
+//
+//   mut resolver := new_exception_resolver()
+//   resolver.register_handler('NotFoundError', NotFoundAdvice{})
+//   status, body := resolver.resolve(err)!
 import json
+import sync
 
 // ── HttpException ──
 
@@ -43,8 +58,8 @@ pub:
 pub fn new_http_exception(status_code int, message string) HttpException {
 	return HttpException{
 		status_code: status_code
-		message: message
-		details: map[string]string{}
+		message:     message
+		details:     map[string]string{}
 	}
 }
 
@@ -52,8 +67,8 @@ pub fn new_http_exception(status_code int, message string) HttpException {
 pub fn new_http_exception_with_details(status_code int, message string, details map[string]string) HttpException {
 	return HttpException{
 		status_code: status_code
-		message: message
-		details: details
+		message:     message
+		details:     details
 	}
 }
 
@@ -151,7 +166,7 @@ pub:
 // new_validation_exception creates a 422 Validation exception.
 pub fn new_validation_exception(message string, errors map[string][]string) ValidationException {
 	return ValidationException{
-		HttpException: new_http_exception(422, message)
+		HttpException:     new_http_exception(422, message)
 		validation_errors: errors
 	}
 }
@@ -200,7 +215,7 @@ pub type ExceptionHandlerFunc = fn (err IError) string
 // ExceptionHandlerRegistry maps error type names to handler functions.
 pub struct ExceptionHandlerRegistry {
 pub mut:
-	handlers       map[string]ExceptionHandlerFunc
+	handlers        map[string]ExceptionHandlerFunc
 	default_handler ExceptionHandlerFunc = unsafe { nil }
 }
 
@@ -311,26 +326,143 @@ fn (mut r ExceptionHandlerRegistry) register_defaults() {
 	}
 }
 
-// extract_http_status tries to extract the HTTP status code from known exception types.
-// Uses type name matching (compile-time deterministic) instead of error message parsing.
-// This prevents user-supplied error messages from being misinterpreted as status codes.
+// extract_http_status tries to extract the HTTP status code from an error.
+// Uses the error's own code() method (type-safe) instead of typeof(err).name
+// string matching — V's typeof() returns 'IError' for interface values, so the
+// previous name-based match block never matched concrete types. HttpException
+// subtypes carry their status in code(); other errors return 0 when unknown.
 fn extract_http_status(err IError) int {
-	err_type := typeof(err).name
+	return err.code()
+}
 
-	// Map known exception type names to their status codes
-	return match err_type {
-		'BadRequestException' { 400 }
-		'UnauthorizedException' { 401 }
-		'ForbiddenException' { 403 }
-		'NotFoundException' { 404 }
-		'MethodNotAllowedException' { 405 }
-		'ConflictException' { 409 }
-		'ValidationException' { 422 }
-		'RateLimitExceededException' { 429 }
-		'InternalServerErrorException' { 500 }
-		'ServiceUnavailableException' { 503 }
-		else { 0 }
+// ── @ControllerAdvice & ExceptionResolver ──
+//
+// ExceptionResolver is the global exception resolution registry, analogous to
+// Spring's @ControllerAdvice + @ExceptionHandler. Developers implement the
+// ExceptionHandler interface and register it (per error type or as a catch-all
+// global) with an ExceptionResolver instance.
+//
+// The @[controller_advice] attribute is a convention marker for advice structs.
+// Because V cannot scan annotation-based methods at runtime, the interface +
+// registry pattern is used: implement ExceptionHandler and register it.
+//
+// Implementation note: V's typeof(err).name returns 'IError' for interface
+// values (not the concrete type name), so type-name-based map dispatch is not
+// possible. Type-safe dispatch is therefore done via the handles() interface
+// method, which implementations back with a runtime `err is ConcreteType` check.
+
+// ExceptionHandler is the interface for global exception handlers.
+// Implementations declare which errors they handle via handles() and produce
+// the HTTP response (status code + body) via handle_exception().
+// Analogous to Spring's @ExceptionHandler methods.
+pub interface ExceptionHandler {
+	// handles returns true if this handler should process the given error.
+	// Implementations typically use `err is ConcreteType` for type matching.
+	handles(err IError) bool
+	// handle_exception handles an error and returns the HTTP status code
+	// together with the response body (which may be JSON).
+	handle_exception(err IError) !(int, string)
+}
+
+// HandlerEntry pairs a registered handler with its type-name label.
+struct HandlerEntry {
+pub:
+	type_name string
+	handler   ExceptionHandler
+}
+
+// ExceptionResolver resolves errors to HTTP responses via a handler registry.
+// Specific handlers (registered by type name) are consulted first, then global
+// catch-all handlers, then the default status mapping derived from err.code().
+// Thread-safe via sync.RwMutex.
+pub struct ExceptionResolver {
+mut:
+	mu sync.RwMutex
+	// Specific handlers, each self-describing the errors it handles via
+	// ExceptionHandler.handles(). type_name is retained as metadata.
+	handlers []HandlerEntry
+	// Global handlers (catch-all), tried after specific handlers.
+	global_handlers []ExceptionHandler
+}
+
+// new_exception_resolver creates an empty ExceptionResolver. The default HTTP
+// status mapping for common exception types is provided by extract_status(),
+// which consults each error's own code() method (HttpException subtypes carry
+// their status code there). Register custom handlers via register_handler /
+// register_global.
+pub fn new_exception_resolver() &ExceptionResolver {
+	return &ExceptionResolver{
+		handlers:        []HandlerEntry{}
+		global_handlers: []ExceptionHandler{}
 	}
+}
+
+// register_handler registers a handler for a specific error type.
+// err_type is a human-readable label (metadata); dispatch is driven by the
+// handler's handles() method, so the handler decides which errors it accepts.
+// Registered handlers take priority over global handlers and the default
+// status mapping.
+pub fn (mut r ExceptionResolver) register_handler(err_type string, handler ExceptionHandler) {
+	r.mu.@lock()
+	defer { r.mu.unlock() }
+	r.handlers << HandlerEntry{
+		type_name: err_type
+		handler:   handler
+	}
+}
+
+// register_global registers a catch-all handler invoked when no specific
+// handler matches the error. The first registered global handler is used.
+pub fn (mut r ExceptionResolver) register_global(handler ExceptionHandler) {
+	r.mu.@lock()
+	defer { r.mu.unlock() }
+	r.global_handlers << handler
+}
+
+// resolve finds a handler for the error and returns (http_status, response_body).
+// Resolution order:
+//   1. First specific handler whose handles() accepts the error.
+//   2. First registered global (catch-all) handler.
+//   3. Default status mapping (extract_status, via err.code()) + default JSON body.
+//   4. Last resort: 500 with the error message.
+pub fn (mut r ExceptionResolver) resolve(err IError) !(int, string) {
+	// Snapshot the handler lists under a read lock, then dispatch outside the
+	// lock so user code never runs while the mutex is held.
+	r.mu.rlock()
+	entries := r.handlers.clone()
+	globals := r.global_handlers.clone()
+	r.mu.runlock()
+
+	// Try specific handlers first (registration order).
+	for entry in entries {
+		if entry.handler.handles(err) {
+			return entry.handler.handle_exception(err)!
+		}
+	}
+
+	// Try global handlers (catch-all).
+	if globals.len > 0 {
+		return globals[0].handle_exception(err)!
+	}
+
+	// Fall back to the default status registry (err.code()).
+	status := r.extract_status(err)
+	if status > 0 {
+		return status, text_response_for_error(status, err.msg())
+	}
+
+	// Last resort: 500
+	return 500, text_response_for_error(500, err.msg())
+}
+
+// extract_status returns the HTTP status code for an error by consulting the
+// type registry. Each HttpException subtype carries its status in code()
+// (NotFound -> 404, BadRequest -> 400, Unauthorized -> 401, etc.), so this is
+// a type-safe lookup that replaces the previous fragile typeof(err).name
+// string-match block (which never matched because typeof() returns 'IError'
+// for interface values). Returns 0 if the error type is unknown.
+pub fn (mut r ExceptionResolver) extract_status(err IError) int {
+	return err.code()
 }
 
 // extract_status is the public alias for extract_http_status.
@@ -353,7 +485,7 @@ pub:
 // text_response_for_error creates a JSON error response.
 fn text_response_for_error(status int, message string) string {
 	resp := ErrorResponse{
-		code: status
+		code:    status
 		message: message
 	}
 	return json.encode(resp)
@@ -363,7 +495,7 @@ fn text_response_for_error(status int, message string) string {
 pub fn error_json(code int, message string) string {
 	resp := ErrorResponse{
 		success: false
-		code: code
+		code:    code
 		message: message
 	}
 	return json.encode(resp)
@@ -373,7 +505,7 @@ pub fn error_json(code int, message string) string {
 pub fn error_json_with_details(code int, message string, details map[string]string) string {
 	resp := ErrorResponse{
 		success: false
-		code: code
+		code:    code
 		message: message
 		details: details
 	}
@@ -385,7 +517,13 @@ pub fn error_json_with_details(code int, message string, details map[string]stri
 // recover_exceptions is a middleware that catches panics and converts
 // them to proper HTTP error responses.
 // Place this as the FIRST middleware in your chain.
-pub fn recover_exceptions(mut ctx &MiddlewareContext) !bool {
+//
+// Placeholder middleware. Actual panic recovery is handled by veb's built-in
+// recover mechanism. This middleware exists for API compatibility with
+// middleware chains that expect an exception-handling step. It only marks
+// that the exception handler is active in the middleware data map; it does
+// not perform any recovery work.
+pub fn recover_exceptions(mut ctx MiddlewareContext) !bool {
 	// V doesn't have try/catch, but we can check for error conditions
 	// in the middleware data and handle them appropriately.
 	// This is a defensive marker — actual panic recovery depends on

@@ -5,19 +5,18 @@ module web
 // Provides a standardized API response format with status codes,
 // messages, data payloads, and pagination support.
 // Designed for consistent REST API responses.
-
 import json
 import time
 
 // Result is the standard API response wrapper
 pub struct Result {
 pub mut:
-	success bool
-	code    int
-	message string
-	data    string // JSON string or raw value
+	success   bool
+	code      int
+	message   string
+	data      string // JSON string or raw value
 	timestamp i64
-	path    string
+	path      string
 }
 
 // PageResult adds pagination to Result
@@ -37,21 +36,21 @@ pub mut:
 // Pagination holds page metadata
 pub struct Pagination {
 pub:
-	page       int
-	page_size  int
-	total      int
+	page        int
+	page_size   int
+	total       int
 	total_pages int
-	has_next   bool
-	has_prev   bool
+	has_next    bool
+	has_prev    bool
 }
 
 // success creates a successful Result
 pub fn success(data string) Result {
 	return Result{
-		success: true
-		code: 200
-		message: 'OK'
-		data: data
+		success:   true
+		code:      200
+		message:   'OK'
+		data:      data
 		timestamp: time.now().unix()
 	}
 }
@@ -59,10 +58,10 @@ pub fn success(data string) Result {
 // success_with_msg creates a successful Result with custom message
 pub fn success_with_msg(data string, msg string) Result {
 	return Result{
-		success: true
-		code: 200
-		message: msg
-		data: data
+		success:   true
+		code:      200
+		message:   msg
+		data:      data
 		timestamp: time.now().unix()
 	}
 }
@@ -70,9 +69,9 @@ pub fn success_with_msg(data string, msg string) Result {
 // fail creates a failure Result
 pub fn fail(code int, msg string) Result {
 	return Result{
-		success: false
-		code: code
-		message: msg
+		success:   false
+		code:      code
+		message:   msg
 		timestamp: time.now().unix()
 	}
 }
@@ -82,19 +81,14 @@ pub fn page(data string, page int, page_size int, total int) PageResult {
 	total_pages := (total + page_size - 1) / page_size
 	base := success(data)
 	return PageResult{
-		success: base.success
-		code: base.code
-		message: base.message
-		data: base.data
-		timestamp: base.timestamp
-		path: base.path
+		Result:     success(data)
 		pagination: Pagination{
-			page: page
-			page_size: page_size
-			total: total
+			page:        page
+			page_size:   page_size
+			total:       total
 			total_pages: total_pages
-			has_next: page < total_pages
-			has_prev: page > 1
+			has_next:    page < total_pages
+			has_prev:    page > 1
 		}
 	}
 }
@@ -119,10 +113,10 @@ pub fn ok(data string) Result {
 // created creates a 201 Created result
 pub fn created(data string) Result {
 	return Result{
-		success: true
-		code: 201
-		message: 'Created'
-		data: data
+		success:   true
+		code:      201
+		message:   'Created'
+		data:      data
 		timestamp: time.now().unix()
 	}
 }
@@ -130,9 +124,9 @@ pub fn created(data string) Result {
 // no_content creates a 204 No Content result
 pub fn no_content() Result {
 	return Result{
-		success: true
-		code: 204
-		message: 'No Content'
+		success:   true
+		code:      204
+		message:   'No Content'
 		timestamp: time.now().unix()
 	}
 }

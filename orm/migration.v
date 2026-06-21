@@ -1,5 +1,7 @@
 module orm
 
+import sync
+
 // migration.v - Database Migration System (Laravel Migrations + Flyway inspired)
 //
 // Provides versioned database schema migration with:
@@ -64,22 +66,70 @@ pub enum ColumnType {
 // sql_type returns the SQL type string for a ColumnType, driver-aware.
 pub fn (ct ColumnType) sql_type(driver DriverType) string {
 	return match ct {
-		.integer { 'INTEGER' }
-		.bigint { 'BIGINT' }
-		.vstring { if driver == .pg { 'VARCHAR' } else { 'TEXT' } }
-		.text { 'TEXT' }
-		.vbool { if driver == .sqlite { 'INTEGER' } else { 'BOOLEAN' } }
-		.vfloat { 'REAL' }
-		.vdouble { 'DOUBLE PRECISION' }
-		.decimal { 'DECIMAL' }
-		.vdate { 'DATE' }
-		.vtime { 'TIME' }
-		.timestamp { 'TIMESTAMP' }
-		.datetime { 'DATETIME' }
-		.vbinary { 'BLOB' }
-		.vjson { if driver == .pg { 'JSONB' } else { 'TEXT' } }
-		.vuuid { if driver == .pg { 'UUID' } else { 'TEXT' } }
-		.enumval { 'TEXT' } // SQLite doesn't support ENUM
+		.integer {
+			'INTEGER'
+		}
+		.bigint {
+			'BIGINT'
+		}
+		.vstring {
+			if driver == .pg {
+				'VARCHAR'
+			} else {
+				'TEXT'
+			}
+		}
+		.text {
+			'TEXT'
+		}
+		.vbool {
+			if driver == .sqlite {
+				'INTEGER'
+			} else {
+				'BOOLEAN'
+			}
+		}
+		.vfloat {
+			'REAL'
+		}
+		.vdouble {
+			'DOUBLE PRECISION'
+		}
+		.decimal {
+			'DECIMAL'
+		}
+		.vdate {
+			'DATE'
+		}
+		.vtime {
+			'TIME'
+		}
+		.timestamp {
+			'TIMESTAMP'
+		}
+		.datetime {
+			'DATETIME'
+		}
+		.vbinary {
+			'BLOB'
+		}
+		.vjson {
+			if driver == .pg {
+				'JSONB'
+			} else {
+				'TEXT'
+			}
+		}
+		.vuuid {
+			if driver == .pg {
+				'UUID'
+			} else {
+				'TEXT'
+			}
+		}
+		.enumval {
+			'TEXT'
+		} // SQLite doesn't support ENUM
 	}
 }
 
@@ -90,28 +140,28 @@ pub struct ColumnDef {
 pub:
 	name           string
 	type_          ColumnType
-	length         int       // for string/varchar
-	precision      int       // for decimal
-	scale          int       // for decimal
+	length         int // for string/varchar
+	precision      int // for decimal
+	scale          int // for decimal
 	is_primary     bool
 	auto_increment bool
 	is_foreign     bool
 	ref_table      string
-	ref_column     string    = 'id'
-	on_delete      string    = 'CASCADE'
+	ref_column     string = 'id'
+	on_delete      string = 'CASCADE'
 pub mut:
-	is_nullable    bool     = true  // columns are nullable by default
-	is_unique      bool
-	is_indexed     bool
-	default_val    string
-	is_added       bool     // for ALTER TABLE ADD COLUMN
-	is_dropped     bool     // for ALTER TABLE DROP COLUMN
-	new_name       string   // for ALTER TABLE RENAME COLUMN
+	is_nullable bool = true // columns are nullable by default
+	is_unique   bool
+	is_indexed  bool
+	default_val string
+	is_added    bool   // for ALTER TABLE ADD COLUMN
+	is_dropped  bool   // for ALTER TABLE DROP COLUMN
+	new_name    string // for ALTER TABLE RENAME COLUMN
 }
 
 // to_sql generates the SQL column definition string.
 pub fn (c &ColumnDef) to_sql(driver DriverType) string {
-    mut s := '${c.name} ${c.type_.sql_type(driver)}'
+	mut s := '${c.name} ${c.type_.sql_type(driver)}'
 
 	// Add length for string type
 	if c.type_ == .vstring && c.length > 0 && driver != .sqlite {
@@ -147,7 +197,8 @@ pub fn (c &ColumnDef) to_sql(driver DriverType) string {
 
 	// Default value
 	if c.default_val.len > 0 {
-		if c.default_val.starts_with("'") || c.type_ == .vstring || c.type_ == .text || c.type_ == .vuuid {
+		if c.default_val.starts_with("'") || c.type_ == .vstring || c.type_ == .text
+			|| c.type_ == .vuuid {
 			if !c.default_val.starts_with("'") {
 				s += " DEFAULT '${c.default_val}'"
 			} else {
@@ -176,17 +227,17 @@ pub struct TableDef {
 pub:
 	name string
 pub mut:
-	columns   []ColumnDef
-	indexes   []IndexDef
+	columns     []ColumnDef
+	indexes     []IndexDef
 	primary_key []string
 }
 
 // new_table_def creates a new TableDef.
 pub fn new_table_def(name string) &TableDef {
 	return &TableDef{
-		name: name
-		columns: []ColumnDef{}
-		indexes: []IndexDef{}
+		name:        name
+		columns:     []ColumnDef{}
+		indexes:     []IndexDef{}
 		primary_key: []string{}
 	}
 }
@@ -196,10 +247,10 @@ pub fn new_table_def(name string) &TableDef {
 // id adds an auto-incrementing primary key column.
 pub fn (mut t TableDef) id() {
 	t.columns << ColumnDef{
-		name: 'id'
-		type_: .integer
-		is_primary: true
-		is_nullable: false
+		name:           'id'
+		type_:          .integer
+		is_primary:     true
+		is_nullable:    false
 		auto_increment: true
 	}
 	t.primary_key << 'id'
@@ -208,10 +259,10 @@ pub fn (mut t TableDef) id() {
 // big_id adds a big auto-incrementing primary key.
 pub fn (mut t TableDef) big_id() {
 	t.columns << ColumnDef{
-		name: 'id'
-		type_: .bigint
-		is_primary: true
-		is_nullable: false
+		name:           'id'
+		type_:          .bigint
+		is_primary:     true
+		is_nullable:    false
 		auto_increment: true
 	}
 	t.primary_key << 'id'
@@ -220,8 +271,8 @@ pub fn (mut t TableDef) big_id() {
 // string_ adds a string column (VARCHAR/TEXT).
 pub fn (mut t TableDef) string_(name string, length int) {
 	t.columns << ColumnDef{
-		name: name
-		type_: .vstring
+		name:   name
+		type_:  .vstring
 		length: length
 	}
 }
@@ -229,7 +280,7 @@ pub fn (mut t TableDef) string_(name string, length int) {
 // text adds a TEXT column.
 pub fn (mut t TableDef) text(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .text
 	}
 }
@@ -237,7 +288,7 @@ pub fn (mut t TableDef) text(name string) {
 // integer adds an INTEGER column.
 pub fn (mut t TableDef) integer(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .integer
 	}
 }
@@ -245,7 +296,7 @@ pub fn (mut t TableDef) integer(name string) {
 // bigint adds a BIGINT column.
 pub fn (mut t TableDef) bigint(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .bigint
 	}
 }
@@ -253,8 +304,8 @@ pub fn (mut t TableDef) bigint(name string) {
 // boolean_ adds a BOOLEAN column.
 pub fn (mut t TableDef) boolean_(name string) {
 	t.columns << ColumnDef{
-		name: name
-		type_: .vbool
+		name:        name
+		type_:       .vbool
 		default_val: 'false'
 	}
 }
@@ -262,7 +313,7 @@ pub fn (mut t TableDef) boolean_(name string) {
 // float_ adds a FLOAT column.
 pub fn (mut t TableDef) float_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .vfloat
 	}
 }
@@ -270,7 +321,7 @@ pub fn (mut t TableDef) float_(name string) {
 // double_ adds a DOUBLE column.
 pub fn (mut t TableDef) double_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .vdouble
 	}
 }
@@ -278,17 +329,17 @@ pub fn (mut t TableDef) double_(name string) {
 // decimal_ adds a DECIMAL column.
 pub fn (mut t TableDef) decimal_(name string, precision int, scale int) {
 	t.columns << ColumnDef{
-		name: name
-		type_: .decimal
+		name:      name
+		type_:     .decimal
 		precision: precision
-		scale: scale
+		scale:     scale
 	}
 }
 
 // date_ adds a DATE column.
 pub fn (mut t TableDef) date_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .vdate
 	}
 }
@@ -296,7 +347,7 @@ pub fn (mut t TableDef) date_(name string) {
 // time_ adds a TIME column.
 pub fn (mut t TableDef) time_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .vtime
 	}
 }
@@ -304,7 +355,7 @@ pub fn (mut t TableDef) time_(name string) {
 // timestamp_ adds a TIMESTAMP column.
 pub fn (mut t TableDef) timestamp_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .timestamp
 	}
 }
@@ -312,7 +363,7 @@ pub fn (mut t TableDef) timestamp_(name string) {
 // datetime_ adds a DATETIME column.
 pub fn (mut t TableDef) datetime_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .datetime
 	}
 }
@@ -320,7 +371,7 @@ pub fn (mut t TableDef) datetime_(name string) {
 // binary_ adds a BLOB/BINARY column.
 pub fn (mut t TableDef) binary_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .vbinary
 	}
 }
@@ -328,7 +379,7 @@ pub fn (mut t TableDef) binary_(name string) {
 // json_ adds a JSON/JSONB column.
 pub fn (mut t TableDef) json_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .vjson
 	}
 }
@@ -336,7 +387,7 @@ pub fn (mut t TableDef) json_(name string) {
 // uuid_ adds a UUID column.
 pub fn (mut t TableDef) uuid_(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .vuuid
 	}
 }
@@ -344,7 +395,7 @@ pub fn (mut t TableDef) uuid_(name string) {
 // enum_ adds an ENUM column (stored as TEXT in SQLite).
 pub fn (mut t TableDef) enum_(name string, _values []string) {
 	t.columns << ColumnDef{
-		name: name
+		name:  name
 		type_: .enumval
 	}
 }
@@ -352,12 +403,12 @@ pub fn (mut t TableDef) enum_(name string, _values []string) {
 // references adds a foreign key column.
 pub fn (mut t TableDef) references(name string, ref_table string) {
 	t.columns << ColumnDef{
-		name: name
-		type_: .integer
-		is_foreign: true
-		ref_table: ref_table
-		ref_column: 'id'
-		on_delete: 'CASCADE'
+		name:        name
+		type_:       .integer
+		is_foreign:  true
+		ref_table:   ref_table
+		ref_column:  'id'
+		on_delete:   'CASCADE'
 		is_nullable: false
 	}
 }
@@ -386,8 +437,8 @@ pub fn (mut t TableDef) unique_(columns []string, index_name string) {
 	}
 	// Also add an explicit index
 	t.indexes << IndexDef{
-		name: index_name
-		columns: columns.clone()
+		name:      index_name
+		columns:   columns.clone()
 		is_unique: true
 	}
 }
@@ -414,8 +465,8 @@ pub fn (mut t TableDef) timestamps() {
 // soft_deletes adds a deleted_at timestamp column (nullable).
 pub fn (mut t TableDef) soft_deletes() {
 	t.columns << ColumnDef{
-		name: 'deleted_at'
-		type_: .timestamp
+		name:        'deleted_at'
+		type_:       .timestamp
 		is_nullable: true
 	}
 }
@@ -423,8 +474,8 @@ pub fn (mut t TableDef) soft_deletes() {
 // index_ adds a regular index on columns.
 pub fn (mut t TableDef) index_(columns []string, index_name string) {
 	t.indexes << IndexDef{
-		name: index_name
-		columns: columns.clone()
+		name:      index_name
+		columns:   columns.clone()
 		is_unique: false
 	}
 }
@@ -439,7 +490,7 @@ pub fn (mut t TableDef) add_column(col ColumnDef) {
 // drop_column marks a column for removal (for ALTER TABLE).
 pub fn (mut t TableDef) drop_column(name string) {
 	t.columns << ColumnDef{
-		name: name
+		name:       name
 		is_dropped: true
 	}
 }
@@ -447,7 +498,7 @@ pub fn (mut t TableDef) drop_column(name string) {
 // rename_column marks a column for rename.
 pub fn (mut t TableDef) rename_column(old_name string, new_name string) {
 	t.columns << ColumnDef{
-		name: old_name
+		name:     old_name
 		new_name: new_name
 	}
 }
@@ -468,14 +519,14 @@ pub:
 // Generates SQL DDL statements for the configured database driver.
 pub struct Schema {
 pub mut:
-	driver      DriverType
-	statements  []string
+	driver     DriverType
+	statements []string
 }
 
 // new_schema creates a Schema builder for the given driver.
 pub fn new_schema(driver DriverType) &Schema {
 	return &Schema{
-		driver: driver
+		driver:     driver
 		statements: []string{}
 	}
 }
@@ -542,8 +593,8 @@ pub fn (mut s Schema) drop_column(table_name string, column_name string) {
 // create_index creates an index on one or more columns.
 pub fn (mut s Schema) create_index(table_name string, index_name string, columns []string, is_unique bool) {
 	s.statements << s.build_create_index(table_name, IndexDef{
-		name: index_name
-		columns: columns
+		name:      index_name
+		columns:   columns
 		is_unique: is_unique
 	})
 }
@@ -555,7 +606,11 @@ pub fn (mut s Schema) drop_index(index_name string) {
 
 // to_sql returns all generated SQL statements joined by semicolons.
 pub fn (s &Schema) to_sql() string {
-	return s.statements.join(';\n') + if s.statements.len > 0 { ';' } else { '' }
+	return s.statements.join(';\n') + if s.statements.len > 0 {
+		';'
+	} else {
+		''
+	}
 }
 
 // statements_count returns the number of generated SQL statements.
@@ -622,36 +677,107 @@ pub interface Migration {
 // AppliedMigration records a migration that has been applied.
 pub struct AppliedMigration {
 pub:
-	version  int
-	name     string
-	batch    int
+	version    int
+	name       string
+	batch      int
 	applied_at i64
 }
 
+// SqlMigration is a raw-SQL migration record executed by the SQL
+// migration path (migrate_with_sql).  Unlike the `Migration` interface
+// (which runs `up(mut OrmManager)`), a SqlMigration carries the DDL/DML
+// statements directly — the MigrationManager executes them inside a
+// per-migration transaction and records the version in
+// `_photon_migrations`.
+//
+// `version` is a string (e.g. '001', '20240101_create_users') to match
+// the TEXT PRIMARY KEY column of the tracking table.
+pub struct SqlMigration {
+pub:
+	version     string
+	description string
+	up_sql      string
+	down_sql    string
+}
+
+// MigrationResult reports the outcome of a migrate() call.
+//
+//   applied — number of migrations executed and committed this run
+//   skipped — number of migrations already applied (no-op)
+//   failed  — versions that failed and were rolled back (the run
+//             stops at the first failure; subsequent migrations are
+//             not attempted)
+pub struct MigrationResult {
+pub:
+	applied int
+	skipped int
+	failed  []string
+}
+
 // MigrationManager manages migration execution and tracking.
+//
+// Two execution paths:
+//   1. In-memory / interface path (default): migrations implement the
+//      `Migration` interface; `up(mut OrmManager)` is called directly.
+//      Tracking is held in `applied_versions` / `applied_records`.
+//   2. SQL path (when `exec_fn` + `query_fn` are set): raw-SQL
+//      migrations (`sql_migrations`) are executed inside per-migration
+//      transactions against a real DB; the `_photon_migrations` table
+//      is the source of truth for applied versions.
+//
+// Thread-safety: all SQL-path public methods take `mu` (a sync.RwMutex).
+// The in-memory path is single-threaded by design (matches the original
+// behaviour); callers that need concurrent in-memory migration should
+// externalise synchronisation.
 @[heap]
 pub struct MigrationManager {
 pub mut:
-	manager          &OrmManager
-	migrations       []&Migration
-	db_name          string          = 'default'
-	migration_table  string         = 'schema_migrations'
-	in_memory        bool            // if true, track migrations in memory (for testing)
-	auto_schema      bool            // if true, use Schema builder for DDL
+	manager         &OrmManager
+	migrations      []&Migration
+	sql_migrations  []SqlMigration
+	db_name         string = 'default'
+	migration_table string = 'schema_migrations'
+	in_memory       bool // if true, track migrations in memory (for testing)
+	auto_schema     bool // if true, use Schema builder for DDL
+	initialized     bool // true after initialize() creates the tracking table
+	exec_fn         SqlExecFn  = unsafe { nil } // SQL execution callback (B4)
+	query_fn        SqlQueryFn = unsafe { nil } // SQL query callback (B4)
 mut:
-	applied_versions  []int
-	applied_records   []AppliedMigration
-	applied_batch     int
-	schema_cache      map[string]string // table_name → CREATE TABLE SQL
+	applied_versions []int
+	applied_records  []AppliedMigration
+	applied_batch    int
+	schema_cache     map[string]string // table_name → CREATE TABLE SQL
+	mu               sync.RwMutex
 }
 
 // new_migration_manager creates a new MigrationManager.
 pub fn new_migration_manager(manager &OrmManager) &MigrationManager {
 	return &MigrationManager{
-		manager: manager
+		manager:          manager
 		applied_versions: []int{}
-		applied_records: []AppliedMigration{}
-		schema_cache: map[string]string{}
+		applied_records:  []AppliedMigration{}
+		schema_cache:     map[string]string{}
+	}
+}
+
+// new_migration_manager_with_fns creates a MigrationManager bound to
+// real SQL execution callbacks.  When `exec_fn` and `query_fn` are
+// both set, migrate() / initialize() execute real SQL against the
+// database identified by `db_name` and track applied versions in the
+// `_photon_migrations` table.
+//
+// The callbacks share the same signature as JpaRepository's
+// SqlExecFn / SqlQueryFn (db voidptr, query string, args []string) so
+// the same sqlite/pg/mysql adapter works for both.
+pub fn new_migration_manager_with_fns(manager &OrmManager, db_name string, exec_fn SqlExecFn, query_fn SqlQueryFn) &MigrationManager {
+	return &MigrationManager{
+		manager:          manager
+		db_name:          db_name
+		exec_fn:          exec_fn
+		query_fn:         query_fn
+		applied_versions: []int{}
+		applied_records:  []AppliedMigration{}
+		schema_cache:     map[string]string{}
 	}
 }
 
@@ -675,15 +801,64 @@ pub fn (mut mm MigrationManager) add(migration &Migration) {
 	mm.migrations << migration
 }
 
+// add_sql_migration registers a raw-SQL migration (B4).
+//
+// Migrations are executed in version-ascending order inside
+// per-migration transactions.  `up_sql` may contain multiple
+// statements separated by ';'.  `down_sql` is recorded for future
+// rollback support (not yet executed by migrate()).
+pub fn (mut mm MigrationManager) add_sql_migration(version string, description string, up_sql string, down_sql string) {
+	mm.sql_migrations << SqlMigration{
+		version:     version
+		description: description
+		up_sql:      up_sql
+		down_sql:    down_sql
+	}
+}
+
 // ── Migration Lifecycle ──
 
 // initialize creates the migration tracking table.
+//
+// When `exec_fn` is set (SQL path, B4.1), executes:
+//   CREATE TABLE IF NOT EXISTS <migration_table> (
+//       version TEXT PRIMARY KEY,
+//       applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+//       description TEXT
+//   )
+// directly against the database.  Idempotent — safe to call multiple
+// times; the `initialized` flag short-circuits subsequent calls.
+//
+// When `exec_fn` is NOT set (in-memory / interface path), falls back
+// to the original Schema-builder behaviour (caches the DDL in
+// `schema_cache` without executing it).
 pub fn (mut mm MigrationManager) initialize() ! {
 	if mm.in_memory {
-		return // no-op in memory mode
+		return
+	}
+	if mm.initialized {
+		return
 	}
 
-	// Create the schema_migrations table using Schema builder
+	// SQL path: execute real DDL against the database.
+	if !isnil(mm.exec_fn) {
+		mm.mu.@lock()
+		defer {
+			mm.mu.unlock()
+		}
+		db := mm.manager.get_conn(mm.db_name)!
+		sql_stmt := 'CREATE TABLE IF NOT EXISTS ${mm.migration_table} (
+            version TEXT PRIMARY KEY,
+            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            description TEXT
+        )'
+		mm.exec_fn(db, sql_stmt, []string{})!
+		mm.initialized = true
+		return
+	}
+
+	// In-memory / interface path: build the DDL via Schema builder
+	// and cache it (original behaviour).
 	mut schema := new_schema(mm.driver_or_default())
 	migration_table_name := mm.migration_table
 	schema.create_table(migration_table_name, fn [migration_table_name] (mut t TableDef) {
@@ -694,20 +869,43 @@ pub fn (mut mm MigrationManager) initialize() ! {
 		t.timestamp_('applied_at')
 		t.unique_(['version'], 'idx_${migration_table_name}_version')
 	})
-
-	// In a real implementation, execute the SQL against the database
-	// For now, cache it
 	mm.schema_cache[mm.migration_table] = schema.to_sql()
+	mm.initialized = true
 }
 
 // migrate runs all pending migrations in order.
-pub fn (mut mm MigrationManager) migrate() ! {
+//
+// Returns a MigrationResult reporting how many migrations were
+// applied, skipped (already applied), or failed (rolled back).
+//
+// Two execution paths:
+//   1. SQL path (exec_fn + query_fn set, B4.2/B4.3): queries the
+//      `_photon_migrations` table for applied versions, then for each
+//      pending SqlMigration opens a transaction, executes `up_sql`,
+//      inserts the version record, and commits.  On failure the
+//      transaction is rolled back and the run aborts.
+//   2. In-memory / interface path (default): calls `up(mut OrmManager)`
+//      on each Migration interface implementor and tracks applied
+//      versions in memory.
+pub fn (mut mm MigrationManager) migrate() !MigrationResult {
+	// SQL path: real database execution.
+	if !isnil(mm.exec_fn) && !isnil(mm.query_fn) && !mm.in_memory {
+		return mm.migrate_with_sql()
+	}
+	return mm.migrate_in_memory()
+}
+
+// migrate_in_memory is the original interface-based migration path.
+// Tracks applied versions in `applied_versions` / `applied_records`.
+fn (mut mm MigrationManager) migrate_in_memory() !MigrationResult {
 	mm.sort_migrations()
 	mm.applied_batch++
 
 	mut applied := 0
+	mut skipped := 0
 	for migration in mm.migrations {
 		if mm.is_applied(migration.version()) {
+			skipped++
 			continue
 		}
 
@@ -717,17 +915,130 @@ pub fn (mut mm MigrationManager) migrate() ! {
 		// Record as applied
 		mm.applied_versions << migration.version()
 		mm.applied_records << AppliedMigration{
-			version: migration.version()
-			name: migration.name()
-			batch: mm.applied_batch
+			version:    migration.version()
+			name:       migration.name()
+			batch:      mm.applied_batch
 			applied_at: 0 // would be time.now().unix()
 		}
 		applied++
 	}
 
-	if applied == 0 {
-		// No pending migrations
+	return MigrationResult{
+		applied: applied
+		skipped: skipped
+		failed: []string{}
 	}
+}
+
+// migrate_with_sql executes raw-SQL migrations against the database (B4.2/B4.3).
+//
+// Each migration runs in its own transaction (BEGIN → up_sql → INSERT
+// version → COMMIT).  If up_sql or the version insert fails, the
+// transaction is rolled back (ROLLBACK) and the run aborts with an
+// error; subsequent migrations are NOT attempted.  Already-applied
+// migrations are skipped.
+fn (mut mm MigrationManager) migrate_with_sql() !MigrationResult {
+	if !mm.initialized {
+		mm.initialize()!
+	}
+
+	mm.mu.@lock()
+	defer {
+		mm.mu.unlock()
+	}
+
+	db := mm.manager.get_conn(mm.db_name)!
+
+	// Get applied versions from the tracking table.
+	mut applied_set := mm.get_applied_versions_locked(db)!
+
+	// Sort SQL migrations by version (ascending).
+	mut pending := mm.sql_migrations.clone()
+	pending.sort(a.version < b.version)
+
+	mut applied_count := 0
+	mut skipped_count := 0
+	mut failed_migrations := []string{}
+
+	for migration in pending {
+		if migration.version in applied_set {
+			skipped_count++
+			continue
+		}
+
+		// Open a per-migration transaction (B4.3).
+		mm.exec_fn(db, 'BEGIN', []string{}) or {
+			failed_migrations << migration.version
+			return error('migration ${migration.version} failed to begin transaction / 开始事务失败: ${err}')
+		}
+
+		// Execute the migration's up SQL.
+		mm.exec_fn(db, migration.up_sql, []string{}) or {
+			mm.exec_fn(db, 'ROLLBACK', []string{}) or {}
+			failed_migrations << migration.version
+			return error('migration ${migration.version} failed / 迁移失败: ${err}')
+		}
+
+		// Record the version (parameterised — SQL-injection safe).
+		mm.exec_fn(db, 'INSERT INTO ${mm.migration_table} (version, description) VALUES (?, ?)',
+			[migration.version, migration.description]) or {
+			mm.exec_fn(db, 'ROLLBACK', []string{}) or {}
+			failed_migrations << migration.version
+			return error('migration ${migration.version} failed to record version / 记录版本失败: ${err}')
+		}
+
+		// Commit the transaction.
+		mm.exec_fn(db, 'COMMIT', []string{}) or {
+			failed_migrations << migration.version
+			return error('migration ${migration.version} failed to commit / 提交事务失败: ${err}')
+		}
+
+		applied_set << migration.version
+		applied_count++
+	}
+
+	return MigrationResult{
+		applied: applied_count
+		skipped: skipped_count
+		failed: failed_migrations
+	}
+}
+
+// get_applied_versions returns the list of migration versions recorded
+// in the tracking table, sorted in ascending version order.
+//
+// Returns an empty list when the SQL path is not configured
+// (exec_fn/query_fn unset) or the tracking table does not yet exist.
+pub fn (mut mm MigrationManager) get_applied_versions() ![]string {
+	if isnil(mm.query_fn) {
+		return []string{}
+	}
+	mm.mu.@lock()
+	defer {
+		mm.mu.unlock()
+	}
+	db := mm.manager.get_conn(mm.db_name)!
+	return mm.get_applied_versions_locked(db)
+}
+
+// get_applied_versions_locked is the lock-free inner helper.
+// Caller MUST hold mm.mu.
+fn (mut mm MigrationManager) get_applied_versions_locked(db voidptr) ![]string {
+	if isnil(mm.query_fn) {
+		return []string{}
+	}
+	rows := mm.query_fn(db, 'SELECT version FROM ${mm.migration_table} ORDER BY version',
+		[]string{}) or {
+		// Table might not exist yet — treat as empty.
+		return []string{}
+	}
+	mut versions := []string{}
+	for row in rows {
+		if row.len > 0 {
+			versions << row[0]
+		}
+	}
+	return versions
 }
 
 // rollback rolls back the last batch of migrations.

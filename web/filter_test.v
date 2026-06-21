@@ -5,7 +5,6 @@ module web
 // Tests filter chain composition, request/response filter execution,
 // built-in security headers, cache control, body size limiting,
 // content type validation, and function type compatibility.
-
 import veb
 
 // Helper: create a minimal veb.Context for testing filters
@@ -23,24 +22,36 @@ fn test_new_filter_chain_empty() {
 
 fn test_add_request_filter() {
 	mut chain := new_filter_chain()
-	chain.add_request_filter(fn (ctx &veb.Context) !bool { return true })
+	chain.add_request_filter(fn (ctx &veb.Context) !bool {
+		return true
+	})
 	assert chain.request_filters.len == 1
-	chain.add_request_filter(fn (ctx &veb.Context) !bool { return true })
+	chain.add_request_filter(fn (ctx &veb.Context) !bool {
+		return true
+	})
 	assert chain.request_filters.len == 2
 }
 
 fn test_add_response_filter() {
 	mut chain := new_filter_chain()
-	chain.add_response_filter(fn (ctx &veb.Context, body string) !string { return body })
+	chain.add_response_filter(fn (ctx &veb.Context, body string) !string {
+		return body
+	})
 	assert chain.response_filters.len == 1
-	chain.add_response_filter(fn (ctx &veb.Context, body string) !string { return body + '!' })
+	chain.add_response_filter(fn (ctx &veb.Context, body string) !string {
+		return body + '!'
+	})
 	assert chain.response_filters.len == 2
 }
 
 fn test_add_both_filter_types() {
 	mut chain := new_filter_chain()
-	chain.add_request_filter(fn (ctx &veb.Context) !bool { return true })
-	chain.add_response_filter(fn (ctx &veb.Context, body string) !string { return body })
+	chain.add_request_filter(fn (ctx &veb.Context) !bool {
+		return true
+	})
+	chain.add_response_filter(fn (ctx &veb.Context, body string) !string {
+		return body
+	})
 	assert chain.request_filters.len == 1
 	assert chain.response_filters.len == 1
 }
@@ -56,9 +67,15 @@ fn test_apply_request_empty() {
 
 fn test_apply_request_all_pass() {
 	mut chain := new_filter_chain()
-	chain.add_request_filter(fn (ctx &veb.Context) !bool { return true })
-	chain.add_request_filter(fn (ctx &veb.Context) !bool { return true })
-	chain.add_request_filter(fn (ctx &veb.Context) !bool { return true })
+	chain.add_request_filter(fn (ctx &veb.Context) !bool {
+		return true
+	})
+	chain.add_request_filter(fn (ctx &veb.Context) !bool {
+		return true
+	})
+	chain.add_request_filter(fn (ctx &veb.Context) !bool {
+		return true
+	})
 
 	ctx := filter_test_context()
 	result := chain.apply_request(ctx) or { false }
@@ -67,9 +84,15 @@ fn test_apply_request_all_pass() {
 
 fn test_apply_request_early_return_false() {
 	mut chain := new_filter_chain()
-	chain.add_request_filter(fn (ctx &veb.Context) !bool { return true })
-	chain.add_request_filter(fn (ctx &veb.Context) !bool { return false })
-	chain.add_request_filter(fn (ctx &veb.Context) !bool { return true })
+	chain.add_request_filter(fn (ctx &veb.Context) !bool {
+		return true
+	})
+	chain.add_request_filter(fn (ctx &veb.Context) !bool {
+		return false
+	})
+	chain.add_request_filter(fn (ctx &veb.Context) !bool {
+		return true
+	})
 
 	ctx := filter_test_context()
 	result := chain.apply_request(ctx) or { false }
@@ -240,13 +263,17 @@ fn test_content_type_filter_returns_request_filter_fn() {
 // -- Filter function type compatibility tests --
 
 fn test_request_filter_fn_type_accepts_closure() {
-	fn_val := RequestFilterFn(fn (ctx &veb.Context) !bool { return true })
+	fn_val := RequestFilterFn(fn (ctx &veb.Context) !bool {
+		return true
+	})
 	_ = fn_val
 	assert true
 }
 
 fn test_response_filter_fn_type_accepts_closure() {
-	fn_val := ResponseFilterFn(fn (ctx &veb.Context, body string) !string { return body })
+	fn_val := ResponseFilterFn(fn (ctx &veb.Context, body string) !string {
+		return body
+	})
 	_ = fn_val
 	assert true
 }
@@ -256,7 +283,9 @@ fn test_response_filter_fn_type_accepts_closure() {
 fn test_filter_chain_combined_request_response() {
 	mut chain := new_filter_chain()
 
-	chain.add_request_filter(fn (ctx &veb.Context) !bool { return true })
+	chain.add_request_filter(fn (ctx &veb.Context) !bool {
+		return true
+	})
 	chain.add_response_filter(fn (ctx &veb.Context, body string) !string {
 		return 'resp:${body}'
 	})

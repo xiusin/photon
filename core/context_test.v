@@ -43,10 +43,10 @@ fn test_application_context_register_and_has() {
 fn test_application_context_register_bean() {
 	mut ctx := new_application_context()
 	ctx.register_bean('CacheService', BeanRegistrationOptions{
-		scope: .singleton
-		is_lazy: true
+		scope:     .singleton
+		is_lazy:   true
 		qualifier: 'cache'
-		tags: ['service']
+		tags:      ['service']
 	}) or { assert false }
 	assert ctx.has('CacheService') == true
 }
@@ -218,7 +218,7 @@ fn test_environment_property_count() {
 fn test_environment_set_properties() {
 	mut env := new_environment()
 	env.set_properties({
-		'app.name': 'PhotonAPI'
+		'app.name':    'PhotonAPI'
 		'app.version': '0.4.0'
 	})
 	assert env.get_property('app.name') == 'PhotonAPI'
@@ -274,7 +274,9 @@ fn test_on_expression_condition_equality() {
 	ctx = ctx.with_properties({
 		'cache.enabled': 'true'
 	})
-	c := OnExpressionCondition{expression: 'cache.enabled==true'}
+	c := OnExpressionCondition{
+		expression: 'cache.enabled==true'
+	}
 	assert c.evaluate(mut ctx) == true
 }
 
@@ -283,7 +285,9 @@ fn test_on_expression_condition_inequality() {
 	ctx = ctx.with_properties({
 		'cache.driver': 'redis'
 	})
-	c := OnExpressionCondition{expression: 'cache.driver!=memory'}
+	c := OnExpressionCondition{
+		expression: 'cache.driver!=memory'
+	}
 	assert c.evaluate(mut ctx) == true
 }
 
@@ -292,7 +296,9 @@ fn test_on_expression_condition_truthy() {
 	ctx = ctx.with_properties({
 		'app.prod': 'true'
 	})
-	c := OnExpressionCondition{expression: 'app.prod'}
+	c := OnExpressionCondition{
+		expression: 'app.prod'
+	}
 	assert c.evaluate(mut ctx) == true
 }
 
@@ -301,7 +307,9 @@ fn test_on_expression_condition_not_prefix() {
 	ctx = ctx.with_properties({
 		'app.debug': 'true'
 	})
-	c := OnExpressionCondition{expression: '!app.debug'}
+	c := OnExpressionCondition{
+		expression: '!app.debug'
+	}
 	assert c.evaluate(mut ctx) == false
 }
 
@@ -310,7 +318,9 @@ fn test_on_expression_condition_missing_key() {
 	ctx = ctx.with_properties({
 		'other': 'value'
 	})
-	c := OnExpressionCondition{expression: 'nonexistent==value'}
+	c := OnExpressionCondition{
+		expression: 'nonexistent==value'
+	}
 	assert c.evaluate(mut ctx) == false
 }
 
@@ -319,10 +329,14 @@ fn test_on_cloud_platform_condition() {
 	ctx = ctx.with_properties({
 		'cloud.platform': 'aliyun'
 	})
-	c := OnCloudPlatformCondition{platform: 'aliyun'}
+	c := OnCloudPlatformCondition{
+		platform: 'aliyun'
+	}
 	assert c.evaluate(mut ctx) == true
 
-	c2 := OnCloudPlatformCondition{platform: 'aws'}
+	c2 := OnCloudPlatformCondition{
+		platform: 'aws'
+	}
 	assert c2.evaluate(mut ctx) == false
 }
 
@@ -330,8 +344,12 @@ fn test_any_condition_matches() {
 	mut ctx := new_condition_context()
 	ctx = ctx.with_profiles(['prod'])
 
-	c1 := &Condition(&OnProfileCondition{profile: 'dev'})
-	c2 := &Condition(&OnProfileCondition{profile: 'prod'})
+	c1 := &Condition(&OnProfileCondition{
+		profile: 'dev'
+	})
+	c2 := &Condition(&OnProfileCondition{
+		profile: 'prod'
+	})
 
 	// None match
 	mut conditions1 := []&Condition{}
@@ -369,7 +387,7 @@ fn test_binding_registry_resolve_singleton() {
 	registry.bind('TestService', fn () !voidptr {
 		return unsafe { voidptr(1) }
 	}, true) // singleton
-	result := registry.resolve('TestService') or { unsafe { voidptr(0) } }
+	result := registry.resolve('TestService') or { unsafe { nil } }
 	assert !isnil(result)
 }
 
@@ -378,7 +396,7 @@ fn test_binding_registry_resolve_prototype() {
 	registry.bind('TestService', fn () !voidptr {
 		return unsafe { voidptr(1) }
 	}, false) // prototype
-	result := registry.resolve('TestService') or { unsafe { voidptr(0) } }
+	result := registry.resolve('TestService') or { unsafe { nil } }
 	assert !isnil(result)
 }
 
@@ -389,9 +407,9 @@ fn test_binding_registry_singleton_caching() {
 	}, true) // singleton
 
 	// First resolve
-	r1 := registry.resolve('SingletonService') or { unsafe { voidptr(0) } }
+	r1 := registry.resolve('SingletonService') or { unsafe { nil } }
 	// Second resolve should use cache (same pointer)
-	r2 := registry.resolve('SingletonService') or { unsafe { voidptr(0) } }
+	r2 := registry.resolve('SingletonService') or { unsafe { nil } }
 	assert r1 == r2
 }
 
@@ -554,7 +572,7 @@ fn test_application_context_conditional_registration_skip() {
 	// This bean should be skipped — 'prod' profile is not active
 	def := BeanDefinition{
 		type_name: 'ProdOnlyService'
-		tags: ['conditional_on_profile:prod']
+		tags:      ['conditional_on_profile:prod']
 	}
 	ctx.register(def) or {}
 	// Bean should NOT be registered
@@ -568,7 +586,7 @@ fn test_application_context_conditional_registration_pass() {
 	// This bean should be registered — 'dev' profile is active
 	def := BeanDefinition{
 		type_name: 'DevService'
-		tags: ['conditional_on_profile:dev']
+		tags:      ['conditional_on_profile:dev']
 	}
 	ctx.register(def) or {}
 	// Bean should be registered
@@ -696,7 +714,7 @@ fn test_bean_definition_builder_basic() {
 	builder.set_lazy(true)
 	builder.set_qualifier('userSvc')
 	builder.add_tag('service')
-	builder.add_dependency(Dependency{field_name: 'repo', type_name: 'UserRepository'})
+	builder.add_dependency(Dependency{ field_name: 'repo', type_name: 'UserRepository' })
 	builder.set_init_method('init')
 	builder.set_destroy_method('cleanup')
 	def := builder.build()
@@ -732,8 +750,12 @@ fn test_smart_lifecycle_manager() {
 
 fn test_smart_lifecycle_phase_ordering() {
 	mut mgr := new_smart_lifecycle_manager()
-	mgr.register('LowPhase', &SmartLifecycle(&TestSmartLifecycle{phase_val: 10}))
-	mgr.register('HighPhase', &SmartLifecycle(&TestSmartLifecycle{phase_val: 100}))
+	mgr.register('LowPhase', &SmartLifecycle(&TestSmartLifecycle{
+		phase_val: 10
+	}))
+	mgr.register('HighPhase', &SmartLifecycle(&TestSmartLifecycle{
+		phase_val: 100
+	}))
 
 	assert mgr.entry_count() == 2
 	// start_all should sort by ascending phase and call start
@@ -866,10 +888,10 @@ fn test_event_bus_listener_count_for() {
 fn test_event_bus_off_listener() {
 	mut bus := new_event_bus()
 	listener := fn (e &Event) {}
-	bus.on('test.event', listener)
+	id := bus.on('test.event', listener)
 	assert bus.listener_count_for('test.event') == 1
 
-	bus.off_listener('test.event', listener)
+	bus.off_listener(id)
 	assert bus.listener_count_for('test.event') == 0
 }
 
@@ -1032,7 +1054,10 @@ fn test_container_merged_definition_no_parent() {
 	def.scope = .prototype
 	c.register(def) or { assert false }
 
-	merged := c.get_merged_definition('ChildService') or { assert false; return }
+	merged := c.get_merged_definition('ChildService') or {
+		assert false
+		return
+	}
 	assert merged.scope == .prototype
 	assert merged.parent_name.len == 0
 }
@@ -1044,7 +1069,12 @@ fn test_container_merged_definition_with_parent() {
 	mut parent_def := new_bean_definition('BaseService')
 	parent_def.init_method = 'base_init'
 	parent_def.destroy_method = 'base_destroy'
-	parent_def.dependencies = [Dependency{field_name: 'logger', type_name: 'Logger'}]
+	parent_def.dependencies = [
+		Dependency{
+			field_name: 'logger'
+			type_name:  'Logger'
+		},
+	]
 	parent_def.tags = ['service']
 	parent_def.depends_on = ['ConfigService']
 	c.register(parent_def) or { assert false }
@@ -1052,11 +1082,19 @@ fn test_container_merged_definition_with_parent() {
 	// Register child that extends parent
 	mut child_def := new_bean_definition('ExtendedService')
 	child_def.parent_name = 'BaseService'
-	child_def.dependencies = [Dependency{field_name: 'repo', type_name: 'Repository'}]
+	child_def.dependencies = [
+		Dependency{
+			field_name: 'repo'
+			type_name:  'Repository'
+		},
+	]
 	child_def.tags = ['extended']
 	c.register(child_def) or { assert false }
 
-	merged := c.get_merged_definition('ExtendedService') or { assert false; return }
+	merged := c.get_merged_definition('ExtendedService') or {
+		assert false
+		return
+	}
 
 	// Child should inherit init_method from parent
 	assert merged.init_method == 'base_init'
@@ -1169,7 +1207,7 @@ fn test_configuration_class() {
 fn test_has_bean_attr() {
 	assert has_bean_attr(['bean']) == true
 	assert has_bean_attr(['bean:CustomCache']) == true
-	assert has_bean_attr(['bean(\'CustomCache\')']) == true
+	assert has_bean_attr(["bean('CustomCache')"]) == true
 	assert has_bean_attr(['component']) == false
 }
 
@@ -1218,7 +1256,10 @@ fn test_bean_registration_options_depends_on() {
 	}) or { assert false }
 
 	assert ctx.has('OrderService') == true
-	def := ctx.get_definition('OrderService') or { assert false; return }
+	def := ctx.get_definition('OrderService') or {
+		assert false
+		return
+	}
 	assert def.depends_on.len == 2
 	assert def.is_primary == true
 }
@@ -1251,7 +1292,7 @@ fn test_check_circular_dependencies_depends_on_plus_autowired() {
 	mut c := new_container()
 	// A autowires B, B depends_on A → circular
 	mut def_a := new_bean_definition('ServiceA')
-	def_a.dependencies = [Dependency{field_name: 'b', type_name: 'ServiceB'}]
+	def_a.dependencies = [Dependency{ field_name: 'b', type_name: 'ServiceB' }]
 	c.register(def_a) or { assert false }
 
 	mut def_b := new_bean_definition('ServiceB')
@@ -1410,7 +1451,10 @@ fn test_merged_definition_three_level_no_cycle() {
 	c_def.tags = ['leaf']
 	c.register(c_def) or { assert false }
 
-	merged := c.get_merged_definition('Child') or { assert false; return }
+	merged := c.get_merged_definition('Child') or {
+		assert false
+		return
+	}
 	// Child should inherit init_method from GrandParent
 	assert merged.init_method == 'gp_init'
 	// Tags should be merged (3 unique tags)
@@ -1685,8 +1729,8 @@ fn test_environment_bind_to_with_defaults_override() {
 	// 'port' is NOT set — should use default
 
 	defaults := {
-		'host': 'localhost'
-		'port': '5432'
+		'host':    'localhost'
+		'port':    '5432'
 		'timeout': '30'
 	}
 

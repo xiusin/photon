@@ -174,7 +174,7 @@ pub fn scan_controller[T]() []RouteInfo {
 					}
 					if collecting {
 						// Eat individual middleware name arguments
-						trimmed := attr.trim_space().trim('\'').trim('"')
+						trimmed := attr.trim_space().trim("'").trim('"')
 						if trimmed.len > 0 && trimmed[0] != `/` {
 							middlewares << trimmed
 							continue

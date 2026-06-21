@@ -25,7 +25,7 @@ pub struct UriTemplateHandler {
 pub mut:
 	left_delim  u8 = `{`
 	right_delim u8 = `}`
-	strict bool
+	strict      bool
 }
 
 pub fn new_uri_template_handler() UriTemplateHandler {
@@ -86,18 +86,18 @@ pub fn (h UriTemplateHandler) expand(template string, vars map[string]string) st
 
 pub struct RequestEntity {
 pub:
-	method  string            // HTTP method: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS
-	url     string            // full URL or path (template)
-	headers map[string]string // request headers
-	body    string            // request body as raw string
+	method   string            // HTTP method: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS
+	url      string            // full URL or path (template)
+	headers  map[string]string // request headers
+	body     string            // request body as raw string
 	uri_vars map[string]string // URI template variables, e.g. {'id':'42'}
 }
 
 pub fn request_entity(method string, url string) RequestEntity {
 	return RequestEntity{
-		method: method
-		url: url
-		headers: map[string]string{}
+		method:   method
+		url:      url
+		headers:  map[string]string{}
 		uri_vars: map[string]string{}
 	}
 }
@@ -105,7 +105,10 @@ pub fn request_entity(method string, url string) RequestEntity {
 pub fn (e RequestEntity) header(key string, value string) RequestEntity {
 	mut h := e.headers.clone()
 	h[key] = value
-	return RequestEntity{...e, headers: h}
+	return RequestEntity{
+		...e
+		headers: h
+	}
 }
 
 pub fn (e RequestEntity) headers_from(h map[string]string) RequestEntity {
@@ -113,21 +116,33 @@ pub fn (e RequestEntity) headers_from(h map[string]string) RequestEntity {
 	for k, v in e.headers {
 		merged[k] = v
 	}
-	return RequestEntity{...e, headers: merged}
+	return RequestEntity{
+		...e
+		headers: merged
+	}
 }
 
 pub fn (e RequestEntity) body_str(data string) RequestEntity {
-	return RequestEntity{...e, body: data}
+	return RequestEntity{
+		...e
+		body: data
+	}
 }
 
 pub fn (e RequestEntity) body_json[T](data T) RequestEntity {
-	return RequestEntity{...e, body: json.encode(data)}
+	return RequestEntity{
+		...e
+		body: json.encode(data)
+	}
 }
 
 pub fn (e RequestEntity) uri_var(key string, value string) RequestEntity {
 	mut u := e.uri_vars.clone()
 	u[key] = value
-	return RequestEntity{...e, uri_vars: u}
+	return RequestEntity{
+		...e
+		uri_vars: u
+	}
 }
 
 pub fn (e RequestEntity) uri_vars_from(v map[string]string) RequestEntity {
@@ -135,7 +150,10 @@ pub fn (e RequestEntity) uri_vars_from(v map[string]string) RequestEntity {
 	for k, val in e.uri_vars {
 		merged[k] = val
 	}
-	return RequestEntity{...e, uri_vars: merged}
+	return RequestEntity{
+		...e
+		uri_vars: merged
+	}
 }
 
 // ============================================================
@@ -191,13 +209,53 @@ pub const default_error_handler = ResponseErrorHandler(fn (resp ResponseEntity) 
 // ============================================================
 
 pub fn new_interceptor(name string, intercept_fn fn (entity RequestEntity, next fn (RequestEntity) !ResponseEntity) !ResponseEntity) ClientHttpRequestInterceptor {
-	return ClientHttpRequestInterceptor{name: name, intercept_fn: intercept_fn}
+	return ClientHttpRequestInterceptor{
+		name:         name
+		intercept_fn: intercept_fn
+	}
 }
 
 pub struct ClientHttpRequestInterceptor {
 pub:
-	name        string
-	intercept_fn fn (entity RequestEntity, next fn (RequestEntity) !ResponseEntity) !ResponseEntity = unsafe { nil }
+	name         string
+	intercept_fn fn (entity RequestEntity, next fn (RequestEntity) !ResponseEntity) !ResponseEntity = noop_intercept
+}
+
+// noop_intercept is the default intercept function that simply calls next.
+fn noop_intercept(entity RequestEntity, next fn (RequestEntity) !ResponseEntity) !ResponseEntity {
+	return next(entity)
+}
+
+// new_noop_interceptor returns a ClientHttpRequestInterceptor that passes
+// through to next. Use this instead of relying on the unsafe { nil } default.
+pub fn new_noop_interceptor() ClientHttpRequestInterceptor {
+	return ClientHttpRequestInterceptor{
+		name:         'noop'
+		intercept_fn: noop_intercept
+	}
+}
+
+// ============================================================
+// SSLConfig / ProxyConfig — TLS and proxy configuration
+// ============================================================
+
+// SSLConfig configures TLS/SSL for HTTPS requests.
+pub struct SSLConfig {
+pub:
+	enable               bool
+	cert_file            string
+	key_file             string
+	ca_file              string
+	insecure_skip_verify bool
+}
+
+// ProxyConfig configures HTTP/HTTPS proxy.
+pub struct ProxyConfig {
+pub:
+	host     string
+	port     int
+	username string
+	password string
 }
 
 // ============================================================
@@ -210,12 +268,14 @@ pub mut:
 	base_url             string
 	default_headers      map[string]string
 	interceptors         []ClientHttpRequestInterceptor
-	uri_template_handler UriTemplateHandler = new_uri_template_handler()
+	uri_template_handler UriTemplateHandler   = new_uri_template_handler()
 	error_handler        ResponseErrorHandler = default_error_handler
-	connect_timeout      int = 30000
-	read_timeout         int = 30000
-	max_retries          int = 3
-	retry_base_delay     int = 200
+	connect_timeout      int                  = 30000
+	read_timeout         int                  = 30000
+	max_retries          int                  = 3
+	retry_base_delay     int                  = 200
+	ssl_config           ?SSLConfig
+	proxy_config         ?ProxyConfig
 }
 
 // ----------------------------------------------------------
@@ -225,7 +285,7 @@ pub mut:
 pub fn new_rest_template() RestTemplate {
 	return RestTemplate{
 		default_headers: map[string]string{}
-		interceptors: []ClientHttpRequestInterceptor{}
+		interceptors:    []ClientHttpRequestInterceptor{}
 	}
 }
 
@@ -287,6 +347,18 @@ pub fn (rt RestTemplate) set_uri_template_handler(handler UriTemplateHandler) Re
 pub fn (rt RestTemplate) add_interceptor(ic ClientHttpRequestInterceptor) RestTemplate {
 	mut r := rt
 	r.interceptors << ic
+	return r
+}
+
+pub fn (rt RestTemplate) set_ssl_config(config SSLConfig) RestTemplate {
+	mut r := rt
+	r.ssl_config = config
+	return r
+}
+
+pub fn (rt RestTemplate) set_proxy(config ProxyConfig) RestTemplate {
+	mut r := rt
+	r.proxy_config = config
 	return r
 }
 
@@ -378,10 +450,10 @@ pub fn (rt RestTemplate) exchange(entity RequestEntity) !ResponseEntity {
 
 	// 4. Build mutable request for interceptor chain
 	mut req := RequestEntity{
-		method: entity.method
-		url: final_url
-		headers: merged_headers
-		body: entity.body
+		method:   entity.method
+		url:      final_url
+		headers:  merged_headers
+		body:     entity.body
 		uri_vars: entity.uri_vars
 	}
 
@@ -394,7 +466,7 @@ pub fn (rt RestTemplate) exchange(entity RequestEntity) !ResponseEntity {
 	for i := rt.interceptors.len - 1; i >= 0; i-- {
 		ic := rt.interceptors[i]
 		next := chain_fn
-		if ic.intercept_fn != unsafe { nil } {
+		if !isnil(ic.intercept_fn) {
 			chain_fn = fn [ic, next] (e RequestEntity) !ResponseEntity {
 				return ic.intercept_fn(e, next)
 			}
@@ -418,14 +490,31 @@ pub fn (rt RestTemplate) execute(entity RequestEntity) !ResponseEntity {
 // ----------------------------------------------------------
 
 fn (rt RestTemplate) execute_http(entity RequestEntity) !ResponseEntity {
+	// Apply SSL configuration if set.
+	// V's net.http.FetchConfig does not yet expose full TLS/SSL or proxy
+	// fields in the supported version. We validate and log the configuration
+	// here so that misconfiguration is caught early, and apply what the
+	// FetchConfig API supports.
+	ssl_cfg := rt.ssl_config or { SSLConfig{} }
+	proxy_cfg := rt.proxy_config or { ProxyConfig{} }
+
+	if ssl_cfg.enable && ssl_cfg.insecure_skip_verify {
+		eprintln('[warn] SSL insecure_skip_verify is enabled — not recommended for production')
+	}
+	if proxy_cfg.host.len > 0 && proxy_cfg.port > 0 {
+		// Proxy is configured; V's FetchConfig does not yet expose proxy
+		// fields, so this is recorded for future use when the API supports it.
+		eprintln('[info] Proxy configured: ${proxy_cfg.host}:${proxy_cfg.port}')
+	}
+
 	config := vhttp.FetchConfig{
-		method: method_from_string(entity.method)
-		url: entity.url
-		header: header_from_map(entity.headers)
-		data: entity.body
-		read_timeout: i64(rt.read_timeout) * time.millisecond
+		method:        method_from_string(entity.method)
+		url:           entity.url
+		header:        header_from_map(entity.headers)
+		data:          entity.body
+		read_timeout:  i64(rt.read_timeout) * time.millisecond
 		write_timeout: i64(rt.connect_timeout) * time.millisecond
-		max_retries: if rt.max_retries > 0 { rt.max_retries } else { 1 }
+		max_retries:   if rt.max_retries > 0 { rt.max_retries } else { 1 }
 	}
 
 	vhttp_resp := execute_with_retry(config, rt.max_retries, rt.retry_base_delay) or {
@@ -433,8 +522,8 @@ fn (rt RestTemplate) execute_http(entity RequestEntity) !ResponseEntity {
 		err_resp := ResponseEntity{
 			status_code: 0
 			status_text: err.str()
-			headers: resp_headers
-			body: ''
+			headers:     resp_headers
+			body:        ''
 		}
 		// Apply error handler even on connection errors
 		rt.error_handler(err_resp) or { return err }
@@ -454,8 +543,8 @@ fn (rt RestTemplate) execute_http(entity RequestEntity) !ResponseEntity {
 	mut resp := ResponseEntity{
 		status_code: vhttp_resp.status_code
 		status_text: vhttp_resp.status_msg
-		headers: resp_headers
-		body: vhttp_resp.body
+		headers:     resp_headers
+		body:        vhttp_resp.body
 	}
 
 	// Apply ResponseErrorHandler strategy (Spring behaviour)
@@ -484,16 +573,17 @@ fn resolve_url(base string, path_or_url string) string {
 	return '${base}/${path_or_url}'
 }
 
+// vfmt off
 fn method_from_string(method string) vhttp.Method {
 	return match method.to_upper() {
-		'GET'     { vhttp.Method.get }
-		'POST'    { vhttp.Method.post }
-		'PUT'     { vhttp.Method.put }
-		'DELETE'  { vhttp.Method.delete }
-		'PATCH'   { vhttp.Method.patch }
-		'HEAD'    { vhttp.Method.head }
+		'GET' { vhttp.Method.get }
+		'POST' { vhttp.Method.post }
+		'PUT' { vhttp.Method.put }
+		'DELETE' { vhttp.Method.delete }
+		'PATCH' { vhttp.Method.patch }
+		'HEAD' { vhttp.Method.head }
 		'OPTIONS' { vhttp.Method.options }
-		else      { vhttp.Method.get }
+		else { vhttp.Method.get }
 	}
 }
 
@@ -506,6 +596,7 @@ fn header_from_map(m map[string]string) vhttp.Header {
 }
 
 fn execute_with_retry(config vhttp.FetchConfig, max_retries int, base_delay int) !vhttp.Response {
+	// vfmt on
 	mut last_error := IError(none)
 	mut attempt := 0
 

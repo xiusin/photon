@@ -5,13 +5,13 @@ module support
 // LengthAwarePaginator provides full pagination with total count
 pub struct LengthAwarePaginator[T] {
 pub:
-	items       []T
-	total       int
-	per_page    int
+	items        []T
+	total        int
+	per_page     int
 	current_page int
-	last_page   int
+	last_page    int
 pub mut:
-	path        string
+	path string
 }
 
 // new_paginator creates a new LengthAwarePaginator
@@ -24,11 +24,11 @@ pub fn new_paginator[T](items []T, total int, per_page int, current_page int) &L
 		last = 1
 	}
 	return &LengthAwarePaginator[T]{
-		items: items
-		total: total
-		per_page: per_page
+		items:        items
+		total:        total
+		per_page:     per_page
 		current_page: current_page
-		last_page: last
+		last_page:    last
 	}
 }
 
@@ -93,19 +93,19 @@ pub fn (p &LengthAwarePaginator[T]) to_json() string {
 // SimplePaginator provides simple prev/next pagination without total
 pub struct SimplePaginator[T] {
 pub:
-	items       []T
-	per_page    int
+	items        []T
+	per_page     int
 	current_page int
-	has_more    bool
+	has_more     bool
 }
 
 // new_simple_paginator creates a SimplePaginator
 pub fn new_simple_paginator[T](items []T, per_page int, current_page int, has_more bool) &SimplePaginator[T] {
 	return &SimplePaginator[T]{
-		items: items
-		per_page: per_page
+		items:        items
+		per_page:     per_page
 		current_page: current_page
-		has_more: has_more
+		has_more:     has_more
 	}
 }
 

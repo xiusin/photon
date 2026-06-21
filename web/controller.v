@@ -4,7 +4,6 @@ module web
 //
 // Provides the BaseController helper and response utilities.
 // App structs directly embed veb.Context for V 0.5.1 compatibility.
-
 import veb
 import net.http
 
@@ -20,8 +19,6 @@ import net.http
 //       return app.ok('{"status":"ok"}')
 //   }
 pub struct BaseController {
-pub mut:
-	// Marker struct — provides helper methods via embedding + veb.Context delegation
 }
 
 // ok returns a 200 OK JSON response

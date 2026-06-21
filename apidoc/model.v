@@ -3,7 +3,6 @@ module apidoc
 // model.v — API Documentation Data Model
 //
 // Types: ApiDocEntry, ApiDocParam, ApiDocHeader, ApiDocResponseProp
-
 import json
 
 // ApiDocParam represents a request parameter
@@ -14,7 +13,7 @@ pub mut:
 	required    bool
 	description string
 	locked      bool
-	type_       string @[json:'type']
+	type_       string @[json: 'type']
 	examples    []string
 }
 
@@ -33,7 +32,7 @@ pub mut:
 	path        string // e.g., "data.users[].name"
 	description string
 	locked      bool
-	type_       string @[json:'type']
+	type_       string @[json: 'type']
 }
 
 // ApiDocResponse wraps response metadata
@@ -56,12 +55,12 @@ pub struct ApiDocEntry {
 pub:
 	id string // "GET::/api/users"
 pub mut:
-	method    string
-	path      string
-	summary   string
-	group     string
-	locked    bool
-	is_hidden bool
+	method     string
+	path       string
+	summary    string
+	group      string
+	locked     bool
+	is_hidden  bool
 	parameters []ApiDocParam
 	headers    []ApiDocHeader
 	response   ApiDocResponse

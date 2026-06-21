@@ -194,3 +194,98 @@ fn test_driver_type_str() {
 	assert DriverType.mysql.str() == 'mysql'
 	assert DriverType.unknown.str() == 'unknown'
 }
+
+// ── CRITICAL #4: close_fn on remove_connection / close_all / destroy ──
+
+fn test_remove_connection_invokes_close_fn() {
+	mut closed := false
+	mut c := &closed
+	close_fn := fn [c] (db voidptr) ! {
+		unsafe {
+			*c = true
+		}
+	}
+	mut om := new_orm_manager()
+	om.register_connection_with_close('db', .sqlite, dummy_connection(), close_fn)!
+
+	om.remove_connection('db')!
+	assert unsafe { *c } == true
+	assert om.has_connection('db') == false
+}
+
+fn test_remove_connection_without_close_fn_succeeds() {
+	mut om := new_orm_manager()
+	om.register_connection('db', .sqlite, dummy_connection())!
+	// No close_fn registered — should still succeed (just drops the entry).
+	om.remove_connection('db')!
+	assert om.has_connection('db') == false
+}
+
+fn test_close_all_invokes_close_fn() {
+	mut close_count := 0
+	mut cc := &close_count
+	close_fn := fn [cc] (db voidptr) ! {
+		unsafe {
+			*cc = *cc + 1
+		}
+	}
+	mut om := new_orm_manager()
+	om.register_connection_with_close('a', .sqlite, dummy_connection(), close_fn)!
+	om.register_connection_with_close('b', .pg, dummy_connection(), close_fn)!
+	om.register_connection('c', .mysql, dummy_connection())! // no close_fn
+
+	// Verify close_fns map was populated
+	assert om.close_fns.len == 2
+	assert om.close_fns.keys().len == 2
+
+	// Verify we can retrieve a close_fn directly
+	if _ := om.close_fns['a'] {
+		// ok
+	} else {
+		assert false, 'close_fn not found for a'
+	}
+
+	om.close_all()!
+	assert unsafe { *cc } == 2 // only a and b had close_fn
+	assert om.connections.len == 0
+	assert om.default == ''
+}
+
+fn test_destroy_calls_close_all() {
+	mut closed := false
+	mut c := &closed
+	close_fn := fn [c] (db voidptr) ! {
+		unsafe {
+			*c = true
+		}
+	}
+	mut om := new_orm_manager()
+	om.register_connection_with_close('db', .sqlite, dummy_connection(), close_fn)!
+
+	om.destroy()!
+	assert unsafe { *c } == true
+	assert om.connections.len == 0
+}
+
+fn test_close_all_continues_on_error() {
+	mut close_count := 0
+	mut cc := &close_count
+	close_fn := fn [cc] (db voidptr) ! {
+		unsafe {
+			*cc = *cc + 1
+		}
+		if unsafe { *cc } == 1 {
+			return error('first close fails')
+		}
+	}
+	mut om := new_orm_manager()
+	om.register_connection_with_close('a', .sqlite, dummy_connection(), close_fn)!
+	om.register_connection_with_close('b', .pg, dummy_connection(), close_fn)!
+
+	om.close_all() or {
+		// First error is returned, but both connections were attempted.
+		assert unsafe { *cc } == 2
+		return
+	}
+	assert false, 'expected error from first close_fn'
+}

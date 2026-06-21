@@ -17,7 +17,6 @@ module core
 //
 // Photon encourages DI via @[autowired] but provides ServiceLocator
 // as a fallback for edge cases.
-
 import sync
 
 // ── ServiceLocator ──
@@ -57,7 +56,7 @@ pub fn qualified_service_from(mut ctx ApplicationContext, qualifier string) !voi
 pub fn new_service_locator(ctx &ApplicationContext) &ServiceLocator {
 	return &ServiceLocator{
 		context: unsafe { ctx }
-		cache: map[string]voidptr{}
+		cache:   map[string]voidptr{}
 	}
 }
 
@@ -94,7 +93,7 @@ pub:
 	type_name    string
 	is_singleton bool
 	factory      fn () !voidptr = unsafe { nil }
-	instance     voidptr = unsafe { nil }
+	instance     voidptr        = unsafe { nil }
 }
 
 // ── BindingRegistry ──
@@ -114,7 +113,7 @@ mut:
 // new_binding_registry creates an empty BindingRegistry.
 pub fn new_binding_registry() &BindingRegistry {
 	return &BindingRegistry{
-		bindings: map[string]ServiceBinding{}
+		bindings:  map[string]ServiceBinding{}
 		instances: map[string]voidptr{}
 	}
 }
@@ -125,9 +124,9 @@ pub fn (mut r BindingRegistry) bind(type_name string, factory fn () !voidptr, is
 	r.mu.@lock()
 	defer { r.mu.unlock() }
 	r.bindings[type_name] = ServiceBinding{
-		type_name: type_name
+		type_name:    type_name
 		is_singleton: is_singleton
-		factory: factory
+		factory:      factory
 	}
 }
 
@@ -137,9 +136,9 @@ pub fn (mut r BindingRegistry) bind_instance(type_name string, instance voidptr)
 	r.mu.@lock()
 	defer { r.mu.unlock() }
 	r.bindings[type_name] = ServiceBinding{
-		type_name: type_name
+		type_name:    type_name
 		is_singleton: true
-		instance: instance
+		instance:     instance
 	}
 	r.instances[type_name] = instance
 }

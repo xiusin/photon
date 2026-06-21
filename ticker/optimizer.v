@@ -9,7 +9,6 @@ module ticker
 //
 // This is a critical C10k optimization: at 50ms polling with 100K+ timers,
 // 64 lock acquires per tick causes measurable contention.
-
 import sync
 
 // BucketHead tracks the earliest timer in each bucket
@@ -34,8 +33,8 @@ fn new_bucket_head_heap(num_buckets int) &BucketHeadHeap {
 	for i in 0 .. num_buckets {
 		h.heads[i] = BucketHead{
 			bucket_idx: i
-			min_when: i64(9223372036854775807) // max i64
-			has_timer: false
+			min_when:   i64(9223372036854775807) // max i64
+			has_timer:  false
 		}
 	}
 	return h

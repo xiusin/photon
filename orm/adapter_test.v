@@ -30,8 +30,13 @@ fn (mut e AdapterTestEntity) touch() {
 }
 
 // Implement Identifiable
-fn (e &AdapterTestEntity) id() int { return e.id }
-fn (e &AdapterTestEntity) is_new() bool { return e.id == 0 }
+fn (e &AdapterTestEntity) id() int {
+	return e.id
+}
+
+fn (e &AdapterTestEntity) is_new() bool {
+	return e.id == 0
+}
 
 // ── Helpers ──
 
@@ -86,15 +91,19 @@ fn test_adapter_before_insert_touch() {
 
 fn test_adapter_before_insert_touch_preserves_created_at() {
 	_, mut a := setup_adapter[AdapterTestEntity]()!
-	mut e := AdapterTestEntity{created_at: 50}
+	mut e := AdapterTestEntity{
+		created_at: 50
+	}
 	a.before_insert(mut e)!
-	assert e.created_at == 50  // already set, preserved
+	assert e.created_at == 50 // already set, preserved
 	assert e.updated_at == 200
 }
 
 fn test_adapter_before_update_touch() {
 	_, mut a := setup_adapter[AdapterTestEntity]()!
-	mut e := AdapterTestEntity{created_at: 50}
+	mut e := AdapterTestEntity{
+		created_at: 50
+	}
 	a.before_update(mut e)!
 	assert e.updated_at == 200
 	assert e.version == 1
@@ -137,7 +146,8 @@ fn test_adapter_wrap_methods_compile() {
 
 fn test_adapter_after_find_all_iterates_all() {
 	_, mut a := setup_adapter[AdapterTestEntity]()!
-	mut entities := [AdapterTestEntity{}, AdapterTestEntity{}, AdapterTestEntity{}]
+	mut entities := [AdapterTestEntity{}, AdapterTestEntity{},
+		AdapterTestEntity{}]
 
 	a.after_find_all(mut entities)!
 	// Method compiles and runs without error on a slice

@@ -15,37 +15,37 @@ module core
 
 // ── Attribute Constants ──
 
-pub const attr_component   = 'component'
-pub const attr_service     = 'service'
-pub const attr_repository  = 'repository'
+pub const attr_component = 'component'
+pub const attr_service = 'service'
+pub const attr_repository = 'repository'
 pub const attr_controller = 'controller'
 pub const attr_configuration = 'configuration'
-pub const attr_autowired  = 'autowired'
-pub const attr_scope       = 'scope'
-pub const attr_lazy        = 'lazy'
-pub const attr_qualifier   = 'qualifier'
-pub const attr_value       = 'value'
+pub const attr_autowired = 'autowired'
+pub const attr_scope = 'scope'
+pub const attr_lazy = 'lazy'
+pub const attr_qualifier = 'qualifier'
+pub const attr_value = 'value'
 pub const attr_post_construct = 'post_construct'
-pub const attr_pre_destroy    = 'pre_destroy'
+pub const attr_pre_destroy = 'pre_destroy'
 // New annotations (Spring Boot / Laravel inspired)
-pub const attr_auto_configuration     = 'auto_configuration'
-pub const attr_event_listener         = 'event_listener'
-pub const attr_conditional_on_profile      = 'conditional_on_profile'
-pub const attr_conditional_on_property     = 'conditional_on_property'
-pub const attr_conditional_on_bean         = 'conditional_on_bean'
+pub const attr_auto_configuration = 'auto_configuration'
+pub const attr_event_listener = 'event_listener'
+pub const attr_conditional_on_profile = 'conditional_on_profile'
+pub const attr_conditional_on_property = 'conditional_on_property'
+pub const attr_conditional_on_bean = 'conditional_on_bean'
 pub const attr_conditional_on_missing_bean = 'conditional_on_missing_bean'
-pub const attr_conditional_on_expression   = 'conditional_on_expression'
-pub const attr_conditional_on_class        = 'conditional_on_class'
+pub const attr_conditional_on_expression = 'conditional_on_expression'
+pub const attr_conditional_on_class = 'conditional_on_class'
 pub const attr_conditional_on_missing_class = 'conditional_on_missing_class'
 pub const attr_conditional_on_cloud_platform = 'conditional_on_cloud_platform'
-pub const attr_scheduled             = 'scheduled'
-pub const attr_transactional        = 'transactional'
-pub const attr_cacheable            = 'cacheable'
-pub const attr_required             = 'required'
-pub const attr_depends_on           = 'depends_on'
-pub const attr_primary              = 'primary'
-pub const attr_extends              = 'extends'
-pub const attr_bean                 = 'bean'
+pub const attr_scheduled = 'scheduled'
+pub const attr_transactional = 'transactional'
+pub const attr_cacheable = 'cacheable'
+pub const attr_required = 'required'
+pub const attr_depends_on = 'depends_on'
+pub const attr_primary = 'primary'
+pub const attr_extends = 'extends'
+pub const attr_bean = 'bean'
 
 // ── Component Types ──
 
@@ -92,16 +92,16 @@ pub fn component_type_from_attr(attr string) ComponentType {
 // Used to build a BeanDefinition for the container.
 pub struct ScannedBean {
 pub:
-	type_name       string
-	component_type  ComponentType
-	scope           Scope        = .singleton
-	is_lazy         bool
-	qualifier       string
-	dependencies    []Dependency
-	init_method     string       // @[post_construct]
-	destroy_method  string       // @[pre_destroy]
-	value_bindings  []ValueBinding
-	conditions      []string     // @[conditional_on_*] attribute strings
+	type_name      string
+	component_type ComponentType
+	scope          Scope = .singleton
+	is_lazy        bool
+	qualifier      string
+	dependencies   []Dependency
+	init_method    string // @[post_construct]
+	destroy_method string // @[pre_destroy]
+	value_bindings []ValueBinding
+	conditions     []string // @[conditional_on_*] attribute strings
 }
 
 // ValueBinding represents an @[value('config.key')] annotation on a field.
@@ -117,8 +117,8 @@ pub:
 // any component-type annotation (component, service, repository, etc.).
 pub fn has_component_attr(attrs []string) bool {
 	for attr in attrs {
-		if attr in [attr_component, attr_service, attr_repository,
-			attr_controller, attr_configuration, attr_auto_configuration] {
+		if attr in [attr_component, attr_service, attr_repository, attr_controller,
+			attr_configuration, attr_auto_configuration] {
 			return true
 		}
 	}
@@ -154,7 +154,7 @@ pub fn extract_scope(attrs []string) Scope {
 					val = val[..val.len - 1]
 				}
 			}
-			val = val.trim('\'').trim('"').trim_space()
+			val = val.trim("'").trim('"').trim_space()
 			return scope_from_str(val)
 		}
 	}
@@ -174,13 +174,16 @@ pub fn extract_qualifier(attrs []string) string {
 					val = val[..val.len - 1]
 				}
 			}
-			return val.trim('\'').trim('"').trim_space()
+			return val.trim("'").trim('"').trim_space()
 		}
 	}
 	return ''
 }
 
 // extract_value_expr parses @[value('config.key')] from attributes.
+// Handles both V-normalized forms:
+//   @[value: 'app.name']  → attr = "value: 'app.name'"  → returns "app.name"
+//   @[value('app.name')]  → attr = "value('app.name')"  → returns "app.name"
 pub fn extract_value_expr(attrs []string) string {
 	for attr in attrs {
 		if attr.starts_with('value:') || attr.starts_with('value(') {
@@ -193,7 +196,9 @@ pub fn extract_value_expr(attrs []string) string {
 					val = val[..val.len - 1]
 				}
 			}
-			return val.trim('\'').trim('"').trim_space()
+			// Trim space first so surrounding quotes are at the edges,
+			// then strip matching quotes, then trim any inner space.
+			return val.trim_space().trim("'").trim('"').trim_space()
 		}
 	}
 	return ''
@@ -222,12 +227,12 @@ pub fn extract_depends_on(attrs []string) []string {
 					val = val[..val.len - 1]
 				}
 			}
-			val = val.trim('\'').trim('"').trim_space()
+			val = val.trim("'").trim('"').trim_space()
 			// Support comma-separated list: 'BeanA','BeanB' or BeanA,BeanB
 			mut names := []string{}
 			parts := val.split(',')
 			for part in parts {
-				trimmed := part.trim_space().trim('\'').trim('"')
+				trimmed := part.trim_space().trim("'").trim('"')
 				if trimmed.len > 0 {
 					names << trimmed
 				}
@@ -258,7 +263,7 @@ pub fn extract_parent_name(attrs []string) string {
 					val = val[..val.len - 1]
 				}
 			}
-			return val.trim('\'').trim('"').trim_space()
+			return val.trim("'").trim('"').trim_space()
 		}
 	}
 	return ''
@@ -320,10 +325,86 @@ pub fn extract_scheduled_expr(attrs []string) string {
 					val = val[..val.len - 1]
 				}
 			}
-			return val.trim('\'').trim('"').trim_space()
+			// Trim spaces first so that surrounding quotes become the
+			// outermost characters and can be stripped in one pass.
+			return val.trim_space().trim("'\"")
 		}
 	}
 	return ''
+}
+
+// ── @[scheduled] Comptime Scanning (Task C4) ──
+//
+// Spring equivalent: @Scheduled annotation post-processor.
+//
+// V comptime scans type T's methods at compile time for @[scheduled('cron')]
+// attributes and returns ScheduledTaskInfo descriptors. This is the
+// compile-time equivalent of Spring's ScheduledAnnotationBeanPostProcessor.
+//
+// The existing `extract_scheduled_expr(attrs)` helper is reused to parse the
+// cron expression from each method's attribute list — it handles both
+// V-normalized forms (`scheduled: 'expr'` and `scheduled('expr')`).
+
+// ScheduledTaskInfo describes a single @[scheduled] method discovered via
+// comptime scanning of type T.
+pub struct ScheduledTaskInfo {
+pub:
+	method_name string
+	cron_expr   string
+}
+
+// extract_scheduled_methods scans type T at compile time for methods annotated
+// with @[scheduled('cron')]. Returns a list of ScheduledTaskInfo descriptors
+// containing the method name and parsed cron expression.
+//
+// Spring equivalent: @Scheduled annotation discovery.
+//
+// V comptime note: method-level attributes are inspected via `method.attrs`
+// inside `$for method in T.methods`. The cron expression is parsed by the
+// existing `extract_scheduled_expr(attrs)` helper which handles both
+// `scheduled('...')` and `scheduled: '...'` forms.
+//
+// Usage:
+//   tasks := core.extract_scheduled_methods[MyService]()
+//   for t in tasks {
+//       println('${t.method_name} -> ${t.cron_expr}')
+//   }
+pub fn extract_scheduled_methods[T]() []ScheduledTaskInfo {
+	mut tasks := []ScheduledTaskInfo{}
+	$for method in T.methods {
+		cron_expr := extract_scheduled_expr(method.attrs)
+		if cron_expr.len > 0 {
+			tasks << ScheduledTaskInfo{
+				method_name: method.name
+				cron_expr:   cron_expr
+			}
+		}
+	}
+	return tasks
+}
+
+// dispatch_scheduled_method invokes the method named `method_name` on the
+// bean of type T located at `bean_ptr`. It is a top-level generic function
+// (NOT a closure) so that the comptime type `T` and the `$for method` loop
+// variable are accessible in its body — V 0.5.1 does not propagate comptime
+// variables into nested closures.
+//
+// The runtime `if method_name == method.name` comparison is generated once
+// per method by the unrolled `$for` loop; the matching branch calls
+// `bean.$method()` which is resolved at compile time. This yields a
+// type-safe, zero-reflection dispatcher.
+//
+// Used by `ApplicationContext.register_scheduled[T]` to build scheduled-task
+// callbacks: the callback closure captures a function pointer to the
+// monomorphized `dispatch_scheduled_method[T]` and calls it with the bean
+// pointer and method name.
+pub fn dispatch_scheduled_method[T](bean_ptr voidptr, method_name string) ! {
+	mut bean := unsafe { &T(bean_ptr) }
+	$for method in T.methods {
+		if method_name == method.name {
+			bean.$method()
+		}
+	}
 }
 
 // extract_cacheable_key parses @[cacheable('key_pattern')] from attributes.
@@ -340,7 +421,7 @@ pub fn extract_cacheable_key(attrs []string) string {
 					val = val[..val.len - 1]
 				}
 			}
-			return val.trim('\'').trim('"').trim_space()
+			return val.trim("'").trim('"').trim_space()
 		}
 	}
 	return ''
@@ -355,9 +436,11 @@ pub fn extract_cacheable_key(attrs []string) string {
 // Spring equivalent: @Bean method
 pub struct BeanMethod {
 pub:
-	method_name string       // V method name
-	bean_name   string       // resulting bean type_name (defaults to method_name)
-	attrs        []string    // method-level attributes (scope, primary, depends_on, etc.)
+	method_name  string   // V method name
+	bean_name    string   // resulting bean type_name (defaults to method_name)
+	attrs        []string // method-level attributes (scope, primary, depends_on, etc.)
+	arg_count    int      // number of method parameters (Task A3)
+	config_class string   // the @[configuration] class this method belongs to (Task A3)
 }
 
 // new_bean_method creates a BeanMethod from a method name and attributes.
@@ -375,7 +458,7 @@ pub fn new_bean_method(method_name string, attrs []string) BeanMethod {
 					val = val[..val.len - 1]
 				}
 			}
-			custom_name := val.trim('\'').trim('"').trim_space()
+			custom_name := val.trim("'").trim('"').trim_space()
 			if custom_name.len > 0 {
 				bean_name = custom_name
 			}
@@ -384,8 +467,8 @@ pub fn new_bean_method(method_name string, attrs []string) BeanMethod {
 	}
 	return BeanMethod{
 		method_name: method_name
-		bean_name: bean_name
-		attrs: attrs.clone()
+		bean_name:   bean_name
+		attrs:       attrs.clone()
 	}
 }
 
@@ -408,17 +491,17 @@ pub fn (bm &BeanMethod) depends_on() []string {
 // Spring equivalent: @Configuration class
 pub struct ConfigurationClass {
 pub mut:
-	type_name   string        // struct name
+	type_name    string       // struct name
 	bean_methods []BeanMethod // @[bean] methods found in this class
-	attrs       []string     // class-level attributes
+	attrs        []string     // class-level attributes
 }
 
 // new_configuration_class creates a ConfigurationClass.
 pub fn new_configuration_class(type_name string, attrs []string) ConfigurationClass {
 	return ConfigurationClass{
-		type_name: type_name
+		type_name:    type_name
 		bean_methods: []BeanMethod{}
-		attrs: attrs.clone()
+		attrs:        attrs.clone()
 	}
 }
 
@@ -440,4 +523,167 @@ pub fn has_bean_attr(attrs []string) bool {
 		}
 	}
 	return false
+}
+
+// ── @[auto_configuration] Comptime Scanning (Task A1) ──
+//
+// Spring Boot equivalent: AutoConfigurationImportSelector selecting
+// @AutoConfiguration-annotated classes from the classpath.
+//
+// V comptime can only inspect types in the current compilation unit, so
+// "auto-discovery" is realized as a contract-enforcing helper: the user
+// calls `extract_auto_configuration[T]()` (or the higher-level
+// `AutoConfigurationManager.register_from_comptime[T]()`) for each
+// candidate type at the bootstrap site. The comptime check enforces that
+// T carries the `@[auto_configuration]` attribute, refusing non-annotated
+// types — this is the "auto" guarantee (no manual type_name strings).
+//
+// V 0.5.1 comptime note: struct-level attributes are NOT exposed via
+// `T.attrs` (that field does not exist on the comptime type). Instead,
+// V provides the `$for attr in T.attributes { ... }` loop, where each
+// `attr` is a `builtin.VAttribute` with `.name`, `.has_arg`, `.arg`,
+// and `.kind` fields. We use this to detect `@[auto_configuration]`.
+
+// extract_auto_configuration returns true if type T is annotated with
+// `@[auto_configuration]`. This is a pure comptime check — zero runtime
+// cost, zero runtime reflection.
+//
+// Usage:
+//   if core.extract_auto_configuration[MyConfig]() {
+//       // T is an auto-configuration source
+//   }
+pub fn extract_auto_configuration[T]() bool {
+	mut found := false
+	$for attr in T.attributes {
+		if attr.name == attr_auto_configuration {
+			found = true
+		}
+	}
+	return found
+}
+
+// extract_auto_configuration_attrs returns the list of struct-level
+// attribute names for type T (comptime). Useful for inspecting the full
+// annotation set — e.g. parsing `@[conditional_on_*]` annotations
+// alongside `@[auto_configuration]`.
+//
+// Each returned string is the bare attribute name (e.g. 'auto_configuration',
+// 'conditional_on_profile'). Arguments are available via the comptime
+// `attr.arg` / `attr.has_arg` fields inside the `$for` loop, but for the
+// common case of condition parsing we re-derive the full attribute string
+// in `register_from_comptime[T]()` below.
+pub fn extract_auto_configuration_attrs[T]() []string {
+	mut attrs := []string{}
+	$for attr in T.attributes {
+		if attr.has_arg {
+			// Normalize to the 'name:arg' form expected by parse_conditions()
+			// and the extract_* helpers in this file.
+			attrs << '${attr.name}:${attr.arg}'
+		} else {
+			attrs << attr.name
+		}
+	}
+	return attrs
+}
+
+// auto_configuration_type_name returns the V type name for T as a string.
+// Wraps `T.name` so callers do not depend on comptime internals directly.
+pub fn auto_configuration_type_name[T]() string {
+	return T.name
+}
+
+// ── @[configuration] + @[bean] Comptime Scanning (Task A3) ──
+//
+// Spring equivalent: @Configuration class with @Bean methods.
+//
+// V comptime note: struct-level attributes are inspected via
+// `$for attr in T.attributes { ... }` (same as Task A1). Method-level
+// attributes are inspected via `method.attrs` inside `$for method in T.methods`.
+//
+// V 0.5.1 comptime limitation: `method.return_type` and `method.args[].typ`
+// are integer type indices, NOT type-name strings. To obtain the return type
+// name as a string, we call `t.$method()` inside the `$for` loop and use
+// `typeof(result).name`. This only works for 0-arg methods; for methods with
+// args, the caller must use the type-parameterized registration helpers
+// (`register_bean_method_factory[T, R]` / `register_bean_method_with_dep[T, R, D]`)
+// which use `$if method.return_type is R` to branch at compile time.
+
+// extract_configuration returns true if type T is annotated with
+// `@[configuration]`. This is a pure comptime check — zero runtime cost.
+//
+// Usage:
+//   if core.extract_configuration[MyConfig]() {
+//       // T is a configuration class
+//   }
+pub fn extract_configuration[T]() bool {
+	mut found := false
+	$for attr in T.attributes {
+		if attr.name == attr_configuration {
+			found = true
+		}
+	}
+	return found
+}
+
+// extract_configuration_attrs returns the list of struct-level attribute names
+// for type T (comptime). Useful for inspecting conditional annotations alongside
+// `@[configuration]`.
+pub fn extract_configuration_attrs[T]() []string {
+	mut attrs := []string{}
+	$for attr in T.attributes {
+		if attr.has_arg {
+			attrs << '${attr.name}:${attr.arg}'
+		} else {
+			attrs << attr.name
+		}
+	}
+	return attrs
+}
+
+// extract_bean_methods scans type T at compile time for methods annotated with
+// `@[bean]`. Returns a list of BeanMethod descriptors containing the method
+// name, bean name, attributes, argument count, and the configuration class name.
+//
+// Spring equivalent: @Bean method discovery in @Configuration classes.
+//
+// V comptime note: `method.return_type` and `method.args[].typ` are integer
+// type indices, not strings. The `return_type` and `param_types` fields are
+// left empty here — they are populated by the type-parameterized registration
+// helpers which use `$if method.return_type is R` to determine types at
+// compile time. The `arg_count` field IS available and is used to select
+// the appropriate registration helper (0-arg vs 1-arg).
+//
+// Usage:
+//   methods := core.extract_bean_methods[MyConfig]()
+//   for m in methods {
+//       println('${m.method_name} (${m.arg_count} args)')
+//   }
+pub fn extract_bean_methods[T]() []BeanMethod {
+	mut methods := []BeanMethod{}
+	$for method in T.methods {
+		// Check if method has @[bean] attribute
+		mut has_bean := false
+		for attr in method.attrs {
+			if attr == attr_bean || attr.starts_with('bean:') || attr.starts_with('bean(') {
+				has_bean = true
+			}
+		}
+		if has_bean {
+			bm := new_bean_method(method.name, method.attrs)
+			methods << BeanMethod{
+				method_name: bm.method_name
+				bean_name:   bm.bean_name
+				attrs:       bm.attrs.clone()
+				arg_count:   method.args.len
+				config_class: T.name
+			}
+		}
+	}
+	return methods
+}
+
+// configuration_type_name returns the V type name for T as a string.
+// Wraps `T.name` so callers do not depend on comptime internals directly.
+pub fn configuration_type_name[T]() string {
+	return T.name
 }

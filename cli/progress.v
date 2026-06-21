@@ -6,7 +6,7 @@ module cli
 //   [=====>      ] 45% 450/1000
 pub struct ProgressBar {
 pub:
-	total   int
+	total int
 pub mut:
 	current int
 	width   int = 40
@@ -15,9 +15,9 @@ pub mut:
 // new_progress_bar creates a new ProgressBar
 pub fn new_progress_bar(total int) &ProgressBar {
 	return &ProgressBar{
-		total: total
+		total:   total
 		current: 0
-		width: 40
+		width:   40
 	}
 }
 

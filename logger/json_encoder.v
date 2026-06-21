@@ -64,12 +64,29 @@ fn escape_json(s string) string {
 	mut buf := []u8{cap: s.len * 2}
 	for ch in s {
 		match ch {
-			`"`  { buf << `\\`; buf << `"` }
-			`\\` { buf << `\\`; buf << `\\` }
-			`\n` { buf << `\\`; buf << `n` }
-			`\r` { buf << `\\`; buf << `r` }
-			`\t` { buf << `\\`; buf << `t` }
-			else { buf << u8(ch) }
+			`"` {
+				buf << `\\`
+				buf << `"`
+			}
+			`\\` {
+				buf << `\\`
+				buf << `\\`
+			}
+			`\n` {
+				buf << `\\`
+				buf << `n`
+			}
+			`\r` {
+				buf << `\\`
+				buf << `r`
+			}
+			`\t` {
+				buf << `\\`
+				buf << `t`
+			}
+			else {
+				buf << u8(ch)
+			}
 		}
 	}
 	return buf.bytestr()

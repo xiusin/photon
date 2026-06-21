@@ -33,7 +33,7 @@ fn test_set_default_header() {
 fn test_set_default_headers() {
 	rt := new_rest_template().set_default_headers({
 		'Accept': 'application/json'
-		'X-API': 'key123'
+		'X-API':  'key123'
 	})
 	assert rt.default_headers['Accept'] == 'application/json'
 	assert rt.default_headers['X-API'] == 'key123'
@@ -100,19 +100,26 @@ fn test_uri_template_expand_no_vars() {
 
 fn test_uri_template_expand_single() {
 	h := new_uri_template_handler()
-	result := h.expand('/api/users/{id}', {'id': '42'})
+	result := h.expand('/api/users/{id}', {
+		'id': '42'
+	})
 	assert result == '/api/users/42'
 }
 
 fn test_uri_template_expand_multiple() {
 	h := new_uri_template_handler()
-	result := h.expand('/api/users/{id}/posts/{postId}', {'id': '42', 'postId': '7'})
+	result := h.expand('/api/users/{id}/posts/{postId}', {
+		'id':     '42'
+		'postId': '7'
+	})
 	assert result == '/api/users/42/posts/7'
 }
 
 fn test_uri_template_expand_segment() {
 	h := new_uri_template_handler()
-	result := h.expand('/api/{resource}', {'resource': 'users'})
+	result := h.expand('/api/{resource}', {
+		'resource': 'users'
+	})
 	assert result == '/api/users'
 }
 
@@ -125,7 +132,10 @@ fn test_uri_template_expand_empty_vars() {
 
 fn test_uri_template_expand_nested() {
 	h := new_uri_template_handler()
-	result := h.expand('/api/users/{id}/profile/{section}', {'id': '42', 'section': 'settings'})
+	result := h.expand('/api/users/{id}/profile/{section}', {
+		'id':      '42'
+		'section': 'settings'
+	})
 	assert result == '/api/users/42/profile/settings'
 }
 
@@ -133,7 +143,9 @@ fn test_uri_template_handler_custom_delimiters() {
 	mut h := new_uri_template_handler()
 	h.left_delim = `[`
 	h.right_delim = `]`
-	result := h.expand('/api/[id]', {'id': '42'})
+	result := h.expand('/api/[id]', {
+		'id': '42'
+	})
 	assert result == '/api/42'
 }
 
@@ -184,7 +196,10 @@ fn test_request_entity_uri_var() {
 }
 
 fn test_request_entity_uri_vars_from() {
-	e := request_entity('GET', '/api/{a}/{b}').uri_vars_from({'a': '1', 'b': '2'})
+	e := request_entity('GET', '/api/{a}/{b}').uri_vars_from({
+		'a': '1'
+		'b': '2'
+	})
 	assert e.uri_vars['a'] == '1'
 	assert e.uri_vars['b'] == '2'
 }
@@ -216,7 +231,9 @@ fn test_response_entity_status_codes() {
 }
 
 fn test_response_entity_header_value() {
-	resp := ResponseEntity{200, 'OK', {'Content-Type': 'application/json'}, '{}'}
+	resp := ResponseEntity{200, 'OK', {
+		'Content-Type': 'application/json'
+	}, '{}'}
 	assert resp.header_value('Content-Type') == 'application/json'
 	assert resp.header_value('Missing') == ''
 }
@@ -366,12 +383,16 @@ pub:
 
 fn test_rt_get_for_object_syntax() {
 	rt := new_rest_template()
-	_ := rt.get_for_object[map[string]string]('', {'x': 'y'}) or { return }
+	_ := rt.get_for_object[map[string]string]('', {
+		'x': 'y'
+	}) or { return }
 }
 
 fn test_rt_get_for_entity_syntax() {
 	rt := new_rest_template()
-	_ := rt.get_for_entity('', {'x': 'y'}) or { return }
+	_ := rt.get_for_entity('', {
+		'x': 'y'
+	}) or { return }
 }
 
 fn test_rt_post_for_object_syntax() {
@@ -427,11 +448,15 @@ fn test_header_from_map_empty() {
 }
 
 fn test_header_from_map_with_values() {
-	h := header_from_map({'Content-Type': 'application/json', 'Accept': 'text/plain'})
+	h := header_from_map({
+		'Content-Type': 'application/json'
+		'Accept':       'text/plain'
+	})
 	keys := h.keys()
 	assert keys.len == 2
 }
 
 fn test_execute_with_retry_syntax() {
-	_ := execute_with_retry(vhttp.FetchConfig{method: vhttp.Method.get, url: 'http://localhost:1'}, 0, 100) or { return }
+	_ := execute_with_retry(vhttp.FetchConfig{ method: vhttp.Method.get, url: 'http://localhost:1' },
+		0, 100) or { return }
 }

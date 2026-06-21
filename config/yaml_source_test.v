@@ -156,7 +156,8 @@ fn test_toml_source_name() {
 fn test_yaml_source_load_from_file() ! {
 	// Create a temporary YAML file
 	tmp_file := os.join_path(os.temp_dir(), 'photon_test_${os.getpid()}.yaml')
-	os.write_file(tmp_file, 'app:\n  name: TestApp\n  debug: true\ndatabase:\n  host: localhost\n  port: 5432')!
+	os.write_file(tmp_file,
+		'app:\n  name: TestApp\n  debug: true\ndatabase:\n  host: localhost\n  port: 5432')!
 	defer {
 		os.rm(tmp_file) or {}
 	}
@@ -172,7 +173,8 @@ fn test_yaml_source_load_from_file() ! {
 fn test_toml_source_load_from_file() ! {
 	// Create a temporary TOML file
 	tmp_file := os.join_path(os.temp_dir(), 'photon_test_${os.getpid()}.toml')
-	os.write_file(tmp_file, '[app]\nname = "TestApp"\ndebug = true\n\n[database]\nhost = "localhost"\nport = 5432')!
+	os.write_file(tmp_file,
+		'[app]\nname = "TestApp"\ndebug = true\n\n[database]\nhost = "localhost"\nport = 5432')!
 	defer {
 		os.rm(tmp_file) or {}
 	}

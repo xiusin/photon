@@ -21,7 +21,6 @@ module core
 //   }
 //
 // The container will call create() instead of directly instantiating the bean.
-
 import sync
 
 // ── FactoryBean ──
@@ -54,16 +53,16 @@ pub:
 	factory_type_name string // the FactoryBean struct name
 	output_type_name  string // the type this factory produces
 	is_singleton_     bool   // whether the output is a singleton
-	factory          &FactoryBean = unsafe { nil }
+	factory           &FactoryBean = unsafe { nil }
 }
 
 // new_factory_bean_definition creates a FactoryBeanDefinition.
 pub fn new_factory_bean_definition(factory_type_name string, factory &FactoryBean) FactoryBeanDefinition {
 	return FactoryBeanDefinition{
 		factory_type_name: factory_type_name
-		output_type_name: factory.bean_type()
-		is_singleton_: factory.is_singleton()
-		factory: unsafe { factory }
+		output_type_name:  factory.bean_type()
+		is_singleton_:     factory.is_singleton()
+		factory:           unsafe { factory }
 	}
 }
 
@@ -83,7 +82,7 @@ mut:
 // new_factory_bean_registry creates an empty FactoryBeanRegistry.
 pub fn new_factory_bean_registry() &FactoryBeanRegistry {
 	return &FactoryBeanRegistry{
-		factories: map[string]FactoryBeanDefinition{}
+		factories:       map[string]FactoryBeanDefinition{}
 		factory_outputs: map[string]voidptr{}
 	}
 }

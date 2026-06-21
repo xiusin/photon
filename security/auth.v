@@ -3,31 +3,31 @@ module security
 // auth.v - Authentication Manager
 //
 // Provides the AuthenticationManager, authentication providers,
-// PasswordEncoder trait, and authentication tokens.
+// and authentication tokens.
+// PasswordEncoder interface and implementations live in password_encoder.v.
 
-// PasswordEncoder encodes and validates passwords
-pub interface PasswordEncoder {
-	encode(raw_password string) string
-	matches(raw_password string, encoded_password string) bool
-}
-
-// PlainTextPasswordEncoder is a simple encoder for development only
+// PlainTextPasswordEncoder is a simple encoder for development only.
+// It implements the PasswordEncoder interface defined in password_encoder.v.
 pub struct PlainTextPasswordEncoder {}
 
-pub fn (pe &PlainTextPasswordEncoder) encode(raw_password string) string {
+pub fn (pe &PlainTextPasswordEncoder) encode(raw_password string) !string {
 	return raw_password
 }
 
-pub fn (pe &PlainTextPasswordEncoder) matches(raw_password string, encoded_password string) bool {
+pub fn (pe &PlainTextPasswordEncoder) matches(raw_password string, encoded_password string) !bool {
 	return raw_password == encoded_password
+}
+
+pub fn (pe &PlainTextPasswordEncoder) upgrade_encoding(encoded string) bool {
+	return false
 }
 
 // Authentication represents an authentication request or result
 pub struct Authentication {
 pub mut:
-	principal    string
-	credentials  string
-	authorities  []string
+	principal     string
+	credentials   string
+	authorities   []string
 	authenticated bool
 	details       map[string]string
 }
@@ -35,7 +35,7 @@ pub mut:
 // new_authentication creates a new unauthenticated Authentication
 pub fn new_authentication(principal string, credentials string) &Authentication {
 	return &Authentication{
-		principal: principal
+		principal:   principal
 		credentials: credentials
 	}
 }
@@ -143,7 +143,7 @@ pub fn (up &UsernamePasswordAuthenticationProvider) authenticate(auth &Authentic
 	user := up.user_service.load_user_by_username(auth.principal)!
 
 	// Validate password using the configured encoder
-	if !up.password_encoder.matches(auth.credentials, user.password()) {
+	if !up.password_encoder.matches(auth.credentials, user.password())! {
 		return error('invalid credentials for user: ${auth.principal}')
 	}
 

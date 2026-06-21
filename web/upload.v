@@ -21,7 +21,6 @@ module web
 //   upload.allowed_extensions = ['.jpg', '.png', '.pdf']
 //
 //   result := upload.handle(ctx, 'avatar', '/var/www/uploads')!
-
 import veb
 import os
 import crypto.sha256
@@ -48,11 +47,11 @@ pub struct UploadResult {
 pub:
 	original_name string
 	stored_name   string
-	path          string  // full path on disk
+	path          string // full path on disk
 	size          int
 	extension     string
 	mime_type     string
-	hash          string  // SHA-256 hash of file content
+	hash          string // SHA-256 hash of file content
 }
 
 // ── Upload Error ──
@@ -94,11 +93,11 @@ pub fn (e UploadError) str() string {
 // UploadHandler handles file uploads with validation and storage.
 pub struct UploadHandler {
 pub mut:
-	max_size            int = 10 * 1024 * 1024  // 10MB default
-	allowed_extensions  []string  // empty = all allowed
-	allowed_mime_types  []string  // empty = all allowed
-	naming_strategy     NamingStrategy = .hash
-	path_strategy       PathStrategy  = .date
+	max_size           int = 10 * 1024 * 1024 // 10MB default
+	allowed_extensions []string // empty = all allowed
+	allowed_mime_types []string // empty = all allowed
+	naming_strategy    NamingStrategy = .hash
+	path_strategy      PathStrategy   = .date
 }
 
 // NamingStrategy defines how uploaded files are named.
@@ -111,19 +110,19 @@ pub enum NamingStrategy {
 
 // PathStrategy defines how subdirectories are organized.
 pub enum PathStrategy {
-	flat      // all files in one directory
-	date      // YYYY/MM/DD subdirectories
-	hash_dir  // first 2 chars of hash as subdirectory
+	flat     // all files in one directory
+	date     // YYYY/MM/DD subdirectories
+	hash_dir // first 2 chars of hash as subdirectory
 }
 
 // new_upload_handler creates an UploadHandler with sensible defaults.
 pub fn new_upload_handler() &UploadHandler {
 	return &UploadHandler{
-		max_size: 10 * 1024 * 1024
+		max_size:           10 * 1024 * 1024
 		allowed_extensions: []string{}
 		allowed_mime_types: []string{}
-		naming_strategy: .hash
-		path_strategy: .date
+		naming_strategy:    .hash
+		path_strategy:      .date
 	}
 }
 
@@ -232,9 +231,7 @@ pub fn (mut h UploadHandler) handle(ctx &veb.Context, field string, dest_dir str
 	content_type := ctx.form['${field}_type'] or { 'application/octet-stream' }
 
 	// Validate (includes dangerous filename check)
-	h.validate(original_name, file_data.len, content_type) or {
-		return err
-	}
+	h.validate(original_name, file_data.len, content_type) or { return err }
 
 	// Sanitize filename: strip path components
 	safe_name := sanitize_filename(original_name)
@@ -249,9 +246,7 @@ pub fn (mut h UploadHandler) handle(ctx &veb.Context, field string, dest_dir str
 
 	// Write file
 	full_path := os.join_path(full_dir, stored_name)
-	os.write_file(full_path, file_data) or {
-		return error('failed to write uploaded file: ${err}')
-	}
+	os.write_file(full_path, file_data) or { return error('failed to write uploaded file: ${err}') }
 
 	// Compute hash
 	hash := sha256_hex(file_data.bytes())
@@ -260,12 +255,12 @@ pub fn (mut h UploadHandler) handle(ctx &veb.Context, field string, dest_dir str
 
 	return UploadResult{
 		original_name: safe_name
-		stored_name: stored_name
-		path: full_path
-		size: file_data.len
-		extension: ext
-		mime_type: content_type
-		hash: hash
+		stored_name:   stored_name
+		path:          full_path
+		size:          file_data.len
+		extension:     ext
+		mime_type:     content_type
+		hash:          hash
 	}
 }
 
@@ -283,9 +278,7 @@ pub fn (mut h UploadHandler) handle_bytes(original_name string, data []u8, dest_
 
 	// Validate (includes dangerous filename check)
 	content_type := guess_mime_type(safe_name)
-	h.validate(safe_name, data.len, content_type) or {
-		return err
-	}
+	h.validate(safe_name, data.len, content_type) or { return err }
 
 	// Generate stored name
 	stored_name := h.generate_name_from_bytes(safe_name, data)
@@ -297,9 +290,7 @@ pub fn (mut h UploadHandler) handle_bytes(original_name string, data []u8, dest_
 
 	// Write file using binary-safe method
 	full_path := os.join_path(full_dir, stored_name)
-	os.write_bytes(full_path, data) or {
-		return error('failed to write uploaded file: ${err}')
-	}
+	os.write_bytes(full_path, data) or { return error('failed to write uploaded file: ${err}') }
 
 	// Compute hash
 	hash := sha256_hex(data)
@@ -308,12 +299,12 @@ pub fn (mut h UploadHandler) handle_bytes(original_name string, data []u8, dest_
 
 	return UploadResult{
 		original_name: safe_name
-		stored_name: stored_name
-		path: full_path
-		size: data.len
-		extension: ext
-		mime_type: content_type
-		hash: hash
+		stored_name:   stored_name
+		path:          full_path
+		size:          data.len
+		extension:     ext
+		mime_type:     content_type
+		hash:          hash
 	}
 }
 
@@ -459,6 +450,7 @@ pub:
 	chunk_index  int
 	file_name    string
 	total_size   int
+	created_at   i64 // unix timestamp — used by GC to detect abandoned uploads
 pub mut:
 	received_chunks []bool
 	chunk_dir       string
@@ -466,37 +458,145 @@ pub mut:
 
 // UploadChunkManager manages chunked/resumable uploads.
 // Thread-safe via sync.RwMutex.
+// Starts a background GC goroutine that periodically removes abandoned
+// upload directories (uploads that haven't been assembled within 1 hour).
+// Call close() to stop the GC goroutine.
 pub struct UploadChunkManager {
 pub mut:
-	chunks map[string]&ChunkInfo  // upload_id -> chunk info
+	chunks   map[string]&ChunkInfo // upload_id -> chunk info
 	temp_dir string = '/tmp/photon_uploads'
 mut:
-	mu sync.RwMutex
+	mu         sync.RwMutex
+	stop_gc    chan bool = chan bool{cap: 1}
+	gc_started bool
+	wg         sync.WaitGroup
 }
 
-// new_chunk_manager creates an UploadChunkManager.
+// new_chunk_manager creates an UploadChunkManager and starts the GC goroutine.
 pub fn new_chunk_manager() &UploadChunkManager {
-	return &UploadChunkManager{
+	mut cm := &UploadChunkManager{
 		chunks: map[string]&ChunkInfo{}
+	}
+	cm.start_gc()
+	return cm
+}
+
+// start_gc launches the background GC goroutine that periodically removes
+// abandoned chunked uploads (uploads older than 1 hour that haven't been
+// assembled). Safe to call multiple times; only the first call starts the
+// goroutine. Called automatically by new_chunk_manager().
+fn (mut cm UploadChunkManager) start_gc() {
+	cm.mu.@lock()
+	if cm.gc_started {
+		cm.mu.unlock()
+		return
+	}
+	cm.gc_started = true
+	cm.stop_gc = chan bool{cap: 1}
+	sig := cm.stop_gc
+	temp_dir := cm.temp_dir
+	cm.mu.unlock()
+
+	cm.wg.add(1)
+	spawn fn (gcm &UploadChunkManager, stop_sig chan bool, temp_dir string) {
+		defer {
+			unsafe { gcm.wg.done() }
+		}
+		mut elapsed := 0
+		for {
+			// Sleep in 100ms increments so close() can stop us promptly.
+			time.sleep(100 * time.millisecond)
+			elapsed += 100
+
+			// Non-blocking check for stop signal.
+			mut should_stop := false
+			select {
+				_ := <-stop_sig {
+					should_stop = true
+				}
+				else {}
+			}
+			if should_stop {
+				break
+			}
+
+			// Sweep every 60 seconds — remove uploads older than 1 hour
+			if elapsed >= 60000 {
+				elapsed = 0
+				unsafe {
+					mut m := gcm
+					m.gc_abandoned_uploads(3600, temp_dir)
+				}
+			}
+		}
+	}(cm, sig, temp_dir)
+}
+
+// close stops the background GC goroutine and waits for it to exit.
+// Safe to call multiple times.
+pub fn (mut cm UploadChunkManager) close() {
+	cm.mu.@lock()
+	if !cm.gc_started {
+		cm.mu.unlock()
+		return
+	}
+	cm.gc_started = false
+	sig := cm.stop_gc
+	cm.mu.unlock()
+
+	select {
+		sig <- true {}
+		else {}
+	}
+	cm.wg.wait()
+}
+
+// gc_abandoned_uploads removes chunked uploads older than max_age_seconds.
+// Deletes the chunk directory on disk and removes the session entry.
+fn (mut cm UploadChunkManager) gc_abandoned_uploads(max_age_seconds i64, _temp_dir string) {
+	cm.mu.@lock()
+	now := time.now().unix()
+	mut to_remove := []string{}
+	for upload_id, info in cm.chunks {
+		if now - info.created_at > max_age_seconds {
+			to_remove << upload_id
+		}
+	}
+	// Extract chunk_dirs before releasing the lock for disk I/O
+	mut dirs_to_clean := []string{}
+	for upload_id in to_remove {
+		if info := cm.chunks[upload_id] {
+			dirs_to_clean << info.chunk_dir
+		}
+		cm.chunks.delete(upload_id)
+	}
+	cm.mu.unlock()
+
+	// Clean up directories on disk (no lock held)
+	for dir in dirs_to_clean {
+		os.rmdir_all(dir) or {}
 	}
 }
 
 // init_upload initializes a new chunked upload.
 pub fn (mut cm UploadChunkManager) init_upload(file_name string, total_chunks int, total_size int) string {
 	upload_id := generate_upload_id()
+	chunk_dir := os.join_path(cm.temp_dir, upload_id)
+	// Do disk I/O BEFORE acquiring the write lock so the lock is only
+	// held for the map insertion.
+	os.mkdir_all(chunk_dir, os.MkdirParams{}) or {}
 	cm.mu.@lock()
 	defer { cm.mu.unlock() }
 	cm.chunks[upload_id] = &ChunkInfo{
-		upload_id: upload_id
-		total_chunks: total_chunks
-		chunk_index: 0
-		file_name: file_name
-		total_size: total_size
+		upload_id:       upload_id
+		total_chunks:    total_chunks
+		chunk_index:     0
+		file_name:       file_name
+		total_size:      total_size
+		created_at:      time.now().unix()
 		received_chunks: []bool{len: total_chunks, init: false}
-		chunk_dir: os.join_path(cm.temp_dir, upload_id)
+		chunk_dir:       chunk_dir
 	}
-	entry := cm.chunks[upload_id] or { unsafe { nil } }
-	os.mkdir_all(entry.chunk_dir, os.MkdirParams{}) or {}
 	return upload_id
 }
 
@@ -515,9 +615,7 @@ pub fn (mut cm UploadChunkManager) receive_chunk(upload_id string, chunk_index i
 	}
 
 	chunk_path := os.join_path(info.chunk_dir, '${chunk_index:08d}.part')
-	os.write_file(chunk_path, data) or {
-		return error('failed to write chunk: ${err}')
-	}
+	os.write_file(chunk_path, data) or { return error('failed to write chunk: ${err}') }
 
 	info.received_chunks[chunk_index] = true
 }
@@ -538,30 +636,29 @@ pub fn (mut cm UploadChunkManager) is_complete(upload_id string) bool {
 // assemble combines all chunks into the final file.
 // Uses os.write_bytes for binary-safe assembly.
 pub fn (mut cm UploadChunkManager) assemble(upload_id string, dest_path string) ! {
+	// Lock only to extract the ChunkInfo and remove the session entry,
+	// then release the lock before doing any file I/O.
 	cm.mu.@lock()
-	defer { cm.mu.unlock() }
 	info := cm.chunks[upload_id] or {
+		cm.mu.unlock()
 		return error('upload session not found: ${upload_id}')
 	}
+	cm.chunks.delete(upload_id)
+	cm.mu.unlock()
 
-	// Read and concatenate all chunks as binary
+	// Read and concatenate all chunks as binary (no lock held)
 	mut content := []u8{}
 	for i in 0 .. info.total_chunks {
 		chunk_path := os.join_path(info.chunk_dir, '${i:08d}.part')
-		chunk_data := os.read_bytes(chunk_path) or {
-			return error('missing chunk ${i}')
-		}
+		chunk_data := os.read_bytes(chunk_path) or { return error('missing chunk ${i}') }
 		content << chunk_data
 	}
 
 	// Write the assembled file using binary-safe method
-	os.write_bytes(dest_path, content) or {
-		return error('failed to write assembled file: ${err}')
-	}
+	os.write_bytes(dest_path, content) or { return error('failed to write assembled file: ${err}') }
 
 	// Clean up chunks
 	os.rmdir_all(info.chunk_dir) or {}
-	cm.chunks.delete(upload_id)
 }
 
 // ── Helpers ──

@@ -9,10 +9,14 @@ module security
 // -- SecurityFilterChain construction tests --
 
 fn test_new_security_filter_chain() {
-	jwt_config := JwtConfig{ secret: 'test-secret' }
+	jwt_config := JwtConfig{
+		secret: 'test-secret'
+	}
 	jwt_mgr := new_jwt_manager(jwt_config)
 	auth_mgr := new_auth_manager()
-	csrf_config := CsrfConfig{ enabled: true }
+	csrf_config := CsrfConfig{
+		enabled: true
+	}
 	csrf_mgr := new_csrf_manager(csrf_config)
 
 	sfc := new_security_filter_chain(auth_mgr, jwt_mgr, csrf_mgr)
@@ -23,7 +27,9 @@ fn test_new_security_filter_chain() {
 }
 
 fn test_new_security_filter_chain_is_disablable() {
-	jwt_config := JwtConfig{ secret: 'test' }
+	jwt_config := JwtConfig{
+		secret: 'test'
+	}
 	jwt_mgr := new_jwt_manager(jwt_config)
 	auth_mgr := new_auth_manager()
 	csrf_mgr := new_csrf_manager(CsrfConfig{})
@@ -54,7 +60,8 @@ fn test_build_default_chain_with_different_secrets() {
 // -- Configuration methods: with_permit_all --
 
 fn test_with_permit_all_registers_public_path() {
-	mut sfc := new_security_filter_chain(new_auth_manager(), new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
+	mut sfc := new_security_filter_chain(new_auth_manager(),
+		new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
 	sfc.with_permit_all('/public/health')
 	config := sfc.metadata_source.get_config('/public/health')
 	assert config.is_permit_all == true
@@ -63,7 +70,8 @@ fn test_with_permit_all_registers_public_path() {
 }
 
 fn test_with_permit_all_multiple_paths() {
-	mut sfc := new_security_filter_chain(new_auth_manager(), new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
+	mut sfc := new_security_filter_chain(new_auth_manager(),
+		new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
 	sfc.with_permit_all('/health')
 	sfc.with_permit_all('/metrics')
 	sfc.with_permit_all('/api-docs')
@@ -76,7 +84,8 @@ fn test_with_permit_all_multiple_paths() {
 // -- Configuration methods: with_secured --
 
 fn test_with_secured_registers_authenticated_path() {
-	mut sfc := new_security_filter_chain(new_auth_manager(), new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
+	mut sfc := new_security_filter_chain(new_auth_manager(),
+		new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
 	sfc.with_secured('/api/admin')
 	config := sfc.metadata_source.get_config('/api/admin')
 	assert config.is_secured == true
@@ -89,7 +98,8 @@ fn test_with_secured_registers_authenticated_path() {
 // -- Configuration methods: with_roles --
 
 fn test_with_roles_registers_path_with_required_roles() {
-	mut sfc := new_security_filter_chain(new_auth_manager(), new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
+	mut sfc := new_security_filter_chain(new_auth_manager(),
+		new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
 	sfc.with_roles('/api/admin', ['ADMIN', 'MODERATOR'])
 	config := sfc.metadata_source.get_config('/api/admin')
 	assert config.is_secured == true
@@ -99,7 +109,8 @@ fn test_with_roles_registers_path_with_required_roles() {
 }
 
 fn test_with_roles_single_role() {
-	mut sfc := new_security_filter_chain(new_auth_manager(), new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
+	mut sfc := new_security_filter_chain(new_auth_manager(),
+		new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
 	sfc.with_roles('/api/users', ['USER'])
 	config := sfc.metadata_source.get_config('/api/users')
 	assert config.required_roles.len == 1
@@ -107,7 +118,8 @@ fn test_with_roles_single_role() {
 }
 
 fn test_with_roles_empty_roles() {
-	mut sfc := new_security_filter_chain(new_auth_manager(), new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
+	mut sfc := new_security_filter_chain(new_auth_manager(),
+		new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
 	sfc.with_roles('/path', [])
 	config := sfc.metadata_source.get_config('/path')
 	assert config.required_roles.len == 0
@@ -116,7 +128,8 @@ fn test_with_roles_empty_roles() {
 // -- Configuration methods: with_deny_all --
 
 fn test_with_deny_all_registers_blocked_path() {
-	mut sfc := new_security_filter_chain(new_auth_manager(), new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
+	mut sfc := new_security_filter_chain(new_auth_manager(),
+		new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
 	sfc.with_deny_all('/secret/internal')
 	config := sfc.metadata_source.get_config('/secret/internal')
 	assert config.is_deny_all == true
@@ -124,7 +137,8 @@ fn test_with_deny_all_registers_blocked_path() {
 }
 
 fn test_with_deny_all_multiple_blocked_paths() {
-	mut sfc := new_security_filter_chain(new_auth_manager(), new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
+	mut sfc := new_security_filter_chain(new_auth_manager(),
+		new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
 	sfc.with_deny_all('/admin/secret')
 	sfc.with_deny_all('/internal/debug')
 
@@ -137,7 +151,8 @@ fn test_with_deny_all_multiple_blocked_paths() {
 // -- Configuration: unregistered path is public by default --
 
 fn test_unregistered_path_is_public() {
-	mut sfc := new_security_filter_chain(new_auth_manager(), new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
+	mut sfc := new_security_filter_chain(new_auth_manager(),
+		new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
 	config := sfc.metadata_source.get_config('/unregistered/path')
 	assert config.is_secured == false
 	assert config.is_permit_all == false
@@ -148,7 +163,8 @@ fn test_unregistered_path_is_public() {
 // -- Mixed configuration test --
 
 fn test_mixed_security_configuration() {
-	mut sfc := new_security_filter_chain(new_auth_manager(), new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
+	mut sfc := new_security_filter_chain(new_auth_manager(),
+		new_jwt_manager(JwtConfig{ secret: 's' }), new_csrf_manager(CsrfConfig{}))
 	sfc.with_permit_all('/public/health')
 	sfc.with_secured('/api/private')
 	sfc.with_roles('/api/admin', ['ADMIN'])
@@ -226,7 +242,8 @@ fn test_cors_security_middleware_wildcard_origin() {
 }
 
 fn test_cors_security_middleware_multiple_origins() {
-	mw := cors_security_middleware(['https://app1.com', 'https://app2.com', 'http://localhost:3000'])
+	mw :=
+		cors_security_middleware(['https://app1.com', 'https://app2.com', 'http://localhost:3000'])
 	_ = mw
 	assert true
 }

@@ -40,7 +40,6 @@ module core
 //   mut app := new_application_context()
 //   app.register_provider(&CacheServiceProvider{})
 //   app.refresh()!  // calls register() on all providers, then boot()
-
 import sync
 
 // ── ServiceProvider ──
@@ -90,7 +89,7 @@ pub interface DeferredServiceProvider {
 // ProviderEntry wraps a ServiceProvider with its registration state.
 pub struct ProviderEntry {
 pub mut:
-	provider  &ServiceProvider = unsafe { nil}
+	provider  &ServiceProvider = unsafe { nil }
 	type_name string
 	is_booted bool
 }
@@ -121,7 +120,7 @@ pub fn (mut r ProviderRegistry) add(type_name string, provider &ServiceProvider)
 	r.mu.@lock()
 	defer { r.mu.unlock() }
 	r.providers << ProviderEntry{
-		provider: unsafe { provider}
+		provider:  unsafe { provider }
 		type_name: type_name
 		is_booted: false
 	}
@@ -162,14 +161,14 @@ pub fn (mut r ProviderRegistry) boot_all(mut ctx ApplicationContext) ! {
 // provider_count returns the number of registered providers.
 pub fn (mut r ProviderRegistry) provider_count() int {
 	r.mu.rlock()
-	defer { r.mu.runlock()}
+	defer { r.mu.runlock() }
 	return r.providers.len
 }
 
 // is_booted checks if a specific provider has been booted.
 pub fn (mut r ProviderRegistry) is_booted(type_name string) bool {
 	r.mu.rlock()
-	defer { r.mu.runlock()}
+	defer { r.mu.runlock() }
 	for entry in r.providers {
 		if entry.type_name == type_name {
 			return entry.is_booted

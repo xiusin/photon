@@ -15,7 +15,6 @@ module web
 //       all  := web.input(app.Context).all()
 //       ...
 //   }
-
 import veb
 import json
 
@@ -27,7 +26,9 @@ pub struct Input {
 
 // input creates an Input wrapper for a veb.Context
 pub fn input(ctx &veb.Context) Input {
-	return Input{ctx: ctx}
+	return Input{
+		ctx: ctx
+	}
 }
 
 // all returns all input data (query + form merged)

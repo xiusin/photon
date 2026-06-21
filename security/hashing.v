@@ -3,7 +3,9 @@ module security
 // hashing.v - Password Hashing (Laravel Hash inspired)
 //
 // Provides password hashing abstractions with BCrypt and Argon2 support.
-
+import crypto.pbkdf2
+import crypto.sha256
+import encoding.hex
 import rand
 
 // Hasher is the interface for password hashing drivers
@@ -66,7 +68,8 @@ pub:
 pub fn (h &Argon2Hasher) make(password string) string {
 	salt := generate_salt(16)
 	hash := hash_string(password, salt, u64(h.time) + u64(h.memory) + u64(h.threads))
-	return r'$argon2id$v=19$m=' + '${h.memory},t=${h.time},p=${h.threads}' + r'$' + '${salt}' + r'$' + '${hash}'
+	return r'$argon2id$v=19$m=' + '${h.memory},t=${h.time},p=${h.threads}' + r'$' + '${salt}' +
+		r'$' + '${hash}'
 }
 
 // check verifies a password against an Argon2 hash
@@ -91,8 +94,8 @@ pub fn (h &Argon2Hasher) needs_rehash(hash string) bool {
 	default_mem := h.memory.str()
 	default_time := h.time.str()
 	default_threads := h.threads.str()
-	return !parts[3].contains('m=${default_mem}') || !parts[3].contains('t=${default_time}') ||
-		!parts[3].contains('p=${default_threads}')
+	return !parts[3].contains('m=${default_mem}') || !parts[3].contains('t=${default_time}')
+		|| !parts[3].contains('p=${default_threads}')
 }
 
 // generate_salt creates a random alphanumeric salt string
@@ -106,18 +109,21 @@ fn generate_salt(length int) string {
 	return salt.bytestr()
 }
 
-// hash_string is a deterministic string hasher for demo/testing purposes.
-// NOT suitable for production password storage — use a real bcrypt/argon2 library.
-// Uses FNV-1a-like mixing: h = (h XOR ch) * FNV_prime
+// hash_string derives a key from password+salt using PBKDF2-SHA256.
 @[inline]
 fn hash_string(password string, salt string, extra u64) string {
-	mut h := u64(0xcbf29ce484222325)
-	for ch in password {
-		h = (h ^ u64(ch)) * 0x100000001b3
+	// PBKDF2-SHA256 with iterations derived from extra (rounds * 1000)
+	iterations := if extra > 0 { int(extra) * 1000 } else { 10000 }
+	// Ensure minimum iterations for security; cap to bound latency for large extra
+	safe_iterations := if iterations < 1000 {
+		1000
+	} else if iterations > 50000 {
+		50000
+	} else {
+		iterations
 	}
-	for ch in salt {
-		h = (h ^ u64(ch)) * 0x100000001b3
+	derived := pbkdf2.key(password.bytes(), salt.bytes(), safe_iterations, 32, sha256.new()) or {
+		[]u8{}
 	}
-	h = (h ^ extra) * 0x100000001b3
-	return h.hex()
+	return derived.map(it.hex()).join('')
 }

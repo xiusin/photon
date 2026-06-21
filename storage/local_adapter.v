@@ -5,22 +5,31 @@ module storage
 // Implements the Storage interface for the local filesystem.
 // Supports root directory scoping, visibility via file permissions,
 // directory traversal, and all common file operations.
-
 import os
+import sync
+
+// max_permissions bounds the permissions cache to prevent unbounded
+// memory growth from unique file paths. When exceeded, oldest entries
+// are evicted (FIFO approximation of LRU).
+const max_permissions = 10000
 
 // LocalAdapter provides filesystem access scoped to a root directory
 pub struct LocalAdapter {
 pub:
-	root      string // root directory path
+	root string // root directory path
 pub mut:
-	permissions map[string]string // path → visibility override
+	permissions       map[string]string // path → visibility override
+	perm_access_order []string          // tracks insertion order for eviction
+mut:
+	mu sync.RwMutex
 }
 
 // new_local_adapter creates a LocalAdapter with the given root directory
 pub fn new_local_adapter(root string) &LocalAdapter {
 	return &LocalAdapter{
-		root: root
-		permissions: map[string]string{}
+		root:              root
+		permissions:       map[string]string{}
+		perm_access_order: []string{}
 	}
 }
 
@@ -157,13 +166,36 @@ pub fn (la &LocalAdapter) metadata(path string) !&FileMetadata {
 // set_visibility changes file visibility.
 // On Unix: sets file permissions for public (644) or private (600).
 // This is best-effort — full permission control requires platform-specific code.
+// The permissions cache is bounded to max_permissions entries (FIFO eviction).
 pub fn (mut la LocalAdapter) set_visibility(path string, visibility Visibility) ! {
 	full := la.resolve_path(path)
 	if !os.exists(full) {
 		return error('file not found: ${path}')
 	}
 
+	la.mu.@lock()
+	// Only add to access order if it's a new key
+	if path !in la.permissions {
+		la.perm_access_order << path
+	}
 	la.permissions[path] = visibility.str()
+	// Bound the map: evict oldest entries if over threshold
+	if la.permissions.len > max_permissions {
+		evict_count := la.permissions.len - max_permissions / 2
+		mut evicted := 0
+		mut new_order := []string{}
+		for i, p in la.perm_access_order {
+			if evicted < evict_count && p in la.permissions && p != path {
+				la.permissions.delete(p)
+				evicted++
+			} else {
+				new_order << p
+			}
+			_ = i
+		}
+		la.perm_access_order = new_order
+	}
+	la.mu.unlock()
 
 	// chmod is best-effort on Unix — errors are logged but not fatal
 	if visibility == .public_ {
@@ -179,6 +211,8 @@ pub fn (mut la LocalAdapter) set_visibility(path string, visibility Visibility) 
 
 // visibility returns a file's visibility
 pub fn (la &LocalAdapter) visibility(path string) !Visibility {
+	la.mu.rlock()
+	defer { la.mu.runlock() }
 	if vis_str := la.permissions[path] {
 		if vis_str == 'public' {
 			return Visibility.public_
@@ -212,12 +246,14 @@ pub fn (la &LocalAdapter) list_contents(directory string) ![]&FileMetadata {
 		if os.is_dir(full_entry) {
 			// Directories are listed as files with size 0
 			result << &FileMetadata{
-				path: entry_path
-				size: 0
-				mime_type: 'inode/directory'
+				path:          entry_path
+				size:          0
+				mime_type:     'inode/directory'
 				last_modified: os.file_last_mod_unix(full_entry)
-				visibility: .private_
-				extra: {'type': 'directory'}
+				visibility:    .private_
+				extra:         {
+					'type': 'directory'
+				}
 			}
 		} else {
 			sz := os.file_size(full_entry)

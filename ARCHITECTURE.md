@@ -72,7 +72,7 @@ Module {
 
 ## 2. 模块拓扑
 
-### 2.1 完整模块列表（16 个模块，125 个 .v 文件）
+### 2.1 完整模块列表（16 个模块，140+ 个 .v 文件）
 
 ```
 photon/
@@ -90,13 +90,14 @@ photon/
 │   ├── environment.v     # Environment（Profile + Property + Placeholder 解析）
 │   ├── scanner.v         # 编译期 Bean 扫描 + 属性解析
 │   ├── lifecycle.v       # LifecycleManager + SmartLifecycle + ContextRefreshedEvent
-│   ├── event.v           # EventBus（Spring ApplicationEvent 风格）
+│   ├── event.v           # EventBus（Spring ApplicationEvent 风格 + TransactionalEventListener）
+│   ├── conversion.v      # ConversionService + Converter 接口 + GenericConversionService（Spring 对齐）
 │   ├── condition.v       # 条件装配（@conditional_on_* 系列注解）
 │   ├── post_processor.v  # BeanPostProcessor + BeanFactoryPostProcessor（AOP 基础）
 │   ├── factory_bean.v    # FactoryBean（工厂 Bean + FactoryBeanRegistry）
 │   ├── service_locator.v # ServiceLocator（Laravel app() 风格）+ BindingRegistry
 │   ├── auto_configuration.v # AutoConfiguration（Spring Boot 自动配置）
-│   └── context_test.v    # 新增功能测试
+│   └── *._test.v         # 测试文件（含 event_transactional_test）
 │
 ├── config/               # [Beta] 配置管理
 │   ├── config.v          # Config 主结构：多源合并、类型转换
@@ -114,7 +115,9 @@ photon/
 │   ├── middleware_groups.v # 中间件组 + CORS + 参数化中间件
 │   ├── filter.v          # FilterChain（请求/响应过滤器）
 │   ├── pipeline.v        # 洋葱模型管道
-│   ├── kernel.v          # HttpKernel（事件驱动生命周期）
+│   ├── kernel.v          # HttpKernel（事件驱动 + HandlerResolver + handle_with）
+│   ├── content_negotiation.v # ContentNegotiationManager（Spring 对齐：Accept/Parameter/Fixed 策略）
+│   ├── resource_handler.v # ResourceHandlerRegistry（Spring 对齐：静态资源映射）
 │   ├── result.v          # 统一 API 响应封装（Result/PageResult）
 │   ├── bind.v            # DTO 绑定 @[required] @[form:'name']
 │   ├── model_binding.v   # 路由模型绑定
@@ -123,15 +126,7 @@ photon/
 │   ├── ratelimit.v       # RateLimiter 限流
 │   ├── events.v          # 内核事件常量定义
 │   ├── testing.v         # TestResponse 链式断言
-│   ├── controller_test.v
-│   ├── router_test.v
-│   ├── filter_test.v
-│   ├── middleware_test.v
-│   ├── result_test.v
-│   ├── bind_test.v
-│   ├── input_test.v
-│   ├── testing_test.v
-│   └── web_ext_test.v
+│   └── *._test.v         # 测试文件（含 bind_bench_test）
 │
 ├── orm/                  # [Beta] ORM + 实体映射
 │   ├── orm.v             # OrmManager（多连接管理）、DriverType、OrmConnection
@@ -139,18 +134,11 @@ photon/
 │   ├── adapter.v         # OrmAdapter[T]（生命周期钩子包装器）
 │   ├── repository.v      # Repository[T] 接口 + BaseRepository + DerivedRepository
 │   ├── derive.v          # Spring Data 风格方法名解析（findByNameAndAge → WHERE）
-│   ├── transaction.v     # TransactionManager（7 种传播行为 + 隔离级别）
+│   ├── transaction.v     # TransactionManager（7 种传播行为 + 真实 DB 连接回调）
 │   ├── relation.v        # HasMany[T] / BelongsTo[T] / ManyToMany[T]
 │   ├── eager.v           # EagerLoader（N+1 问题预防）
 │   ├── migration.v       # MigrationManager（版本化迁移）
-│   ├── orm_test.v
-│   ├── adapter_test.v
-│   ├── entity_test.v
-│   ├── derive_test.v
-│   ├── relation_test.v
-│   ├── repository_test.v
-│   ├── transaction_test.v
-│   └── migration_test.v
+│   └── *._test.v         # 测试文件（含 transaction_bench_test）
 │
 ├── security/             # [Beta] 安全模块
 │   ├── security.v        # 模块入口
@@ -159,19 +147,23 @@ photon/
 │   ├── auth.v            # AuthenticationManager + AuthenticationProvider + PasswordEncoder
 │   ├── role.v            # RoleHierarchy + AccessDecisionManager + 默认角色/权限
 │   ├── csrf.v            # CsrfManager + CookieCsrfTokenRepository + Double-Submit Cookie
-│   ├── encryption.v      # Encrypter（XOR + hex 对称加密）
-│   ├── hashing.v         # BcryptHasher / Argon2Hasher（FNV-1a 哈希）
+│   ├── encryption.v      # Encrypter（XOR + hex 对称加密，@[deprecated] 迁移至 AesCipher）
+│   ├── hashing.v         # BcryptHasher / Argon2Hasher（PBKDF2-SHA256 真实 KDF）
+│   ├── password_encoder.v # PasswordEncoder 接口体系（Spring 对齐：BCrypt/Argon2/Fnv/Delegating）
+│   ├── cipher.v          # AesCipher（AES-256-CBC + HMAC，推荐加密器）
 │   ├── filter.v          # SecurityFilterChain（veb 集成过滤器）
 │   ├── annotations.v     # Security 注解解析
 │   ├── context.v         # SecurityContext + SecurityContextHolder
-│   ├── *._test.v         # 每个文件对应测试（9 个测试文件）
+│   ├── *._test.v         # 每个文件对应测试（12 个测试文件）
 │
 ├── cache/                # [Beta] 缓存模块
-│   ├── cache.v           # Cache 接口 + CacheManager
+│   ├── cache.v           # Cache 接口 + CacheRegistry（原 CacheManager 重命名）
+│   ├── manager.v         # CacheManager/NamedCache 接口 + ValueWrapper + RedisCache 抽象（Spring 对齐）
 │   ├── memory.v          # MemoryCache（RwMutex 并发安全 + LRU 淘汰 + TTL）
+│   ├── annotation.v      # CacheableInterceptor + CacheConfigAttribute + KeyGenerator（Spring 对齐）
 │   ├── cache_tags.v      # TaggedCache + CacheLock + remember/remember_forever/sear
 │   ├── singleflight.v    # Singleflight（Go singleflight 风格削峰）
-│   └── cache_test.v
+│   ├── *._test.v         # 测试文件（含 benchmark）
 │
 ├── queue/                # [Beta] 队列模块
 │   ├── queue.v           # JobPayload + Job 接口
@@ -208,18 +200,18 @@ photon/
 │
 ├── support/              # [Beta] 支持工具
 │   ├── support.v         # 入口
+│   ├── error.v           # PhotonError + ErrorCode 枚举（统一领域错误类型，实现 IError）
 │   ├── arr.v             # 数组工具（dot-notation get/set/has + reverse/take/skip）
 │   ├── str.v             # 字符串工具（slug/snake/camel/studly/kebab + 截断/填充）
 │   ├── collection.v      # Collection[T]（Laravel 风格链式集合操作：map/filter/reduce/sort/groupBy）
 │   ├── pagination.v      # LengthAwarePaginator[T] + SimplePaginator[T]
 │   ├── sort.v            # Sort + SortOrder + PageRequest（Spring Data 风格）
-│   ├── *._test.v         # 5 个测试文件
+│   └── *._test.v         # 测试文件
 │
-├── http/                 # [Alpha] HTTP 客户端
+├── http/                 # [Alpha] HTTP 客户端（Spring RestTemplate 对齐）
 │   ├── http.v            # 入口
-│   ├── client.v          # HttpClient（fluent API: with_base_url/with_header/with_token/get/post）
-│   ├── HttpResponse
-│   └── http_test.v
+│   ├── client.v          # RestTemplate（fluent API + SSLConfig/ProxyConfig + NoopInterceptor）
+│   └── *._test.v         # 测试文件（含 ssl_proxy_test）
 │
 ├── cli/                  # [Beta] CLI 框架
 │   ├── cli.v             # 入口

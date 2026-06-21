@@ -5,7 +5,6 @@ module web
 // Implements Laravel-style middleware groups and parameterized middleware.
 // Groups allow bundling middleware under a name (e.g., 'web', 'api').
 // Parameterized middleware accepts runtime configuration.
-
 import sync
 
 // MiddlewareGroup bundles named middleware
@@ -98,7 +97,7 @@ pub fn parse_middleware_params(spec string) ParameterizedMiddleware {
 	}
 
 	return ParameterizedMiddleware{
-		name: name
+		name:   name
 		params: params
 	}
 }
@@ -118,8 +117,8 @@ pub mut:
 // new_throttle_state creates a ThrottleState.
 pub fn new_throttle_state(max_attempts int, decay_seconds i64) &ThrottleState {
 	return &ThrottleState{
-		limiter: new_rate_limiter()
-		max_attempts: max_attempts
+		limiter:       new_rate_limiter()
+		max_attempts:  max_attempts
 		decay_seconds: decay_seconds
 	}
 }
@@ -131,9 +130,9 @@ pub fn new_throttle_state(max_attempts int, decay_seconds i64) &ThrottleState {
 //
 // Usage: throttle_middleware(max_attempts: 60, decay_minutes: 1)
 //   → Allows 60 requests per minute per key (IP or user).
-pub fn throttle_middleware(max_attempts int, decay_minutes int) fn (mut &MiddlewareContext) !bool {
+pub fn throttle_middleware(max_attempts int, decay_minutes int) fn (mut MiddlewareContext) !bool {
 	mut state := new_throttle_state(max_attempts, i64(decay_minutes) * 60)
-	return fn [mut state] (mut ctx &MiddlewareContext) !bool {
+	return fn [mut state] (mut ctx MiddlewareContext) !bool {
 		mut key := ctx.data['user_id'] or { 'anonymous' }
 		key = 'throttle_${key}'
 
@@ -152,8 +151,8 @@ pub fn throttle_middleware(max_attempts int, decay_minutes int) fn (mut &Middlew
 
 // role_middleware creates a parameterized role-based middleware
 // Usage: role_middleware(['ADMIN', 'MODERATOR'])
-pub fn role_middleware(allowed_roles []string) fn (mut &MiddlewareContext) !bool {
-	return fn [allowed_roles] (mut ctx &MiddlewareContext) !bool {
+pub fn role_middleware(allowed_roles []string) fn (mut MiddlewareContext) !bool {
+	return fn [allowed_roles] (mut ctx MiddlewareContext) !bool {
 		user_roles_str := ctx.data['user_roles'] or { '' }
 		if user_roles_str.len == 0 {
 			return error('access denied: no roles')
@@ -173,8 +172,8 @@ pub fn role_middleware(allowed_roles []string) fn (mut &MiddlewareContext) !bool
 }
 
 // cors_configurable_middleware creates a CORS middleware with configurable origins
-pub fn cors_configurable_middleware(allowed_origins []string, allowed_methods string, allowed_headers string) fn (mut &MiddlewareContext) !bool {
-	return fn [allowed_origins, allowed_methods, allowed_headers] (mut ctx &MiddlewareContext) !bool {
+pub fn cors_configurable_middleware(allowed_origins []string, allowed_methods string, allowed_headers string) fn (mut MiddlewareContext) !bool {
+	return fn [allowed_origins, allowed_methods, allowed_headers] (mut ctx MiddlewareContext) !bool {
 		origin := ctx.ctx.get_custom_header('Origin') or { '' }
 
 		mut origin_allowed := false

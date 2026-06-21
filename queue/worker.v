@@ -4,7 +4,7 @@ module queue
 //
 // Polls the queue for jobs and executes them with retry and backoff.
 // Jobs are registered by type name to a factory function.
-
+import sync
 import time
 
 // JobFactory creates a new Job instance from a registered type
@@ -16,9 +16,13 @@ pub:
 	queue_name string = 'default'
 	sleep_secs int    = 5 // poll interval when idle
 pub mut:
-	running    bool
-	registry      map[string]JobFactory
+	running        bool
+	registry       map[string]JobFactory
 	failed_handler &FailedJobHandler = unsafe { nil }
+mut:
+	mu          sync.Mutex   // protects running flag
+	registry_mu sync.RwMutex // protects registry map
+	stop_ch     chan bool = chan bool{cap: 1}
 }
 
 // new_worker creates a new QueueWorker with an empty job registry
@@ -33,6 +37,8 @@ pub fn new_worker() &QueueWorker {
 // Usage:
 //   worker.register('SendEmail', fn () &Job { return &SendEmailJob{} })
 pub fn (mut w QueueWorker) register(job_type string, factory JobFactory) {
+	w.registry_mu.@lock()
+	defer { w.registry_mu.unlock() }
 	w.registry[job_type] = factory
 }
 
@@ -45,12 +51,22 @@ pub fn (mut w QueueWorker) set_failed_handler(handler &FailedJobHandler) {
 
 // run marks the worker as running
 pub fn (mut w QueueWorker) run() {
+	w.mu.@lock()
+	defer { w.mu.unlock() }
 	w.running = true
 }
 
 // is_running returns whether the worker is active
 pub fn (w &QueueWorker) is_running() bool {
-	return w.running
+	// Reading a bool is atomic on most platforms, but for memory
+	// visibility across goroutines we use the mutex.
+	unsafe {
+		mut mw := w
+		mw.mu.@lock()
+		val := mw.running
+		mw.mu.unlock()
+		return val
+	}
 }
 
 // tick does one polling iteration (call in a loop).
@@ -58,7 +74,10 @@ pub fn (w &QueueWorker) is_running() bool {
 // with retry + backoff logic. Failed jobs are passed to the
 // FailedJobHandler if configured.
 pub fn (mut w QueueWorker) tick() {
-	if !w.running {
+	w.mu.@lock()
+	running := w.running
+	w.mu.unlock()
+	if !running {
 		return
 	}
 
@@ -74,12 +93,15 @@ pub fn (mut w QueueWorker) tick() {
 		return
 	}
 
-	// Look up the job handler via registry
+	// Look up the job handler via registry (read-locked)
+	w.registry_mu.@rlock()
 	factory := w.registry[job_info.name] or {
+		w.registry_mu.runlock()
 		// Unregistered job type — log and skip
 		w.record_failure(job_info.name, payload, 'unregistered job type', 0)
 		return
 	}
+	w.registry_mu.runlock()
 
 	job := factory()
 	// Normalize tries to at least 1 (a job must execute at least once).
@@ -93,26 +115,55 @@ pub fn (mut w QueueWorker) tick() {
 	// Execute with retry
 	for attempt := 0; attempt < max_tries; attempt++ {
 		mut has_error := false
-		job.handle() or {
-			has_error = true
-		}
+		job.handle() or { has_error = true }
 		if !has_error {
 			// Success — job completed
 			return
 		}
 
-		// Handle failure: apply backoff before retry
+		// Handle failure: apply backoff before retry (interruptible)
 		if attempt < max_tries - 1 {
 			mut delay_secs := i64(1) // default 1s backoff
 			if attempt < backoffs.len {
 				delay_secs = backoffs[attempt]
 			}
-			time.sleep(delay_secs * time.second)
+			// Interruptible sleep: poll stop_ch so stop() can break retry backoff
+			if w.interruptible_sleep(delay_secs) {
+				// Worker was stopped during backoff
+				return
+			}
 		}
 	}
 
 	// All retries exhausted — record as failed
 	w.record_failure(job_info.name, payload, 'max retries (${max_tries}) exhausted', max_tries)
+}
+
+// interruptible_sleep sleeps for the given seconds, but can be interrupted
+// by a stop signal on stop_ch. Returns true if interrupted, false if the
+// full duration elapsed.
+fn (mut w QueueWorker) interruptible_sleep(delay_secs i64) bool {
+	mut remaining_ms := delay_secs * 1000
+	for remaining_ms > 0 {
+		// Check for stop signal (non-blocking)
+		mut stopped := false
+		select {
+			_ := <-w.stop_ch {
+				stopped = true
+			}
+			else {}
+		}
+		if stopped {
+			w.mu.@lock()
+			w.running = false
+			w.mu.unlock()
+			return true
+		}
+		sleep_ms := if remaining_ms < 100 { remaining_ms } else { 100 }
+		time.sleep(sleep_ms * time.millisecond)
+		remaining_ms -= sleep_ms
+	}
+	return false
 }
 
 // record_failure logs a failed job to the configured FailedJobHandler
@@ -124,9 +175,16 @@ fn (mut w QueueWorker) record_failure(job_type string, payload string, reason st
 	handler.handle(job_type, payload, reason, w.queue_name, attempts) or {}
 }
 
-// stop halts the worker
+// stop halts the worker and interrupts any pending retry backoff.
 pub fn (mut w QueueWorker) stop() {
+	w.mu.@lock()
 	w.running = false
+	w.mu.unlock()
+	// Signal interruptible_sleep to wake up immediately
+	select {
+		w.stop_ch <- true {}
+		else {}
+	}
 }
 
 // JobInfo holds parsed job metadata
