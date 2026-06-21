@@ -16,7 +16,6 @@ import photon.queue
 import photon.mailer
 import photon.cache
 import photon.logger
-import models
 import repositories
 import json
 import time

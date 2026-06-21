@@ -15,19 +15,7 @@ module bootstrap
 // Spring 等价：SpringApplication + ApplicationContext
 
 import photon.core
-import photon.cache
-import photon.locking
-import photon.storage
-import photon.mailer
-import photon.ticker
-import photon.logger
-import photon.security
-import photon.queue
-import photon.orm as phorm
-import photon.web
 import config
-import repositories
-import services
 import providers
 
 // AppKernel 应用内核，持有 BootContext 与 ApplicationContext

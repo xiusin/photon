@@ -6,7 +6,6 @@ module migrations
 // (post_id, tag_id) 联合唯一索引防止重复关联。
 
 import photon.orm as phorm
-import db.sqlite
 import database
 
 pub struct CreatePostTagsTable {}

@@ -7,7 +7,6 @@ module migrations
 // deleted_at 为未来 SoftDeletableEntity 自动过滤预留）。
 
 import photon.orm as phorm
-import db.sqlite
 import database
 
 pub struct CreateUsersTable {}

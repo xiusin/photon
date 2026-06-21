@@ -5,7 +5,6 @@ module migrations
 // 创建 tags 表，包含名称、slug 字段。slug 唯一索引。
 
 import photon.orm as phorm
-import db.sqlite
 import database
 
 pub struct CreateTagsTable {}

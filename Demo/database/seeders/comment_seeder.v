@@ -7,7 +7,6 @@ module seeders
 
 import photon.cli
 import bootstrap
-import models
 import factories
 
 // CommentSeeder 评论种子

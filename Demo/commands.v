@@ -24,7 +24,6 @@ module main
 
 import photon.cli
 import photon.web
-import photon.orm as phorm
 import time
 import os
 import bootstrap

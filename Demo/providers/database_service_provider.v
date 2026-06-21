@@ -8,7 +8,6 @@ module providers
 // Spring 等价：DataSourceAutoConfiguration
 
 import photon.core
-import photon.orm as phorm
 import database
 import database.migrations
 

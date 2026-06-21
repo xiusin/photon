@@ -6,7 +6,6 @@ module migrations
 // 添加 deleted_at 列以支持框架级软删除（当前实现使用 status='archived' 状态删除）。
 
 import photon.orm as phorm
-import db.sqlite
 import database
 
 pub struct CreatePostsTable {}

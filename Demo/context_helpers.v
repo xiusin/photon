@@ -10,7 +10,6 @@ module main
 
 import veb
 import net.http
-import json
 import photon.web
 
 // ═══════════════════════════════════════════════════════════
@@ -28,7 +27,7 @@ pub fn (mut ctx Context) send_result(result web.Result) veb.Result {
 pub fn (mut ctx Context) send_page_result(result web.PageResult) veb.Result {
 	ctx.res.set_status(.ok)
 	ctx.set_content_type('application/json')
-	return ctx.text(json.encode(result))
+	return ctx.text(result.to_json())
 }
 
 // send_data 快捷方法：发送 200 成功响应，data 为已编码的 JSON 字符串

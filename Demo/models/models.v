@@ -48,7 +48,7 @@ pub mut:
 	author_id   int
 	category_id int
 	status      string = 'draft' // draft | published | archived
-	views       int = 0
+	views       int
 }
 
 pub fn (p &Post) table_name() string {
@@ -66,7 +66,7 @@ pub mut:
 	post_id   int
 	user_id   int
 	content   string
-	parent_id int = 0 // 0 = top-level comment
+	parent_id int // 0 = top-level comment
 	status    string = 'visible' // visible | hidden | deleted
 }
 
