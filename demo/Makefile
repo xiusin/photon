@@ -166,7 +166,7 @@ release-package: build-release
 	@mkdir -p dist
 	@tar -czf dist/$(BIN)-release-$$(date +%Y%m%d%H%M%S).tar.gz \
 		$(BIN_DIR)/$(BIN) \
-		config/ \
+		appconfig/ \
 		.env.example \
 		.env.prod.example \
 		database/migrations/ \
