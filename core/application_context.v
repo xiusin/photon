@@ -125,6 +125,45 @@ pub fn (mut ctx ApplicationContext) is_ready() bool {
 	return ctx.state == .ready
 }
 
+// is_readiness_ready returns true if the application is ready to serve
+// traffic, suitable for use by a K8s readiness probe.
+//
+// This is stricter than is_ready(): it requires BOTH:
+//   1. The application state is .ready or .started (the context has been
+//      refreshed and is not shutting down).
+//   2. All registered SmartLifecycle beans report is_running() == true
+//      (background services like schedulers, queue workers, etc. are up).
+//
+// If no SmartLifecycle beans are registered, only the state check applies
+// (an app with no lifecycle-managed components is ready as soon as refresh()
+// completes). If SmartLifecycle beans ARE registered, every one of them
+// must be running — a single not-yet-started component keeps the probe
+// returning 503, which is the K8s convention for "starting".
+//
+// Thread-safety: takes the context read lock for the state check, then
+// delegates to SmartLifecycleManager.all_running() which takes its own lock.
+// The two locks are not held simultaneously, so there is no deadlock risk.
+//
+// Spring equivalent: AvailabilityChangeEvent + SmartLifecycle aggregation
+// used by Spring Boot's readiness probe.
+pub fn (mut ctx ApplicationContext) is_readiness_ready() bool {
+	ctx.mu.rlock()
+	state := ctx.state
+	ctx.mu.runlock()
+
+	if state != .ready && state != .started {
+		return false
+	}
+
+	if isnil(ctx.smart_lifecycle) {
+		return true
+	}
+	if ctx.smart_lifecycle.entry_count() == 0 {
+		return true
+	}
+	return ctx.smart_lifecycle.all_running()
+}
+
 // is_running returns true if the application is not closed/closing.
 pub fn (mut ctx ApplicationContext) is_running() bool {
 	ctx.mu.rlock()
@@ -334,15 +373,18 @@ pub fn (mut ctx ApplicationContext) register_scheduled[T](mut scheduler ticker.S
 	}
 
 	// Comptime scan: for each method of T, check if it has @[scheduled(...)]
-	// and generate a per-method closure that calls bean.$method().
+	// and generate a per-method closure that delegates to the dispatcher.
 	$for method in T.methods {
 		cron_expr := extract_scheduled_expr(method.attrs)
 		if cron_expr.len > 0 {
-			// Capture the raw bean pointer. Inside the closure, cast it to
-			// a mutable &T so that mut-receiver methods can be called.
-			task_fn := fn [bean_ptr] () ! {
-				mut bean := unsafe { &T(bean_ptr) }
-				bean.$method()
+			// V 0.5.1 comptime limitation: T and $for method variables are
+			// not accessible inside nested closures. We capture the bean
+			// pointer and method name, then delegate to the top-level
+			// generic dispatcher which CAN access comptime variables.
+			method_name := method.name
+			dispatcher := dispatch_scheduled_method[T]
+			task_fn := fn [bean_ptr, method_name, dispatcher] () ! {
+				dispatcher(bean_ptr, method_name)!
 			}
 
 			mut b := scheduler.cron(cron_expr)
@@ -972,6 +1014,16 @@ pub fn (mut ctx ApplicationContext) get_definition(type_name string) !BeanDefini
 // dependencies_of returns the dependencies of a bean.
 pub fn (mut ctx ApplicationContext) dependencies_of(type_name string) []Dependency {
 	return ctx.container.dependencies_of(type_name)
+}
+
+// list_beans returns a snapshot of all registered bean definitions as
+// BeanInfo records for the /beans actuator endpoint (SubTask D6.2).
+// Delegates to Container.list_beans() which acquires the container's
+// read lock to produce a consistent view.
+//
+// Spring equivalent: Spring Boot Actuator's /beans endpoint.
+pub fn (mut ctx ApplicationContext) list_beans() []BeanInfo {
+	return ctx.container.list_beans()
 }
 
 // remove_definition removes a bean definition from the container.

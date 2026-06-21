@@ -1098,6 +1098,42 @@ pub fn (mut c Container) dependencies_of(type_name string) []Dependency {
 	return def.dependencies.clone()
 }
 
+// ── BeanInfo (Introspection for /beans actuator endpoint) ──
+
+// BeanInfo holds a flattened, serializable view of a BeanDefinition.
+// Used by the /beans actuator endpoint (SubTask D6.2) to expose bean
+// metadata without leaking internal pointers or lifecycle state.
+//
+// Spring equivalent: Spring Boot Actuator's /beans endpoint output.
+pub struct BeanInfo {
+pub:
+	name  string // bean name (type_name)
+	typ   string // bean type name
+	scope string // 'singleton' | 'prototype' | 'request'
+	lazy  bool   // @[lazy] flag
+}
+
+// list_beans returns a snapshot of all registered bean definitions as
+// BeanInfo records, suitable for serialization by the /beans actuator
+// endpoint. The list is built atomically under a single read lock so
+// concurrent registrations do not produce an inconsistent view.
+//
+// Spring equivalent: Spring Boot Actuator's /beans endpoint.
+pub fn (mut c Container) list_beans() []BeanInfo {
+	c.mu.rlock()
+	defer { c.mu.runlock() }
+	mut beans := []BeanInfo{}
+	for name, def in c.definitions {
+		beans << BeanInfo{
+			name:  name
+			typ:   def.type_name
+			scope: def.scope.str()
+			lazy:  def.is_lazy
+		}
+	}
+	return beans
+}
+
 // ── Lifecycle ──
 
 // set_instance stores a resolved singleton instance.

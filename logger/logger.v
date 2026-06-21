@@ -8,22 +8,27 @@ module logger
 // Key concepts:
 //   - Encoder: Pluggable serialization format (JSON, Console)
 //   - EncoderConfig: Fine-grained control over output format
-//   - Level: Severity filtering (debug, info, warn, error, fatal)
+//   - Level: Severity filtering (trace, debug, info, warn, error, fatal)
 //   - MDC: Mapped Diagnostic Context for structured fields
+import sync
 import time
 
-// Level represents the severity of a log message
+// Level represents the severity of a log message.
+// Values are ordered by increasing severity so that level comparison via
+// `int(level)` reflects severity ordering (trace < debug < info < ...).
 pub enum Level {
-	debug = 0
-	info  = 1
-	warn  = 2
-	error = 3
-	fatal = 4
+	trace = 0
+	debug = 1
+	info  = 2
+	warn  = 3
+	error = 4
+	fatal = 5
 }
 
 // str converts Level to uppercase string
 pub fn (l Level) str() string {
 	return match l {
+		.trace { 'TRACE' }
 		.debug { 'DEBUG' }
 		.info { 'INFO' }
 		.warn { 'WARN' }
@@ -35,11 +40,26 @@ pub fn (l Level) str() string {
 // short_str returns a 4-char abbreviation for the level
 pub fn (l Level) short_str() string {
 	return match l {
+		.trace { 'TRAC' }
 		.debug { 'DBUG' }
 		.info { 'INFO' }
 		.warn { 'WARN' }
 		.error { 'ERRO' }
 		.fatal { 'FATA' }
+	}
+}
+
+// level_from_str parses a level string (case-insensitive) into a Level.
+// Accepts common aliases: 'warning' → .warn. Returns none on unknown input.
+pub fn level_from_str(s string) ?Level {
+	return match s.to_lower() {
+		'trace' { Level.trace }
+		'debug' { Level.debug }
+		'info' { Level.info }
+		'warn', 'warning' { Level.warn }
+		'error' { Level.error }
+		'fatal' { Level.fatal }
+		else { none }
 	}
 }
 
@@ -299,4 +319,167 @@ pub fn (l &Logger) errorf(msg string, a string) {
 
 pub fn (l &Logger) fatalf(msg string, a string) {
 	l.fatal(msg.replace('{}', a))
+}
+
+// ============================================================
+// LoggerConfig — Per-namespace log level management (SubTask D5.1)
+// ============================================================
+//
+// LoggerConfig manages per-namespace log levels with hierarchical
+// inheritance, inspired by Spring Boot's logging system and logback.
+//
+// Hierarchy: namespaces are dot-separated (e.g. 'com.photon.db.query').
+// When resolving the level for a namespace, the most specific matching
+// ancestor wins; if no ancestor is configured, the default (root) level
+// is used.
+//
+//   config.set_namespace_level('com.photon', .warn)
+//   config.get_level('com.photon.db.query')   // → .warn (inherited)
+//   config.set_namespace_level('com.photon.db', .debug)
+//   config.get_level('com.photon.db.query')   // → .debug (most specific)
+//
+// Thread-safety: all reads/writes are protected by sync.RwMutex.
+// The 'ROOT' name is the conventional alias for the default level.
+
+// LoggerInfo describes a single logger entry as exposed by the /loggers
+// endpoint. `name` is the namespace (or 'ROOT' for the default level);
+// `level` is the uppercase string representation of the Level.
+pub struct LoggerInfo {
+pub:
+	name  string
+	level string
+}
+
+// LoggerConfig manages per-namespace log levels with hierarchical
+// inheritance and a default (root) level. Thread-safe via sync.RwMutex.
+@[heap]
+pub struct LoggerConfig {
+pub mut:
+	mu              sync.RwMutex
+	default_level   Level            = .info
+	namespace_levels map[string]Level
+}
+
+// new_logger_config creates a LoggerConfig with default level .info and
+// no namespace overrides.
+pub fn new_logger_config() &LoggerConfig {
+	return &LoggerConfig{
+		namespace_levels: map[string]Level{}
+	}
+}
+
+// new_logger_config_with_level creates a LoggerConfig with a custom
+// default (root) level.
+pub fn new_logger_config_with_level(level Level) &LoggerConfig {
+	return &LoggerConfig{
+		default_level:   level
+		namespace_levels: map[string]Level{}
+	}
+}
+
+// set_default_level sets the root log level. Thread-safe.
+// 对应 POST /loggers/ROOT — 调整默认（根）日志级别。
+pub fn (mut lc LoggerConfig) set_default_level(level Level) {
+	lc.mu.@lock()
+	lc.default_level = level
+	lc.mu.unlock()
+}
+
+// get_default_level returns the root log level. Thread-safe.
+pub fn (mut lc LoggerConfig) get_default_level() Level {
+	lc.mu.@rlock()
+	defer {
+		lc.mu.runlock()
+	}
+	return lc.default_level
+}
+
+// set_namespace_level sets the log level for a specific namespace.
+// Thread-safe. 对应 POST /loggers/{name} — 调整指定命名空间级别。
+pub fn (mut lc LoggerConfig) set_namespace_level(namespace string, level Level) {
+	lc.mu.@lock()
+	lc.namespace_levels[namespace] = level
+	lc.mu.unlock()
+}
+
+// get_level resolves the effective log level for a namespace using
+// hierarchical inheritance: the most specific configured ancestor wins,
+// falling back to the default (root) level. Thread-safe.
+//
+// Example: for 'com.photon.db.query', checks in order:
+//   'com.photon.db.query' → 'com.photon.db' → 'com.photon' → 'com' → default
+pub fn (mut lc LoggerConfig) get_level(namespace string) Level {
+	lc.mu.@rlock()
+	defer {
+		lc.mu.runlock()
+	}
+
+	if namespace.len > 0 {
+		// Exact match — most specific.
+		if level := lc.namespace_levels[namespace] {
+			return level
+		}
+		// Walk up the dot-separated hierarchy.
+		mut ns := namespace
+		for ns.contains('.') {
+			last_dot := ns.last_index('.') or { break }
+			ns = ns[..last_dot]
+			if level := lc.namespace_levels[ns] {
+				return level
+			}
+		}
+	}
+	return lc.default_level
+}
+
+// should_log returns true if a message at `level` should be emitted for
+// the given namespace, i.e. its severity is at or above the namespace's
+// effective threshold. Thread-safe.
+pub fn (mut lc LoggerConfig) should_log(namespace string, level Level) bool {
+	current := lc.get_level(namespace)
+	return int(level) >= int(current)
+}
+
+// list_loggers returns all configured loggers (namespace overrides plus
+// the ROOT entry) for the /loggers endpoint. Thread-safe.
+pub fn (mut lc LoggerConfig) list_loggers() []LoggerInfo {
+	lc.mu.@rlock()
+	defer {
+		lc.mu.runlock()
+	}
+
+	mut loggers := []LoggerInfo{}
+	for ns, level in lc.namespace_levels {
+		loggers << LoggerInfo{
+			name: ns
+			level: level.str()
+		}
+	}
+	loggers << LoggerInfo{
+		name: 'ROOT'
+		level: lc.default_level.str()
+	}
+	return loggers
+}
+
+// remove_namespace removes a namespace level override, causing that
+// namespace to fall back to inherited/default behavior. Thread-safe.
+pub fn (mut lc LoggerConfig) remove_namespace(namespace string) {
+	lc.mu.@lock()
+	lc.namespace_levels.delete(namespace)
+	lc.mu.unlock()
+}
+
+// get_namespace_level returns the explicitly configured level for a
+// namespace, or none if no override is set. Unlike get_level(), this
+// does NOT perform hierarchical inheritance. Thread-safe.
+pub fn (mut lc LoggerConfig) get_namespace_level(namespace string) ?Level {
+	lc.mu.@rlock()
+	defer {
+		lc.mu.runlock()
+	}
+	if level := lc.namespace_levels[namespace] {
+		return level
+	}
+	return none
 }

@@ -325,7 +325,9 @@ pub fn extract_scheduled_expr(attrs []string) string {
 					val = val[..val.len - 1]
 				}
 			}
-			return val.trim("'").trim('"').trim_space()
+			// Trim spaces first so that surrounding quotes become the
+			// outermost characters and can be stripped in one pass.
+			return val.trim_space().trim("'\"")
 		}
 	}
 	return ''
@@ -379,6 +381,30 @@ pub fn extract_scheduled_methods[T]() []ScheduledTaskInfo {
 		}
 	}
 	return tasks
+}
+
+// dispatch_scheduled_method invokes the method named `method_name` on the
+// bean of type T located at `bean_ptr`. It is a top-level generic function
+// (NOT a closure) so that the comptime type `T` and the `$for method` loop
+// variable are accessible in its body — V 0.5.1 does not propagate comptime
+// variables into nested closures.
+//
+// The runtime `if method_name == method.name` comparison is generated once
+// per method by the unrolled `$for` loop; the matching branch calls
+// `bean.$method()` which is resolved at compile time. This yields a
+// type-safe, zero-reflection dispatcher.
+//
+// Used by `ApplicationContext.register_scheduled[T]` to build scheduled-task
+// callbacks: the callback closure captures a function pointer to the
+// monomorphized `dispatch_scheduled_method[T]` and calls it with the bean
+// pointer and method name.
+pub fn dispatch_scheduled_method[T](bean_ptr voidptr, method_name string) ! {
+	mut bean := unsafe { &T(bean_ptr) }
+	$for method in T.methods {
+		if method_name == method.name {
+			bean.$method()
+		}
+	}
 }
 
 // extract_cacheable_key parses @[cacheable('key_pattern')] from attributes.

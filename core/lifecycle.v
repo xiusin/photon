@@ -312,6 +312,36 @@ pub fn (mut m SmartLifecycleManager) entry_count() int {
 	return m.entries.len
 }
 
+// all_running returns true if at least one SmartLifecycle bean is registered
+// AND every registered bean reports is_running() == true.
+//
+// Used by the K8s readiness probe (web/actuator_k8s_probes.v) to determine
+// whether the application is ready to serve traffic. An empty manager returns
+// false — no components means nothing is ready yet (e.g. during startup
+// before SmartLifecycle beans have been registered/started).
+//
+// Thread-safety: takes a read lock to snapshot the entries slice, then
+// invokes is_running() on each bean OUTSIDE the lock (same pattern as
+// start_all/stop_all) to avoid deadlock if a callback re-enters the manager.
+//
+// Spring equivalent: LifecycleProcessor.isRunning() aggregated across all
+// SmartLifecycle beans.
+pub fn (mut m SmartLifecycleManager) all_running() bool {
+	m.mu.rlock()
+	entries_copy := m.entries.clone()
+	m.mu.runlock()
+
+	if entries_copy.len == 0 {
+		return false
+	}
+	for entry in entries_copy {
+		if isnil(entry.bean) || !entry.bean.is_running() {
+			return false
+		}
+	}
+	return true
+}
+
 // ── Standard Application Events ──
 //
 // Spring equivalent: org.springframework.context.event.*

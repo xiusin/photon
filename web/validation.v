@@ -1101,3 +1101,251 @@ fn extract_validation_params(ctx &veb.Context) map[string]string {
 
 	return params
 }
+
+// ── Method-Level Validation (@[valid]) ──
+//
+// Provides method-level parameter validation via the @[valid] attribute.
+// Analogous to Spring's @Valid on method parameters and JSR-303 Bean Validation.
+//
+// V comptime limitation: V does not support attributes on individual function
+// parameters (FunctionParam only exposes `name` and `typ`). Parameter
+// constraints are therefore encoded in the method-level @[valid] attribute
+// string and parsed at compile time via `$for method in T.methods`.
+//
+// Supported @[valid] forms:
+//   @[valid]                              — marker only (no primitive-param rules)
+//   @[valid: 'name:required|min_len:2; age:min:1|max:150; email:email']
+//   @[valid('name:required; age:min:1')]  — equivalent to the colon form
+//
+// Constraint string format:
+//   param_name:rule1|rule2|...; param2:rule1|rule2|...
+// Rules reuse the same syntax as @[validate] (required, min:N, max:N,
+// min_len:N, max_len:N, email, url, alpha, alpha_num, numeric, in:A,B, ...).
+//
+// Usage:
+//   @[valid: 'name:required|min_len:2; age:min:1|max:150; email:email']
+//   fn (s &UserService) create_user(name string, age int, email string) ! {
+//       ...
+//   }
+//
+//   web.validate_method_params[UserService]('create_user', {
+//       'name': 'John',
+//       'age': '5',
+//       'email': 'user@example.com',
+//   }) or {
+//       return err  // ConstraintViolationException
+//   }
+
+// ConstraintViolation represents a single constraint violation from
+// method-level parameter validation.
+pub struct ConstraintViolation {
+pub:
+	field      string // parameter name that failed
+	value      string // the actual value that was provided
+	constraint string // the rule that failed (e.g., 'required', 'min', 'email')
+	message    string // human-readable error message
+}
+
+// ConstraintViolationException is raised when method parameter validation
+// fails. Implements IError so it can be propagated with V's `!`/`return` and
+// resolved by the ExceptionResolver. Default HTTP status code is 400.
+pub struct ConstraintViolationException {
+pub:
+	violations []ConstraintViolation
+	code       int = 400
+}
+
+// msg implements the IError interface — returns a bilingual summary of all
+// violations.
+pub fn (e ConstraintViolationException) msg() string {
+	mut msgs := []string{}
+	for v in e.violations {
+		msgs << '${v.field}: ${v.message}'
+	}
+	joined := msgs.join('; ')
+	return 'validation failed: ${joined} / 校验失败: ${joined}'
+}
+
+// code implements the IError interface — returns the HTTP status code.
+pub fn (e ConstraintViolationException) code() int {
+	return e.code
+}
+
+// str returns a readable representation of the exception.
+pub fn (e ConstraintViolationException) str() string {
+	return e.msg()
+}
+
+// ── Field / Parameter Validation Helpers ──
+
+// validate_field validates a single field value against a list of rules.
+// Returns a list of ConstraintViolation entries (empty if all rules pass).
+// Rules use the same syntax as @[validate] (e.g., 'required', 'min:1', 'email').
+pub fn validate_field(field_name string, value string, rules []string) []ConstraintViolation {
+	mut violations := []ConstraintViolation{}
+	for rule in rules {
+		ve := apply_rule_detail(field_name, value, rule) or { continue }
+		violations << ConstraintViolation{
+			field:      field_name
+			value:      value
+			constraint: ve.rule
+			message:    ve.message
+		}
+	}
+	return violations
+}
+
+// parse_param_constraints parses a constraint string into a map of
+// parameter name → list of rules.
+// Format: 'name:required|min_len:2; age:min:1|max:150; email:email'
+pub fn parse_param_constraints(constraint_str string) map[string][]string {
+	mut result := map[string][]string{}
+	entries := constraint_str.split(';')
+	for entry in entries {
+		trimmed := entry.trim_space()
+		if trimmed.len == 0 {
+			continue
+		}
+		param_name, rules_str := parse_rule(trimmed) // split_nth(':', 2)
+		if param_name.len == 0 {
+			continue
+		}
+		result[param_name] = parse_rules(rules_str)
+	}
+	return result
+}
+
+// validate_params validates a params map against a constraint string.
+// Returns a ConstraintViolationException if any parameter fails validation.
+// Constraint string format: 'name:required|min_len:2; age:min:1|max:150'
+pub fn validate_params(constraints string, params map[string]string) ! {
+	constraint_map := parse_param_constraints(constraints)
+	mut violations := []ConstraintViolation{}
+	for param_name, rules in constraint_map {
+		value := params[param_name] or { '' }
+		violations << validate_field(param_name, value, rules)
+	}
+	if violations.len > 0 {
+		return ConstraintViolationException{violations: violations}
+	}
+}
+
+// is_valid_email checks whether a value is a valid email address.
+// Uses a simple split-on-'@' check that correctly handles dots in the local
+// part (e.g., 'john.doe@company.co.uk'). Empty values are considered valid
+// (use the 'required' rule to reject empty).
+pub fn is_valid_email(value string) bool {
+	if value.len == 0 {
+		return true
+	}
+	if !value.contains('@') {
+		return false
+	}
+	parts := value.split('@')
+	if parts.len != 2 {
+		return false
+	}
+	if parts[0].len == 0 || parts[1].len == 0 {
+		return false
+	}
+	// Domain part must contain at least one dot
+	return parts[1].contains('.')
+}
+
+// ── Comptime Method Validation ──
+
+// validate_method_params validates parameters for a method annotated with
+// @[valid]. Uses comptime `$for method in T.methods` to locate the method by
+// name and extract the constraint string from the @[valid] attribute — zero
+// runtime reflection.
+//
+// The @[valid] attribute supports two forms:
+//   @[valid]                              — marker only (no primitive-param rules)
+//   @[valid: 'name:required; age:min:1']  — constraint string for primitive params
+//
+// Throws ConstraintViolationException if any parameter fails validation.
+// Returns silently if the method is not found or has no @[valid] attribute.
+pub fn validate_method_params[T](method_name string, params map[string]string) ! {
+	mut violations := []ConstraintViolation{}
+	mut constraint_str := ''
+	mut found_valid := false
+
+	$for method in T.methods {
+		mname := method.name
+		if mname == method_name {
+			// Check for @[valid] annotation and extract constraint string
+			for attr in method.attrs {
+				if attr == 'valid' {
+					found_valid = true
+				} else if attr.starts_with('valid:') {
+					found_valid = true
+					raw := attr['valid:'.len..]
+					constraint_str = raw.trim_space().trim("'").trim('"')
+				} else if attr.starts_with('valid(') {
+					found_valid = true
+					end_idx := attr.last_index(')') or { attr.len }
+					raw := attr['valid('.len..end_idx]
+					constraint_str = raw.trim_space().trim("'").trim('"')
+				}
+			}
+		}
+	}
+
+	// No @[valid] annotation → skip validation
+	if !found_valid {
+		return
+	}
+
+	// If a constraint string is provided, validate primitive params
+	if constraint_str.len > 0 {
+		constraint_map := parse_param_constraints(constraint_str)
+		for param_name, rules in constraint_map {
+			value := params[param_name] or { '' }
+			violations << validate_field(param_name, value, rules)
+		}
+	}
+
+	if violations.len > 0 {
+		return ConstraintViolationException{violations: violations}
+	}
+}
+
+// has_valid_annotation returns true if type T has a method with the given name
+// that is annotated with @[valid]. Uses comptime scanning — no runtime reflection.
+pub fn has_valid_annotation[T](method_name string) bool {
+	mut result := false
+	$for method in T.methods {
+		mname := method.name
+		if mname == method_name {
+			for attr in method.attrs {
+				if attr == 'valid' || attr.starts_with('valid:') || attr.starts_with('valid(') {
+					result = true
+				}
+			}
+		}
+	}
+	return result
+}
+
+// extract_valid_constraints returns the constraint string from the @[valid]
+// attribute on the named method of type T, or an empty string if the method
+// has no @[valid] attribute or uses the bare @[valid] marker form.
+pub fn extract_valid_constraints[T](method_name string) string {
+	mut result := ''
+	$for method in T.methods {
+		mname := method.name
+		if mname == method_name {
+			for attr in method.attrs {
+				if attr.starts_with('valid:') {
+					raw := attr['valid:'.len..]
+					result = raw.trim_space().trim("'").trim('"')
+				} else if attr.starts_with('valid(') {
+					end_idx := attr.last_index(')') or { attr.len }
+					raw := attr['valid('.len..end_idx]
+					result = raw.trim_space().trim("'").trim('"')
+				}
+			}
+		}
+	}
+	return result
+}

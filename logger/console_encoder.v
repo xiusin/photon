@@ -73,6 +73,7 @@ pub fn (ce &ConsoleEncoder) clone() &Encoder {
 // ANSI Color Support — Precomputed level strings
 // ============================================================
 
+const color_trace = '\x1b[37mTRACE\x1b[0m'
 const color_debug = '\x1b[90mDEBUG\x1b[0m'
 const color_info = '\x1b[36mINFO\x1b[0m'
 const color_warn = '\x1b[33mWARN\x1b[0m'
@@ -82,6 +83,7 @@ const color_fatal = '\x1b[31mFATAL\x1b[0m'
 @[inline]
 fn colorize_level(level Level) string {
 	return match level {
+		.trace { color_trace }
 		.debug { color_debug }
 		.info { color_info }
 		.warn { color_warn }
