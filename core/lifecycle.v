@@ -129,9 +129,10 @@ pub fn (mut lm LifecycleManager) invoke_all_pre_destroy() ! {
 	order := lm.destroy_order.clone()
 	lm.mu.runlock()
 
-	// Reverse the order for destruction
-	mut reversed := order.reverse()
-	for type_name in reversed {
+	// Reverse the order for destruction (manual iteration to avoid V compiler
+	// bug with .reverse() on arrays from map lookups)
+	for i := order.len - 1; i >= 0; i-- {
+		type_name := order[i]
 		lm.invoke_pre_destroy(type_name) or {
 			// Log but don't fail — we want to try to destroy everything
 			eprintln('[Lifecycle] pre_destroy error for "${type_name}": ${err}')
@@ -422,9 +423,9 @@ pub fn (mut m ShutdownHookManager) add_hook(hook ShutdownHook) {
 // This ensures that hooks registered later (which may depend on earlier ones)
 // are cleaned up first.
 pub fn (mut m ShutdownHookManager) run_hooks() {
-	mut reversed := m.hooks.reverse()
-	for hook in reversed {
-		hook()
+	// Manual reverse iteration to avoid V compiler bug with .reverse()
+	for i := m.hooks.len - 1; i >= 0; i-- {
+		m.hooks[i]()
 	}
 }
 

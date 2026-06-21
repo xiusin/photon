@@ -677,8 +677,10 @@ pub fn (mut ctx ApplicationContext) refresh() ! {
 // continues for all remaining beans — we want to clean up as much as possible.
 fn (mut ctx ApplicationContext) rollback_created_beans(mut created_beans []string) {
 	// Destroy beans in reverse order (last created → first created)
-	mut reversed := created_beans.reverse()
-	for name in reversed {
+	// Note: manual reverse iteration to avoid V compiler bug with .reverse()
+	// on mut array parameters (generates incorrect C code passing pointer).
+	for i := created_beans.len - 1; i >= 0; i-- {
+		name := created_beans[i]
 		// Invoke @pre_destroy callback if registered
 		ctx.lifecycle.invoke_pre_destroy(name) or {}
 		// Invoke DisposableBean.destroy() and remove instance

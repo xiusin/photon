@@ -1060,9 +1060,9 @@ pub fn (mut mm MigrationManager) rollback() ! {
 		}
 	}
 
-	// Rollback in reverse order
-	to_rollback.reverse()
-	for migration in to_rollback {
+	// Rollback in reverse order (manual iteration to avoid V compiler bug)
+	for i := to_rollback.len - 1; i >= 0; i-- {
+		migration := to_rollback[i]
 		migration.down(mut mm.manager)!
 		mm.remove_applied(migration.version())
 	}
