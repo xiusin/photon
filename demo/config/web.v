@@ -1,4 +1,4 @@
-module config
+module appconfig
 
 // config/web.v — Web 配置
 //

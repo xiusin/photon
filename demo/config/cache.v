@@ -1,4 +1,4 @@
-module config
+module appconfig
 
 // config/cache.v — 缓存配置
 //

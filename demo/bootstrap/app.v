@@ -17,7 +17,7 @@ import photon.queue
 import photon.orm as phorm
 import photon.web
 import db.sqlite
-import config
+import appconfig
 import repositories
 import services
 
@@ -28,7 +28,7 @@ import services
 @[heap]
 pub struct Bootstrap {
 pub:
-	cfg            config.AppConfig
+	cfg            appconfig.AppConfig
 	log            &logger.Logger
 	app_context    &core.ApplicationContext
 	event_bus      &core.EventBus
@@ -69,7 +69,7 @@ pub:
 @[heap]
 pub struct AppKernel {
 pub:
-	cfg config.AppConfig
+	cfg appconfig.AppConfig
 mut:
 	boot_context &BootContext
 }
@@ -77,7 +77,7 @@ mut:
 // BootContext — 启动上下文（简化版）
 pub struct BootContext {
 pub mut:
-	cfg            config.AppConfig
+	cfg            appconfig.AppConfig
 	log            &logger.Logger
 	app_context    &core.ApplicationContext
 	event_bus      &core.EventBus
@@ -111,7 +111,7 @@ pub mut:
 	upload_svc   &services.UploadService
 }
 
-pub fn new_app_kernel(cfg config.AppConfig) !&AppKernel {
+pub fn new_app_kernel(cfg appconfig.AppConfig) !&AppKernel {
 	return &AppKernel{
 		cfg: cfg
 		boot_context: unsafe { nil }
@@ -128,7 +128,7 @@ pub fn (mut k AppKernel) bootstrap() ! {
 	cache_mgr := cache.new_memory_cache('default')
 
 	mut orm_mgr := phorm.new_orm_manager()
-	db_cfg := config.default_database_config(k.cfg.profile)
+	db_cfg := appconfig.default_database_config(k.cfg.profile)
 	db := sqlite.connect(db_cfg.path)!
 	orm_mgr.register_connection('default', .sqlite, voidptr(&db))!
 	lock_mgr := locking.new_lock_manager()
@@ -263,7 +263,7 @@ pub fn (k &AppKernel) boot_context() &BootContext {
 }
 
 // new_bootstrap 创建并初始化 Bootstrap（薄封装）
-pub fn new_bootstrap(cfg config.AppConfig) !&Bootstrap {
+pub fn new_bootstrap(cfg appconfig.AppConfig) !&Bootstrap {
 	mut kernel := new_app_kernel(cfg)!
 	kernel.bootstrap()!
 	return kernel.to_bootstrap()
