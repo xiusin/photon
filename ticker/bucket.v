@@ -113,9 +113,9 @@ fn scheduler_run(s &TimerScheduler, stop_signal chan bool) {
 		}
 
 		// Check running flag under lock for memory visibility on weak architectures.
-		s.mu.@lock()
+		unsafe { s.mu.@lock() }
 		running := s.running
-		s.mu.unlock()
+		unsafe { s.mu.unlock() }
 		if !running {
 			break
 		}

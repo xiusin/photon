@@ -101,8 +101,8 @@ pub fn (mut gsm GracefulShutdownManager) request_completed() {
 
 // is_stopped returns true if shutdown() has been initiated.
 pub fn (gsm &GracefulShutdownManager) is_stopped() bool {
-	gsm.mu.@lock()
-	defer { gsm.mu.unlock() }
+	unsafe { gsm.mu.@lock() }
+	defer { unsafe { gsm.mu.unlock() } }
 	return gsm.stopped
 }
 

@@ -295,9 +295,9 @@ pub fn (mut s Scheduler) start() {
 
 			// Check is_running under read lock for memory visibility on
 			// weak architectures (fixes H2).
-			sc.mu.rlock()
+			unsafe { sc.mu.rlock() }
 			running := sc.is_running
-			sc.mu.runlock()
+			unsafe { sc.mu.runlock() }
 			if !running {
 				break
 			}
