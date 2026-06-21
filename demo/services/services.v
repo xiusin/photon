@@ -6,7 +6,7 @@ module services
 // 每个服务对应一个领域：用户、认证、文章、评论、分类、标签、统计、上传。
 
 import photon.orm as phorm
-import photon.cache
+import photon.cache as pcache
 import photon.security
 import photon.logger
 import json
@@ -22,15 +22,17 @@ import util
 pub struct UserService {
 pub mut:
 	repo  &repositories.UserRepository
-	cache &cache.CacheManager
+	cache_inst pcache.Cache
 	log   &logger.Logger
 }
 
-pub fn new_user_service(repo &repositories.UserRepository, cache_mgr &cache.CacheManager, log &logger.Logger) &UserService {
-	return &UserService{
-		repo: repo
-		cache: cache_mgr
-		log: log
+pub fn new_user_service(repo &repositories.UserRepository, cache_mgr pcache.Cache, log &logger.Logger) &UserService {
+	return unsafe {
+		&UserService{
+			repo: repo
+			cache_inst: cache_mgr
+			log: log
+		}
 	}
 }
 
@@ -60,7 +62,7 @@ pub fn (mut s UserService) register(dto models.CreateUserDto, hashed_password st
 	}
 
 	// 缓存失效
-	util.flush_cache_tag(s.cache, 'users')
+	util.flush_cache_tag(s.cache_inst, 'users')
 
 	s.log.info('[UserService] user registered: ${saved.username} (id=${saved.id})')
 	return saved, 'user registered successfully / 用户注册成功'
@@ -87,13 +89,13 @@ pub fn (s &UserService) login(dto models.LoginDto, hasher &security.BcryptHasher
 // find_by_id 根据 ID 查询用户（带缓存）
 pub fn (mut s UserService) find_by_id(id int) !models.User {
 	cache_key := 'user:${id}'
-	cached := s.cache.get(cache_key) or { '' }
+	cached := s.cache_inst.get(cache_key) or { '' }
 	if cached.len > 0 {
 		return json.decode(models.User, cached)!
 	}
 
 	user := s.repo.find_by_id(id)!
-	s.cache.set(cache_key, json.encode(user), 300) or {}
+	s.cache_inst.set(cache_key, json.encode(user), 300) or {}
 	return user
 }
 
@@ -126,8 +128,8 @@ pub fn (mut s UserService) update_profile(id int, dto models.UpdateUserDto) !mod
 	}
 
 	// 缓存失效
-	s.cache.delete('user:${id}') or {}
-	util.flush_cache_tag(s.cache, 'users')
+	s.cache_inst.delete('user:${id}') or {}
+	util.flush_cache_tag(s.cache_inst, 'users')
 
 	return updated
 }
@@ -151,14 +153,14 @@ pub fn (mut s UserService) change_password(id int, old_password string, new_pass
 		return error('password update failed / 密码更新失败: ${err}')
 	}
 
-	s.cache.delete('user:${id}') or {}
+	s.cache_inst.delete('user:${id}') or {}
 }
 
 // delete 删除用户
 pub fn (mut s UserService) delete(id int) ! {
 	s.repo.delete_by_id(id)!
-	s.cache.delete('user:${id}') or {}
-	util.flush_cache_tag(s.cache, 'users')
+	s.cache_inst.delete('user:${id}') or {}
+	util.flush_cache_tag(s.cache_inst, 'users')
 }
 
 // list 列表查询（带过滤/排序/分页）
@@ -177,20 +179,22 @@ pub fn (s &UserService) count() !int {
 
 pub struct AuthService {
 pub mut:
-	user_repo &repositories.UserRepository
-	hasher    &security.BcryptHasher
-	jwt       &security.JwtManager
-	cache     &cache.CacheManager
-	logger    &logger.Logger
+	user_repo  &repositories.UserRepository
+	hasher     &security.BcryptHasher
+	jwt        &security.JwtManager
+	cache_inst pcache.Cache
+	logger     &logger.Logger
 }
 
-pub fn new_auth_service(user_repo &repositories.UserRepository, hasher &security.BcryptHasher, jwt &security.JwtManager, cache_mgr &cache.CacheManager, log &logger.Logger) &AuthService {
-	return &AuthService{
-		user_repo: user_repo
-		hasher:    hasher
-		jwt:       jwt
-		cache:     cache_mgr
-		logger:    log
+pub fn new_auth_service(user_repo &repositories.UserRepository, hasher &security.BcryptHasher, jwt &security.JwtManager, cache_mgr pcache.Cache, log &logger.Logger) &AuthService {
+	return unsafe {
+		&AuthService{
+			user_repo: user_repo
+			hasher:    hasher
+			jwt:       jwt
+			cache_inst:     cache_mgr
+			logger:    log
+		}
 	}
 }
 
@@ -221,7 +225,7 @@ pub fn (s &AuthService) authenticate(username string, password string) !(string,
 pub fn (mut s AuthService) validate_token(token string) !string {
 	// 检查黑名单
 	blacklist_key := 'jwt:blacklist:${token}'
-	blacklisted := s.cache.get(blacklist_key) or { '' }
+	blacklisted := s.cache_inst.get(blacklist_key) or { '' }
 	if blacklisted.len > 0 {
 		return error('token revoked / 令牌已撤销')
 	}
@@ -245,7 +249,7 @@ pub fn (mut s AuthService) logout(token string) ! {
 	// 将 token 加入黑名单，TTL = token 剩余有效期
 	remaining := claims.exp - time.now().unix()
 	if remaining > 0 {
-		s.cache.set('jwt:blacklist:${token}', '1', int(remaining)) or {}
+		s.cache_inst.set('jwt:blacklist:${token}', '1', int(remaining)) or {}
 	}
 
 	s.logger.info('[AuthService] user logged out: ${claims.sub}')
@@ -292,18 +296,20 @@ pub mut:
 	user_repo     &repositories.UserRepository
 	category_repo &repositories.CategoryRepository
 	tag_repo      &repositories.TagRepository
-	cache         &cache.CacheManager
+	cache_inst    pcache.Cache
 	log           &logger.Logger
 }
 
-pub fn new_post_service(repo &repositories.PostRepository, user_repo &repositories.UserRepository, category_repo &repositories.CategoryRepository, tag_repo &repositories.TagRepository, cache_mgr &cache.CacheManager, log &logger.Logger) &PostService {
-	return &PostService{
-		repo:          repo
-		user_repo:     user_repo
-		category_repo: category_repo
-		tag_repo:      tag_repo
-		cache:         cache_mgr
-		log:           log
+pub fn new_post_service(repo &repositories.PostRepository, user_repo &repositories.UserRepository, category_repo &repositories.CategoryRepository, tag_repo &repositories.TagRepository, cache_mgr pcache.Cache, log &logger.Logger) &PostService {
+	return unsafe {
+		&PostService{
+			repo:          repo
+			user_repo:     user_repo
+			category_repo: category_repo
+			tag_repo:      tag_repo
+			cache_inst:         cache_mgr
+			log:           log
+		}
 	}
 }
 
@@ -338,7 +344,7 @@ pub fn (mut s PostService) create(dto models.CreatePostDto, author_id int) !(mod
 		}
 	}
 
-	util.flush_cache_tag(s.cache, 'posts')
+	util.flush_cache_tag(s.cache_inst, 'posts')
 	s.log.info('[PostService] post created: ${saved.title} (id=${saved.id})')
 	return saved, 'post created successfully / 文章创建成功'
 }
@@ -346,13 +352,13 @@ pub fn (mut s PostService) create(dto models.CreatePostDto, author_id int) !(mod
 // find_by_id 根据 ID 查询文章（带缓存）
 pub fn (mut s PostService) find_by_id(id int) !models.Post {
 	cache_key := 'post:${id}'
-	cached := s.cache.get(cache_key) or { '' }
+	cached := s.cache_inst.get(cache_key) or { '' }
 	if cached.len > 0 {
 		return json.decode(models.Post, cached)!
 	}
 
 	post := s.repo.find_by_id(id)!
-	s.cache.set(cache_key, json.encode(post), 300) or {}
+	s.cache_inst.set(cache_key, json.encode(post), 300) or {}
 	return post
 }
 
@@ -395,8 +401,8 @@ pub fn (mut s PostService) update(id int, dto models.UpdatePostDto) !(models.Pos
 		}
 	}
 
-	s.cache.delete('post:${id}') or {}
-	util.flush_cache_tag(s.cache, 'posts')
+	s.cache_inst.delete('post:${id}') or {}
+	util.flush_cache_tag(s.cache_inst, 'posts')
 
 	s.log.info('[PostService] post updated: ${updated.title} (id=${updated.id})')
 	return updated, 'post updated successfully / 文章更新成功'
@@ -405,8 +411,8 @@ pub fn (mut s PostService) update(id int, dto models.UpdatePostDto) !(models.Pos
 // delete 删除文章
 pub fn (mut s PostService) delete(id int) ! {
 	s.repo.delete_by_id(id)!
-	s.cache.delete('post:${id}') or {}
-	util.flush_cache_tag(s.cache, 'posts')
+	s.cache_inst.delete('post:${id}') or {}
+	util.flush_cache_tag(s.cache_inst, 'posts')
 	s.log.info('[PostService] post deleted: id=${id}')
 }
 
@@ -465,20 +471,22 @@ pub fn (mut s PostService) find_post_with_relations(id int) !(models.Post, model
 
 pub struct CommentService {
 pub mut:
-	repo      &repositories.CommentRepository
-	post_repo &repositories.PostRepository
-	user_repo &repositories.UserRepository
-	cache     &cache.CacheManager
-	log       &logger.Logger
+	repo       &repositories.CommentRepository
+	post_repo  &repositories.PostRepository
+	user_repo  &repositories.UserRepository
+	cache_inst pcache.Cache
+	log        &logger.Logger
 }
 
-pub fn new_comment_service(repo &repositories.CommentRepository, post_repo &repositories.PostRepository, user_repo &repositories.UserRepository, cache_mgr &cache.CacheManager, log &logger.Logger) &CommentService {
-	return &CommentService{
-		repo:      repo
-		post_repo: post_repo
-		user_repo: user_repo
-		cache:     cache_mgr
-		log:       log
+pub fn new_comment_service(repo &repositories.CommentRepository, post_repo &repositories.PostRepository, user_repo &repositories.UserRepository, cache_mgr pcache.Cache, log &logger.Logger) &CommentService {
+	return unsafe {
+		&CommentService{
+			repo:      repo
+			post_repo: post_repo
+			user_repo: user_repo
+			cache_inst:     cache_mgr
+			log:       log
+		}
 	}
 }
 
@@ -509,7 +517,7 @@ pub fn (mut s CommentService) create(dto models.CreateCommentDto, user_id int) !
 		s.log.error('[CommentService] failed to touch post ${post.id}: ${err}')
 	}
 
-	util.flush_cache_tag(s.cache, 'comments')
+	util.flush_cache_tag(s.cache_inst, 'comments')
 	s.log.info('[CommentService] comment created: post_id=${saved.post_id} user_id=${saved.user_id}')
 	return saved, 'comment created successfully / 评论创建成功'
 }
@@ -527,7 +535,7 @@ pub fn (s &CommentService) find_by_id(id int) !models.Comment {
 // delete 删除评论
 pub fn (mut s CommentService) delete(id int) ! {
 	s.repo.delete_by_id(id)!
-	util.flush_cache_tag(s.cache, 'comments')
+	util.flush_cache_tag(s.cache_inst, 'comments')
 	s.log.info('[CommentService] comment deleted: id=${id}')
 }
 
@@ -552,14 +560,16 @@ pub fn (s &CommentService) count() !int {
 
 pub struct CategoryService {
 pub mut:
-	repo      &repositories.CategoryRepository
-	post_repo &repositories.PostRepository
-	cache     &cache.CacheManager
-	log       &logger.Logger
+	repo       &repositories.CategoryRepository
+	post_repo  &repositories.PostRepository
+	cache_inst pcache.Cache
+	log        &logger.Logger
 }
 
-pub fn new_category_service(repo &repositories.CategoryRepository, post_repo &repositories.PostRepository, cache_mgr &cache.CacheManager, log &logger.Logger) &CategoryService {
-	return &CategoryService{repo: repo, post_repo: post_repo, cache: cache_mgr, log: log}
+pub fn new_category_service(repo &repositories.CategoryRepository, post_repo &repositories.PostRepository, cache_mgr pcache.Cache, log &logger.Logger) &CategoryService {
+	return unsafe {
+		&CategoryService{repo: repo, post_repo: post_repo, cache_inst: cache_mgr, log: log}
+	}
 }
 
 // create 创建分类
@@ -582,7 +592,7 @@ pub fn (mut s CategoryService) create(dto models.CreateCategoryDto) !(models.Cat
 		return error('category save failed / 分类保存失败: ${err}')
 	}
 
-	util.flush_cache_tag(s.cache, 'categories')
+	util.flush_cache_tag(s.cache_inst, 'categories')
 	s.log.info('[CategoryService] category created: ${saved.name} (id=${saved.id})')
 	return saved, 'category created successfully / 分类创建成功'
 }
@@ -611,7 +621,7 @@ pub fn (mut s CategoryService) update(id int, dto models.CreateCategoryDto) !(mo
 		return error('category update failed / 分类更新失败: ${err}')
 	}
 
-	util.flush_cache_tag(s.cache, 'categories')
+	util.flush_cache_tag(s.cache_inst, 'categories')
 	s.log.info('[CategoryService] category updated: ${updated.name} (id=${updated.id})')
 	return updated, 'category updated successfully / 分类更新成功'
 }
@@ -619,7 +629,7 @@ pub fn (mut s CategoryService) update(id int, dto models.CreateCategoryDto) !(mo
 // delete 删除分类
 pub fn (mut s CategoryService) delete(id int) ! {
 	s.repo.delete_by_id(id)!
-	util.flush_cache_tag(s.cache, 'categories')
+	util.flush_cache_tag(s.cache_inst, 'categories')
 	s.log.info('[CategoryService] category deleted: id=${id}')
 }
 
@@ -635,12 +645,14 @@ pub fn (s &CategoryService) count() !int {
 pub struct TagService {
 pub mut:
 	repo  &repositories.TagRepository
-	cache &cache.CacheManager
+	cache_inst pcache.Cache
 	log   &logger.Logger
 }
 
-pub fn new_tag_service(repo &repositories.TagRepository, cache_mgr &cache.CacheManager, log &logger.Logger) &TagService {
-	return &TagService{repo: repo, cache: cache_mgr, log: log}
+pub fn new_tag_service(repo &repositories.TagRepository, cache_mgr pcache.Cache, log &logger.Logger) &TagService {
+	return unsafe {
+		&TagService{repo: repo, cache_inst: cache_mgr, log: log}
+	}
 }
 
 // create 创建标签
@@ -662,7 +674,7 @@ pub fn (mut s TagService) create(dto models.CreateTagDto) !(models.Tag, string) 
 		return error('tag save failed / 标签保存失败: ${err}')
 	}
 
-	util.flush_cache_tag(s.cache, 'tags')
+	util.flush_cache_tag(s.cache_inst, 'tags')
 	s.log.info('[TagService] tag created: ${saved.name} (id=${saved.id})')
 	return saved, 'tag created successfully / 标签创建成功'
 }
@@ -680,7 +692,7 @@ pub fn (s &TagService) find_by_id(id int) !models.Tag {
 // delete 删除标签
 pub fn (mut s TagService) delete(id int) ! {
 	s.repo.delete_by_id(id)!
-	util.flush_cache_tag(s.cache, 'tags')
+	util.flush_cache_tag(s.cache_inst, 'tags')
 	s.log.info('[TagService] tag deleted: id=${id}')
 }
 
@@ -700,26 +712,28 @@ pub mut:
 	comment_repo  &repositories.CommentRepository
 	category_repo &repositories.CategoryRepository
 	tag_repo      &repositories.TagRepository
-	cache         &cache.CacheManager
+	cache_inst    pcache.Cache
 	log           &logger.Logger
 }
 
-pub fn new_stats_service(user_repo &repositories.UserRepository, post_repo &repositories.PostRepository, comment_repo &repositories.CommentRepository, category_repo &repositories.CategoryRepository, tag_repo &repositories.TagRepository, cache_mgr &cache.CacheManager, log &logger.Logger) &StatsService {
-	return &StatsService{
-		user_repo:     user_repo
-		post_repo:     post_repo
-		comment_repo:  comment_repo
-		category_repo: category_repo
-		tag_repo:      tag_repo
-		cache:         cache_mgr
-		log:           log
+pub fn new_stats_service(user_repo &repositories.UserRepository, post_repo &repositories.PostRepository, comment_repo &repositories.CommentRepository, category_repo &repositories.CategoryRepository, tag_repo &repositories.TagRepository, cache_mgr pcache.Cache, log &logger.Logger) &StatsService {
+	return unsafe {
+		&StatsService{
+			user_repo:     user_repo
+			post_repo:     post_repo
+			comment_repo:  comment_repo
+			category_repo: category_repo
+			tag_repo:      tag_repo
+			cache_inst:    cache_mgr
+			log:           log
+		}
 	}
 }
 
 // get_blog_stats 获取博客统计（带缓存）
 pub fn (mut s StatsService) get_blog_stats() !models.BlogStats {
 	cache_key := 'stats:blog'
-	cached := s.cache.get(cache_key) or { '' }
+	cached := s.cache_inst.get(cache_key) or { '' }
 	if cached.len > 0 {
 		return json.decode(models.BlogStats, cached)!
 	}
@@ -729,7 +743,7 @@ pub fn (mut s StatsService) get_blog_stats() !models.BlogStats {
 	}
 
 	stats_json := json.encode(stats)
-	s.cache.set(cache_key, stats_json, 3600) or {}
+	s.cache_inst.set(cache_key, stats_json, 3600) or {}
 
 	return stats
 }
@@ -765,7 +779,9 @@ pub mut:
 }
 
 pub fn new_upload_service(log &logger.Logger) &UploadService {
-	return &UploadService{log: log}
+	return unsafe {
+		&UploadService{log: log}
+	}
 }
 
 // upload 处理文件上传（占位实现）

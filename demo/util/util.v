@@ -4,7 +4,7 @@ import os
 import time
 import crypto.rand
 import encoding.hex
-import photon.cache
+import photon.cache as pcache
 import json
 import veb
 
@@ -59,7 +59,7 @@ pub fn now_rfc3339() string {
 }
 
 // cache_remember 泛型缓存辅助
-pub fn cache_remember[T](mut cm cache.CacheManager, key string, ttl int, loader fn () !T) !T {
+pub fn cache_remember[T](mut cm pcache.CacheManager, key string, ttl int, loader fn () !T) !T {
 	if cm.has(key) {
 		cached := cm.get(key) or { '' }
 		if cached.len > 0 {
@@ -78,8 +78,8 @@ pub fn cache_remember[T](mut cm cache.CacheManager, key string, ttl int, loader 
 }
 
 // flush_cache_tag 失效指定标签下的所有缓存键
-pub fn flush_cache_tag(cm &cache.CacheManager, tag string) {
-	mut tc := cache.new_tagged_cache(cm.default_cache, [tag])
+pub fn flush_cache_tag(cm pcache.Cache, tag string) {
+	mut tc := pcache.new_tagged_cache(cm, [tag])
 	tc.flush() or {}
 }
 

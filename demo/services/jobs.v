@@ -6,7 +6,7 @@ module services
 
 import photon.queue
 import photon.mailer
-import photon.cache
+import photon.cache as pcache
 import photon.logger
 import repositories
 import json
@@ -18,7 +18,7 @@ import time
 
 __global (
 	g_mailer       &mailer.Mailer
-	g_cache        &cache.CacheManager
+	g_cache        pcache.Cache
 	g_logger       &logger.Logger
 	g_user_repo    &repositories.UserRepository
 	g_post_repo    &repositories.PostRepository
@@ -26,7 +26,7 @@ __global (
 )
 
 // init_job_globals 初始化 Job 全局依赖
-pub fn init_job_globals(m &mailer.Mailer, cm &cache.CacheManager, log &logger.Logger,
+pub fn init_job_globals(m &mailer.Mailer, cm pcache.Cache, log &logger.Logger,
 	user_repo &repositories.UserRepository, post_repo &repositories.PostRepository, comment_repo &repositories.CommentRepository) {
 	unsafe {
 		g_mailer = m
@@ -253,15 +253,12 @@ pub fn (j &CleanupExpiredTokensJob) handle() ! {
 	job_log_info('CleanupExpiredTokensJob: scanning for expired JWT blacklist tokens...')
 
 	mut cleaned := 0
-	unsafe {
-		mut default_cache := g_cache.default_cache
-		keys := default_cache.keys()
-		for key in keys {
-			if key.starts_with('jwt:blacklist:') {
-				_ = cm.get(key) or {
-					cleaned++
-					continue
-				}
+	keys := unsafe { g_cache.keys() }
+	for key in keys {
+		if key.starts_with('jwt:blacklist:') {
+			_ = cm.get(key) or {
+				cleaned++
+				continue
 			}
 		}
 	}

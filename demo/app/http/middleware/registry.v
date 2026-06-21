@@ -124,7 +124,7 @@ pub fn (reg &MiddlewareGroupRegistry) apply_web_group(mut ctx veb.Context) !stri
 }
 
 // apply_api_group 应用 api 组中间件，返回 request_id
-pub fn (reg &MiddlewareGroupRegistry) apply_api_group(mut ctx veb.Context) !string {
+pub fn (mut reg MiddlewareGroupRegistry) apply_api_group(mut ctx veb.Context) !string {
 	reg.cors.handle(mut ctx)
 	request_id := reg.request_id.handle(mut ctx)
 	reg.request_log.handle(mut ctx)
@@ -136,7 +136,7 @@ pub fn (reg &MiddlewareGroupRegistry) apply_api_group(mut ctx veb.Context) !stri
 }
 
 // authenticate 应用 JWT 认证，返回 (username, roles)
-pub fn (reg &MiddlewareGroupRegistry) authenticate(mut ctx veb.Context) !(string, []string) {
+pub fn (mut reg MiddlewareGroupRegistry) authenticate(mut ctx veb.Context) !(string, []string) {
 	return reg.jwt_auth.authenticate(mut ctx)!
 }
 
@@ -146,7 +146,7 @@ pub fn (reg &MiddlewareGroupRegistry) authorize(required_roles []string, user_ro
 }
 
 // apply_group 应用指定组的中间件链，返回 (username, roles)
-pub fn (reg &MiddlewareGroupRegistry) apply_group(mut ctx veb.Context, group string) !(string, []string) {
+pub fn (mut reg MiddlewareGroupRegistry) apply_group(mut ctx veb.Context, group string) !(string, []string) {
 	middlewares := reg.groups[group] or {
 		return error('middleware group not found: ${group}')
 	}
@@ -319,7 +319,7 @@ pub fn new_jwt_auth_middleware(auth_svc &services.AuthService) &JwtAuthMiddlewar
 	return unsafe { &JwtAuthMiddleware{auth_svc: auth_svc} }
 }
 
-pub fn (m &JwtAuthMiddleware) authenticate(mut ctx veb.Context) !(string, []string) {
+pub fn (mut m JwtAuthMiddleware) authenticate(mut ctx veb.Context) !(string, []string) {
 	auth_header := ctx.get_custom_header('Authorization') or {
 		return error('Authorization header required / 缺少认证头')
 	}
@@ -330,11 +330,12 @@ pub fn (m &JwtAuthMiddleware) authenticate(mut ctx veb.Context) !(string, []stri
 
 	token := auth_header[7..]
 
-	username := m.auth_svc.validate_token(token) or {
+	mut auth_svc := unsafe { m.auth_svc }
+	username := auth_svc.validate_token(token) or {
 		return error('invalid or expired token / 令牌无效或已过期: ${err}')
 	}
 
-	claims := m.auth_svc.parse_token(token) or {
+	claims := auth_svc.parse_token(token) or {
 		return error('failed to parse token / 令牌解析失败: ${err}')
 	}
 

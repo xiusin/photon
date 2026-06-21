@@ -9,6 +9,7 @@ import bootstrap
 import models
 import photon.cli
 import util
+import database.factories
 
 // PostSeeder 文章种子
 pub struct PostSeeder {
@@ -36,15 +37,16 @@ pub fn (s &PostSeeder) run(output &cli.CommandOutput) ! {
 			slug:        util.generate_slug(cat_name)
 			description: '${cat_name}相关文章'
 		}
-		category_svc.create(dto) or {
+		_, _ = category_svc.create(dto) or {
 			// 分类可能已存在，忽略错误
+			continue
 		}
 	}
 	output.success('    Categories ensured (技术/生活/随笔)')
 
 	// ── 2. 检查是否已有足够文章 ──
-	mut post_svc_check := unsafe { s.bootstrap.post_svc }
-	existing_posts := post_svc_check.find_all() or { []models.Post{} }
+	mut post_repo_check := unsafe { s.bootstrap.post_repo }
+	existing_posts := post_repo_check.find_all() or { []models.Post{} }
 	if existing_posts.len >= 10 {
 		output.writeln('    Posts already seeded (${existing_posts.len} found), skipping')
 		return
@@ -66,7 +68,7 @@ pub fn (s &PostSeeder) run(output &cli.CommandOutput) ! {
 		category_id := ((i - 1) % 3) + 1
 		status := if i <= 7 { 'published' } else { 'draft' }
 
-		_ := new_post_factory(s.bootstrap).
+		_ := factories.new_post_factory(s.bootstrap).
 			with_title('文章标题 ${i} - PhotonBlog 示例').
 			with_content('这是第 ${i} 篇示例文章的内容。PhotonBlog 是一个基于 Photon Framework 的完整博客系统示例，展示了 V 语言企业级框架的全部功能，包括依赖注入、ORM、缓存、队列、事件驱动等核心特性。').
 			with_summary('示例文章 ${i} 的摘要').

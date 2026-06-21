@@ -117,5 +117,6 @@ pub fn (f PostFactory) create() !models.Post {
 		status:      f.status
 	}
 	mut svc := unsafe { f.bootstrap.post_svc }
-	return svc.create(dto)!
+	post, _ := svc.create(dto, f.author_id)!
+	return post
 }

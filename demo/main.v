@@ -15,15 +15,12 @@ import app.http.middleware
 import app.http
 
 fn main() {
-	// ── 1. 加载 .env 文件（开发环境） ──
-	config.load_env_file('.env')
-
-	// ── 2. 确定 profile ──
+	// ── 1. 确定 profile ──
 	profile := os.getenv('APP_PROFILE')
 	actual_profile := if profile.len > 0 { profile } else { 'dev' }
 
-	// ── 3. 加载配置 ──
-	cfg := config.load_config(actual_profile) or {
+	// ── 2. 加载配置（含 .env 文件） ──
+	cfg := config.load_config_with_env(actual_profile) or {
 		eprintln('Failed to load config (profile=${actual_profile}): ${err}')
 		exit(1)
 	}
@@ -120,7 +117,10 @@ fn main() {
 	// ── 12. 扫描路由并打印路由表 ──
 	routes := web.scan_controller[App]()
 	web.print_routes(routes)
-	bootstrap.print_routes(routes)
+	route_strs := routes.map(fn (r web.RouteInfo) string {
+		return '${r.method}\t${r.path}\t${r.handler_name}'
+	})
+	bootstrap.print_routes(route_strs)
 
 	// ── 13. 启动 HTTP 服务 ──
 	port := cfg.server.port

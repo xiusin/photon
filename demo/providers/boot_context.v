@@ -17,7 +17,7 @@ module providers
 //   4. refresh() 后 BootContext 生命周期由 Bootstrap 接管
 
 import photon.core
-import photon.cache
+import photon.cache as pcache
 import photon.locking
 import photon.storage
 import photon.mailer
@@ -36,7 +36,7 @@ pub mut:
 	log            &logger.Logger = unsafe { nil }
 	app_context    &core.ApplicationContext = unsafe { nil }
 	event_bus      &core.EventBus = unsafe { nil }
-	cache_mgr      &cache.CacheManager = unsafe { nil }
+	cmgr           pcache.Cache
 	orm_mgr        &phorm.OrmManager = unsafe { nil }
 	lock_mgr       &locking.LockManager = unsafe { nil }
 	storage_mgr    &storage.StorageManager = unsafe { nil }

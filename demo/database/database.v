@@ -32,33 +32,38 @@ pub fn execute_schema(db &sqlite.DB, schema &phorm.Schema) ! {
 	}
 }
 
-// run_migrations 执行所有待运行的迁移
-pub fn run_migrations(mm &phorm.MigrationManager) ! {
+// do_run_migrations 执行所有待运行的迁移
+pub fn do_run_migrations(mm &phorm.MigrationManager) !bool {
 	mut mm_mut := unsafe { mut mm }
 	mm_mut.initialize()!
 	mm_mut.migrate()!
+	return true
 }
 
-// rollback_migrations 回滚最后一个 batch 的迁移
-pub fn rollback_migrations(mm &phorm.MigrationManager) ! {
+// do_rollback_migrations 回滚最后一个 batch 的迁移
+pub fn do_rollback_migrations(mm &phorm.MigrationManager) !bool {
 	mut mm_mut := unsafe { mut mm }
-	mm_mut.rollback() or { return }
+	mm_mut.rollback() or { return false }
+	return true
 }
 
-// reset_migrations 回滚所有迁移
-pub fn reset_migrations(mm &phorm.MigrationManager) ! {
+// do_reset_migrations 回滚所有迁移
+pub fn do_reset_migrations(mm &phorm.MigrationManager) !bool {
 	mut mm_mut := unsafe { mut mm }
 	mm_mut.reset()!
+	return true
 }
 
-// fresh_migrations 重置并重新执行所有迁移
-pub fn fresh_migrations(mm &phorm.MigrationManager) ! {
+// do_fresh_migrations 重置并重新执行所有迁移
+pub fn do_fresh_migrations(mm &phorm.MigrationManager) !bool {
 	mut mm_mut := unsafe { mut mm }
 	mm_mut.fresh()!
+	return true
 }
 
-// migration_status 打印迁移状态
-pub fn migration_status(mm &phorm.MigrationManager) ! {
+// do_migration_status 打印迁移状态
+pub fn do_migration_status(mm &phorm.MigrationManager) !bool {
 	mut mm_mut := unsafe { mut mm }
 	mm_mut.status()!
+	return true
 }
