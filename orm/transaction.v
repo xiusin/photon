@@ -252,9 +252,9 @@ pub fn (mut tm TransactionManager) rollback() ! {
 // Uses a READ lock (M2 fix) — this is a read-only check and must
 // not block concurrent readers.
 pub fn (tm &TransactionManager) is_active() bool {
-	tm.mu.rlock()
+	unsafe { tm.mu.rlock() }
 	defer {
-		tm.mu.runlock()
+		unsafe { tm.mu.runlock() }
 	}
 	return tm.active_count > 0
 }

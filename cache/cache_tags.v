@@ -188,8 +188,8 @@ pub fn (mut tc TaggedCache) cleanup_stale() ! {
 // tag_key_count returns the number of keys indexed under the given tag.
 // Intended for testing and diagnostics.
 pub fn (tc &TaggedCache) tag_key_count(tag string) int {
-	tc.mu.rlock()
-	defer { tc.mu.runlock() }
+	unsafe { tc.mu.rlock() }
+	defer { unsafe { tc.mu.runlock() } }
 	keys := tc.tag_to_keys[tag] or { []string{} }
 	return keys.len
 }

@@ -675,18 +675,18 @@ fn (om &OrmManager) connection_locked(name string) !OrmConnection {
 
 // connection returns the OrmConnection by name (or default).
 pub fn (om &OrmManager) connection(name string) !OrmConnection {
-	om.mu.rlock()
+	unsafe { om.mu.rlock() }
 	defer {
-		om.mu.runlock()
+		unsafe { om.mu.runlock() }
 	}
 	return om.connection_locked(name)
 }
 
 // get_conn returns the raw connection pointer by name (or default).
 pub fn (om &OrmManager) get_conn(name string) !voidptr {
-	om.mu.rlock()
+	unsafe { om.mu.rlock() }
 	defer {
-		om.mu.runlock()
+		unsafe { om.mu.runlock() }
 	}
 	conn := om.connection_locked(name)!
 	return conn.db
@@ -699,9 +699,9 @@ pub fn (om &OrmManager) default_conn() !voidptr {
 
 // driver returns the DriverType for a connection.
 pub fn (om &OrmManager) driver(name string) !DriverType {
-	om.mu.rlock()
+	unsafe { om.mu.rlock() }
 	defer {
-		om.mu.runlock()
+		unsafe { om.mu.runlock() }
 	}
 	conn := om.connection_locked(name)!
 	return conn.driver
@@ -709,18 +709,18 @@ pub fn (om &OrmManager) driver(name string) !DriverType {
 
 // has_connection checks if a named connection exists.
 pub fn (om &OrmManager) has_connection(name string) bool {
-	om.mu.rlock()
+	unsafe { om.mu.rlock() }
 	defer {
-		om.mu.runlock()
+		unsafe { om.mu.runlock() }
 	}
 	return name in om.connections
 }
 
 // connection_names returns all registered connection names.
 pub fn (om &OrmManager) connection_names() []string {
-	om.mu.rlock()
+	unsafe { om.mu.rlock() }
 	defer {
-		om.mu.runlock()
+		unsafe { om.mu.runlock() }
 	}
 	return om.connections.keys()
 }

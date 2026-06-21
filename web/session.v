@@ -53,8 +53,8 @@ pub fn new_session(id string) &Session {
 
 // get retrieves a value from the session.
 pub fn (s &Session) get(key string) !string {
-	s.mu.rlock()
-	defer { s.mu.runlock() }
+	unsafe { s.mu.rlock() }
+	defer { unsafe { s.mu.runlock() } }
 	if val := s.data[key] {
 		return val
 	}
@@ -74,8 +74,8 @@ pub fn (mut s Session) set(key string, value string) {
 
 // has checks if a key exists in the session.
 pub fn (s &Session) has(key string) bool {
-	s.mu.rlock()
-	defer { s.mu.runlock() }
+	unsafe { s.mu.rlock() }
+	defer { unsafe { s.mu.runlock() } }
 	return key in s.data || key in s.old_flash
 }
 
@@ -97,8 +97,8 @@ pub fn (mut s Session) flash(key string, value string) {
 
 // get_flash retrieves a flash value from the previous request.
 pub fn (s &Session) get_flash(key string) !string {
-	s.mu.rlock()
-	defer { s.mu.runlock() }
+	unsafe { s.mu.rlock() }
+	defer { unsafe { s.mu.runlock() } }
 	if val := s.old_flash[key] {
 		return val
 	}
@@ -107,15 +107,15 @@ pub fn (s &Session) get_flash(key string) !string {
 
 // has_flash checks if a flash key exists from the previous request.
 pub fn (s &Session) has_flash(key string) bool {
-	s.mu.rlock()
-	defer { s.mu.runlock() }
+	unsafe { s.mu.rlock() }
+	defer { unsafe { s.mu.runlock() } }
 	return key in s.old_flash
 }
 
 // all returns all session data.
 pub fn (s &Session) all() map[string]string {
-	s.mu.rlock()
-	defer { s.mu.runlock() }
+	unsafe { s.mu.rlock() }
+	defer { unsafe { s.mu.runlock() } }
 	mut result := map[string]string{}
 	for key, val in s.data {
 		result[key] = val

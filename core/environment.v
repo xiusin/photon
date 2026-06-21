@@ -1097,6 +1097,7 @@ pub fn (mut env Environment) prefix_count(prefix string) int {
 // The prefix is stripped from the keys in the resulting map.
 //
 // Deprecated: use bind_to_struct[T] for type-safe binding to structs.
+@[deprecated: 'use bind_to_struct[T] for type-safe binding to structs']
 @[deprecated_after: '2026-06-01']
 pub fn (mut env Environment) bind_to(prefix string) !map[string]string {
 	env.mu.rlock()

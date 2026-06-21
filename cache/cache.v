@@ -62,15 +62,15 @@ pub fn (mut cm CacheRegistry) unregister(name string) bool {
 
 // get_cache retrieves a named cache or returns the default
 pub fn (cm &CacheRegistry) get_cache(name string) &Cache {
-	cm.mu.rlock()
-	defer { cm.mu.runlock() }
+	unsafe { cm.mu.rlock() }
+	defer { unsafe { cm.mu.runlock() } }
 	return cm.caches[name] or { cm.default_cache }
 }
 
 // get_cache_names returns the names of all registered caches.
 pub fn (cm &CacheRegistry) get_cache_names() []string {
-	cm.mu.rlock()
-	defer { cm.mu.runlock() }
+	unsafe { cm.mu.rlock() }
+	defer { unsafe { cm.mu.runlock() } }
 	mut names := []string{}
 	for k, _ in cm.caches {
 		names << k
