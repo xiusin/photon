@@ -244,46 +244,45 @@ pub fn validate_with_conditions[T](ctx &veb.Context, conditions []ValidationCond
 			} $else $if field.typ is bool {
 				result.$(field.name) = val in ['1', 'true', 'on', 'yes']
 			}
-			continue
-		}
+		} else {
+			val := params[field.name] or { '' }
 
-		val := params[field.name] or { '' }
+			// Check conditions for this field
+			rules := parse_rules(validate_str)
+			for rule in rules {
+				rule_name, _ := parse_rule(rule)
 
-		// Check conditions for this field
-		rules := parse_rules(validate_str)
-		for rule in rules {
-			rule_name, _ := parse_rule(rule)
-
-			// Check if any condition prevents this rule
-			should_skip := false
-			for cond in conditions {
-				if cond.field_name == field.name && cond.rule_name == rule_name {
-					if !cond.check(params) {
-						should_skip = true
-						break
+				// Check if any condition prevents this rule
+				should_skip := false
+				for cond in conditions {
+					if cond.field_name == field.name && cond.rule_name == rule_name {
+						if !cond.check(params) {
+							should_skip = true
+							break
+						}
 					}
 				}
+
+				if should_skip {
+					continue
+				}
+
+				ve := apply_rule_detail(field.name, val, rule) or { continue }
+				mut field_errors := errors[field.name] or { []ValidationError{} }
+				field_errors << ve
+				errors[field.name] = field_errors
 			}
 
-			if should_skip {
-				continue
+			// Set value on struct even if validation fails
+			$if field.typ is string {
+				result.$(field.name) = val
+			} $else $if field.typ is int {
+				result.$(field.name) = val.int()
+			} $else $if field.typ is f64 {
+				result.$(field.name) = val.f64()
+			} $else $if field.typ is bool {
+				result.$(field.name) = val in ['1', 'true', 'on', 'yes']
 			}
-
-			ve := apply_rule_detail(field.name, val, rule) or { continue }
-			mut field_errors := errors[field.name] or { []ValidationError{} }
-			field_errors << ve
-			errors[field.name] = field_errors
-		}
-
-		// Set value on struct even if validation fails
-		$if field.typ is string {
-			result.$(field.name) = val
-		} $else $if field.typ is int {
-			result.$(field.name) = val.int()
-		} $else $if field.typ is f64 {
-			result.$(field.name) = val.f64()
-		} $else $if field.typ is bool {
-			result.$(field.name) = val in ['1', 'true', 'on', 'yes']
 		}
 	}
 	return result, errors
@@ -969,30 +968,29 @@ pub fn validate[T](ctx &veb.Context) (T, ValidationErrors) {
 			} $else $if field.typ is bool {
 				result.$(field.name) = val in ['1', 'true', 'on', 'yes']
 			}
-			continue
-		}
+		} else {
+			// Get the value
+			val := params[field.name] or { '' }
 
-		// Get the value
-		val := params[field.name] or { '' }
+			// Apply each rule
+			rules := parse_rules(validate_str)
+			for rule in rules {
+				ve := apply_rule_detail(field.name, val, rule) or { continue }
+				mut field_errors := errors[field.name] or { []ValidationError{} }
+				field_errors << ve
+				errors[field.name] = field_errors
+			}
 
-		// Apply each rule
-		rules := parse_rules(validate_str)
-		for rule in rules {
-			ve := apply_rule_detail(field.name, val, rule) or { continue }
-			mut field_errors := errors[field.name] or { []ValidationError{} }
-			field_errors << ve
-			errors[field.name] = field_errors
-		}
-
-		// Set value on struct even if validation fails (for re-display)
-		$if field.typ is string {
-			result.$(field.name) = val
-		} $else $if field.typ is int {
-			result.$(field.name) = val.int()
-		} $else $if field.typ is f64 {
-			result.$(field.name) = val.f64()
-		} $else $if field.typ is bool {
-			result.$(field.name) = val in ['1', 'true', 'on', 'yes']
+			// Set value on struct even if validation fails (for re-display)
+			$if field.typ is string {
+				result.$(field.name) = val
+			} $else $if field.typ is int {
+				result.$(field.name) = val.int()
+			} $else $if field.typ is f64 {
+				result.$(field.name) = val.f64()
+			} $else $if field.typ is bool {
+				result.$(field.name) = val in ['1', 'true', 'on', 'yes']
+			}
 		}
 	}
 	return result, errors
@@ -1012,15 +1010,13 @@ pub fn validate_body[T](ctx &veb.Context) (T, ValidationErrors) {
 	// Decode JSON into the struct
 	result = json.decode(T, body) or {
 		// If JSON decode fails, try to validate individual fields
-		return result, ValidationErrors{
-			_body: [
-				ValidationError{
-					field:   '_body'
-					rule:    'json'
-					message: 'invalid JSON body'
-				},
-			]
-		}
+		mut decode_errors := map[string][]ValidationError{}
+		decode_errors['_body'] = [ValidationError{
+			field: '_body'
+			rule: 'json'
+			message: 'invalid JSON body'
+		}]
+		return result, decode_errors
 	}
 
 	// Apply validation rules on the decoded struct
@@ -1041,7 +1037,9 @@ pub fn validate_body[T](ctx &veb.Context) (T, ValidationErrors) {
 			}
 		}
 
-		if validate_str.len > 0 {
+		if validate_str.len == 0 {
+			// No validation rules for this field — skip
+		} else {
 			// Get the value from the struct
 			mut str_val := ''
 			$if field.typ is string {

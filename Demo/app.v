@@ -13,6 +13,8 @@ module main
 import veb
 import sync
 import photon.apidoc
+import bootstrap
+import app.http
 
 // ═══════════════════════════════════════════════════════════
 // App — 全局应用结构
@@ -31,9 +33,9 @@ pub mut:
 	start_time          i64
 	req_count           int
 	req_mu              &sync.Mutex = unsafe { nil }
-	bootstrap           &Bootstrap = unsafe { nil }
+	bootstrap           &bootstrap.Bootstrap = unsafe { nil }
 	middleware_registry &MiddlewareGroupRegistry = unsafe { nil }
-	http_kernel         &HttpKernel = unsafe { nil }
+	http_kernel         &http.HttpKernel = unsafe { nil }
 	apidoc_handler      &apidoc.ApidocHandler = unsafe { nil }
 }
 

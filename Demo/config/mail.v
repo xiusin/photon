@@ -1,4 +1,4 @@
-module main
+module config
 
 // config/mail.v — 邮件配置
 //

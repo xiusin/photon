@@ -1,4 +1,4 @@
-module main
+module bootstrap
 
 // bootstrap/app.v — 应用内核（AppKernel）
 //
@@ -15,20 +15,22 @@ module main
 // Spring 等价：SpringApplication + ApplicationContext
 
 import photon.core
+import config
+import providers
 
 // AppKernel 应用内核，持有 BootContext 与 ApplicationContext
 @[heap]
 pub struct AppKernel {
 pub:
-	cfg AppConfig
-	ctx &BootContext
+	cfg config.AppConfig
+	ctx &providers.BootContext
 }
 
 // new_app_kernel 创建应用内核
 // 创建 BootContext 与 ApplicationContext，设置 profile，但 不 执行装配。
 // 装配由 bootstrap() 方法触发，确保生命周期可控。
-pub fn new_app_kernel(cfg AppConfig) !&AppKernel {
-	mut ctx := new_boot_context(cfg)
+pub fn new_app_kernel(cfg config.AppConfig) !&AppKernel {
+	mut ctx := providers.new_boot_context(cfg)
 
 	mut app_ctx := core.new_application_context()
 	app_ctx.set_profiles([cfg.profile])
@@ -48,7 +50,7 @@ pub fn (k &AppKernel) bootstrap() ! {
 	mut app_ctx := k.ctx.app_context
 
 	// 注册全部 ServiceProvider
-	register_all_providers(app_ctx, k.ctx)
+	providers.register_all_providers(app_ctx, k.ctx)
 
 	// refresh — 触发所有 Provider 的 register() + boot()
 	app_ctx.refresh()!
@@ -95,6 +97,6 @@ pub fn (k &AppKernel) to_bootstrap() &Bootstrap {
 }
 
 // boot_context 返回共享上下文（类型安全的组件访问）
-pub fn (k &AppKernel) boot_context() &BootContext {
+pub fn (k &AppKernel) boot_context() &providers.BootContext {
 	return k.ctx
 }

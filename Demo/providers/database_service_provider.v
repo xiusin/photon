@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/database_service_provider.v — 数据库服务提供者
 //
@@ -8,8 +8,11 @@ module main
 // Spring 等价：DataSourceAutoConfiguration
 
 import photon.core
+import database
+import database.migrations
 
 pub struct DatabaseServiceProvider {
+mut:
 	ctx &BootContext
 }
 
@@ -22,12 +25,14 @@ pub fn new_database_provider(ctx &BootContext) &DatabaseServiceProvider {
 
 // register 创建 OrmManager 并注册到容器
 pub fn (sp &DatabaseServiceProvider) register(mut app_ctx core.ApplicationContext) ! {
-	mut ctx := unsafe { sp.ctx }
-	cfg := ctx.cfg
-	log := ctx.log
+	cfg := sp.ctx.cfg
+	log := sp.ctx.log
 
-	orm_mgr := init_database(cfg.database)!
-	ctx.orm_mgr = orm_mgr
+	orm_mgr := database.init_database(cfg.database)!
+	unsafe {
+		mut bctx := sp.ctx
+		bctx.orm_mgr = orm_mgr
+	}
 	log.info('OrmManager initialized — ${cfg.database.driver} (${cfg.database.path})')
 
 	app_ctx.register_instance('OrmManager', unsafe { voidptr(orm_mgr) })!
@@ -38,8 +43,9 @@ pub fn (sp &DatabaseServiceProvider) boot(mut app_ctx core.ApplicationContext) !
 	log := sp.ctx.log
 	orm_mgr := sp.ctx.orm_mgr
 
-	mm := new_migration_manager(orm_mgr)!
+	mut mm := database.new_migration_manager(orm_mgr)!
+	migrations.register_all(mut mm)
 	log.info('Running database migrations...')
-	run_migrations(mm)!
+	database.run_migrations(mm)!
 	log.info('Database migrations applied')
 }

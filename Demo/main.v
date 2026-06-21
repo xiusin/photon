@@ -21,23 +21,27 @@ import sync
 import photon.cli
 import photon.web
 import photon.apidoc
+import config
+import bootstrap
+import util
+import app.http
 
 fn main() {
 	// ── 1. 加载 .env 文件（开发环境） ──
-	load_env_file('.env')
+	util.load_env_file('.env')
 
 	// ── 2. 确定 profile ──
 	profile := os.getenv('APP_PROFILE')
 	actual_profile := if profile.len > 0 { profile } else { 'dev' }
 
 	// ── 3. 加载配置 ──
-	cfg := load_config(actual_profile) or {
+	cfg := config.load_config(actual_profile) or {
 		eprintln('Failed to load config (profile=${actual_profile}): ${err}')
 		exit(1)
 	}
 
 	// ── 4. 创建 AppKernel 并 bootstrap ──
-	kernel := new_app_kernel(cfg) or {
+	kernel := bootstrap.new_app_kernel(cfg) or {
 		eprintln('AppKernel creation failed: ${err}')
 		exit(1)
 	}
@@ -52,7 +56,7 @@ fn main() {
 	middleware_registry := new_middleware_group_registry(cfg.web, boot.auth_svc, boot.role_hierarchy, boot.csrf_mgr, boot.log)
 
 	// ── 6. 创建 HTTP 内核（统一响应与异常处理） ──
-	http_kernel := new_http_kernel()
+	http_kernel := http.new_http_kernel()
 
 	// ── 7. 创建 App（线程安全 req_count） ──
 	// apidoc_handler 仅在非生产环境启用（生产环境避免请求收集开销）
@@ -62,7 +66,7 @@ fn main() {
 		start_time:          time.ticks()
 		req_mu:              sync.new_mutex()
 		bootstrap:           boot
-		middleware_registry: middleware_registry
+		middleware_registry: &middleware_registry
 		http_kernel:         http_kernel
 		apidoc_handler:      apidoc_handler
 	}
@@ -88,10 +92,8 @@ fn main() {
 
 			// apidoc 请求收集（非生产环境）
 			if !isnil(web_app.apidoc_handler) {
-				unsafe {
-					mut h := web_app.apidoc_handler
-					h.collector.collect(mut ctx.Context)
-				}
+				mut h := unsafe { web_app.apidoc_handler }
+				h.collector.collect(mut ctx.Context)
 			}
 			return true
 		}
@@ -102,10 +104,8 @@ fn main() {
 		web_app.use(veb.MiddlewareOptions[Context]{
 			after:   true
 			handler: fn [apidoc_handler](mut ctx Context) bool {
-				unsafe {
-					mut h := apidoc_handler
-					h.collector.collect_response(mut ctx.Context)
-				}
+				mut h := unsafe { apidoc_handler }
+				h.collector.collect_response(mut ctx.Context)
 				return true
 			}
 		})
@@ -135,7 +135,7 @@ fn main() {
 	// ── 12. 扫描路由并打印路由表 ──
 	routes := web.scan_controller[App]()
 	web.print_routes(routes)
-	boot.print_routes()
+	bootstrap.print_routes(routes)
 
 	// ── 13. 启动 HTTP 服务 ──
 	port := cfg.server.port

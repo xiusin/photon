@@ -1,4 +1,4 @@
-module main
+module config
 
 // config/auth.v — 认证授权配置
 //
@@ -18,25 +18,28 @@ pub fn default_auth_config() AuthConfig {
 	}
 }
 
-// RoleEntry holds a role and its subordinates (parsed from hierarchy string)
-pub struct RoleEntry {
+// RoleHierarchyEntry 角色层级条目：角色名 + 其下属角色列表
+pub struct RoleHierarchyEntry {
 pub:
 	role         string
 	subordinates []string
 }
 
-// parse_role_hierarchy 解析角色层级字符串为 RoleEntry 列表
+// parse_role_hierarchy 解析角色层级字符串为 RoleHierarchyEntry 列表
 // 格式：ADMIN>EDITOR>USER
-// 返回：[RoleEntry{'ADMIN', ['EDITOR', 'USER']}, ...]
-pub fn parse_role_hierarchy(hierarchy string) []RoleEntry {
-	mut result := []RoleEntry{}
+// 返回：[{role:'ADMIN', subordinates:['EDITOR','USER']}, {role:'EDITOR', subordinates:['USER']}, {role:'USER', subordinates:[]}]
+pub fn parse_role_hierarchy(hierarchy string) []RoleHierarchyEntry {
+	mut result := []RoleHierarchyEntry{}
 	roles := hierarchy.split('>').map(it.trim_space()).filter(it.len > 0)
 	for i, role in roles {
 		mut subordinates := []string{}
 		for j in i + 1 .. roles.len {
 			subordinates << roles[j]
 		}
-		result << RoleEntry{role: role, subordinates: subordinates}
+		result << RoleHierarchyEntry{
+			role: role
+			subordinates: subordinates
+		}
 	}
 	return result
 }

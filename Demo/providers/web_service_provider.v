@@ -1,4 +1,4 @@
-module main
+module providers
 
 // providers/web_service_provider.v — Web 基础设施服务提供者
 //
@@ -15,6 +15,7 @@ import photon.web
 import os
 
 pub struct WebServiceProvider {
+mut:
 	ctx &BootContext
 }
 
@@ -27,9 +28,8 @@ pub fn new_web_provider(ctx &BootContext) &WebServiceProvider {
 
 // register 创建 StorageManager 与 UploadHandler
 pub fn (sp &WebServiceProvider) register(mut app_ctx core.ApplicationContext) ! {
-	mut ctx := unsafe { sp.ctx }
-	cfg := ctx.cfg
-	log := ctx.log
+	cfg := sp.ctx.cfg
+	log := sp.ctx.log
 
 	// ── StorageManager ──
 	storage_mgr := storage.new_manager()
@@ -39,8 +39,6 @@ pub fn (sp &WebServiceProvider) register(mut app_ctx core.ApplicationContext) ! 
 	unsafe {
 		storage_mgr.register('local', storage.new_local_adapter(cfg.storage.base_path))
 	}
-	ctx.storage_mgr = storage_mgr
-	log.info('StorageManager initialized — local driver (${cfg.storage.base_path})')
 
 	// ── UploadHandler ──
 	upload_handler := web.new_upload_handler()
@@ -48,7 +46,13 @@ pub fn (sp &WebServiceProvider) register(mut app_ctx core.ApplicationContext) ! 
 		upload_handler.max_size = cfg.storage.max_size
 		upload_handler.allowed_extensions = cfg.storage.allowed_ext.clone()
 	}
-	ctx.upload_handler = upload_handler
+
+	unsafe {
+		mut bctx := sp.ctx
+		bctx.storage_mgr = storage_mgr
+		bctx.upload_handler = upload_handler
+	}
+	log.info('StorageManager initialized — local driver (${cfg.storage.base_path})')
 	log.info('UploadHandler initialized — max_size=${cfg.storage.max_size}')
 
 	app_ctx.register_instance('StorageManager', unsafe { voidptr(storage_mgr) })!

@@ -23,13 +23,8 @@ pub mut:
 // Note: fields are flattened (not embedded) to work around a V 0.5.x codegen
 // bug in JSON decoder for structs with embedded sub-structs.
 pub struct PageResult {
-pub mut:
-	success    bool
-	code       int
-	message    string
-	data       string
-	timestamp  i64
-	path       string
+	Result
+pub:
 	pagination Pagination
 }
 
@@ -99,8 +94,11 @@ pub fn (r &Result) to_json() string {
 }
 
 // to_json serializes the PageResult (including pagination) to JSON
+// 注：手动构建 JSON 而非 json.encode，因 V 编译器对嵌入 struct + pub mut 字段
+// 的 json.encode 会生成无效 C 代码（struct or union expected）
 pub fn (r &PageResult) to_json() string {
-	return json.encode(r)
+	p := r.pagination
+	return '{"success":${r.success},"code":${r.code},"message":${json.encode(r.message)},"data":${r.data},"timestamp":${r.timestamp},"path":${json.encode(r.path)},"pagination":{"page":${p.page},"page_size":${p.page_size},"total":${p.total},"total_pages":${p.total_pages},"has_next":${p.has_next},"has_prev":${p.has_prev}}}'
 }
 
 // -- Convenience builders --

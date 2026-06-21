@@ -14,6 +14,10 @@ module main
 //   - 统计服务缓存集成
 //   - 密码修改与重新登录
 
+import database
+import database.migrations
+import models
+
 // ═══════════════════════════════════════════════════════════
 // Bootstrap 初始化完整性
 // ═══════════════════════════════════════════════════════════
@@ -301,12 +305,14 @@ fn test_migration_and_rollback() {
 	assert saved.id > 0
 
 	// 回滚迁移
-	mm := new_migration_manager(boot.orm_mgr)!
-	rollback_migrations(mm) or {}
+	mm := database.new_migration_manager(boot.orm_mgr)!
+	migrations.register_all(mut mm)
+	database.rollback_migrations(mm) or {}
 
 	// 重新迁移
-	mm2 := new_migration_manager(boot.orm_mgr)!
-	run_migrations(mm2) or {}
+	mm2 := database.new_migration_manager(boot.orm_mgr)!
+	database.migrations.register_all(mut mm2)
+	database.run_migrations(mm2) or {}
 
 	// 验证迁移后表可用
 	mut user2 := User{username: 'mig_test2', email: 'mig2@t.com', password: 'h', role: 'USER', status: 1}
