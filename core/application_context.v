@@ -368,8 +368,9 @@ pub fn (mut ctx ApplicationContext) register_auto_configuration[T]() ! {
 pub fn (mut ctx ApplicationContext) register_scheduled[T](mut scheduler ticker.Scheduler) ! {
 	// Resolve the bean instance from the container by type name.
 	// We use the raw voidptr so the closure can cast it to a mutable &T.
-	bean_ptr := ctx.container.resolve(T.name) or {
-		return error('register_scheduled: bean "${T.name}" not found / 未找到 bean "${T.name}"')
+	type_name := auto_configuration_type_name[T]()
+	bean_ptr := ctx.container.resolve(type_name) or {
+		return error('register_scheduled: bean "${type_name}" not found / 未找到 bean "${type_name}"')
 	}
 
 	// Comptime scan: for each method of T, check if it has @[scheduled(...)]
@@ -389,7 +390,7 @@ pub fn (mut ctx ApplicationContext) register_scheduled[T](mut scheduler ticker.S
 
 			mut b := scheduler.cron(cron_expr)
 			b.task(task_fn)
-			b.name('${T.name}.${method.name}')
+			b.name('${type_name}.${method_name}')
 			scheduler.register(b)
 		}
 	}

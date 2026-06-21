@@ -202,7 +202,7 @@ fn test_register_scheduled_registers_task() {
 	mut sched := ticker.new_task_scheduler()
 
 	mut service := &SchedCronService{}
-	ctx.register_instance('SchedCronService', service) or { assert false }
+	ctx.register_instance(auto_configuration_type_name[SchedCronService](), service) or { assert false }
 
 	assert sched.task_count() == 0
 	ctx.register_scheduled[SchedCronService](mut sched) or { assert false }
@@ -216,7 +216,7 @@ fn test_register_scheduled_multiple_methods() {
 	mut sched := ticker.new_task_scheduler()
 
 	mut service := &SchedMultiService{}
-	ctx.register_instance('SchedMultiService', service) or { assert false }
+	ctx.register_instance(auto_configuration_type_name[SchedMultiService](), service) or { assert false }
 
 	ctx.register_scheduled[SchedMultiService](mut sched) or { assert false }
 	assert sched.task_count() == 2
@@ -244,8 +244,8 @@ fn test_register_scheduled_multiple_services() {
 
 	mut service1 := &SchedCronService{}
 	mut service2 := &SchedSecondService{}
-	ctx.register_instance('SchedCronService', service1) or { assert false }
-	ctx.register_instance('SchedSecondService', service2) or { assert false }
+	ctx.register_instance(auto_configuration_type_name[SchedCronService](), service1) or { assert false }
+	ctx.register_instance(auto_configuration_type_name[SchedSecondService](), service2) or { assert false }
 
 	ctx.register_scheduled[SchedCronService](mut sched) or { assert false }
 	ctx.register_scheduled[SchedSecondService](mut sched) or { assert false }
@@ -263,7 +263,7 @@ fn test_register_scheduled_no_scheduled_methods() {
 	mut sched := ticker.new_task_scheduler()
 
 	mut service := &SchedPlainService{}
-	ctx.register_instance('SchedPlainService', service) or { assert false }
+	ctx.register_instance(auto_configuration_type_name[SchedPlainService](), service) or { assert false }
 
 	ctx.register_scheduled[SchedPlainService](mut sched) or { assert false }
 	assert sched.task_count() == 0
@@ -277,7 +277,7 @@ fn test_register_scheduled_various_cron_formats() {
 	mut sched := ticker.new_task_scheduler()
 
 	mut service := &SchedVariousCronService{}
-	ctx.register_instance('SchedVariousCronService', service) or { assert false }
+	ctx.register_instance(auto_configuration_type_name[SchedVariousCronService](), service) or { assert false }
 
 	ctx.register_scheduled[SchedVariousCronService](mut sched) or { assert false }
 	assert sched.task_count() == 3
@@ -298,7 +298,7 @@ fn test_register_scheduled_task_auto_starts() {
 	mut sched := ticker.new_task_scheduler()
 
 	mut service := &SchedCronService{}
-	ctx.register_instance('SchedCronService', service) or { assert false }
+	ctx.register_instance(auto_configuration_type_name[SchedCronService](), service) or { assert false }
 	ctx.register_scheduled[SchedCronService](mut sched) or { assert false }
 
 	sched.start()
@@ -324,7 +324,7 @@ fn test_register_scheduled_scheduler_integration() {
 	mut sched := ticker.new_task_scheduler()
 
 	mut service := &SchedMultiService{}
-	ctx.register_instance('SchedMultiService', service) or { assert false }
+	ctx.register_instance(auto_configuration_type_name[SchedMultiService](), service) or { assert false }
 	ctx.register_scheduled[SchedMultiService](mut sched) or { assert false }
 
 	sched.start()
@@ -348,8 +348,8 @@ fn test_register_scheduled_multiple_services_auto_start() {
 
 	mut service1 := &SchedCronService{}
 	mut service2 := &SchedSecondService{}
-	ctx.register_instance('SchedCronService', service1) or { assert false }
-	ctx.register_instance('SchedSecondService', service2) or { assert false }
+	ctx.register_instance(auto_configuration_type_name[SchedCronService](), service1) or { assert false }
+	ctx.register_instance(auto_configuration_type_name[SchedSecondService](), service2) or { assert false }
 
 	ctx.register_scheduled[SchedCronService](mut sched) or { assert false }
 	ctx.register_scheduled[SchedSecondService](mut sched) or { assert false }
@@ -377,7 +377,7 @@ fn test_register_scheduled_no_goroutine_leak() {
 	mut sched := ticker.new_task_scheduler()
 
 	mut service := &SchedCronService{}
-	ctx.register_instance('SchedCronService', service) or { assert false }
+	ctx.register_instance(auto_configuration_type_name[SchedCronService](), service) or { assert false }
 	ctx.register_scheduled[SchedCronService](mut sched) or { assert false }
 
 	sched.start()
