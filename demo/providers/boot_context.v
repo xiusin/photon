@@ -27,11 +27,12 @@ import photon.security
 import photon.queue
 import photon.orm as phorm
 import photon.web
+import config
 
 @[heap]
 pub struct BootContext {
 pub mut:
-	cfg AppConfig
+	cfg config.AppConfig
 	// ── 基础设施 ──
 	log            &logger.Logger = unsafe { nil }
 	app_context    &core.ApplicationContext = unsafe { nil }
@@ -65,7 +66,7 @@ pub mut:
 }
 
 // new_boot_context 创建共享上下文，注入应用配置
-pub fn new_boot_context(cfg AppConfig) &BootContext {
+pub fn new_boot_context(cfg config.AppConfig) &BootContext {
 	return &BootContext{
 		cfg: cfg
 	}

@@ -17,7 +17,8 @@ import photon.queue
 import photon.orm as phorm
 import photon.web
 import db.sqlite
-import appconfig
+import config
+import providers
 import repositories
 import services
 
@@ -28,7 +29,7 @@ import services
 @[heap]
 pub struct Bootstrap {
 pub:
-	cfg            appconfig.AppConfig
+	cfg            config.AppConfig
 	log            &logger.Logger
 	app_context    &core.ApplicationContext
 	event_bus      &core.EventBus
@@ -69,49 +70,12 @@ pub:
 @[heap]
 pub struct AppKernel {
 pub:
-	cfg appconfig.AppConfig
+	cfg config.AppConfig
 mut:
-	boot_context &BootContext
+	boot_context &providers.BootContext
 }
 
-// BootContext — 启动上下文（简化版）
-pub struct BootContext {
-pub mut:
-	cfg            appconfig.AppConfig
-	log            &logger.Logger
-	app_context    &core.ApplicationContext
-	event_bus      &core.EventBus
-	cmgr           cache.Cache
-	orm_mgr        &phorm.OrmManager
-	lock_mgr       &locking.LockManager
-	storage_mgr    &storage.StorageManager
-	mailer_inst    &mailer.Mailer
-	scheduler      &ticker.Scheduler
-	jwt_mgr        &security.JwtManager
-	role_hierarchy &security.RoleHierarchy
-	csrf_mgr       &security.CsrfManager
-	worker         &queue.QueueWorker
-	upload_handler &web.UploadHandler
-
-	// 仓储
-	user_repo     &repositories.UserRepository
-	post_repo     &repositories.PostRepository
-	comment_repo  &repositories.CommentRepository
-	category_repo &repositories.CategoryRepository
-	tag_repo      &repositories.TagRepository
-
-	// 服务
-	user_svc     &services.UserService
-	auth_svc     &services.AuthService
-	post_svc     &services.PostService
-	comment_svc  &services.CommentService
-	category_svc &services.CategoryService
-	tag_svc      &services.TagService
-	stats_svc    &services.StatsService
-	upload_svc   &services.UploadService
-}
-
-pub fn new_app_kernel(cfg appconfig.AppConfig) !&AppKernel {
+pub fn new_app_kernel(cfg config.AppConfig) !&AppKernel {
 	return &AppKernel{
 		cfg: cfg
 		boot_context: unsafe { nil }
@@ -128,7 +92,7 @@ pub fn (mut k AppKernel) bootstrap() ! {
 	cache_mgr := cache.new_memory_cache('default')
 
 	mut orm_mgr := phorm.new_orm_manager()
-	db_cfg := appconfig.default_database_config(k.cfg.profile)
+	db_cfg := config.default_database_config(k.cfg.profile)
 	db := sqlite.connect(db_cfg.path)!
 	orm_mgr.register_connection('default', .sqlite, voidptr(&db))!
 	lock_mgr := locking.new_lock_manager()
@@ -190,7 +154,7 @@ pub fn (mut k AppKernel) bootstrap() ! {
 	// 注册 Job 工厂
 	services.register_jobs(worker)
 
-	k.boot_context = &BootContext{
+	k.boot_context = &providers.BootContext{
 		cfg:            k.cfg
 		log:            log
 		app_context:    app_ctx
@@ -258,12 +222,12 @@ pub fn (k &AppKernel) to_bootstrap() &Bootstrap {
 }
 
 // boot_context 返回 BootContext
-pub fn (k &AppKernel) boot_context() &BootContext {
+pub fn (k &AppKernel) boot_context() &providers.BootContext {
 	return k.boot_context
 }
 
 // new_bootstrap 创建并初始化 Bootstrap（薄封装）
-pub fn new_bootstrap(cfg appconfig.AppConfig) !&Bootstrap {
+pub fn new_bootstrap(cfg config.AppConfig) !&Bootstrap {
 	mut kernel := new_app_kernel(cfg)!
 	kernel.bootstrap()!
 	return kernel.to_bootstrap()

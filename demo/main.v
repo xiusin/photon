@@ -9,7 +9,7 @@ import sync
 import photon.cli
 import photon.web
 import photon.apidoc
-import appconfig
+import config
 import bootstrap
 import app.http.middleware
 import app.http
@@ -20,7 +20,7 @@ fn main() {
 	actual_profile := if profile.len > 0 { profile } else { 'dev' }
 
 	// ── 2. 加载配置（含 .env 文件） ──
-	cfg := appconfig.load_config_with_env(actual_profile) or {
+	cfg := config.load_config_with_env(actual_profile) or {
 		eprintln('Failed to load config (profile=${actual_profile}): ${err}')
 		exit(1)
 	}

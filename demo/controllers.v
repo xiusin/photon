@@ -17,6 +17,8 @@ module main
 //   1. app.middleware_registry.authenticate(mut ctx.Context) → (username, roles)
 //   2. app.middleware_registry.authorize(['ADMIN'], roles) → 通过或抛错
 //
+// DTO 结构体已迁移至 app/http/dto.v（module http），通过 http.AppInfoDto 等方式引用。
+//
 // 控制器清单（27 个端点）：
 //   Task 12: 系统      — index / health / ping / stats
 //   Task 13: 认证      — register / login / refresh / profile / logout
@@ -33,6 +35,7 @@ import os
 import photon.web
 import photon.security
 import models
+import app.http
 import app.http.resources
 
 // ═══════════════════════════════════════════════════════════
@@ -52,52 +55,13 @@ import app.http.resources
 // Task 12: 系统控制器 — 首页 & 系统信息
 // ═══════════════════════════════════════════════════════════
 
-// AppInfoDto 首页应用信息
-struct AppInfoDto {
-	app         string
-	version     string
-	profile     string
-	uptime_ms   i64
-	requests    int
-	endpoints   []string
-}
-
-// HealthDto 健康检查响应
-struct HealthDto {
-	status    string
-	version   string
-	uptime_ms i64
-	timestamp i64
-}
-
-// BasicStatsDto 基础统计（统计服务失败时的回退）
-struct BasicStatsDto {
-	requests     int
-	uptime_ms    i64
-	user_count   int
-	post_count   int
-	comment_count int
-	timestamp    i64
-}
-
-// BlogStatsDto 博客统计
-struct BlogStatsDto {
-	requests        int
-	uptime_ms       i64
-	user_count      int
-	post_count      int
-	published_count int
-	draft_count     int
-	comment_count   int
-	aggregated_at   i64
-}
 
 // index GET / — 应用信息与端点列表
 @[get]
 @['/']
 pub fn (mut app App) index(mut ctx Context) veb.Result {
 	uptime_ms := time.ticks() - app.start_time
-	info := AppInfoDto{
+	info := http.AppInfoDto{
 		app:       app.bootstrap.cfg.app.name
 		version:   app.bootstrap.cfg.app.version
 		profile:   app.bootstrap.cfg.profile
@@ -164,7 +128,7 @@ pub fn (mut app App) docs_export(mut ctx Context) veb.Result {
 @['/health']
 pub fn (mut app App) health(mut ctx Context) veb.Result {
 	uptime_ms := time.ticks() - app.start_time
-	data := HealthDto{
+	data := http.HealthDto{
 		status:    'UP'
 		version:   app.bootstrap.cfg.app.version
 		uptime_ms: uptime_ms
@@ -190,7 +154,7 @@ pub fn (mut app App) stats(mut ctx Context) veb.Result {
 	mut stats_svc := app.bootstrap.stats_svc
 	blog_stats := stats_svc.get_blog_stats() or {
 		// 统计服务失败时返回基础信息
-		basic := BasicStatsDto{
+		basic := http.BasicStatsDto{
 			requests:      app.req_count
 			uptime_ms:     uptime_ms
 			user_count:    0
@@ -201,7 +165,7 @@ pub fn (mut app App) stats(mut ctx Context) veb.Result {
 		return ctx.send_data(json.encode(basic))
 	}
 
-	data := BlogStatsDto{
+	data := http.BlogStatsDto{
 		requests:        app.req_count
 		uptime_ms:       uptime_ms
 		user_count:      blog_stats.user_count
@@ -286,25 +250,13 @@ fn do_login(mut app App, mut ctx Context, dto models.LoginDto) veb.Result {
 	return ctx.send_data(json.encode(resp))
 }
 
-// RefreshTokenDto 刷新令牌请求
-struct RefreshTokenDto {
-	refresh_token string @[required; validate: 'required']
-}
-
-// TokenResponseDto 令牌响应
-struct TokenResponseDto {
-	access_token  string
-	refresh_token string
-	token_type    string = 'Bearer'
-	expires_in    int    = 3600
-}
 
 // post_auth_refresh POST /api/v1/auth/refresh — 刷新访问令牌
 @[post]
 @['/api/v1/auth/refresh']
 pub fn (mut app App) post_auth_refresh(mut ctx Context) veb.Result {
 	// 校验请求体
-	dto := web.bind_json[RefreshTokenDto](ctx.Context) or {
+	dto := web.bind_json[http.RefreshTokenDto](ctx.Context) or {
 		return ctx.send_result(web.fail(422, err.msg()))
 	}
 
@@ -320,7 +272,7 @@ pub fn (mut app App) post_auth_refresh(mut ctx Context) veb.Result {
 		return ctx.send_internal_error('failed to generate token / 令牌生成失败: ${err}')
 	}
 
-	resp := TokenResponseDto{
+	resp := http.TokenResponseDto{
 		access_token:  access_token
 		refresh_token: dto.refresh_token
 	}
@@ -346,10 +298,6 @@ pub fn (mut app App) get_auth_profile(mut ctx Context) veb.Result {
 	return ctx.send_data(resources.new_user_resource(&user).to_json())
 }
 
-// MessageDto 通用消息响应
-struct MessageDto {
-	message string
-}
 
 // post_auth_logout POST /api/v1/auth/logout — 登出（客户端清除 token）
 @[post]
@@ -358,11 +306,11 @@ pub fn (mut app App) post_auth_logout(mut ctx Context) veb.Result {
 	// JWT 认证（可选，即使 token 过期也允许登出）
 	_, _ = app.middleware_registry.authenticate(mut ctx.Context) or {
 		// 即使认证失败也返回成功（客户端应清除 token）
-		return ctx.send_data(json.encode(MessageDto{message: 'logged out / 已登出'}))
+		return ctx.send_data(json.encode(http.MessageDto{message: 'logged out / 已登出'}))
 	}
 
 	// 返回成功（JWT 无状态，服务端无需额外处理，客户端清除 token 即可）
-	return ctx.send_data(json.encode(MessageDto{message: 'logged out / 已登出'}))
+	return ctx.send_data(json.encode(http.MessageDto{message: 'logged out / 已登出'}))
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -537,7 +485,7 @@ pub fn (mut app App) delete_user(mut ctx Context, id string) veb.Result {
 		return ctx.send_not_found(err.msg())
 	}
 
-	return ctx.send_data(json.encode(MessageDto{message: 'user deleted / 用户已删除'}))
+	return ctx.send_data(json.encode(http.MessageDto{message: 'user deleted / 用户已删除'}))
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -720,7 +668,7 @@ pub fn (mut app App) delete_post(mut ctx Context, id string) veb.Result {
 		return ctx.send_not_found(err.msg())
 	}
 
-	return ctx.send_data(json.encode(MessageDto{message: 'post deleted / 文章已删除'}))
+	return ctx.send_data(json.encode(http.MessageDto{message: 'post deleted / 文章已删除'}))
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -848,7 +796,7 @@ pub fn (mut app App) delete_comment(mut ctx Context, id string) veb.Result {
 		return ctx.send_internal_error(err.msg())
 	}
 
-	return ctx.send_data(json.encode(MessageDto{message: 'comment deleted / 评论已删除'}))
+	return ctx.send_data(json.encode(http.MessageDto{message: 'comment deleted / 评论已删除'}))
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -957,17 +905,6 @@ fn do_create_tag(mut app App, mut ctx Context, dto models.CreateTagDto) veb.Resu
 // Task 18: 文件上传控制器 — 头像/配图/文件访问
 // ═══════════════════════════════════════════════════════════
 
-// UploadResponseDto 文件上传响应
-struct UploadResponseDto {
-	original_name string
-	stored_name   string
-	path          string
-	size          int
-	extension     string
-	mime_type     string
-	hash          string
-	url           string
-}
 
 // post_upload_avatar POST /api/v1/uploads/avatar — 头像上传（需 USER+，限制 2MB，.jpg/.png）
 @[post]
@@ -1001,7 +938,7 @@ pub fn (mut app App) post_upload_avatar(mut ctx Context) veb.Result {
 	}
 
 	// 构建响应数据
-	resp := UploadResponseDto{
+	resp := http.UploadResponseDto{
 		original_name: file.filename
 		stored_name:   stored_name
 		path:          '/uploads/${stored_name}'
@@ -1046,7 +983,7 @@ pub fn (mut app App) post_upload_image(mut ctx Context) veb.Result {
 	}
 
 	// 构建响应数据
-	resp := UploadResponseDto{
+	resp := http.UploadResponseDto{
 		original_name: file.filename
 		stored_name:   stored_name
 		path:          '/uploads/${stored_name}'

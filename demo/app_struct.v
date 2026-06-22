@@ -1,6 +1,6 @@
 module main
 
-// app.v — PhotonBlog Web 应用结构（veb 集成）
+// app_struct.v — PhotonBlog Web 应用结构（veb 集成）
 //
 // 定义 App 全局应用结构（嵌入 veb.Context + veb.Middleware[Context]）
 // 与 Context 请求级上下文。veb 框架在每次请求前自动调用 Context.before_request()

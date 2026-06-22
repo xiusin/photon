@@ -7,7 +7,7 @@ import photon.logger
 import photon.security
 import photon.web
 import util
-import appconfig
+import config
 import services
 
 // ═══════════════════════════════════════════════════════════
@@ -31,7 +31,7 @@ pub mut:
 
 // new_middleware_group_registry 创建中间件组注册表
 pub fn new_middleware_group_registry(
-	cfg appconfig.WebConfig,
+	cfg config.WebConfig,
 	auth_svc &services.AuthService,
 	rh &security.RoleHierarchy,
 	csrf_mgr &security.CsrfManager,

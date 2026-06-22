@@ -2,7 +2,7 @@ module database
 
 import photon.orm as phorm
 import db.sqlite
-import appconfig
+import config
 
 // 全局数据库连接
 __global (
@@ -10,7 +10,7 @@ __global (
 )
 
 // init_database 初始化数据库连接并注册到 OrmManager
-pub fn init_database(cfg appconfig.DatabaseConfig) !&phorm.OrmManager {
+pub fn init_database(cfg config.DatabaseConfig) !&phorm.OrmManager {
 	unsafe {
 		g_db = sqlite.connect(cfg.path)!
 	}
