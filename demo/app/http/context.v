@@ -1,8 +1,35 @@
-module main
+module http
+
+// app/http/context.v — 请求上下文与响应辅助方法
+//
+// Context 是 PhotonBlog 的请求级上下文，嵌入 veb.Context。
+// 响应辅助方法提供统一的 JSON 响应格式。
 
 import veb
 import net.http
 import photon.web
+
+// Context — 请求级上下文
+pub struct Context {
+	veb.Context
+pub mut:
+	request_id string
+	user_id    int
+	username   string
+	role       string
+}
+
+// before_request — veb 在每次请求处理前自动调用
+pub fn (mut ctx Context) before_request() {
+	ctx.request_id = ''
+	ctx.username = ''
+	ctx.role = ''
+	ctx.user_id = 0
+}
+
+// ═══════════════════════════════════════════════════════════
+// 响应辅助方法
+// ═══════════════════════════════════════════════════════════
 
 // send_data sends JSON data with 200 OK
 pub fn (mut ctx Context) send_data(data string) veb.Result {

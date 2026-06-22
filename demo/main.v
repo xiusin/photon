@@ -13,6 +13,7 @@ import config
 import bootstrap
 import app.http.middleware
 import app.http
+import app.http.controllers
 
 fn main() {
 	// ── 1. 确定 profile ──
@@ -45,19 +46,47 @@ fn main() {
 
 	// ── 7. 创建 App ──
 	apidoc_handler := if cfg.profile != 'prod' { apidoc.enable() } else { &apidoc.ApidocHandler(unsafe { nil }) }
+	start_time_ticks := time.ticks()
 
 	mut web_app := &App{
-		start_time:          time.ticks()
+		start_time:          start_time_ticks
 		req_mu:              sync.new_mutex()
 		bootstrap:           boot
 		middleware_registry: middleware_registry
 		http_kernel:         http_kernel
 		apidoc_handler:      apidoc_handler
+		// Laravel 风格控制器初始化
+		system_ctrl: &controllers.SystemController{
+			base: controllers.BaseController{bootstrap: boot, middleware_registry: middleware_registry}
+			apidoc_handler: apidoc_handler
+			start_time: start_time_ticks
+		}
+		auth_ctrl: &controllers.AuthController{
+			base: controllers.BaseController{bootstrap: boot, middleware_registry: middleware_registry}
+		}
+		user_ctrl: &controllers.UserController{
+			base: controllers.BaseController{bootstrap: boot, middleware_registry: middleware_registry}
+		}
+		post_ctrl: &controllers.PostController{
+			base: controllers.BaseController{bootstrap: boot, middleware_registry: middleware_registry}
+		}
+		comment_ctrl: &controllers.CommentController{
+			base: controllers.BaseController{bootstrap: boot, middleware_registry: middleware_registry}
+		}
+		category_ctrl: &controllers.CategoryController{
+			base: controllers.BaseController{bootstrap: boot, middleware_registry: middleware_registry}
+		}
+		tag_ctrl: &controllers.TagController{
+			base: controllers.BaseController{bootstrap: boot, middleware_registry: middleware_registry}
+		}
+		upload_ctrl: &controllers.UploadController{
+			base: controllers.BaseController{bootstrap: boot, middleware_registry: middleware_registry}
+		}
 	}
 
 	// ── 8. 注册全局中间件 ──
-	web_app.use(veb.MiddlewareOptions[Context]{
-		handler: fn [mut web_app](mut ctx Context) bool {
+	web_app.use(veb.MiddlewareOptions[http.Context]{
+		handler: fn [mut web_app](mut ctx http.Context) bool {
 			web_app.req_mu.@lock()
 			web_app.req_count++
 			web_app.req_mu.unlock()
@@ -84,9 +113,9 @@ fn main() {
 
 	// apidoc 响应收集
 	if !isnil(apidoc_handler) {
-		web_app.use(veb.MiddlewareOptions[Context]{
+		web_app.use(veb.MiddlewareOptions[http.Context]{
 			after:   true
-			handler: fn [apidoc_handler](mut ctx Context) bool {
+			handler: fn [apidoc_handler](mut ctx http.Context) bool {
 				unsafe {
 					mut h := apidoc_handler
 					h.collector.collect_response(mut ctx.Context)
@@ -128,7 +157,7 @@ fn main() {
 	boot.log.info('Starting HTTP server on ${host}:${port} ...')
 	boot.log.info('Press Ctrl+C to stop')
 
-	veb.run_at[App, Context](mut web_app, host: host, port: port, family: .ip) or {
+	veb.run_at[App, http.Context](mut web_app, host: host, port: port, family: .ip) or {
 		boot.log.error('Server failed: ${err}')
 		panic(err)
 	}

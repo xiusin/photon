@@ -82,7 +82,7 @@ pub fn (mut mctx MiddlewareContext) reset() {
 	}
 	// preserved is already a new map, no need to clone
 	// preserved 已经是新 map，无需 clone
-	mctx.data = preserved
+	mctx.data = preserved.clone()
 	mctx.ctx = unsafe { nil } // 清除 veb.Context 引用 / Clear veb.Context reference
 	mctx.logger = unsafe { nil } // 清除 logger 引用 / Clear logger reference
 }
