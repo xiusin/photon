@@ -114,6 +114,115 @@ myapp make:service UserService        <span class="cm"># 生成 Service 模板</
         </div>
       </div>
 
+      <!-- ═══ 5. Command Annotations ═══ -->
+      <div class="doc-section" id="command-annotations">
+        <div class="section-header"><div class="section-icon icon-cli">📌</div><div><div class="section-title">命令注解</div><div class="section-subtitle">@[command] · @[option] · @[argument] · 编译期扫描</div></div></div>
+
+        <p>Photon CLI 提供注解驱动的命令定义，在编译期扫描命令元数据，实现声明式命令注册：</p>
+
+        <table class="doc-table">
+          <thead><tr><th>注解 / 方法</th><th>说明</th><th>Spring Shell 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>@[command]</code></td><td>标记 struct 为 CLI 命令</td><td><code>@ShellComponent</code></td></tr>
+            <tr><td><code>@[command: 'name']</code></td><td>指定命令名称</td><td><code>@ShellMethod(value = "name")</code></td></tr>
+            <tr><td><code>@[description('help text')]</code></td><td>命令描述</td><td><code>@ShellMethod(help = "text")</code></td></tr>
+            <tr><td><code>@[option('name')]</code></td><td>命令选项（--name）</td><td><code>@ShellOption</code></td></tr>
+            <tr><td><code>@[argument]</code></td><td>位置参数</td><td>—</td></tr>
+            <tr><td><code>@[required]</code></td><td>必填参数</td><td><code>@ShellOption(defaultValue = "__NONE__")</code></td></tr>
+            <tr><td><code>@[default('value')]</code></td><td>默认值</td><td><code>@ShellOption(defaultValue = "value")</code></td></tr>
+            <tr><td><code>scan_command[T]()</code></td><td>编译期扫描命令注解，返回 CommandInfo</td><td>—</td></tr>
+            <tr><td><code>register_command_from[T]()</code></td><td>从注解 struct 自动注册命令</td><td>—</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.cli
+
+<span class="cm">// Define command with annotations / 使用注解定义命令</span>
+<span class="at">@[command]</span>
+<span class="at">@[description('Send notifications to users')]</span>
+<span class="kw">pub struct</span> <span class="tp">NotifyCommand</span> {
+<span class="kw">pub</span>:
+    <span class="at">@[option('channel')]</span>
+    <span class="at">@[default('email')]</span>
+    channel <span class="tp">string</span>
+
+    <span class="at">@[argument]</span>
+    <span class="at">@[required]</span>
+    user_id <span class="tp">string</span>
+
+    <span class="at">@[option('dry-run')]</span>
+    dry_run <span class="tp">bool</span>
+}
+
+<span class="cm">// Comptime scan / 编译期扫描</span>
+info := cli.<span class="fn">scan_command</span>[<span class="tp">NotifyCommand</span>]()
+<span class="fn">println</span>(info.name)         <span class="cm">// 'NotifyCommand'</span>
+<span class="fn">println</span>(info.description)  <span class="cm">// 'Send notifications to users'</span>
+
+<span class="cm">// Auto-register / 自动注册</span>
+<span class="kw">mut</span> app := cli.<span class="fn">new_application</span>(<span class="st">'myapp'</span>, <span class="st">'1.0.0'</span>)
+cli.<span class="fn">register_command_from</span>[<span class="tp">NotifyCommand</span>](<span class="kw">mut</span> app)!
+
+<span class="cm">// Spring Shell equivalent: @ShellMethod</span>
+<span class="cm">// Laravel equivalent: Artisan command signature</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 6. Help Generation ═══ -->
+      <div class="doc-section" id="help-generation">
+        <div class="section-header"><div class="section-icon icon-cli">📖</div><div><div class="section-title">命令帮助生成</div><div class="section-subtitle">CommandHelp · AnnotatedCommand · bind_input · man page</div></div></div>
+
+        <p>Photon CLI 支持从注解自动生成帮助文本，并提供输入绑定与 man page 生成功能：</p>
+
+        <table class="doc-table">
+          <thead><tr><th>类型 / 方法</th><th>说明</th><th>Laravel 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>CommandHelp</code></td><td>结构化帮助文本构建器</td><td>—</td></tr>
+            <tr><td><code>AnnotatedCommand</code></td><td>带自动生成帮助的命令</td><td>—</td></tr>
+            <tr><td><code>bind_input[T]()</code></td><td>将 CLI 输入绑定到 struct 字段</td><td>—</td></tr>
+            <tr><td><code>generate_help(app)</code></td><td>生成所有命令的帮助文本</td><td><code>php artisan help</code></td></tr>
+            <tr><td><code>generate_man_page(app)</code></td><td>生成 man page 格式文档</td><td>—</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.cli
+
+<span class="cm">// 1. Auto-generated help from annotations / 从注解自动生成帮助</span>
+<span class="kw">mut</span> cmd := cli.<span class="tp">AnnotatedCommand</span>{
+    name:        <span class="st">'notify'</span>
+    description: <span class="st">'Send notifications to users'</span>
+}
+cmd.<span class="fn">add_option</span>(<span class="st">'channel'</span>, <span class="st">'Notification channel'</span>, <span class="st">'email'</span>)
+cmd.<span class="fn">add_argument</span>(<span class="st">'user_id'</span>, <span class="st">'Target user ID'</span>, <span class="kw">true</span>)
+<span class="fn">println</span>(cmd.<span class="fn">to_help_text</span>())
+
+<span class="cm">// 2. bind_input[T]() — Bind input to struct / 绑定输入到结构体</span>
+<span class="kw">mut</span> input := cli.<span class="tp">CommandContext</span>{
+    args:    {<span class="st">'user_id'</span>: <span class="st">'42'</span>}
+    options: {<span class="st">'channel'</span>: <span class="st">'sms'</span>, <span class="st">'dry-run'</span>: <span class="st">'true'</span>}
+}
+<span class="kw">mut</span> notify := cli.<span class="fn">bind_input</span>[<span class="tp">NotifyCommand</span>](<span class="kw">mut</span> input)!
+<span class="fn">println</span>(notify.user_id)  <span class="cm">// '42'</span>
+<span class="fn">println</span>(notify.channel)  <span class="cm">// 'sms'</span>
+
+<span class="cm">// 3. Generate help for all commands / 生成所有命令的帮助</span>
+<span class="kw">mut</span> app := cli.<span class="fn">new_application</span>(<span class="st">'myapp'</span>, <span class="st">'1.0.0'</span>)
+help_text := cli.<span class="fn">generate_help</span>(<span class="kw">mut</span> app)
+<span class="fn">println</span>(help_text)
+
+<span class="cm">// 4. Generate man page / 生成 man page</span>
+man_page := cli.<span class="fn">generate_man_page</span>(<span class="kw">mut</span> app)
+os.<span class="fn">write_file</span>(<span class="st">'myapp.1'</span>, man_page) <span class="kw">or</span> {}
+
+<span class="cm">// Laravel equivalent: php artisan help notify</span>
+<span class="cm">// Spring Shell equivalent: help command</span></div>
+        </div>
+      </div>
+
       <div class="production-box">
         <div class="production-title">🚀 生产实践</div>
         <ul>
@@ -121,6 +230,9 @@ myapp make:service UserService        <span class="cm"># 生成 Service 模板</
           <li>自定义命令遵循 <code>namespace:action</code> 命名规范（如 <code>user:deactivate</code>）</li>
           <li>长时间运行的任务使用进度条提供反馈</li>
           <li>敏感输入（密码）使用 <code>secret()</code> 而非 <code>ask()</code></li>
+          <li>使用 <code>@[command]</code> + <code>scan_command[T]()</code> 实现编译期命令元数据扫描，避免手动配置</li>
+          <li>使用 <code>bind_input[T]()</code> 实现类型安全的输入绑定，替代手动解析参数</li>
+          <li>使用 <code>generate_man_page()</code> 为生产环境生成标准 man page 文档</li>
         </ul>
       </div>
 

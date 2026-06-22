@@ -1,4 +1,4 @@
-module appconfig
+module config
 
 // config/auth.v — 认证授权配置
 //

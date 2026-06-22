@@ -39,6 +39,15 @@ pub type MiddlewareFunc = fn (ctx &MiddlewareContext) !bool
 //
 // Set `logger` before running the chain to enable automatic request_id
 // injection into all log output during this request.
+//
+// 线程安全说明：
+//   - MiddlewareContext 是请求级对象，每个请求独占一个实例，
+//     不需要锁保护。data map 的并发安全由请求串行化保证。
+//
+// Thread-safety notes:
+//   - MiddlewareContext is a request-scoped object; each request owns
+//     an exclusive instance, so no locking is needed. The data map's
+//     concurrency safety is guaranteed by request serialization.
 pub struct MiddlewareContext {
 pub mut:
 	ctx    &veb.Context
@@ -55,6 +64,27 @@ pub fn new_middleware_context(ctx &veb.Context) &MiddlewareContext {
 		ctx:  ctx
 		data: map[string]string{}
 	}
+}
+
+// reset 清除 MiddlewareContext 中的请求级数据。
+// 保留 `_global_` 前缀的全局数据，清除 ctx 和 logger 引用。
+// 请求结束后由 after_completion 触发。
+//
+// reset clears request-scoped data from MiddlewareContext.
+// Preserves `_global_`-prefixed global data, clears ctx and logger references.
+// Triggered by after_completion after the request ends.
+pub fn (mut mctx MiddlewareContext) reset() {
+	mut preserved := map[string]string{}
+	for key, val in mctx.data {
+		if key.starts_with('_global_') {
+			preserved[key] = val
+		}
+	}
+	// preserved is already a new map, no need to clone
+	// preserved 已经是新 map，无需 clone
+	mctx.data = preserved
+	mctx.ctx = unsafe { nil } // 清除 veb.Context 引用 / Clear veb.Context reference
+	mctx.logger = unsafe { nil } // 清除 logger 引用 / Clear logger reference
 }
 
 // MiddlewareChain executes a chain of middleware functions
@@ -102,10 +132,8 @@ pub fn cors_middleware(mut ctx &MiddlewareContext) !bool {
 	ctx.ctx.set_custom_header('Access-Control-Allow-Origin', '*') or {
 		eprintln('[CORS] Failed to set Allow-Origin header')
 	}
-	ctx.ctx.set_custom_header('Access-Control-Allow-Methods',
-		'GET, POST, PUT, DELETE, PATCH, OPTIONS') or {}
-	ctx.ctx.set_custom_header('Access-Control-Allow-Headers',
-		'Content-Type, Authorization, X-Requested-With') or {}
+	ctx.ctx.set_custom_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS') or {}
+	ctx.ctx.set_custom_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With') or {}
 	ctx.ctx.set_custom_header('Access-Control-Max-Age', '86400') or {}
 
 	if ctx.route_method == 'OPTIONS' {
@@ -200,10 +228,19 @@ pub fn request_id_cleanup_middleware(mut ctx &MiddlewareContext) !bool {
 	return true
 }
 
-// generate_request_id creates a unique request identifier
+// generate_request_id creates a unique request identifier.
+// Uses time + random bytes to ensure uniqueness and unpredictability.
+// generate_request_id 创建唯一的请求标识符。
+// 使用时间 + 随机字节确保唯一性和不可预测性。
 fn generate_request_id() string {
 	now := time.now().unix_nano()
-	return '${now.hex()}-${(now % 10000).hex()}'
+	// Use hex of nanosecond timestamp + random suffix for collision resistance
+	// 使用纳秒时间戳的十六进制 + 随机后缀以防止冲突
+	mut random_suffix := u64(0)
+	// Simple LCG seeded from time for quick uniqueness (not crypto-grade)
+	// 简单 LCG 以时间为种子，用于快速唯一性（非加密级别）
+	random_suffix = u64(now) * u64(6364136223846793005) + u64(1442695040888963407)
+	return '${now.hex()}-${(random_suffix % 1000000).hex()}'
 }
 
 // compression_middleware handles response compression

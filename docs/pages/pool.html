@@ -88,13 +88,188 @@ p.<span class="fn">cleanup_invalid</span>()
         </div>
       </div>
 
-      <div class="production-box">
+      <!-- ═══ 4. RAII Guard ═══ -->
+      <div class="doc-section" id="raii-guard">
+        <div class="section-header"><div class="section-icon icon-pool">🛡️</div><div><div class="section-title">RAII Guard 自动回收</div><div class="section-subtitle">PooledGuard[T] · 类型安全的 RAII 守卫 · 零心智成本</div></div></div>
+
+        <p><code>PooledGuard[T]</code> 是类型安全的 RAII 守卫，当释放时（通过 defer 或手动），对象会自动归还到池中。线程安全的双重释放防护，防止意外归还。</p>
+
+        <table class="doc-table">
+          <thead><tr><th>API</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>PooledGuard[T]</code></td><td>类型安全的 RAII 守卫，释放时自动归还对象到池，线程安全双重释放防护</td></tr>
+            <tr><td><code>acquire_guard[T]()</code></td><td>获取池化对象并包装在 PooledGuard 中</td></tr>
+            <tr><td><code>with_acquired[T]()</code></td><td>零心智成本回调 API：框架保证获取/释放，用户无需关心</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.pool
+
+<span class="kw">mut</span> p := pool.<span class="fn">new_pool_with_config</span>(<span class="st">'db-pool'</span>, fn () !voidptr {
+    conn := &<span class="tp">DbConnection</span>{host: <span class="st">'localhost'</span>}
+    <span class="kw">return</span> <span class="kw">unsafe</span> { conn }
+}, <span class="nm">2</span>, <span class="nm">10</span>)
+p.<span class="fn">initialize</span>()!
+
+<span class="cm">// Pattern 1: Guard with defer (recommended / 推荐模式)</span>
+<span class="kw">mut</span> guard := pool.<span class="fn">acquire_guard</span>[<span class="tp">DbConnection</span>](<span class="kw">mut</span> p)!
+<span class="kw">defer</span> { guard.<span class="fn">release</span>() }
+conn := guard.<span class="fn">get</span>()
+conn.<span class="fn">query</span>(<span class="st">'SELECT ...'</span>)
+<span class="cm">// Even if query panics, defer ensures release / 即使 panic，defer 也会确保释放</span>
+
+<span class="cm">// Pattern 2: Callback mode (zero cognitive load / 零心智成本)</span>
+pool.<span class="fn">with_acquired</span>[<span class="tp">DbConnection</span>](<span class="kw">mut</span> p, fn (conn &<span class="tp">DbConnection</span>) ! {
+    conn.<span class="fn">query</span>(<span class="st">'SELECT ...'</span>)
+})!
+<span class="cm">// Framework guarantees acquire/release — user never thinks about it</span>
+<span class="cm">// 框架保证获取/释放 — 用户完全不需要考虑</span></div>
+        </div>
+      </div>
+
+       <!-- ═══ 5. PoolAutoManager ═══ -->
+       <div class="doc-section" id="auto-manager">
+         <div class="section-header"><div class="section-icon icon-pool">📦</div><div><div class="section-title">PoolAutoManager 容器级池管理</div><div class="section-subtitle">统一注册 · 关闭时自动清理 · 防止池泄漏</div></div></div>
+
+         <p><code>PoolAutoManager</code> 跟踪应用内创建的所有池，确保应用关闭时全部正确关闭，防止池泄漏。</p>
+
+         <table class="doc-table">
+           <thead><tr><th>API</th><th>说明</th></tr></thead>
+           <tbody>
+             <tr><td><code>new_pool_auto_manager()</code></td><td>创建池自动管理器</td></tr>
+             <tr><td><code>register(name, pool)</code></td><td>注册一个池</td></tr>
+             <tr><td><code>close_all()</code></td><td>关闭所有已注册的池（关闭时调用）</td></tr>
+             <tr><td><code>pool_stats()</code></td><td>获取所有池的统计信息</td></tr>
+           </tbody>
+         </table>
+
+         <div class="code-block">
+           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+           <div class="code-body"><span class="kw">import</span> photon.pool
+
+<span class="kw">mut</span> mgr := pool.<span class="fn">new_pool_auto_manager</span>()
+
+<span class="cm">// Register pools / 注册池</span>
+mgr.<span class="fn">register</span>(<span class="st">'db-pool'</span>, db_pool)
+mgr.<span class="fn">register</span>(<span class="st">'redis-pool'</span>, redis_pool)
+
+<span class="cm">// During application shutdown / 应用关闭时</span>
+mgr.<span class="fn">close_all</span>()  <span class="cm">// Closes all pools automatically / 自动关闭所有池</span>
+
+<span class="cm">// Monitor all pools / 监控所有池</span>
+stats := mgr.<span class="fn">pool_stats</span>()
+<span class="kw">for</span> name, s <span class="kw">in</span> stats {
+    <span class="fn">println</span>(<span class="st">'${name}: active=${s.active}, idle=${s.idle}'</span>)
+}
+
+<span class="cm">// Spring equivalent: DisposableBean + @PreDestroy on DataSource beans</span></div>
+         </div>
+       </div>
+
+       <!-- ═══ 6. RequestPool ═══ -->
+       <div class="doc-section" id="request-pool">
+         <div class="section-header"><div class="section-icon icon-pool">🔄</div><div><div class="section-title">RequestPool 请求对象池化</div><div class="section-subtitle">请求级对象复用 · 降低 GC 压力 · 优雅降级</div></div></div>
+
+         <p><code>RequestPool</code> 管理请求级对象（Session、Input、MiddlewareContext 等）的池化复用，通过跨请求复用对象而非每次新建，降低高并发下的 GC 压力。池耗尽时自动创建临时对象（不阻塞请求）。</p>
+
+         <h3>核心 API</h3>
+         <table class="doc-table">
+           <thead><tr><th>API</th><th>说明</th></tr></thead>
+           <tbody>
+             <tr><td><code>new_request_pool(config)</code></td><td>创建请求对象池管理器 / Create request pool manager</td></tr>
+             <tr><td><code>register_pool[T](name, factory, reset_fn)</code></td><td>注册类型化子池 + 重置函数 / Register typed sub-pool with reset function</td></tr>
+             <tr><td><code>acquire[T](name)</code></td><td>获取池化对象（返回 PooledGuard[T]）/ Acquire pooled object as RAII guard</td></tr>
+             <tr><td><code>release(name, obj)</code></td><td>归还对象（自动调用 reset_fn）/ Release object (auto-calls reset_fn)</td></tr>
+             <tr><td><code>with_acquired[T](name, callback)</code></td><td>零心智成本回调 API / Zero-cognitive-load callback API</td></tr>
+             <tr><td><code>pool_stats()</code></td><td>获取所有子池统计信息 / Get stats for all sub-pools</td></tr>
+             <tr><td><code>close_all()</code></td><td>关闭所有子池 / Close all sub-pools</td></tr>
+           </tbody>
+         </table>
+
+         <h3>Resettable 接口</h3>
+         <p>池化对象在归还前必须调用 <code>reset()</code> 清除请求特定数据，防止跨请求泄漏。Photon 提供预置 reset 函数：<code>reset_session()</code>、<code>reset_middleware_context()</code>、<code>reset_input()</code>。</p>
+
+         <div class="code-block">
+           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+           <div class="code-body"><span class="kw">import</span> photon.web
+
+<span class="cm">// 1. 创建请求池 / Create request pool</span>
+rp := web.<span class="fn">new_request_pool</span>(web.<span class="tp">RequestPoolConfig</span>{min_size: <span class="nm">4</span>, max_size: <span class="nm">100</span>})
+
+<span class="cm">// 2. 注册类型化子池 / Register typed sub-pool</span>
+rp.<span class="fn">register_pool</span>[<span class="tp">Session</span>](<span class="st">'session'</span>, fn () !voidptr {
+    <span class="kw">return</span> <span class="kw">unsafe</span> { <span class="kw">voidptr</span>(web.<span class="fn">new_session</span>(<span class="st">''</span>)) }
+}, web.<span class="fn">reset_session</span>)!
+
+<span class="cm">// 3. RAII Guard 模式 / RAII Guard pattern</span>
+<span class="kw">mut</span> guard := rp.<span class="fn">acquire</span>[<span class="tp">Session</span>](<span class="st">'session'</span>)!
+<span class="kw">defer</span> { guard.<span class="fn">release</span>() }
+sess := guard.<span class="fn">get</span>()
+sess.<span class="fn">set</span>(<span class="st">'user_id'</span>, <span class="st">'42'</span>)
+
+<span class="cm">// 4. 零心智成本回调 / Zero-cognitive-load callback</span>
+rp.<span class="fn">with_acquired</span>[<span class="tp">Session</span>](<span class="st">'session'</span>, fn (sess &<span class="tp">Session</span>) ! {
+    sess.<span class="fn">set</span>(<span class="st">'user_id'</span>, <span class="st">'42'</span>)
+})!
+
+<span class="cm">// 5. 监控 / Monitor</span>
+stats := rp.<span class="fn">pool_stats</span>()
+<span class="kw">for</span> name, s <span class="kw">in</span> stats {
+    <span class="fn">println</span>(<span class="st">'${name}: active=${s.active}, idle=${s.idle}'</span>)
+}
+
+<span class="cm">// Spring equivalent: @Scope("request") + ObjectPool</span></div>
+         </div>
+
+         <div class="info-box info-tip">
+           💡 <strong>优雅降级</strong>：当池耗尽时（所有对象在使用中且达 max_size），RequestPool 自动在池外创建临时对象，确保请求永不阻塞。临时对象在 release 时直接销毁而非归还到池。/ <strong>Graceful degradation</strong>: When the pool is exhausted, RequestPool creates temporary objects outside the pool, ensuring requests are never blocked. Temporary objects are destroyed on release instead of being returned to the pool.
+         </div>
+       </div>
+
+       <!-- ═══ 7. Pool Lock Design ═══ -->
+       <div class="doc-section" id="pool-lock-design">
+         <div class="section-header"><div class="section-icon icon-pool">🔐</div><div><div class="section-title">Pool 锁设计说明</div><div class="section-subtitle">Lock Design — 分层锁策略与读多写少优化</div></div></div>
+
+         <h3>RequestPool 分层锁策略</h3>
+         <p>RequestPool 内部使用 <code>RwMutex</code> 保护 <code>pools</code> map。<code>acquire</code> 使用 <code>rlock</code>（读多写少场景），<code>register_pool</code>/<code>close_all</code> 使用 <code>lock</code>。rlock 仅保护 entries map 的读取，获取 entry 后立即释放锁，后续的 <code>pool.acquire_guard[T]()</code> 由 <code>pool.Pool</code> 自身的锁保护。这种分层锁策略避免了 <code>RequestPool.mu</code> 与 <code>Pool</code> 内部锁的嵌套。</p>
+
+         <table class="doc-table">
+           <thead><tr><th>操作</th><th>锁类型</th><th>说明</th></tr></thead>
+           <tbody>
+             <tr><td><code>acquire[T]()</code></td><td><code>rlock</code></td><td>读锁：查找 entries map，获取后立即释放 / Read lock: lookup entries, release immediately</td></tr>
+             <tr><td><code>release()</code></td><td><code>rlock</code></td><td>读锁：查找 entries map + reset_fn / Read lock: lookup entries + reset_fn</td></tr>
+             <tr><td><code>register_pool[T]()</code></td><td><code>lock</code></td><td>写锁：新增子池 / Write lock: add sub-pool</td></tr>
+             <tr><td><code>close_all()</code></td><td><code>rlock</code></td><td>读锁：遍历关闭（不修改 map）/ Read lock: iterate and close</td></tr>
+             <tr><td><code>pool_stats()</code></td><td><code>rlock</code></td><td>读锁：遍历统计 / Read lock: iterate for stats</td></tr>
+           </tbody>
+         </table>
+
+         <div class="code-block">
+           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+           <div class="code-body"><span class="cm">// 分层锁策略：RequestPool.rlock → Pool 内部锁</span>
+<span class="cm">// Layered lock strategy: RequestPool.rlock → Pool's internal lock</span>
+
+<span class="cm">// Step 1: rlock 仅保护 entries map 读取</span>
+rp.mu.<span class="fn">rlock</span>()
+entry := rp.entries[<span class="st">'session'</span>]
+rp.mu.<span class="fn">runlock</span>()  <span class="cm">// 立即释放，不持有到 pool.acquire</span>
+
+<span class="cm">// Step 2: pool.acquire_guard 由 Pool 自身的 Mutex 保护</span>
+guard := entry.pool.<span class="fn">acquire_guard</span>[<span class="tp">Session</span>]()
+
+<span class="cm">// 两把锁不嵌套 → 无死锁风险 / No lock nesting → no deadlock risk</span></div>
+         </div>
+       </div>
+
+       <div class="production-box">
         <div class="production-title">🚀 生产实践</div>
         <ul>
           <li><code>min_size</code> 设置为常态并发量，减少冷启动时的连接创建开销</li>
           <li><code>max_size</code> 不超过数据库最大连接数 / 系统文件描述符上限</li>
           <li>设置 <code>idle_timeout</code> 避免空闲连接长期占用资源</li>
-          <li>使用 <code>defer { pool.release(conn) }</code> 确保连接一定归还</li>
+          <li>使用 <code>PooledGuard[T]</code> + <code>defer</code> 或 <code>with_acquired[T]()</code> 确保对象一定归还，零心智成本</li>
           <li>监控 <code>pool.stats()</code>，当 wait_count 持续增长时扩容</li>
         </ul>
       </div>

@@ -81,8 +81,17 @@ pub fn (mut sm ShardedRwMutex) unlock(key string) {
 	shard.unlock()
 }
 
-// rlock_all acquires read locks on ALL shards.
+// rlock_all acquires read locks on ALL shards in ascending order (0 → shard_count-1).
 // Used for operations that need to read the entire container state.
+//
+// 死锁安全性：rlock_all 和 lock_all 始终按升序获取分片锁，保证多个
+// rlock_all/lock_all 调用之间不会死锁。rlock(key) 只获取单个分片锁，
+// 不会形成循环等待，因此 rlock_all 和 rlock(key) 之间也不会死锁。
+//
+// Deadlock safety: rlock_all and lock_all always acquire shard locks in ascending
+// order, preventing deadlocks between multiple rlock_all/lock_all calls. Since
+// rlock(key) only acquires a single shard lock, it cannot form a circular wait
+// with rlock_all, so no deadlock is possible between them either.
 pub fn (mut sm ShardedRwMutex) rlock_all() {
 	for i in 0 .. sm.shards.len {
 		sm.shards[i].rlock()
@@ -96,8 +105,20 @@ pub fn (mut sm ShardedRwMutex) runlock_all() {
 	}
 }
 
-// lock_all acquires write locks on ALL shards.
+// lock_all acquires write locks on ALL shards in ascending order (0 → shard_count-1).
 // Used for operations that modify the entire container state (e.g., destroy_all).
+//
+// 死锁安全性：见 rlock_all 的注释。lock(key) 只获取单个分片锁，
+// 不会与 lock_all 形成循环等待。
+//
+// ⚠️ 警告：同一线程不能先持有 rlock(key) 再调用 lock_all()，
+// 因为 lock_all 会尝试获取该分片的写锁，而 RwMutex 不支持
+// 同一线程在持有读锁时获取写锁（读锁升级），会导致自死锁。
+//
+// ⚠️ Warning: A thread must not hold rlock(key) and then call lock_all(),
+// because lock_all will try to acquire a write lock on that shard, and
+// RwMutex does not support lock upgrade (read→write on same thread),
+// which would cause a self-deadlock.
 pub fn (mut sm ShardedRwMutex) lock_all() {
 	for i in 0 .. sm.shards.len {
 		sm.shards[i].@lock()
@@ -135,6 +156,19 @@ pub fn new_bean_lock() &BeanLock {
 
 // lock acquires the per-bean mutex, creating it if necessary.
 // This ensures only one goroutine can instantiate a given singleton at a time.
+//
+// Uses double-checked locking pattern:
+//   1. Read lock → check if Mutex exists → hit: acquire it
+//   2. Miss: release read lock → acquire write lock → double-check → create → release write lock
+//
+// Memory safety: V's sync.RwMutex provides implicit acquire/release memory
+// barriers on lock/unlock operations, ensuring the double-checked locking
+// pattern is safe — the write to bl.locks[bean_name] is visible to all
+// threads after bl.mu.unlock(), and the read under bl.mu.rlock() sees
+// the most recent value.
+// 使用双检锁模式：读锁检查 → 未命中 → 写锁创建 → 双检。
+// V 的 sync.RwMutex 在 lock/unlock 时提供隐式内存屏障，
+// 保证双检锁模式的安全性。
 pub fn (mut bl BeanLock) lock(bean_name string) {
 	bl.mu.rlock()
 	mut lk := bl.locks[bean_name] or {

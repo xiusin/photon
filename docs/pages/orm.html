@@ -164,6 +164,166 @@ adapter.<span class="fn">after_insert</span>(<span class="kw">mut</span> user)! 
         </div>
       </div>
 
+      <!-- ═══ Entity Annotations ═══ -->
+      <div class="doc-section" id="entity-annotations">
+        <div class="section-header"><div class="section-icon icon-orm">🏷️</div><div><div class="section-title">实体注解</div><div class="section-subtitle">JPA 风格注解 · 编译期实体映射</div></div></div>
+
+        <p>Photon ORM 提供 JPA 风格的注解系统，在编译期扫描实体元数据，实现声明式实体映射：</p>
+
+        <table class="doc-table">
+          <thead><tr><th>注解</th><th>说明</th><th>Spring JPA 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>@[entity]</code></td><td>标记 struct 为 JPA 实体</td><td><code>@Entity</code></td></tr>
+            <tr><td><code>@[table('users')]</code></td><td>指定表名</td><td><code>@Table(name = "users")</code></td></tr>
+            <tr><td><code>@[column('user_name')]</code></td><td>指定字段列名</td><td><code>@Column(name = "user_name")</code></td></tr>
+            <tr><td><code>@[id]</code></td><td>标记主键字段</td><td><code>@Id</code></td></tr>
+            <tr><td><code>@[generated_value]</code></td><td>自动生成主键</td><td><code>@GeneratedValue</code></td></tr>
+            <tr><td><code>@[nullable]</code></td><td>允许 NULL</td><td><code>@Column(nullable = true)</code></td></tr>
+            <tr><td><code>@[length(255)]</code></td><td>列长度</td><td><code>@Column(length = 255)</code></td></tr>
+            <tr><td><code>@[precision(10)]</code> / <code>@[scale(2)]</code></td><td>小数精度/标度</td><td><code>@Column(precision=10, scale=2)</code></td></tr>
+            <tr><td><code>@[unique]</code></td><td>唯一约束</td><td><code>@Column(unique = true)</code></td></tr>
+            <tr><td><code>@[index('idx_name')]</code></td><td>索引</td><td><code>@Index(name = "idx_name")</code></td></tr>
+            <tr><td><code>@[transient]</code></td><td>跳过持久化</td><td><code>@Transient</code></td></tr>
+            <tr><td><code>@[enum_type('status_type')]</code></td><td>枚举类型映射</td><td><code>@Enumerated</code></td></tr>
+            <tr><td><code>@[embeddable]</code> / <code>@[embedded]</code></td><td>嵌入值对象</td><td><code>@Embeddable</code> / <code>@Embedded</code></td></tr>
+            <tr><td><code>@[version]</code></td><td>乐观锁版本字段</td><td><code>@Version</code></td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.orm
+
+<span class="at">@[entity]</span>
+<span class="at">@[table('users')]</span>
+<span class="kw">pub struct</span> <span class="tp">User</span> {
+    <span class="at">@[id]</span>
+    <span class="at">@[generated_value]</span>
+    id <span class="tp">int</span>
+
+    <span class="at">@[column('user_name')]</span>
+    <span class="at">@[length(100)]</span>
+    <span class="at">@[nullable]</span>
+    name <span class="tp">string</span>
+
+    <span class="at">@[column('email_address')]</span>
+    <span class="at">@[unique]</span>
+    email <span class="tp">string</span>
+
+    <span class="at">@[column('age')]</span>
+    age <span class="tp">int</span>
+
+    <span class="at">@[column('status')]</span>
+    <span class="at">@[enum_type('user_status')]</span>
+    status <span class="tp">string</span>
+
+    <span class="at">@[version]</span>
+    version <span class="tp">int</span>
+
+    <span class="at">@[transient]</span>
+    computed_field <span class="tp">string</span>
+}
+
+<span class="cm">// scan_entity[T]() scans comptime annotations / 编译期扫描实体注解</span>
+meta := orm.<span class="fn">scan_entity</span>[<span class="tp">User</span>]()
+<span class="fn">println</span>(meta.table_name)   <span class="cm">// 'users'</span>
+<span class="fn">println</span>(meta.columns.len)  <span class="cm">// number of mapped columns</span>
+
+<span class="cm">// validate[T]() validates entity constraints / 验证实体约束</span>
+result := orm.<span class="fn">validate</span>[<span class="tp">User</span>](user)
+<span class="kw">if</span> result.<span class="fn">has_errors</span>() {
+    <span class="kw">for</span> err <span class="kw">in</span> result.errors {
+        <span class="fn">println</span>(<span class="st">'${err.field}: ${err.message}'</span>)
+    }
+}</div>
+        </div>
+      </div>
+
+      <!-- ═══ DTO Validation ═══ -->
+      <div class="doc-section" id="dto-validation">
+        <div class="section-header"><div class="section-icon icon-orm">✅</div><div><div class="section-title">DTO 验证</div><div class="section-subtitle">ValidationError · ValidationResult · validate[T]</div></div></div>
+
+        <p>Photon ORM 提供结构化的数据验证机制，支持编译期约束扫描与运行时校验：</p>
+
+        <table class="doc-table">
+          <thead><tr><th>类型 / 方法</th><th>说明</th><th>Spring 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>ValidationError</code></td><td>单个验证错误（field, message, constraint）</td><td><code>FieldError</code></td></tr>
+            <tr><td><code>ValidationResult</code></td><td>验证错误集合</td><td><code>BindingResult</code></td></tr>
+            <tr><td><code>validate[T](entity)</code></td><td>验证 struct 字段约束</td><td><code>@Valid</code> + <code>BindingResult</code></td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.orm
+
+<span class="kw">pub struct</span> <span class="tp">CreateUserDTO</span> {
+<span class="kw">pub</span>:
+    name  <span class="tp">string</span>
+    email <span class="tp">string</span>
+    age   <span class="tp">int</span>
+}
+
+<span class="cm">// Validate DTO / 验证 DTO</span>
+dto := <span class="tp">CreateUserDTO</span>{name: <span class="st">''</span>, email: <span class="st">'invalid'</span>, age: -<span class="nm">1</span>}
+result := orm.<span class="fn">validate</span>[<span class="tp">CreateUserDTO</span>](dto)
+
+<span class="kw">if</span> result.<span class="fn">has_errors</span>() {
+    <span class="kw">for</span> err <span class="kw">in</span> result.errors {
+        <span class="fn">println</span>(<span class="st">'Field: ${err.field}, Error: ${err.message}, Constraint: ${err.constraint}'</span>)
+    }
+}
+
+<span class="cm">// Spring equivalent: @Valid + BindingResult</span>
+<span class="cm">// Laravel equivalent: FormRequest validation</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ Enhanced Repository ═══ -->
+      <div class="doc-section" id="enhanced-repository">
+        <div class="section-header"><div class="section-icon icon-orm">📦</div><div><div class="section-title">Repository 增强</div><div class="section-subtitle">find_by_field · exists_by_field · count_by_field · paginate</div></div></div>
+
+        <p>BaseRepository[T] 提供增强查询方法，支持按字段查找、存在性检查、统计与分页：</p>
+
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>说明</th><th>Spring 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>find_by_field(field, value)</code></td><td>按字段值查找实体</td><td><code>findByXxx()</code></td></tr>
+            <tr><td><code>exists_by_field(field, value)</code></td><td>按字段检查是否存在</td><td><code>existsByXxx()</code></td></tr>
+            <tr><td><code>count_by_field(field, value)</code></td><td>按字段统计数量</td><td><code>countByXxx()</code></td></tr>
+            <tr><td><code>paginate(page, page_size)</code></td><td>分页查询</td><td><code>findAll(Pageable)</code></td></tr>
+            <tr><td><code>PageResult[T]</code></td><td>分页结果（含元数据）</td><td><code>Page&lt;T&gt;</code></td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.orm
+
+<span class="kw">mut</span> repo := orm.<span class="fn">new_base_repository</span>[<span class="tp">User</span>](om, <span class="st">'default'</span>)!
+
+<span class="cm">// Find by field / 按字段查找</span>
+users := repo.<span class="fn">find_by_field</span>(<span class="st">'status'</span>, <span class="st">'active'</span>)!
+
+<span class="cm">// Check existence / 检查是否存在</span>
+exists := repo.<span class="fn">exists_by_field</span>(<span class="st">'email'</span>, <span class="st">'alice@example.com'</span>)!
+
+<span class="cm">// Count by field / 按字段统计</span>
+count := repo.<span class="fn">count_by_field</span>(<span class="st">'status'</span>, <span class="st">'active'</span>)!
+
+<span class="cm">// Pagination / 分页查询</span>
+page_result := repo.<span class="fn">paginate</span>(<span class="nm">1</span>, <span class="nm">20</span>)!  <span class="cm">// page 1, 20 per page</span>
+<span class="fn">println</span>(<span class="st">'Total: ${page_result.total}, Pages: ${page_result.total_pages}'</span>)
+<span class="kw">for</span> user <span class="kw">in</span> page_result.items {
+    <span class="fn">println</span>(user.name)
+}
+
+<span class="cm">// Spring equivalent: PagingAndSortingRepository</span>
+<span class="cm">// Laravel equivalent: User::paginate(20)</span></div>
+        </div>
+      </div>
+
       <div class="production-box">
         <div class="production-title">🚀 生产实践</div>
         <ul>
@@ -171,6 +331,9 @@ adapter.<span class="fn">after_insert</span>(<span class="kw">mut</span> user)! 
           <li>使用 <code>before_insert</code> 做数据校验，而非在 Controller 层做</li>
           <li>多库场景下用 <code>OrmManager</code> 路由：写操作走 master，读操作走 replica</li>
           <li>派生查询适合简单查询，复杂查询使用 <code>OrmAdapter</code> + 手写 SQL</li>
+          <li>使用 <code>@[entity]</code> + <code>@[table]</code> + <code>@[column]</code> 注解实现编译期实体映射，避免手写 SQL</li>
+          <li>使用 <code>validate[T]()</code> 在 Service 层做数据校验，而非在 Controller 层</li>
+          <li>使用 <code>paginate()</code> 实现标准分页，返回 <code>PageResult[T]</code> 包含完整分页元数据</li>
         </ul>
       </div>
 

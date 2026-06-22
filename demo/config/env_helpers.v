@@ -1,4 +1,4 @@
-module appconfig
+module config
 
 import os
 

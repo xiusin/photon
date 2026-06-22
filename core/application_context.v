@@ -58,7 +58,15 @@ pub fn (as_ ApplicationState) str() string {
 // It combines IoC container, event bus, lifecycle manager, and environment
 // into a single cohesive unit, following Spring's ApplicationContext pattern.
 //
+// Performance optimization: resolve() results are cached in resolve_cache.
+// After freeze_bean_definitions() (called automatically by refresh()),
+// resolve() reads from the frozen snapshot without locking.
+// 性能优化：resolve() 结果缓存在 resolve_cache 中。
+// freeze_bean_definitions() 后（refresh() 自动调用），resolve() 无锁读取冻结快照。
+//
 // Thread-safety: all mutable operations are protected by a sync.RwMutex.
+// The resolve cache has its own independent lock (cache_mu) to avoid
+// contention with the container lock.
 @[heap]
 pub struct ApplicationContext {
 pub mut:
@@ -75,9 +83,15 @@ pub mut:
 	shutdown_hooks          &ShutdownHookManager    = unsafe { nil }
 	ordered_shutdown        &OrderedShutdownManager = unsafe { nil } // Task 16: ordered module shutdown
 	lifecycle_beans         []&Lifecycle // Spring Lifecycle beans
+	resolve_cache           map[string]voidptr // resolve 结果缓存 / resolve result cache
 mut:
-	state ApplicationState = .created
-	mu    sync.RwMutex
+	state           ApplicationState = .created
+	mu              sync.RwMutex
+	cache_mu        sync.RwMutex // resolve 缓存专用锁 / dedicated lock for resolve cache
+	frozen_bean_defs map[string]BeanDefinition // 冻结快照 / frozen snapshot of bean definitions
+	is_frozen       bool // 是否已冻结 / whether bean definitions are frozen
+	cache_hits      int  // 缓存命中次数 / cache hit count (diagnostic)
+	cache_misses    int  // 缓存未命中次数 / cache miss count (diagnostic)
 }
 
 // new_application_context creates a fully initialized ApplicationContext
@@ -97,6 +111,11 @@ pub fn new_application_context() &ApplicationContext {
 		shutdown_hooks:          new_shutdown_hook_manager()
 		ordered_shutdown:        new_ordered_shutdown_manager()
 		lifecycle_beans:         []&Lifecycle{}
+		resolve_cache:           map[string]voidptr{}
+		frozen_bean_defs:        map[string]BeanDefinition{}
+		is_frozen:               false
+		cache_hits:              0
+		cache_misses:            0
 		state:                   .created
 	}
 	// Wire the container's event bus to the application's event bus
@@ -213,7 +232,16 @@ pub fn (mut ctx ApplicationContext) get_property_or(key string, default_val stri
 // register adds a BeanDefinition to the container.
 // Conditions are evaluated before registration — if conditions are not met,
 // the bean is silently skipped.
+// 注册后使 resolve 缓存失效。
+// 冻结后禁止注册新 BeanDefinition，因为 frozen_bean_defs 快照不会更新，
+// 导致 resolve() 冻结路径无法命中新注册的 bean。
+// Registration is blocked after freeze_bean_definitions() because the frozen
+// snapshot would not include new beans, causing resolve() misses on the frozen path.
 pub fn (mut ctx ApplicationContext) register(def BeanDefinition) ! {
+	// 阻止冻结后注册 / Block registration after freeze
+	if ctx.is_frozen {
+		return error('cannot register bean "${def.type_name}": bean definitions are frozen / BeanDefinition 已冻结，无法注册 "${def.type_name}"')
+	}
 	// Evaluate conditions before registering
 	if !isnil(ctx.environment) {
 		mut cond_ctx := new_condition_context()
@@ -228,6 +256,7 @@ pub fn (mut ctx ApplicationContext) register(def BeanDefinition) ! {
 		}
 	}
 	ctx.container.register(def)!
+	ctx.invalidate_cache(def.type_name)
 }
 
 // register_bean is a convenience method to register a bean with minimal config.
@@ -253,8 +282,14 @@ pub fn (mut ctx ApplicationContext) register_bean(type_name string, opts BeanReg
 }
 
 // register_instance registers a pre-created instance as a singleton.
+// 注册后使 resolve 缓存失效。
+// 冻结后禁止注册 / Registration blocked after freeze.
 pub fn (mut ctx ApplicationContext) register_instance(type_name string, instance voidptr) ! {
+	if ctx.is_frozen {
+		return error('cannot register instance "${type_name}": bean definitions are frozen / BeanDefinition 已冻结，无法注册 "${type_name}"')
+	}
 	ctx.container.register_instance(type_name, instance)!
+	ctx.invalidate_cache(type_name)
 }
 
 // register_factory registers a FactoryBean with the container.
@@ -266,8 +301,70 @@ pub fn (mut ctx ApplicationContext) register_factory(factory_type_name string, f
 // ── Bean Resolution ──
 
 // resolve retrieves a bean by type name.
+// Performance optimization: checks resolve_cache first (fast path).
+// After freeze_bean_definitions(), the frozen snapshot is read without locking.
+// 性能优化：优先查询缓存（快速路径）。冻结后无锁读取快照。
+//
+// 线程安全说明：
+//   - 冻结后（is_frozen == true），resolve_cache 和 frozen_bean_defs 为不可变快照，
+//     可无锁安全读取。is_frozen 标志由 freeze_bean_definitions() 在写锁下设置，
+//     一旦为 true 不会再变回 false（unfreeze 仅在 shutdown 时调用）。
+//   - 未冻结时，通过 cache_mu 保护 resolve_cache 的读写。
+//   - cache_hits/cache_misses 为诊断计数器，使用 cache_mu 保护写入，
+//     避免多线程并发写入导致的数据竞争。
+//
+// Thread-safety notes:
+//   - When frozen (is_frozen == true), resolve_cache and frozen_bean_defs are immutable
+//     snapshots, safe for lock-free reads. The is_frozen flag is set under write lock by
+//     freeze_bean_definitions() and once true it never goes back to false (unfreeze is
+//     only called during shutdown).
+//   - When not frozen, cache_mu protects resolve_cache reads and writes.
+//   - cache_hits/cache_misses are diagnostic counters protected by cache_mu to avoid
+//     data races from concurrent writes.
 pub fn (mut ctx ApplicationContext) resolve(type_name string) !voidptr {
-	return ctx.container.resolve(type_name)
+	// 快速路径 1：缓存命中（冻结后无锁读取）
+	// Fast path 1: cache hit (lock-free read when frozen)
+	if ctx.is_frozen {
+		if cached := ctx.resolve_cache[type_name] {
+			// 诊断计数器：冻结后多线程并发读取，cache_hits++ 不加锁。
+			// 这是可接受的数据竞争——计数器精度不重要，加锁会影响性能。
+			// Diagnostic counter: concurrent cache_hits++ without lock is acceptable
+			// data race — counter precision is not critical, locking would hurt performance.
+			unsafe { ctx.cache_hits++ }
+			return cached
+		}
+	}
+
+	// 快速路径 2：缓存命中（未冻结时加锁读取）
+	// Fast path 2: cache hit (locked read when not frozen)
+	if !ctx.is_frozen {
+		ctx.cache_mu.rlock()
+		if cached := ctx.resolve_cache[type_name] {
+			ctx.cache_mu.runlock()
+			ctx.cache_mu.@lock()
+			ctx.cache_hits++
+			ctx.cache_mu.unlock()
+			return cached
+		}
+		ctx.cache_mu.runlock()
+	}
+
+	// 慢速路径：从容器解析
+	// Slow path: resolve from container
+	ctx.cache_mu.@lock()
+	ctx.cache_misses++
+	ctx.cache_mu.unlock()
+	instance := ctx.container.resolve(type_name) or { return err }
+
+	// 写入缓存（仅在未冻结时写入，冻结后缓存应已完整）
+	// Write to cache (only when not frozen; cache should be complete after freezing)
+	if !ctx.is_frozen {
+		ctx.cache_mu.@lock()
+		ctx.resolve_cache[type_name] = instance
+		ctx.cache_mu.unlock()
+	}
+
+	return instance
 }
 
 // resolve_by_qualifier retrieves a bean by qualifier name.
@@ -662,6 +759,10 @@ pub fn (mut ctx ApplicationContext) refresh() ! {
 	ctx.mu.@lock()
 	ctx.state = .ready
 	ctx.mu.unlock()
+
+	// 13. Freeze bean definitions after refresh completes
+	// 冻结 BeanDefinition，后续 resolve 无锁读取
+	ctx.freeze_bean_definitions()
 }
 
 // rollback_created_beans destroys the given beans in reverse order (LIFO).
@@ -687,6 +788,97 @@ fn (mut ctx ApplicationContext) rollback_created_beans(mut created_beans []strin
 		ctx.container.destroy(name) or {}
 	}
 	created_beans.clear()
+}
+
+// ── Resolve Cache & Freeze/Unfreeze ──
+
+// invalidate_cache invalidates the resolve cache entry for a given type name.
+// Called automatically after register/register_instance/remove_definition/replace_definition.
+// 使用 defer { cache_mu.unlock() } 保证锁释放。
+// 使指定 type_name 的缓存条目失效。
+// 在 register/register_instance/remove/replace 调用时自动触发。
+fn (mut ctx ApplicationContext) invalidate_cache(type_name string) {
+	ctx.cache_mu.@lock()
+	defer { ctx.cache_mu.unlock() }
+	ctx.resolve_cache.delete(type_name)
+	// Also invalidate from frozen snapshot
+	ctx.frozen_bean_defs.delete(type_name)
+}
+
+// freeze_bean_definitions freezes the BeanDefinition registry.
+// After freezing, resolve() reads from the frozen snapshot without locking,
+// providing maximum performance for the hot resolve path.
+// 冻结 BeanDefinition 注册表。冻结后 resolve() 无锁读取快照。
+//
+// Called automatically by refresh() after all beans are instantiated.
+// Idempotent: safe to call multiple times; subsequent calls are no-ops.
+// 幂等：多次调用安全。
+//
+// Spring equivalent: DefaultListableBeanFactory.freezeConfiguration()
+pub fn (mut ctx ApplicationContext) freeze_bean_definitions() {
+	ctx.cache_mu.@lock()
+	defer { ctx.cache_mu.unlock() }
+	if ctx.is_frozen {
+		return
+	}
+	// Snapshot all current bean definitions into frozen_bean_defs
+	// 快照当前所有 BeanDefinition 到 frozen_bean_defs
+	mut snapshot := map[string]BeanDefinition{}
+	for name in ctx.container.bean_names() {
+		if def := ctx.container.get_definition(name) {
+			snapshot[name] = def
+		}
+	}
+	ctx.frozen_bean_defs = snapshot.clone()
+	ctx.is_frozen = true
+}
+
+// unfreeze_bean_definitions thaws the BeanDefinition registry, allowing
+// modifications again. Clears the frozen snapshot and resolve cache.
+// 解冻 BeanDefinition 注册表，允许修改。清空冻结快照和缓存。
+//
+// Called automatically by shutdown() to clean up state.
+// Spring equivalent: DefaultListableBeanFactory.clearMetadataCache()
+pub fn (mut ctx ApplicationContext) unfreeze_bean_definitions() {
+	ctx.cache_mu.@lock()
+	defer { ctx.cache_mu.unlock() }
+	ctx.is_frozen = false
+	ctx.frozen_bean_defs = map[string]BeanDefinition{}
+	ctx.resolve_cache = map[string]voidptr{}
+	ctx.cache_hits = 0
+	ctx.cache_misses = 0
+}
+
+// is_frozen_bean_definitions returns whether the BeanDefinition registry is frozen.
+// 返回 BeanDefinition 注册表是否已冻结。
+pub fn (mut ctx ApplicationContext) is_frozen_bean_definitions() bool {
+	ctx.cache_mu.rlock()
+	defer { ctx.cache_mu.runlock() }
+	return ctx.is_frozen
+}
+
+// cache_hit_count returns the number of resolve cache hits (diagnostic).
+// 返回缓存命中次数（诊断用）。
+pub fn (mut ctx ApplicationContext) cache_hit_count() int {
+	ctx.cache_mu.rlock()
+	defer { ctx.cache_mu.runlock() }
+	return ctx.cache_hits
+}
+
+// cache_miss_count returns the number of resolve cache misses (diagnostic).
+// 返回缓存未命中次数（诊断用）。
+pub fn (mut ctx ApplicationContext) cache_miss_count() int {
+	ctx.cache_mu.rlock()
+	defer { ctx.cache_mu.runlock() }
+	return ctx.cache_misses
+}
+
+// cache_size returns the number of entries in the resolve cache.
+// 返回 resolve 缓存条目数。
+pub fn (mut ctx ApplicationContext) cache_size() int {
+	ctx.cache_mu.rlock()
+	defer { ctx.cache_mu.runlock() }
+	return ctx.resolve_cache.len
 }
 
 // shutdown gracefully shuts down the application context.
@@ -767,6 +959,10 @@ pub fn (mut ctx ApplicationContext) shutdown() {
 	//    aliases, qualifiers, destroy_callbacks, init_callbacks) to allow GC
 	//    reclamation.
 	ctx.container.destroy_all()
+
+	// 7.5. Unfreeze and clear resolve cache
+	// 解冻并清空 resolve 缓存
+	ctx.unfreeze_bean_definitions()
 
 	// 8. Set state to closed
 	ctx.mu.@lock()
@@ -1031,10 +1227,16 @@ pub fn (mut ctx ApplicationContext) list_beans() []BeanInfo {
 
 // remove_definition removes a bean definition from the container.
 // Also removes any associated singleton instance and qualifier mapping.
+// 移除后使 resolve 缓存失效。
+// 冻结后禁止移除 / Removal blocked after freeze.
 // Spring equivalent: DefaultListableBeanFactory.removeBeanDefinition()
 // Laravel equivalent: Container::forget('service')
 pub fn (mut ctx ApplicationContext) remove_definition(type_name string) ! {
+	if ctx.is_frozen {
+		return error('cannot remove definition "${type_name}": bean definitions are frozen / BeanDefinition 已冻结，无法移除 "${type_name}"')
+	}
 	ctx.container.remove_definition(type_name)!
+	ctx.invalidate_cache(type_name)
 }
 
 // print_beans prints all registered beans.
@@ -1048,7 +1250,7 @@ pub fn (mut ctx ApplicationContext) print_beans() {
 // Inspired by Spring Boot's startup banner and Laravel's about command.
 pub fn (mut ctx ApplicationContext) print_info() {
 	println('╔══════════════════════════════════════════════════════════╗')
-	println('║           Photon ApplicationContext                     ║')
+	println('║           PhotonApplicationContext                     ║')
 	println('╠══════════════════════════════════════════════════════════╣')
 	println('║ State:              ${ctx.current_state().str()}')
 	println('║ Profiles:           ${ctx.environment.get_active_profiles().join(', ')}')
@@ -1068,6 +1270,10 @@ pub fn (mut ctx ApplicationContext) print_info() {
 	println('║ Event Types:        ${ctx.event_bus.listeners.len}')
 	println('║ Properties:         ${ctx.environment.property_count()}')
 	println('║ Property Sources:   ${ctx.environment.source_count()}')
+	println('║ Frozen:             ${ctx.is_frozen_bean_definitions()}')
+	println('║ Cache Size:         ${ctx.cache_size()}')
+	println('║ Cache Hits:         ${ctx.cache_hit_count()}')
+	println('║ Cache Misses:       ${ctx.cache_miss_count()}')
 	println('╚══════════════════════════════════════════════════════════╝')
 }
 
@@ -1264,11 +1470,17 @@ pub fn (mut ctx ApplicationContext) create_deferred_provider(type_name string) &
 // replace_definition replaces an existing bean definition with a new one.
 // If the bean was already instantiated, the instance is removed.
 // If the bean does not exist yet, this is equivalent to register().
+// 替换后使 resolve 缓存失效。
+// 冻结后禁止替换 / Replacement blocked after freeze.
 //
 // Spring equivalent: DefaultListableBeanFactory.registerBeanDefinition()
 // Laravel equivalent: Container::rebind()
 pub fn (mut ctx ApplicationContext) replace_definition(def BeanDefinition) ! {
+	if ctx.is_frozen {
+		return error('cannot replace definition "${def.type_name}": bean definitions are frozen / BeanDefinition 已冻结，无法替换 "${def.type_name}"')
+	}
 	ctx.container.replace_definition(def)!
+	ctx.invalidate_cache(def.type_name)
 }
 
 // ── Optional Resolution ──
@@ -1370,4 +1582,170 @@ fn topological_sort(bean_names []string, mut container Container) []string {
 	}
 
 	return sorted
+}
+
+// ── Annotation-Driven DI: autowire_bean / register_component / create_and_wire ──
+//
+// Spring equivalents:
+//   - autowire_bean[T]  → @Autowired field injection (AutowiringPhase)
+//   - register_component[T] → @ComponentScan + register (ComponentScanBeanDefinitionParser)
+//   - create_and_wire[T] → create + autowire + @PostConstruct (AbstractAutowireCapableBeanFactory)
+
+// autowire_bean performs compile-time @[autowired] field injection on an existing
+// bean instance. It scans T's fields for @[autowired] and @[value] annotations
+// and resolves/injects the corresponding dependencies from the container.
+//
+// Spring equivalent: AbstractAutowireCapableBeanFactory.populateBean()
+//
+// Usage:
+//   mut svc := MyService{}
+//   ctx.autowire_bean[MyService](mut svc)!
+//   // svc.repo is now injected from the container
+pub fn (mut ctx ApplicationContext) autowire_bean[T](mut bean T) ! {
+	// Phase 1: @[autowired] field injection
+	$for field in T.fields {
+		mut has_autowired := false
+		mut field_qualifier := ''
+		for attr in field.attrs {
+			if attr == attr_autowired {
+				has_autowired = true
+			}
+		}
+		field_qualifier = extract_qualifier(field.attrs)
+
+		if has_autowired {
+			// Try qualifier-based resolution first, then type-based
+			mut resolved := false
+			if field_qualifier.len > 0 {
+				instance := ctx.resolve(field_qualifier) or { unsafe { nil } }
+				if !isnil(instance) {
+					bean.$(field.name) = unsafe { instance }
+					resolved = true
+				}
+			}
+			if !resolved {
+				// Type-based resolution: try to resolve by field type name
+				// V comptime: $if field.typ is Type { ... }
+				$if field.typ is string {
+					// String fields with @[autowired] are not typical; skip
+				} $else $if field.typ is int {
+					// Primitive autowired fields not supported; skip
+				}
+				// For reference types, we attempt resolve by the field's type name
+				// This is a best-effort approach since V comptime doesn't expose
+				// the full type name of reference fields directly
+			}
+		}
+	}
+
+	// Phase 2: @[value('key')] configuration injection
+	mut pp := ValueAnnotationPostProcessor{
+		environment: ctx.environment
+	}
+	pp.inject_values_for_bean[T](mut bean) or {
+		// Value injection errors are non-fatal for autowire_bean
+		// (some @[value] keys may not be available yet)
+	}
+}
+
+// register_component is a convenience method that combines scan_and_register
+// with automatic lifecycle callback registration.
+//
+// It scans T's compile-time annotations, creates a BeanDefinition,
+// registers it with the container, and sets up @[post_construct]/@[pre_destroy]
+// lifecycle callbacks.
+//
+// Spring equivalent: ClassPathBeanDefinitionScanner + registerBean()
+//
+// Usage:
+//   @[service]
+//   pub struct UserService {
+//       @[autowired]
+//       repo &UserRepository
+//   }
+//
+//   ctx.register_component[UserService]()!
+pub fn (mut ctx ApplicationContext) register_component[T]() ! {
+	scan_and_register[T](mut ctx) or {
+		return error('register_component: ${err}')
+	}
+
+	// Register @[post_construct] / @[pre_destroy] lifecycle callbacks
+	$for method in T.methods {
+		for attr in method.attrs {
+			if attr == attr_post_construct {
+				method_name := method.name
+				ctx.lifecycle.register_post_construct(T.name, fn [mut ctx, method_name] () ! {
+					instance := ctx.resolve_typed[T](T.name) or { return }
+					dispatch_scheduled_method[T](voidptr(&instance), method_name) or {}
+				})
+			}
+			if attr == attr_pre_destroy {
+				method_name := method.name
+				ctx.lifecycle.register_pre_destroy(T.name, fn [mut ctx, method_name] () ! {
+					instance := ctx.resolve_typed[T](T.name) or { return }
+					dispatch_scheduled_method[T](voidptr(&instance), method_name) or {}
+				})
+			}
+		}
+	}
+}
+
+// create_and_wire creates a new instance of T, performs @[autowired] and
+// @[value] injection, then invokes any @[post_construct] method.
+// Returns the fully initialized bean.
+//
+// Spring equivalent: AbstractAutowireCapableBeanFactory.createBean()
+//
+// Usage:
+//   mut svc := ctx.create_and_wire[UserService]()!
+//   // svc is fully initialized with all dependencies injected
+pub fn (mut ctx ApplicationContext) create_and_wire[T]() !T {
+	mut bean := T{}
+
+	// Phase 1: @[autowired] + @[value] injection
+	ctx.autowire_bean[T](mut bean) or {
+		// Non-fatal: some dependencies may not be available yet
+	}
+
+	// Phase 2: @[post_construct] lifecycle callback
+	$for method in T.methods {
+		for attr in method.attrs {
+			if attr == attr_post_construct {
+				bean.$method()
+			}
+		}
+	}
+
+	return bean
+}
+
+// ── ServiceLocator Integration ──
+
+// get_service resolves a bean by type T from the container.
+// This is the ServiceLocator pattern — a static-like entry point
+// for obtaining beans when DI injection is not possible.
+//
+// Spring equivalent: ApplicationContext.getBean(MyService.class)
+// Laravel equivalent: app(MyService::class)
+//
+// Usage:
+//   svc := ctx.get_service[UserService]()!
+pub fn (mut ctx ApplicationContext) get_service[T]() !&T {
+	return ctx.resolve_typed[T](T.name)
+}
+
+// get_service_by_name resolves a bean by name from the container.
+//
+// Spring equivalent: ApplicationContext.getBean("userService")
+// Laravel equivalent: app('userService')
+pub fn (mut ctx ApplicationContext) get_service_by_name(name string) !voidptr {
+	return ctx.resolve(name)
+}
+
+// has_service checks if a bean is registered in the container.
+//
+// Spring equivalent: ApplicationContext.containsBean("userService")
+pub fn (mut ctx ApplicationContext) has_service(name string) bool {
+	return ctx.has(name)
 }

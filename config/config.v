@@ -18,8 +18,9 @@ pub mut:
 
 // ConfigSource is a trait for configuration sources
 pub interface ConfigSource {
-	load() !map[string]string
 	name() string
+mut:
+	load() !map[string]string
 }
 
 // new creates a new Config instance
@@ -46,7 +47,7 @@ pub fn (mut c Config) add_profile(profile string) {
 
 // load loads all configuration sources and merges properties
 pub fn (mut c Config) load() ! {
-	for source in c.sources {
+	for mut source in c.sources {
 		props := source.load()!
 		for key, value in props {
 			c.properties[key] = value

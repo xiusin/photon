@@ -1168,3 +1168,184 @@ fn jpa_map_row[T](mut entity T, row []string) {
 		}
 	}
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// PageResult[T] — Lightweight Pagination Result (Task 3)
+// ═══════════════════════════════════════════════════════════════════
+//
+// A simpler alternative to support.Page[T] for JpaRepository's
+// paginate() method.  Provides page items plus navigation metadata
+// without depending on support.Sort.
+
+// PageResult[T] represents a paginated result set with metadata.
+pub struct PageResult[T] {
+pub:
+	items       []T
+	total       i64
+	page        int
+	page_size   int
+	total_pages int
+}
+
+// new_page_result constructs a PageResult[T] with computed total_pages.
+pub fn new_page_result[T](items []T, total i64, page int, page_size int) PageResult[T] {
+	mut tp := 0
+	if total > 0 && page_size > 0 {
+		tp = int((total + i64(page_size) - 1) / i64(page_size))
+	}
+	return PageResult[T]{
+		items:       items
+		total:       total
+		page:        page
+		page_size:   page_size
+		total_pages: tp
+	}
+}
+
+// has_next returns true if there is a next page.
+pub fn (p PageResult[T]) has_next() bool {
+	return p.page < p.total_pages
+}
+
+// has_previous returns true if there is a previous page.
+pub fn (p PageResult[T]) has_previous() bool {
+	return p.page > 1
+}
+
+// is_empty returns true if this page has no items.
+pub fn (p PageResult[T]) is_empty() bool {
+	return p.items.len == 0
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// JpaRepository[T] — Enhanced Query Methods (Task 3)
+// ═══════════════════════════════════════════════════════════════════
+
+// resolve_column_name maps a field name to its DB column name using
+// the comptime-extracted column_names slice.  If the field_name is
+// not found in field_names, it is returned as-is (allowing callers
+// to pass column names directly).
+fn (repo JpaRepository[T]) resolve_column_name(field_name string) string {
+	for i, fn_name in repo.field_names {
+		if fn_name == field_name {
+			if i < repo.column_names.len {
+				return repo.column_names[i]
+			}
+			return field_name
+		}
+	}
+	// Not a known field name — treat as a column name directly
+	return support.snake(field_name)
+}
+
+// find_by_field retrieves entities where the specified field equals
+// the given value.  The field_name can be either the V struct field
+// name or the DB column name — it will be resolved automatically.
+//
+// Example:
+//   users := repo.find_by_field('email', 'alice@example.com')!
+//   users := repo.find_by_field('status', 'active')!
+pub fn (mut repo JpaRepository[T]) find_by_field(field_name string, value string) ![]T {
+	if isnil(repo.query_fn) {
+		return error('find_by_field: query_fn not configured / 未配置 query_fn')
+	}
+	col := repo.resolve_column_name(field_name)
+	query := 'SELECT ${repo.columns_clause()} FROM ${repo.table_name} WHERE ${col} = ?'
+	db := repo.orm_manager.get_conn(repo.db_name)!
+	rows := repo.query_fn(db, query, [value])!
+	mut entities := []T{cap: rows.len}
+	for row in rows {
+		mut entity := T{}
+		jpa_map_row(mut entity, row)
+		entities << entity
+	}
+	return entities
+}
+
+// exists_by_field checks if any entity exists where the specified
+// field equals the given value.
+//
+// Example:
+//   has_alice := repo.exists_by_field('email', 'alice@example.com')
+pub fn (mut repo JpaRepository[T]) exists_by_field(field_name string, value string) bool {
+	if isnil(repo.query_fn) {
+		return false
+	}
+	col := repo.resolve_column_name(field_name)
+	query := 'SELECT COUNT(*) FROM ${repo.table_name} WHERE ${col} = ?'
+	db := repo.orm_manager.get_conn(repo.db_name) or { return false }
+	rows := repo.query_fn(db, query, [value]) or { return false }
+	if rows.len == 0 || rows[0].len == 0 {
+		return false
+	}
+	return rows[0][0].int() > 0
+}
+
+// count_by_field counts entities where the specified field equals
+// the given value.
+//
+// Example:
+//   n := repo.count_by_field('status', 'active')!
+pub fn (mut repo JpaRepository[T]) count_by_field(field_name string, value string) !int {
+	if isnil(repo.query_fn) {
+		return error('count_by_field: query_fn not configured / 未配置 query_fn')
+	}
+	col := repo.resolve_column_name(field_name)
+	query := 'SELECT COUNT(*) FROM ${repo.table_name} WHERE ${col} = ?'
+	db := repo.orm_manager.get_conn(repo.db_name)!
+	rows := repo.query_fn(db, query, [value])!
+	if rows.len == 0 || rows[0].len == 0 {
+		return 0
+	}
+	return rows[0][0].int()
+}
+
+// paginate retrieves a page of entities with pagination metadata.
+// Page numbers are 1-based.  A page_size <= 0 returns an error.
+//
+// This is a convenience method that returns PageResult[T] instead of
+// support.Page[T], keeping the API self-contained within the ORM module.
+//
+// Example:
+//   result := repo.paginate(1, 10)!   // first page, 10 items per page
+//   for user in result.items {
+//       println(user.name)
+//   }
+//   println('total: ${result.total}, pages: ${result.total_pages}')
+pub fn (mut repo JpaRepository[T]) paginate(page int, page_size int) !PageResult[T] {
+	if isnil(repo.query_fn) {
+		return error('paginate: query_fn not configured / 未配置 query_fn')
+	}
+	if page_size <= 0 {
+		return error('paginate: page_size must be positive, got ${page_size} / page_size 必须为正数, 实际为 ${page_size}')
+	}
+
+	// Normalize page number
+	page_num := if page < 1 { 1 } else { page }
+	offset := (page_num - 1) * page_size
+
+	db := repo.orm_manager.get_conn(repo.db_name)!
+
+	// 1. Get total count
+	count_query := 'SELECT COUNT(*) FROM ${repo.table_name}'
+	count_rows := repo.query_fn(db, count_query, []string{})!
+	mut total := i64(0)
+	if count_rows.len > 0 && count_rows[0].len > 0 {
+		total = count_rows[0][0].i64()
+	}
+
+	// 2. Get page items
+	query := 'SELECT ${repo.columns_clause()} FROM ${repo.table_name} LIMIT ? OFFSET ?'
+	args := ['${page_size}', '${offset}']
+	rows := repo.query_fn(db, query, args)!
+
+	// 3. Map rows to entities
+	mut entities := []T{cap: rows.len}
+	for row in rows {
+		mut entity := T{}
+		jpa_map_row(mut entity, row)
+		entities << entity
+	}
+
+	return new_page_result[T](entities, total, page_num, page_size)
+}

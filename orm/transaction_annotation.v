@@ -106,6 +106,46 @@ pub fn parse_transactional_attr(attr string) TransactionAttribute {
 	return ta
 }
 
+// parse_transactional_attrs parses an array of @[transactional] attribute
+// strings from V's comptime field.attrs.  This overload is designed for
+// use with V's `$for field in T.fields` comptime scanning, where
+// `field.attrs` is a []string.
+//
+// Each attribute string may be one of:
+//   'transactional'                          → defaults
+//   'transactional: readonly'               → read-only transaction
+//   'transactional: requires_new'            → REQUIRES_NEW propagation
+//   'transactional: nested'                  → NESTED propagation
+//   'transactional: propagation:requires_new;isolation:read_committed'
+//
+// The function finds the first 'transactional*' entry in the array and
+// delegates to parse_transactional_attr() for the argument portion.
+//
+// Example (comptime usage):
+//   $for field in T.fields {
+//       ta := parse_transactional_attrs(field.attrs)
+//       if ta.propagation == .requires_new { ... }
+//   }
+pub fn parse_transactional_attrs(attrs []string) TransactionAttribute {
+	for attr in attrs {
+		if attr == 'transactional' {
+			return parse_transactional_attr('')
+		}
+		if attr.starts_with('transactional:') {
+			arg := attr['transactional:'.len..].trim_space()
+			return parse_transactional_attr(arg)
+		}
+		if attr.starts_with('transactional(') {
+			mut rest := attr['transactional('.len..]
+			if rest.ends_with(')') {
+				rest = rest[..rest.len - 1]
+			}
+			return parse_transactional_attr(rest.trim_space())
+		}
+	}
+	return new_transaction_attribute()
+}
+
 // propagation_from_str parses a Propagation value from string.
 pub fn propagation_from_str(s string) Propagation {
 	return match s.to_lower() {

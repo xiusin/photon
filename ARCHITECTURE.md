@@ -1131,6 +1131,35 @@ get_or_load(key, ttl, loader)
 | **横切** | `@[cacheable]` | fn | 方法级缓存 |
 | | `@[transactional]` | fn | 事务 |
 | | `@[scheduled('cron')]` | fn | 定时任务 |
+| **ORM 实体** | `@[entity]` | struct | 标记为实体 |
+| | `@[table('name')]` | struct | 表名映射 |
+| | `@[column('name')]` | field | 列名映射 |
+| | `@[id]` | field | 主键标注 |
+| | `@[primary_key]` | field | 主键标注（别名） |
+| | `@[generated_value]` | field | 自增主键 |
+| | `@[version]` | field | 乐观锁版本号 |
+| | `@[created_at]` | field | 创建时间自动填充 |
+| | `@[updated_at]` | field | 更新时间自动填充 |
+| | `@[soft_delete]` | field | 软删除标记 |
+| | `@[size(255)]` | field | 字段长度约束 |
+| | `@[nullable]` | field | 允许为空 |
+| | `@[unique]` | field | 唯一约束 |
+| **DTO 验证** | `@[required]` | field | 必填字段 |
+| | `@[email]` | field | 邮箱格式验证 |
+| | `@[min(0)]` | field | 最小值 |
+| | `@[max(100)]` | field | 最大值 |
+| | `@[pattern('regex')]` | field | 正则匹配 |
+| | `@[length(1, 255)]` | field | 字符串长度范围 |
+| **队列** | `@[job]` | struct | 标记为 Job Bean |
+| | `@[job: 'queue_name']` | struct | 指定队列名称 |
+| | `@[retry: '3']` | struct | 重试次数 |
+| | `@[backoff: '1000,5000']` | struct | 退避策略 |
+| | `@[timeout: '30']` | struct | 超时时间 |
+| **CLI** | `@[command]` | struct | 标记为命令 |
+| | `@[command: 'name']` | struct | 指定命令名称 |
+| | `@[description('help')]` | struct | 命令描述 |
+| | `@[option('name')]` | field | 命令选项 |
+| | `@[argument]` | field | 位置参数 |
 
 ### 6.2 扫描机制
 

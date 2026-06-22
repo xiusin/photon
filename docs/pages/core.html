@@ -314,6 +314,47 @@ registry.<span class="fn">bind</span>(<span class="st">'ShoppingCart'</span>, fn
         <div class="info-box info-tip">
           💡 <strong>DI vs Service Locator</strong>：DI 是控制反转（依赖被推入对象），Service Locator 是服务拉取（对象主动查找依赖）。Photon 推荐 DI，但 Service Locator 在以下场景很有用：非托管代码、桥接遗留系统、动态服务选择。
         </div>
+
+        <h3>全局服务定位器</h3>
+        <p>Photon 提供全局 ServiceLocator API，在应用启动时引导一次后，即可在任意位置（无需传递 Context）进行类型安全的服务查找。</p>
+
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>返回值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>locate_service[T]()</code></td><td><code>!&T</code></td><td>类型安全全局服务查找</td></tr>
+            <tr><td><code>locate_service_by_name(name)</code></td><td><code>!voidptr</code></td><td>按名称全局查找</td></tr>
+            <tr><td><code>has_global_service(name)</code></td><td><code>bool</code></td><td>检查全局服务是否存在</td></tr>
+            <tr><td><code>set_global_service_locator(sl)</code></td><td>—</td><td>引导全局定位器（启动时调用一次）</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.core
+
+<span class="cm">// 1. 引导：启动时设置全局 ServiceLocator（仅一次）</span>
+<span class="kw">mut</span> app := core.<span class="fn">new_application_context</span>()
+app.<span class="fn">refresh</span>()!
+
+<span class="kw">mut</span> locator := core.<span class="fn">new_service_locator</span>(app)
+core.<span class="fn">set_global_service_locator</span>(locator)
+
+<span class="cm">// 2. 在任意代码中使用 — 无需传递 Context</span>
+svc := core.<span class="fn">locate_service</span>[<span class="tp">UserService</span>]()!
+svc.<span class="fn">do_work</span>()
+
+<span class="cm">// 3. 检查存在性</span>
+<span class="kw">if</span> core.<span class="fn">has_global_service</span>(<span class="st">'PaymentGateway'</span>) {
+    gateway := core.<span class="fn">locate_service_by_name</span>(<span class="st">'PaymentGateway'</span>)!
+}
+
+<span class="cm">// Spring 等价：static ApplicationContext.getBean(MyService.class)</span>
+<span class="cm">// Laravel 等价：app(MyService::class)</span></div>
+        </div>
+
+        <div class="info-box info-warn">
+          ⚠️ <strong>全局定位器使用注意</strong>：全局 ServiceLocator 适合在非托管代码中桥接访问，但不应滥用。在 DI 容器管理的 Bean 中，仍应优先使用 <code>@[autowired]</code> 注入。
+        </div>
       </div>
 
       <!-- ═══ 5. FactoryBean ═══ -->
@@ -499,6 +540,73 @@ conn := ctx.<span class="fn">resolve</span>(<span class="st">'DatabaseConnection
         </div>
       </div>
 
+      <!-- ═══ 7.5 Compile-Time Auto-Scan ═══ -->
+      <div class="doc-section" id="auto-scan">
+        <div class="section-header">
+          <div class="section-icon icon-core">⚡</div>
+          <div><div class="section-title">编译期自动扫描注册</div><div class="section-subtitle">scan_and_register[T] — 一站式注解扫描 + Bean 注册</div></div>
+        </div>
+
+        <p><code>scan_and_register[T]()</code> 是 Photon 提供的一站式 comptime 函数，在编译期扫描带有 <code>@[component]</code>/<code>@[service]</code>/<code>@[repository]</code>/<code>@[controller]</code> 注解的 struct，自动创建 BeanDefinition 并注册到 ApplicationContext。</p>
+
+        <h3>扫描范围</h3>
+        <table class="doc-table">
+          <thead><tr><th>层级</th><th>注解</th><th>扫描内容</th></tr></thead>
+          <tbody>
+            <tr><td>Struct 级</td><td><code>@[component]</code> / <code>@[service]</code> / <code>@[repository]</code> / <code>@[controller]</code></td><td>组件类型、scope、lazy、qualifier、depends_on</td></tr>
+            <tr><td>Field 级</td><td><code>@[autowired]</code> / <code>@[value('key')]</code></td><td>依赖注入字段、配置绑定字段</td></tr>
+            <tr><td>Method 级</td><td><code>@[post_construct]</code> / <code>@[pre_destroy]</code></td><td>生命周期回调方法</td></tr>
+          </tbody>
+        </table>
+
+        <h3>基本用法</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.core
+
+<span class="cm">// 定义带注解的 Service</span>
+<span class="at">@[service]</span>
+<span class="kw">pub struct</span> <span class="tp">UserService</span> {
+    <span class="at">@[autowired]</span>
+    user_repo &<span class="tp">UserRepository</span>
+
+    <span class="at">@[value('app.name')]</span>
+    app_name <span class="tp">string</span>
+}
+
+<span class="cm">// 一行自动注册 — 编译期扫描所有注解</span>
+<span class="kw">mut</span> app := core.<span class="fn">new_application_context</span>()
+core.<span class="fn">scan_and_register</span>[<span class="tp">UserService</span>](<span class="kw">mut</span> app)!
+<span class="cm">// ↑ 等价于手动创建 BeanDefinition + register + lifecycle</span>
+
+<span class="cm">// 轻量扫描（不注册，仅获取信息）</span>
+info := core.<span class="fn">scan_component_info</span>[<span class="tp">UserService</span>]()
+<span class="fn">println</span>(info.type_name)      <span class="cm">// 'UserService'</span>
+<span class="fn">println</span>(info.component_type)  <span class="cm">// .service</span></div>
+        </div>
+
+        <div class="comparison-grid">
+          <div class="comparison-header ch-photon">Photon</div>
+          <div class="comparison-header ch-spring">Spring</div>
+          <div class="comparison-header ch-laravel">Laravel</div>
+          <div class="comparison-cell"><code>scan_and_register[T](mut ctx)</code></div>
+          <div class="comparison-cell"><code>@ComponentScan + AnnotationConfigApplicationContext</code></div>
+          <div class="comparison-cell"><code>$app->register(Service::class)</code></div>
+          <div class="comparison-cell"><code>scan_component_info[T]()</code></div>
+          <div class="comparison-cell"><code>BeanDefinitionBuilder</code></div>
+          <div class="comparison-cell">—</div>
+        </div>
+
+        <div class="production-box">
+          <div class="production-title">🚀 生产实践</div>
+          <ul>
+            <li>使用 <code>scan_and_register[T]()</code> 替代手动构建 BeanDefinition，减少样板代码</li>
+            <li><code>scan_component_info[T]()</code> 适合在注册前检查组件元数据，做条件判断</li>
+            <li>所有扫描在编译期完成，运行时零开销 — 这是 V 语言 comptime 的核心优势</li>
+          </ul>
+        </div>
+      </div>
+
       <!-- ═══ 8. Event System ═══ -->
       <div class="doc-section" id="events">
         <div class="section-header">
@@ -564,8 +672,148 @@ bus.<span class="fn">on</span>(<span class="st">'payment.processed'</span>, fn (
         </table>
       </div>
 
-      <!-- ═══ 9. Auto Configuration ═══ -->
-      <div class="doc-section" id="auto-config">
+       <!-- ═══ 8.5 Resolve Cache & Freeze ═══ -->
+       <div class="doc-section" id="resolve-cache">
+         <div class="section-header">
+           <div class="section-icon icon-core">⚡</div>
+           <div><div class="section-title">Resolve 缓存与冻结</div><div class="section-subtitle">Resolve Cache & Freeze — 高性能 Bean 解析优化</div></div>
+         </div>
+
+         <p>ApplicationContext 内置 <code>resolve_cache</code> 缓存机制，避免重复解析同一 Bean。<code>refresh()</code> 完成后自动调用 <code>freeze_bean_definitions()</code>，冻结后 <code>resolve()</code> 走无锁快速路径，达到最大性能。</p>
+
+         <h3>Resolve Cache 缓存机制</h3>
+         <p>每次 <code>resolve()</code> 调用优先查询缓存（快速路径），缓存未命中时从 Container 解析并写入缓存。注册/移除 Bean 时自动使缓存失效。</p>
+
+         <table class="doc-table">
+           <thead><tr><th>API</th><th>返回值</th><th>说明</th></tr></thead>
+           <tbody>
+             <tr><td><code>app.resolve('Type')</code></td><td><code>!voidptr</code></td><td>优先查缓存，未命中走 Container 解析 / Cache-first resolve</td></tr>
+             <tr><td><code>app.cache_hit_count()</code></td><td><code>int</code></td><td>缓存命中次数（诊断用）/ Cache hit count (diagnostic)</td></tr>
+             <tr><td><code>app.cache_miss_count()</code></td><td><code>int</code></td><td>缓存未命中次数（诊断用）/ Cache miss count (diagnostic)</td></tr>
+             <tr><td><code>app.cache_size()</code></td><td><code>int</code></td><td>缓存条目数 / Number of cached entries</td></tr>
+           </tbody>
+         </table>
+
+         <h3>Freeze / Unfreeze 冻结机制</h3>
+         <p><code>freeze_bean_definitions()</code> 将当前所有 BeanDefinition 快照为不可变 <code>frozen_bean_defs</code>，后续 <code>resolve()</code> 无锁读取快照。<code>unfreeze_bean_definitions()</code> 在 <code>shutdown()</code> 时自动调用，清空快照和缓存。</p>
+
+         <table class="doc-table">
+           <thead><tr><th>API</th><th>说明</th></tr></thead>
+           <tbody>
+             <tr><td><code>app.freeze_bean_definitions()</code></td><td>冻结 BeanDefinition 注册表，resolve() 无锁读取 / Freeze bean definitions for lock-free resolve</td></tr>
+             <tr><td><code>app.unfreeze_bean_definitions()</code></td><td>解冻，允许修改（shutdown 时自动调用）/ Unfreeze for modifications (auto-called by shutdown)</td></tr>
+             <tr><td><code>app.is_frozen_bean_definitions()</code></td><td>返回是否已冻结 / Returns whether bean definitions are frozen</td></tr>
+           </tbody>
+         </table>
+
+         <div class="code-block">
+           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+           <div class="code-body"><span class="kw">mut</span> app := core.<span class="fn">new_application_context</span>()
+app.<span class="fn">register</span>(core.<span class="tp">BeanDefinition</span>{type_name: <span class="st">'UserService'</span>, scope: .singleton})
+app.<span class="fn">refresh</span>()!  <span class="cm">// → 自动调用 freeze_bean_definitions()</span>
+
+<span class="cm">// 冻结后 resolve() 走无锁快速路径 / Lock-free fast path after freeze</span>
+svc := app.<span class="fn">resolve</span>(<span class="st">'UserService'</span>)!
+
+<span class="cm">// 查看缓存统计 / Check cache diagnostics</span>
+<span class="fn">println</span>(<span class="st">'Cache hits: ${app.cache_hit_count()}'</span>)
+<span class="fn">println</span>(<span class="st">'Cache misses: ${app.cache_miss_count()}'</span>)
+<span class="fn">println</span>(<span class="st">'Cache size: ${app.cache_size()}'</span>)
+<span class="fn">println</span>(<span class="st">'Frozen: ${app.is_frozen_bean_definitions()}'</span>)
+
+<span class="cm">// Spring 等价：DefaultListableBeanFactory.freezeConfiguration()</span></div>
+         </div>
+
+         <div class="info-box info-tip">
+           💡 <strong>性能提示</strong>：冻结后 <code>resolve()</code> 完全无锁，适合高并发热路径。缓存命中/未命中统计可用于诊断和调优。/ <strong>Performance tip</strong>: After freezing, <code>resolve()</code> is completely lock-free, ideal for hot paths. Cache hit/miss stats are useful for diagnostics and tuning.
+         </div>
+       </div>
+
+       <!-- ═══ 8.6 EventBus Sharded Lock ═══ -->
+       <div class="doc-section" id="eventbus-sharded-lock">
+         <div class="section-header">
+           <div class="section-icon icon-core">🔗</div>
+           <div><div class="section-title">EventBus 分片锁</div><div class="section-subtitle">ShardedRwMutex — 高并发事件分发优化</div></div>
+         </div>
+
+         <p>EventBus 从全局 <code>RwMutex</code> 升级到 <code>ShardedRwMutex</code>（16 分片），不同事件名的 <code>dispatch()</code>/<code>on()</code>/<code>off()</code> 操作可并发执行，大幅减少锁竞争。全局操作（如 <code>off_listener()</code>、<code>shutdown()</code>）使用 <code>lock_all()</code>/<code>rlock_all()</code>。</p>
+
+         <h3>ShardedRwMutex API</h3>
+         <table class="doc-table">
+           <thead><tr><th>API</th><th>说明</th></tr></thead>
+           <tbody>
+             <tr><td><code>sharded_mu.rlock(key)</code></td><td>按 key 分片读锁 / Shard read lock by key</td></tr>
+             <tr><td><code>sharded_mu.runlock(key)</code></td><td>按 key 分片读解锁 / Shard read unlock by key</td></tr>
+             <tr><td><code>sharded_mu.lock(key)</code></td><td>按 key 分片写锁 / Shard write lock by key</td></tr>
+             <tr><td><code>sharded_mu.unlock(key)</code></td><td>按 key 分片写解锁 / Shard write unlock by key</td></tr>
+             <tr><td><code>sharded_mu.rlock_all()</code></td><td>全局读锁（遍历所有分片）/ Global read lock (all shards)</td></tr>
+             <tr><td><code>sharded_mu.runlock_all()</code></td><td>全局读解锁 / Global read unlock</td></tr>
+             <tr><td><code>sharded_mu.lock_all()</code></td><td>全局写锁（遍历所有分片）/ Global write lock (all shards)</td></tr>
+             <tr><td><code>sharded_mu.unlock_all()</code></td><td>全局写解锁 / Global write unlock</td></tr>
+           </tbody>
+         </table>
+
+         <div class="code-block">
+           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+           <div class="code-body"><span class="cm">// 不同事件名并发 dispatch — 互不阻塞</span>
+<span class="cm">// Concurrent dispatch on different event names — no blocking</span>
+<span class="kw">spawn</span> { bus.<span class="fn">dispatch</span>(core.<span class="fn">new_event</span>(<span class="st">'user.registered'</span>, <span class="st">'alice'</span>)) }
+<span class="kw">spawn</span> { bus.<span class="fn">dispatch</span>(core.<span class="fn">new_event</span>(<span class="st">'order.created'</span>, <span class="st">'order-123'</span>)) }
+<span class="cm">// ↑ 两个事件映射到不同分片，可并行执行</span>
+
+<span class="cm">// 全局操作：off_listener / shutdown 使用 lock_all</span>
+bus.<span class="fn">off_listener</span>(listener_id)  <span class="cm">// → sharded_mu.lock_all()</span>
+bus.<span class="fn">shutdown</span>()               <span class="cm">// → sharded_mu.lock_all()</span>
+
+<span class="cm">// Spring 等价：ConcurrentHashMap segment locking</span>
+<span class="cm">// Go 等价：sync.Map internal sharding</span></div>
+         </div>
+       </div>
+
+       <!-- ═══ 8.7 Core Lock Design ═══ -->
+       <div class="doc-section" id="core-lock-design">
+         <div class="section-header">
+           <div class="section-icon icon-core">🔐</div>
+           <div><div class="section-title">Core 锁设计说明</div><div class="section-subtitle">Lock Design — 锁分离策略与并发优化</div></div>
+         </div>
+
+         <h3>resolve_cache 独立锁（cache_mu）</h3>
+         <p>ApplicationContext 使用独立的 <code>cache_mu</code>（sync.RwMutex）保护 <code>resolve_cache</code>，与 <code>bean_definitions</code> 的 <code>mu</code> 分离。这样 <code>resolve()</code> 操作不会阻塞 <code>register()</code> 操作，反之亦然。</p>
+
+         <table class="doc-table">
+           <thead><tr><th>锁</th><th>保护对象</th><th>使用场景</th></tr></thead>
+           <tbody>
+             <tr><td><code>mu</code> (RwMutex)</td><td><code>state</code>, 应用状态</td><td>refresh/start/stop/shutdown 状态变更</td></tr>
+             <tr><td><code>cache_mu</code> (RwMutex)</td><td><code>resolve_cache</code>, <code>frozen_bean_defs</code>, <code>is_frozen</code>, <code>cache_hits/misses</code></td><td>resolve() 缓存读写、freeze/unfreeze</td></tr>
+             <tr><td><code>sharded_mu</code> (ShardedRwMutex)</td><td><code>listeners</code>, <code>transactional_listeners</code></td><td>EventBus 分片锁：dispatch/on/off</td></tr>
+           </tbody>
+         </table>
+
+         <div class="code-block">
+           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+           <div class="code-body"><span class="cm">// 锁分离示例：resolve 不阻塞 register</span>
+<span class="cm">// Lock separation: resolve does not block register</span>
+
+<span class="cm">// Goroutine A: resolve (uses cache_mu)</span>
+svc := app.<span class="fn">resolve</span>(<span class="st">'UserService'</span>)!  <span class="cm">// cache_mu.rlock() → 查缓存 → runlock</span>
+
+<span class="cm">// Goroutine B: register (uses container.mu)</span>
+app.<span class="fn">register</span>(def)!  <span class="cm">// container.mu.lock() → 注册 → invalidate_cache() → unlock</span>
+
+<span class="cm">// A 和 B 不互相阻塞！</span>
+<span class="cm">// A and B do NOT block each other!</span></div>
+         </div>
+
+         <h3>EventBus 分片锁策略</h3>
+         <p>EventBus 使用 16 分片 <code>ShardedRwMutex</code>，事件名通过 FNV-1a 哈希映射到分片。单事件名操作（dispatch/on/off）仅锁定对应分片；全局操作（off_listener/shutdown）锁定所有分片。</p>
+
+         <div class="info-box info-tip">
+           💡 <strong>设计原则</strong>：锁的粒度越细越好。resolve 缓存使用独立锁避免与注册操作竞争；EventBus 使用分片锁避免不同事件名之间的竞争。/ <strong>Design principle</strong>: Finer lock granularity is better. Resolve cache uses a separate lock to avoid contention with registration; EventBus uses sharded locks to avoid contention between different event names.
+         </div>
+       </div>
+
+       <!-- ═══ 9. Auto Configuration ═══ -->
+       <div class="doc-section" id="auto-config">
         <div class="section-header">
           <div class="section-icon icon-core">🤖</div>
           <div><div class="section-title">自动配置</div><div class="section-subtitle">AutoConfiguration — Spring Boot @EnableAutoConfiguration 等价</div></div>
@@ -712,8 +960,24 @@ app.<span class="fn">add_post_processor</span>(my_custom_processor)</div>
             <tr><td><code>app.start()</code></td><td>—</td><td>启动 SmartLifecycle Bean</td></tr>
             <tr><td><code>app.stop()</code></td><td>—</td><td>停止 SmartLifecycle Bean</td></tr>
             <tr><td><code>app.shutdown()</code></td><td>—</td><td>关闭上下文（pre_destroy + 释放资源）</td></tr>
-          </tbody>
-        </table>
+            <tr><td><code>core.scan_and_register[T](mut ctx)</code></td><td><code>!</code></td><td>编译期自动扫描注册 Bean</td></tr>
+            <tr><td><code>core.register_component[T](mut ctx)</code></td><td><code>!</code></td><td>便捷注册组件</td></tr>
+            <tr><td><code>core.create_and_wire[T](mut ctx)</code></td><td><code>!&T</code></td><td>创建并自动注入</td></tr>
+            <tr><td><code>core.autowire_bean[T](mut ctx, mut bean)</code></td><td><code>!</code></td><td>自动注入已有实例</td></tr>
+            <tr><td><code>core.get_service[T](mut ctx)</code></td><td><code>!&T</code></td><td>类型安全解析 Bean</td></tr>
+            <tr><td><code>core.get_service_by_name(mut ctx, name)</code></td><td><code>!voidptr</code></td><td>按名称解析 Bean</td></tr>
+            <tr><td><code>core.has_service(mut ctx, name)</code></td><td><code>bool</code></td><td>检查 Bean 是否存在</td></tr>
+            <tr><td><code>core.locate_service[T]()</code></td><td><code>!&T</code></td><td>全局服务定位（无需 Context）</td></tr>
+            <tr><td><code>core.locate_service_by_name(name)</code></td><td><code>!voidptr</code></td><td>全局按名称定位</td></tr>
+            <tr><td><code>core.has_global_service(name)</code></td><td><code>bool</code></td><td>全局检查服务是否存在</td></tr>
+             <tr><td><code>app.freeze_bean_definitions()</code></td><td>—</td><td>冻结 BeanDefinition（refresh 后自动调用）</td></tr>
+             <tr><td><code>app.unfreeze_bean_definitions()</code></td><td>—</td><td>解冻 BeanDefinition（shutdown 时自动调用）</td></tr>
+             <tr><td><code>app.is_frozen_bean_definitions()</code></td><td><code>bool</code></td><td>是否已冻结</td></tr>
+             <tr><td><code>app.cache_hit_count()</code></td><td><code>int</code></td><td>缓存命中次数（诊断用）</td></tr>
+             <tr><td><code>app.cache_miss_count()</code></td><td><code>int</code></td><td>缓存未命中次数（诊断用）</td></tr>
+             <tr><td><code>app.cache_size()</code></td><td><code>int</code></td><td>缓存条目数</td></tr>
+           </tbody>
+         </table>
 
         <h3>典型使用流程</h3>
         <div class="code-block">
@@ -746,6 +1010,76 @@ app.<span class="fn">add_post_processor</span>(my_custom_processor)</div>
         app.<span class="fn">shutdown</span>()  <span class="cm">// pre_destroy → 释放资源</span>
     }
 }</div>
+        </div>
+      </div>
+
+      <!-- ═══ 13. Convenience DI Methods ═══ -->
+      <div class="doc-section" id="di-helpers">
+        <div class="section-header">
+          <div class="section-icon icon-core">🛠️</div>
+          <div><div class="section-title">便捷 DI 方法</div><div class="section-subtitle">register_component · create_and_wire · autowire_bean · get_service — 减少样板代码</div></div>
+        </div>
+
+        <p>Photon 提供一组泛型便捷函数，将常见的"注册 → 创建 → 注入 → 解析"流程封装为一行调用，避免手动构建 BeanDefinition 和处理 voidptr 类型转换。</p>
+
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>返回值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>register_component[T](mut ctx)</code></td><td><code>!</code></td><td>将类型注册为组件 Bean</td></tr>
+            <tr><td><code>create_and_wire[T](mut ctx)</code></td><td><code>!&T</code></td><td>创建实例并自动注入所有 @[autowired] 字段</td></tr>
+            <tr><td><code>autowire_bean[T](mut ctx, mut bean)</code></td><td><code>!</code></td><td>自动注入已有实例的 @[autowired] 字段</td></tr>
+            <tr><td><code>get_service[T](mut ctx)</code></td><td><code>!&T</code></td><td>类型安全解析 Bean（返回强类型 &T）</td></tr>
+            <tr><td><code>get_service_by_name(mut ctx, name)</code></td><td><code>!voidptr</code></td><td>按名称解析 Bean</td></tr>
+            <tr><td><code>has_service(mut ctx, name)</code></td><td><code>bool</code></td><td>检查 Bean 是否存在</td></tr>
+          </tbody>
+        </table>
+
+        <h3>完整示例</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.core
+
+<span class="kw">mut</span> app := core.<span class="fn">new_application_context</span>()
+
+<span class="cm">// 1. 注册组件（一行搞定）</span>
+core.<span class="fn">register_component</span>[<span class="tp">UserService</span>](<span class="kw">mut</span> app)!
+
+<span class="cm">// 2. 创建 + 自动注入（一步到位）</span>
+<span class="kw">mut</span> user_svc := core.<span class="fn">create_and_wire</span>[<span class="tp">UserService</span>](<span class="kw">mut</span> app)!
+
+<span class="cm">// 3. 自动注入已有实例</span>
+<span class="kw">mut</span> svc := &<span class="tp">MyService</span>{}
+core.<span class="fn">autowire_bean</span>[<span class="tp">MyService</span>](<span class="kw">mut</span> app, <span class="kw">mut</span> svc)!
+
+<span class="cm">// 4. 类型安全解析（无需 unsafe 类型转换）</span>
+service := core.<span class="fn">get_service</span>[<span class="tp">UserService</span>](<span class="kw">mut</span> app)!
+
+<span class="cm">// 5. 检查 + 解析模式</span>
+<span class="kw">if</span> core.<span class="fn">has_service</span>(<span class="kw">mut</span> app, <span class="st">'OrderService'</span>) {
+    order_svc := core.<span class="fn">get_service_by_name</span>(<span class="kw">mut</span> app, <span class="st">'OrderService'</span>)!
+}</div>
+        </div>
+
+        <div class="comparison-grid">
+          <div class="comparison-header ch-photon">Photon</div>
+          <div class="comparison-header ch-spring">Spring</div>
+          <div class="comparison-header ch-laravel">Laravel</div>
+          <div class="comparison-cell"><code>register_component[T](mut ctx)</code></div>
+          <div class="comparison-cell"><code>context.registerBean(MyService.class)</code></div>
+          <div class="comparison-cell"><code>$app->singleton(MyService::class)</code></div>
+          <div class="comparison-cell"><code>create_and_wire[T](mut ctx)</code></div>
+          <div class="comparison-cell"><code>context.getBean(MyService.class)</code></div>
+          <div class="comparison-cell"><code>$app->make(MyService::class)</code></div>
+          <div class="comparison-cell"><code>get_service[T](mut ctx)</code></div>
+          <div class="comparison-cell"><code>context.getBean(MyService.class)</code></div>
+          <div class="comparison-cell"><code>app(MyService::class)</code></div>
+          <div class="comparison-cell"><code>autowire_bean[T](mut ctx, mut bean)</code></div>
+          <div class="comparison-cell"><code>context.getAutowireCapableBeanFactory().autowireBean(obj)</code></div>
+          <div class="comparison-cell">—</div>
+        </div>
+
+        <div class="info-box info-tip">
+          💡 <strong>类型安全</strong>：<code>get_service[T]()</code> 和 <code>create_and_wire[T]()</code> 返回强类型 <code>&T</code>，无需 <code>unsafe</code> 类型转换，编译期即可捕获类型不匹配错误。
         </div>
       </div>
 

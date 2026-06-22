@@ -411,3 +411,54 @@ pub:
 	idle   int
 	max    int
 }
+
+// ── RAII Guard Methods (降低心智成本 / Reduce Cognitive Load) ──
+//
+// These methods provide automatic resource management so users
+// don't need to remember to call release() on every code path.
+// This prevents memory leaks from forgotten releases.
+
+// acquire_guard acquires a pooled object wrapped in a type-safe RAII guard.
+// The guard automatically releases the object when release() is called
+// (typically via defer).
+//
+// Usage:
+//   mut guard := pool.acquire_guard[DbConn]()!
+//   defer { guard.release() }
+//   conn := guard.get()
+//   conn.query('SELECT ...')
+//   // Even if query panics, defer ensures release
+pub fn (mut p Pool) acquire_guard[T]() !PooledGuard[T] {
+	obj := p.acquire() or {
+		return error('acquire_guard: ${err}')
+	}
+	return new_pooled_guard[T](p, obj)
+}
+
+// with_acquired executes a callback with a pooled object, guaranteeing
+// that the object is acquired before the callback and released after —
+// even if the callback returns an error.
+//
+// This is the zero-cognitive-load API: users never need to think about
+// acquire/release at all. The framework handles it completely.
+//
+// Spring equivalent: JdbcTemplate.execute(ConnectionCallback)
+//   (Spring manages connection lifecycle; users just use the connection)
+//
+// Usage:
+//   pool.with_acquired[DbConn](fn (conn &DbConn) ! {
+//       conn.query('SELECT ...')
+//   })!
+pub fn (mut p Pool) with_acquired[T](callback fn (&T) !) ! {
+	obj := p.acquire() or {
+		return error('with_acquired: ${err}')
+	}
+	typed_obj := unsafe { &T(obj) }
+
+	// Execute callback; release object regardless of success/failure
+	callback(typed_obj) or {
+		p.release(obj)
+		return err
+	}
+	p.release(obj)
+}

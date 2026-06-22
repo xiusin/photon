@@ -106,7 +106,162 @@ worker.<span class="fn">stop</span>()
           <li>长时间运行的任务拆分为链式 Job，每步可独立重试</li>
           <li>Worker 进程使用 systemd/supervisor 管理，崩溃自动重启</li>
           <li>监控队列积压（pending jobs），及时扩容 Worker</li>
+          <li>使用 <code>@[job]</code> + <code>scan_job[T]()</code> 实现编译期 Job 元数据扫描，避免手动配置</li>
+          <li>使用 <code>WorkerConfig</code> 和 <code>WorkerLifecycle</code> 精细控制 Worker 行为和生命周期</li>
         </ul>
+      </div>
+
+      <!-- ═══ 4. Job Annotation ═══ -->
+      <div class="doc-section" id="job-annotation">
+        <div class="section-header"><div class="section-icon icon-queue">🏷️</div><div><div class="section-title">Job 注解与编译期扫描</div><div class="section-subtitle">@[job] · @[retry] · @[backoff] · @[timeout] · scan_job[T]()</div></div></div>
+
+        <p>使用注解声明式定义 Job 元数据，通过编译期扫描自动提取，避免手动配置。</p>
+
+        <table class="doc-table">
+          <thead><tr><th>注解 / 方法</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>@[job]</code></td><td>标记 struct 为 Job Bean</td></tr>
+            <tr><td><code>@[job: 'queue_name']</code></td><td>指定目标队列</td></tr>
+            <tr><td><code>@[retry(3)]</code></td><td>最大重试次数</td></tr>
+            <tr><td><code>@[backoff('1000,5000,10000')]</code></td><td>退避策略（毫秒）</td></tr>
+            <tr><td><code>@[timeout(30)]</code></td><td>Job 超时时间（秒）</td></tr>
+            <tr><td><code>scan_job[T]()</code></td><td>编译期扫描 Job struct 属性，返回 JobMetadata</td></tr>
+            <tr><td><code>register_job[T]()</code></td><td>将 Job 类型注册到 Dispatcher</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.queue
+
+<span class="cm">// 使用注解定义 Job</span>
+<span class="at">@[job]</span>
+<span class="at">@[retry(5)]</span>
+<span class="at">@[backoff('1000,5000,30000')]</span>
+<span class="at">@[timeout(60)]</span>
+<span class="kw">pub struct</span> <span class="tp">ProcessPayment</span> {
+<span class="kw">pub</span>:
+    order_id <span class="tp">string</span>
+    amount   <span class="tp">f64</span>
+}
+
+<span class="kw">pub fn</span> (<span class="at">j</span> &<span class="tp">ProcessPayment</span>) <span class="fn">job_type</span>() <span class="tp">string</span> { <span class="kw">return</span> <span class="st">'process_payment'</span> }
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">j</span> <span class="tp">ProcessPayment</span>) <span class="fn">handle</span>() ! {
+    <span class="cm">// 支付处理逻辑</span>
+}
+<span class="kw">pub fn</span> (<span class="at">j</span> &<span class="tp">ProcessPayment</span>) <span class="fn">tries</span>() <span class="tp">int</span> { <span class="kw">return</span> <span class="nm">5</span> }
+<span class="kw">pub fn</span> (<span class="at">j</span> &<span class="tp">ProcessPayment</span>) <span class="fn">backoff</span>() []<span class="tp">i64</span> { <span class="kw">return</span> [<span class="nm">1000</span>, <span class="nm">5000</span>, <span class="nm">30000</span>] }
+
+<span class="cm">// 编译期扫描</span>
+meta := queue.<span class="fn">scan_job</span>[<span class="tp">ProcessPayment</span>]()
+<span class="fn">println</span>(meta.job_type)     <span class="cm">// 'ProcessPayment'</span>
+<span class="fn">println</span>(meta.max_retries)  <span class="cm">// 5</span>
+<span class="fn">println</span>(meta.timeout_secs) <span class="cm">// 60</span>
+
+<span class="cm">// 自动注册到分发器</span>
+<span class="kw">mut</span> dispatcher := queue.<span class="fn">new_dispatcher</span>()
+queue.<span class="fn">register_job</span>[<span class="tp">ProcessPayment</span>](<span class="kw">mut</span> dispatcher)!
+
+<span class="cm">// Spring 等价：@Async + @Retryable</span>
+<span class="cm">// Laravel 等价：implements ShouldQueue</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 5. Advanced Dispatch ═══ -->
+      <div class="doc-section" id="advanced-dispatch">
+        <div class="section-header"><div class="section-icon icon-queue">⚡</div><div><div class="section-title">高级分发</div><div class="section-subtitle">指定队列 · 批量 · 链式延迟 · 统计 · 暂停/恢复</div></div></div>
+
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>dispatch_on(queue_name, job)</code></td><td>分发到指定队列</td></tr>
+            <tr><td><code>dispatch_bulk(jobs)</code></td><td>批量分发</td></tr>
+            <tr><td><code>dispatch_chain_with_delay(jobs, delay)</code></td><td>链式延迟分发（Job 间有延迟）</td></tr>
+            <tr><td><code>QueueStats</code></td><td>队列统计（pending / completed / failed / total）</td></tr>
+            <tr><td><code>pause(queue_name)</code> / <code>resume(queue_name)</code></td><td>暂停/恢复队列</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">mut</span> dispatcher := queue.<span class="fn">new_dispatcher</span>()
+
+<span class="cm">// 分发到指定队列</span>
+dispatcher.<span class="fn">dispatch_on</span>(<span class="st">'payments'</span>, <span class="tp">ProcessPayment</span>{order_id: <span class="st">'ORD-001'</span>, amount: <span class="nm">99.9</span>})!
+
+<span class="cm">// 批量分发</span>
+dispatcher.<span class="fn">dispatch_bulk</span>([
+    <span class="tp">SendWelcomeEmail</span>{user_id: <span class="nm">1</span>, email: <span class="st">'a@example.com'</span>},
+    <span class="tp">SendWelcomeEmail</span>{user_id: <span class="nm">2</span>, email: <span class="st">'b@example.com'</span>},
+    <span class="tp">SendWelcomeEmail</span>{user_id: <span class="nm">3</span>, email: <span class="st">'c@example.com'</span>},
+])!
+
+<span class="cm">// 链式延迟分发</span>
+dispatcher.<span class="fn">dispatch_chain_with_delay</span>([
+    <span class="tp">ValidateOrder</span>{order_id: <span class="st">'ORD-001'</span>},
+    <span class="tp">ProcessPayment</span>{order_id: <span class="st">'ORD-001'</span>},
+    <span class="tp">SendConfirmation</span>{order_id: <span class="st">'ORD-001'</span>},
+], delay_secs: <span class="nm">5</span>)!
+
+<span class="cm">// 队列统计</span>
+stats := dispatcher.<span class="fn">stats</span>(<span class="st">'default'</span>)
+<span class="fn">println</span>(<span class="st">'Pending: ${stats.pending}, Completed: ${stats.completed}, Failed: ${stats.failed}'</span>)
+
+<span class="cm">// 暂停/恢复</span>
+dispatcher.<span class="fn">pause</span>(<span class="st">'payments'</span>)
+dispatcher.<span class="fn">resume</span>(<span class="st">'payments'</span>)</div>
+        </div>
+      </div>
+
+      <!-- ═══ 6. Worker Lifecycle ═══ -->
+      <div class="doc-section" id="worker-lifecycle">
+        <div class="section-header"><div class="section-icon icon-queue">🔄</div><div><div class="section-title">Worker 生命周期管理</div><div class="section-subtitle">WorkerConfig · WorkerLifecycle · drain · 优雅关闭</div></div></div>
+
+        <table class="doc-table">
+          <thead><tr><th>类型 / 方法</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>WorkerConfig</code></td><td>配置 Worker 行为（poll_interval / max_jobs / concurrency）</td></tr>
+            <tr><td><code>WorkerLifecycle</code></td><td>Worker 生命周期钩子（on_start / on_stop / on_error）</td></tr>
+            <tr><td><code>drain()</code></td><td>排空剩余 Job 后停止</td></tr>
+            <tr><td><code>job_count()</code></td><td>当前待处理 Job 数量</td></tr>
+            <tr><td><code>is_idle()</code></td><td>检查 Worker 是否空闲</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.queue
+
+<span class="cm">// 配置 Worker</span>
+config := queue.<span class="tp">WorkerConfig</span>{
+    poll_interval: <span class="nm">100</span>   <span class="cm">// ms</span>
+    max_jobs:      <span class="nm">1000</span>
+    concurrency:   <span class="nm">4</span>
+}
+
+<span class="cm">// Worker 生命周期钩子</span>
+lifecycle := queue.<span class="tp">WorkerLifecycle</span>{
+    on_start: <span class="kw">fn</span> () {
+        <span class="fn">println</span>(<span class="st">'Worker 已启动'</span>)
+    }
+    on_stop: <span class="kw">fn</span> () {
+        <span class="fn">println</span>(<span class="st">'Worker 已停止'</span>)
+    }
+    on_error: <span class="kw">fn</span> (err <span class="tp">IError</span>) {
+        <span class="fn">eprintln</span>(<span class="st">'Worker 错误: ${err}'</span>)
+    }
+}
+
+<span class="kw">mut</span> worker := queue.<span class="fn">new_worker_with_config</span>(queue_backend, config, lifecycle)
+worker.<span class="fn">register</span>(<span class="st">'process_payment'</span>, <span class="tp">ProcessPayment</span>{})
+
+<span class="cm">// 检查 Worker 状态</span>
+<span class="fn">println</span>(<span class="st">'Pending jobs: ${worker.job_count()}'</span>)
+<span class="fn">println</span>(<span class="st">'Is idle: ${worker.is_idle()}'</span>)
+
+<span class="cm">// 优雅关闭：处理完剩余任务后停止</span>
+worker.<span class="fn">drain</span>()</div>
+        </div>
       </div>
 
       <div class="page-nav">

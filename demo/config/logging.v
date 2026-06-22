@@ -1,4 +1,4 @@
-module appconfig
+module config
 
 // config/logging.v — 日志配置
 //

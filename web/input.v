@@ -21,6 +21,7 @@ import json
 // Input wraps veb.Context with Laravel-style access methods.
 // Create with: web.input(ctx)
 pub struct Input {
+pub mut:
 	ctx &veb.Context
 }
 

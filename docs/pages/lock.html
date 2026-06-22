@@ -113,18 +113,293 @@ rw.<span class="fn">unlock</span>()</div>
         </div>
       </div>
 
-      <div class="production-box">
-        <div class="production-title">🚀 生产实践</div>
-        <ul>
-          <li>分布式锁必须设置 TTL，防止死锁（进程崩溃后锁自动释放）</li>
-          <li>长事务使用 <code>renew()</code> 续期，防止业务未完成锁已过期</li>
-          <li>获取锁后使用 <code>defer { lock.release() }</code> 确保异常时释放</li>
-          <li>本地锁适用于单进程内的资源保护，跨进程/跨节点使用分布式锁</li>
-          <li>锁的粒度越细越好：<code>order:123</code> 优于 <code>orders</code></li>
-        </ul>
+      <!-- ═══ 5. RAII Guard ═══ -->
+      <div class="doc-section" id="raii-guard">
+        <div class="section-header"><div class="section-icon icon-lock">🛡️</div><div><div class="section-title">RAII Guard 自动解锁</div><div class="section-subtitle">LockGuard · 类型安全的 RAII 守卫 · 防止死锁</div></div></div>
+
+        <p><code>LockGuard</code> 是 LockManager 锁的 RAII 守卫，当释放时（通过 defer 或手动），锁会自动释放。线程安全的双重释放防护，防止意外解锁。</p>
+
+        <table class="doc-table">
+          <thead><tr><th>API</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>LockGuard</code></td><td>RAII 守卫，释放时自动释放锁，线程安全双重释放防护</td></tr>
+            <tr><td><code>lock_guard(key)</code></td><td>获取锁并返回 RAII 守卫</td></tr>
+            <tr><td><code>try_lock_guard(key)</code></td><td>非阻塞尝试获取锁，返回 <code>?LockGuard</code></td></tr>
+            <tr><td><code>lock_guard_with_timeout(key, timeout_ms)</code></td><td>带超时获取锁，返回 <code>!?LockGuard</code></td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.locking
+
+<span class="kw">mut</span> lm := locking.<span class="fn">new_lock_manager</span>()
+
+<span class="cm">// Pattern 1: Guard with defer (recommended / 推荐模式)</span>
+<span class="kw">mut</span> guard := lm.<span class="fn">lock_guard</span>(<span class="st">'user:123'</span>)!
+<span class="kw">defer</span> { guard.<span class="fn">release</span>() }
+<span class="cm">// Do work under lock — even if panic, defer ensures unlock</span>
+<span class="cm">// 在锁保护下工作 — 即使 panic，defer 也会确保解锁</span>
+
+<span class="cm">// Pattern 2: Try-lock guard / 非阻塞尝试获取</span>
+<span class="kw">if</span> guard := lm.<span class="fn">try_lock_guard</span>(<span class="st">'user:456'</span>) {
+    <span class="kw">defer</span> { guard.<span class="fn">release</span>() }
+    <span class="cm">// Lock acquired / 获取锁成功</span>
+} <span class="kw">else</span> {
+    <span class="cm">// Lock not available / 锁不可用</span>
+}
+
+<span class="cm">// Pattern 3: Lock with timeout / 带超时的锁</span>
+<span class="kw">if</span> guard := lm.<span class="fn">lock_guard_with_timeout</span>(<span class="st">'user:789'</span>, <span class="nm">5000</span>)! {
+    <span class="kw">defer</span> { guard.<span class="fn">release</span>() }
+    <span class="cm">// Lock acquired within 5s / 5 秒内获取锁成功</span>
+}</div>
+        </div>
       </div>
 
-      <div class="page-nav">
+      <!-- ═══ 6. Zero-Cost Lock API ═══ -->
+      <div class="doc-section" id="with-lock">
+        <div class="section-header"><div class="section-icon icon-lock">🧠</div><div><div class="section-title">零心智成本锁 API</div><div class="section-subtitle">with_lock · 框架保证加锁/解锁 · 用户无需关心</div></div></div>
+
+        <p><code>with_lock()</code> 在持有锁期间执行回调，完成后保证释放锁。零心智成本：用户永远不需要考虑加锁/解锁。</p>
+
+        <table class="doc-table">
+          <thead><tr><th>API</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>with_lock(key, callback)</code></td><td>持有锁期间执行回调，保证完成后释放锁</td></tr>
+            <tr><td><code>with_distributed_lock_guard(key, ttl_ms, callback)</code></td><td>分布式锁版本的零心智成本 API</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.locking
+
+<span class="kw">mut</span> lm := locking.<span class="fn">new_lock_manager</span>()
+
+<span class="cm">// Zero-cognitive-load API: framework handles lock/unlock completely</span>
+<span class="cm">// 零心智成本 API：框架完全处理加锁/解锁</span>
+lm.<span class="fn">with_lock</span>(<span class="st">'inventory:update'</span>, fn () ! {
+    <span class="cm">// Do work under lock — framework guarantees lock/unlock</span>
+    <span class="cm">// 在锁保护下工作 — 框架保证加锁/解锁</span>
+    <span class="fn">deduct_inventory</span>()!
+})!
+
+<span class="cm">// Distributed lock with auto-release / 分布式锁自动释放</span>
+lm.<span class="fn">set_distributed_lock</span>(redis_dlock)
+lm.<span class="fn">with_distributed_lock_guard</span>(<span class="st">'order:pay'</span>, <span class="nm">5000</span>, fn () ! {
+    <span class="fn">process_payment</span>()!
+})!
+
+<span class="cm">// Spring equivalent: TransactionTemplate (auto-rollback on exception)</span>
+<span class="cm">// Rust equivalent: MutexGuard (RAII, compiler-guaranteed Drop)</span></div>
+        </div>
+      </div>
+
+       <div class="production-box">
+         <div class="production-title">🚀 生产实践</div>
+         <ul>
+           <li>分布式锁必须设置 TTL，防止死锁（进程崩溃后锁自动释放）</li>
+           <li>长事务使用 <code>renew()</code> 续期，防止业务未完成锁已过期</li>
+           <li>使用 <code>LockGuard</code> + <code>defer</code> 或 <code>with_lock()</code> 确保锁一定释放，零心智成本，防止死锁</li>
+           <li>本地锁适用于单进程内的资源保护，跨进程/跨节点使用分布式锁</li>
+           <li>锁的粒度越细越好：<code>order:123</code> 优于 <code>orders</code></li>
+         </ul>
+       </div>
+
+       <!-- ═══ 7. SessionLockManager ═══ -->
+       <div class="doc-section" id="session-lock">
+         <div class="section-header"><div class="section-icon icon-lock">🔐</div><div><div class="section-title">SessionLockManager</div><div class="section-subtitle">Session 级并发锁 · RAII Guard · 零心智成本</div></div></div>
+
+         <p><code>SessionLockManager</code> 复用 <code>locking.LockManager</code>，为每个 Session ID 提供独立的并发锁。不同 Session ID 的操作互不阻塞，同一 Session ID 的操作串行化，确保数据一致性。</p>
+
+         <h3>核心 API</h3>
+         <table class="doc-table">
+           <thead><tr><th>API</th><th>说明</th></tr></thead>
+           <tbody>
+             <tr><td><code>new_session_lock_manager(config)</code></td><td>创建 Session 锁管理器 / Create session lock manager</td></tr>
+             <tr><td><code>lock_session(session_id)</code></td><td>获取 Session 锁（通过 acquire）/ Acquire session lock via acquire()</td></tr>
+             <tr><td><code>unlock_session(session_id)</code></td><td>释放 Session 锁 / Release session lock</td></tr>
+             <tr><td><code>acquire(session_id)</code></td><td>获取锁并返回 SessionLockGuard / Acquire lock and return RAII guard</td></tr>
+             <tr><td><code>release(session_id)</code></td><td>释放锁（通常由 Guard 的 defer 自动调用）/ Release lock (auto-called by Guard's defer)</td></tr>
+             <tr><td><code>with_session_lock(session_id, callback)</code></td><td>零心智成本回调 API / Zero-cognitive-load callback API</td></tr>
+           </tbody>
+         </table>
+
+         <h3>SessionLockGuard RAII Guard</h3>
+         <p><code>SessionLockGuard</code> 是 Session 锁的 RAII 守卫，使用 <code>defer { guard.release() }</code> 模式确保锁一定释放。即使请求 panic，defer 保证锁释放。线程安全的双重释放防护。</p>
+
+         <div class="code-block">
+           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+           <div class="code-body"><span class="kw">import</span> photon.web
+
+<span class="kw">mut</span> slm := web.<span class="fn">new_session_lock_manager</span>(web.<span class="tp">SessionLockConfig</span>{
+    acquire_timeout_ms: <span class="nm">3000</span>
+    lock_timeout_ms:    <span class="nm">5000</span>
+})
+
+<span class="cm">// Pattern 1: RAII Guard with defer (recommended / 推荐模式)</span>
+<span class="kw">mut</span> guard := slm.<span class="fn">acquire</span>(<span class="st">'session:abc'</span>)!
+<span class="kw">defer</span> { guard.<span class="fn">release</span>() }
+<span class="cm">// 在锁保护下操作 Session / Operate on Session under lock protection</span>
+<span class="cm">// Even if panic, defer ensures release / 即使 panic，defer 也会确保释放</span>
+
+<span class="cm">// Pattern 2: Zero-cognitive-load callback / 零心智成本回调</span>
+slm.<span class="fn">with_session_lock</span>(<span class="st">'session:abc'</span>, fn () ! {
+    <span class="cm">// Framework guarantees lock/unlock / 框架保证加锁/解锁</span>
+})!
+
+<span class="cm">// 不同 session_id 并发不阻塞 / Different session IDs don't block each other</span>
+<span class="kw">spawn</span> { slm.<span class="fn">with_session_lock</span>(<span class="st">'session:abc'</span>, fn () ! { <span class="cm">/* ... */</span> })! }
+<span class="kw">spawn</span> { slm.<span class="fn">with_session_lock</span>(<span class="st">'session:xyz'</span>, fn () ! { <span class="cm">/* ... */</span> })! }
+<span class="cm">// ↑ 两个不同 session_id 可并行执行</span></div>
+         </div>
+       </div>
+
+       <!-- ═══ 8. ShardedMemorySessionStore ═══ -->
+       <div class="doc-section" id="sharded-session">
+         <div class="section-header"><div class="section-icon icon-lock">🗄️</div><div><div class="section-title">ShardedMemorySessionStore 分片 GC</div><div class="section-subtitle">16 分片独立 GC · 减少锁竞争 · 零拷贝读取</div></div></div>
+
+         <p><code>ShardedMemorySessionStore</code> 是分片内存 Session 存储，16 个分片各持独立 <code>RwMutex</code>，GC 按分片扫描，避免全局写锁阻塞所有读写操作。读取返回引用而非 clone（零拷贝），安全性由 SessionLock 保证。</p>
+
+         <table class="doc-table">
+           <thead><tr><th>API</th><th>说明</th></tr></thead>
+           <tbody>
+             <tr><td><code>new_sharded_memory_session_store()</code></td><td>创建分片 Session 存储（自动启动 GC）/ Create sharded store (auto-starts GC)</td></tr>
+             <tr><td><code>read(session_id)</code></td><td>零拷贝读取 / Zero-copy read</td></tr>
+             <tr><td><code>write(session_id, data, ttl)</code></td><td>写入到对应分片 / Write to corresponding shard</td></tr>
+             <tr><td><code>destroy(session_id)</code></td><td>从分片移除 / Remove from shard</td></tr>
+             <tr><td><code>gc(max_age_seconds)</code></td><td>按分片过期清理 / Per-shard expiry cleanup</td></tr>
+             <tr><td><code>shard_stats()</code></td><td>各分片统计信息 / Per-shard statistics</td></tr>
+             <tr><td><code>close()</code></td><td>停止 GC 协程 / Stop GC goroutine</td></tr>
+           </tbody>
+         </table>
+
+         <div class="code-block">
+           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+           <div class="code-body"><span class="kw">import</span> photon.web
+
+<span class="kw">mut</span> store := web.<span class="fn">new_sharded_memory_session_store</span>()
+
+<span class="cm">// 不同 session_id 映射到不同分片，互不阻塞</span>
+<span class="cm">// Different session_ids map to different shards, no blocking</span>
+store.<span class="fn">write</span>(<span class="st">'sess-abc'</span>, {<span class="st">'user_id'</span>: <span class="st">'42'</span>}, <span class="nm">1800</span>)!
+data := store.<span class="fn">read</span>(<span class="st">'sess-abc'</span>)!  <span class="cm">// 零拷贝 / Zero-copy</span>
+
+<span class="cm">// GC 按分片扫描，每次只锁定一个分片</span>
+<span class="cm">// GC scans per-shard, locking only one shard at a time</span>
+store.<span class="fn">gc</span>(<span class="nm">1800</span>)!
+
+<span class="cm">// 监控各分片 / Monitor shards</span>
+<span class="kw">for</span> stat <span class="kw">in</span> store.<span class="fn">shard_stats</span>() {
+    <span class="fn">println</span>(<span class="st">'Shard ${stat.index}: ${stat.count} sessions'</span>)
+}
+
+store.<span class="fn">close</span>()  <span class="cm">// 停止 GC / Stop GC</span></div>
+         </div>
+       </div>
+
+       <!-- ═══ 9. AfterCompletionRegistry ═══ -->
+       <div class="doc-section" id="after-completion">
+         <div class="section-header"><div class="section-icon icon-lock">🏁</div><div><div class="section-title">AfterCompletionRegistry 冻结模式</div><div class="section-subtitle">on/freeze/fire · 冻结后无锁快速路径 · finally 语义</div></div></div>
+
+         <p><code>AfterCompletionRegistry</code> 管理请求后置回调的注册与触发，参考 HttpKernel 的 on/freeze 模式。冻结后 <code>fire()</code> 无锁读取不可变快照，达到最大性能。</p>
+
+         <table class="doc-table">
+           <thead><tr><th>API</th><th>说明</th></tr></thead>
+           <tbody>
+             <tr><td><code>new_after_completion_registry()</code></td><td>创建后置回调注册表 / Create after-completion registry</td></tr>
+             <tr><td><code>on(callback, order)</code></td><td>注册回调，返回唯一 ID / Register callback, returns unique ID</td></tr>
+             <tr><td><code>off(id)</code></td><td>移除指定 ID 的回调 / Remove callback by ID</td></tr>
+             <tr><td><code>freeze()</code></td><td>冻结回调列表为不可变快照 / Freeze callback list as immutable snapshot</td></tr>
+             <tr><td><code>unfreeze()</code></td><td>解冻，允许修改 / Unfreeze for modifications</td></tr>
+             <tr><td><code>fire(ctx, err)</code></td><td>触发所有回调（finally 语义）/ Fire all callbacks (finally semantics)</td></tr>
+             <tr><td><code>is_frozen()</code></td><td>是否已冻结 / Whether frozen</td></tr>
+             <tr><td><code>callback_count()</code></td><td>回调数量 / Number of callbacks</td></tr>
+           </tbody>
+         </table>
+
+         <div class="code-block">
+           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+           <div class="code-body"><span class="kw">import</span> photon.web
+
+<span class="kw">mut</span> registry := web.<span class="fn">new_after_completion_registry</span>()
+
+<span class="cm">// 注册回调（order 越小越先执行）/ Register callbacks (lower order executes first)</span>
+registry.<span class="fn">on</span>(fn (ctx voidptr, err ?<span class="tp">string</span>) {
+    <span class="fn">println</span>(<span class="st">'Cleanup resources / 清理资源'</span>)
+}, <span class="nm">10</span>)
+
+registry.<span class="fn">on</span>(fn (ctx voidptr, err ?<span class="tp">string</span>) {
+    <span class="fn">println</span>(<span class="st">'Log request / 记录请求日志'</span>)
+}, <span class="nm">20</span>)
+
+<span class="cm">// 冻结后 fire() 无锁快速路径 / Lock-free fast path after freeze</span>
+registry.<span class="fn">freeze</span>()
+
+<span class="cm">// 每个请求结束时触发 / Fire at end of each request</span>
+registry.<span class="fn">fire</span>(ctx, <span class="kw">none</span>)  <span class="cm">// 正常完成 / Normal completion</span>
+registry.<span class="fn">fire</span>(ctx, <span class="st">'db error'</span>)  <span class="cm">// 异常完成 / Error completion</span>
+
+<span class="cm">// 应用关闭时解冻 / Unfreeze at application shutdown</span>
+registry.<span class="fn">unfreeze</span>()</div>
+         </div>
+
+         <div class="info-box info-tip">
+           💡 <strong>冻结优化</strong>：<code>freeze()</code> 后 <code>fire()</code> 直接读取不可变快照，无需加锁。frozen 标志由 <code>freeze()</code> 在写锁下设置，一旦为 true 不会再变回 false（<code>unfreeze()</code> 仅在应用关闭时调用），因此无需原子操作即可安全读取。/ <strong>Freeze optimization</strong>: After <code>freeze()</code>, <code>fire()</code> reads the immutable snapshot directly without locking. The frozen flag is set under write lock and never goes back to false, so it can be safely read without atomics.
+         </div>
+       </div>
+
+       <!-- ═══ 10. Lock Design Notes ═══ -->
+       <div class="doc-section" id="lock-design-notes">
+         <div class="section-header"><div class="section-icon icon-lock">📐</div><div><div class="section-title">Lock 锁设计说明</div><div class="section-subtitle">Lock Design — SessionLockManager · ShardedMemorySessionStore · AfterCompletionRegistry</div></div></div>
+
+         <h3>SessionLockManager 锁设计</h3>
+         <p>SessionLockManager 复用 <code>locking.LockManager</code>，每个 Session ID 对应独立的 <code>LocalMutex</code>（key = <code>session:${session_id}</code>）。不同 Session ID 的并发操作互不阻塞，同一 Session ID 的操作串行化。</p>
+
+         <table class="doc-table">
+           <thead><tr><th>场景</th><th>锁行为</th></tr></thead>
+           <tbody>
+             <tr><td>不同 session_id 并发</td><td>各自独立锁，互不阻塞 / Independent locks, no blocking</td></tr>
+             <tr><td>同一 session_id 并发</td><td>串行化，先到先得 / Serialized, first-come-first-served</td></tr>
+             <tr><td>acquire 超时</td><td>返回错误，不阻塞 / Returns error, no blocking</td></tr>
+           </tbody>
+         </table>
+
+         <h3>ShardedMemorySessionStore 分片 GC 锁设计</h3>
+         <p>16 分片各持独立 <code>RwMutex</code>，GC 按分片逐个扫描，每次只锁定一个分片，其他分片的读写操作不受阻塞。分片间释放锁，允许其他分片并发操作。</p>
+
+         <div class="code-block">
+           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+           <div class="code-body"><span class="cm">// GC 按分片扫描，每次只锁定一个分片</span>
+<span class="cm">// GC scans per-shard, locking only one shard at a time</span>
+<span class="kw">for</span> i <span class="kw">in</span> <span class="nm">0</span> .. s.shards.len {
+    shard.mu.<span class="fn">lock</span>()
+    <span class="cm">// ... 清理过期 session / Clean expired sessions</span>
+    shard.mu.<span class="fn">unlock</span>()
+    <span class="cm">// 分片间释放锁，允许其他分片并发操作</span>
+    <span class="cm">// Release lock between shards, allowing concurrent operations</span>
+}</div>
+         </div>
+
+         <h3>AfterCompletionRegistry 冻结模式锁设计</h3>
+         <p><code>freeze()</code> 后回调列表为不可变快照，<code>fire()</code> 直接读取快照无需加锁（无锁快速路径）。未冻结时 <code>fire()</code> 使用 <code>rlock</code> 克隆后释放锁（慢速路径）。<code>on()</code>/<code>off()</code> 使用 <code>lock</code> 保护写操作。</p>
+
+         <table class="doc-table">
+           <thead><tr><th>操作</th><th>冻结前</th><th>冻结后</th></tr></thead>
+           <tbody>
+             <tr><td><code>fire()</code></td><td>rlock → clone → runlock → 遍历 / Slow path</td><td>直接读快照，无锁 / Lock-free fast path</td></tr>
+             <tr><td><code>on()</code></td><td>lock → 添加 → unlock / Write lock</td><td>lock → 添加 → unlock（同步更新快照）/ Write lock + sync snapshot</td></tr>
+             <tr><td><code>off()</code></td><td>lock → 移除 → unlock / Write lock</td><td>lock → 移除 + 同步快照 → unlock / Write lock + sync snapshot</td></tr>
+           </tbody>
+         </table>
+
+         <div class="info-box info-tip">
+           💡 <strong>设计原则</strong>：读多写少场景使用 RwMutex（rlock 并行读），写少场景使用 freeze 模式（冻结后无锁读取）。SessionLockManager 的每 Session ID 独立锁策略确保不同用户的操作互不阻塞。/ <strong>Design principle</strong>: Use RwMutex for read-heavy scenarios (parallel reads via rlock), use freeze pattern for rare-write scenarios (lock-free reads after freeze). SessionLockManager's per-session-ID independent lock strategy ensures different users' operations don't block each other.
+         </div>
+       </div>
+
+       <div class="page-nav">
         <a href="#cache">← Cache 缓存</a>
         <a href="#pool" class="nav-next">Pool 连接池 →</a>
       </div>

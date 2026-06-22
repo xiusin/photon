@@ -1,4 +1,4 @@
-module appconfig
+module config
 
 // config/storage.v — 文件存储配置
 //

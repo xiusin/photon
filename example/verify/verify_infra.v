@@ -166,3 +166,192 @@ fn verify_locking(mut v Verifier) {
 	v.check('guarded_lock 自动释放后可再获取', lm.try_lock('counter'))
 	lm.unlock('counter') or {}
 }
+
+// verify_pool_guard 验证对象池 RAII Guard 模式（自主回收）
+fn verify_pool_guard(mut v Verifier) {
+	v.section('对象池 RAII Guard — 自主回收 (pool.PooledGuard)')
+
+	mut p := pool.new_pool_with_config('guard-pool', fn () !voidptr {
+		return voidptr(&Product{serial: 99})
+	}, 1, 3)
+	p.initialize() or {
+		v.check('guard pool.initialize()', false)
+		return
+	}
+
+	// 测试 acquire_guard + 手动 release
+	mut guard := p.acquire_guard[Product]() or {
+		v.check('acquire_guard', false)
+		return
+	}
+	v.check('acquire_guard 成功', !guard.is_released())
+	conn := guard.get()
+	v.check('guard.get() 返回非空', !isnil(conn))
+	v.check('池 active == 1 (guard 持有)', p.stats().active == 1)
+
+	guard.release()
+	v.check('guard.release() 后 is_released', guard.is_released())
+	v.check('guard.release() 后池 active == 0', p.stats().active == 0)
+
+	// 测试重复 release（幂等性）
+	guard.release()
+	v.check('guard 重复 release 不 panic', true)
+
+	// 测试 with_acquired（零心智成本 API）
+	mut with_acquired_ok := false
+	p.with_acquired[Product](fn (obj &Product) ! {
+		with_acquired_ok = true
+	}) or {
+		v.check('with_acquired 执行', false)
+		return
+	}
+	v.check('with_acquired 回调执行', with_acquired_ok)
+	v.check('with_acquired 后池 active == 0', p.stats().active == 0)
+
+	// 测试 PoolAutoManager
+	mut mgr := pool.new_pool_auto_manager()
+	mgr.register('guard-pool', p)
+	v.check('PoolAutoManager 注册池', mgr.pool_count() == 1)
+	v.check('PoolAutoManager 获取池', !isnil(mgr.get('guard-pool') or { unsafe { nil } }))
+
+	mgr.close_all()
+	v.check('PoolAutoManager.close_all() 完成', true)
+
+	// 测试 pool_stats
+	mut p2 := pool.new_pool_with_config('stats-pool', fn () !voidptr {
+		return voidptr(&Product{serial: 1})
+	}, 1, 2)
+	p2.initialize() or {}
+	mut mgr2 := pool.new_pool_auto_manager()
+	mgr2.register('stats-pool', p2)
+	stats := mgr2.pool_stats()
+	v.check('PoolAutoManager.pool_stats()', 'stats-pool' in stats)
+	mgr2.close_all()
+}
+
+// verify_service_locator 验证 ServiceLocator 服务定位器
+fn verify_service_locator(mut v Verifier) {
+	v.section('服务定位器 (core.ServiceLocator)')
+
+	mut ctx := core.new_application_context()
+	svc := &GreetService{greeting: 'Locator'}
+	ctx.register_instance('GreetService', svc) or {
+		v.check('register_instance', false)
+		return
+	}
+	ctx.refresh() or {}
+
+	// 创建 ServiceLocator
+	mut sl := core.new_service_locator(ctx)
+	v.check('new_service_locator', !isnil(sl))
+
+	// resolve by name
+	resolved := sl.resolve('GreetService') or { unsafe { nil } }
+	v.check('sl.resolve(name) 成功', !isnil(resolved))
+
+	// has service
+	v.check('sl.has(GreetService)', sl.has('GreetService'))
+	v.check('sl.has(missing)=false', !sl.has('MissingService'))
+
+	// BindingRegistry
+	mut reg := core.new_binding_registry()
+	reg.bind('DynamicService', fn () !voidptr {
+		return voidptr(&GreetService{greeting: 'dynamic'})
+	}, true)
+	v.check('BindingRegistry.bind', reg.has_binding('DynamicService'))
+	dyn := reg.resolve('DynamicService') or { unsafe { nil } }
+	v.check('BindingRegistry.resolve', !isnil(dyn))
+
+	// 全局 ServiceLocator
+	core.set_global_service_locator(sl)
+	v.check('set_global_service_locator', true)
+	has_global := core.has_global_service('GreetService')
+	v.check('has_global_service', has_global)
+
+	ctx.shutdown()
+}
+
+// verify_auto_logger 验证自动日志注入与 LoggerFactory
+fn verify_auto_logger(mut v Verifier) {
+	v.section('自动日志注入 (logger.LoggerFactory + LogContext)')
+
+	// LoggerFactory
+	mut cfg := logger.new_logger_config()
+	cfg.set_namespace_level('photon.verify', .debug)
+	mut factory := logger.new_logger_factory(cfg)
+
+	log1 := factory.get_logger('photon.verify.service')
+	v.check('LoggerFactory.get_logger', log1.get_level() == .debug)
+
+	log2 := factory.get_logger('photon.verify.repo')
+	v.check('LoggerFactory 命名空间继承', log2.get_level() == .debug)
+
+	log3 := factory.get_logger('photon.other')
+	v.check('LoggerFactory 默认级别', log3.get_level() == .info)
+
+	// Logger 缓存
+	v.check('LoggerFactory 缓存', factory.logger_count() >= 2)
+
+	// reload_all 热更新
+	cfg.set_namespace_level('photon.verify', .warn)
+	factory.reload_all()
+	v.check('reload_all 热更新级别', log1.get_level() == .warn)
+
+	// LogContext
+	mut lctx := logger.new_log_context()
+	lctx.with_trace_id('trace-123')
+	lctx.with_request_id('req-456')
+	lctx.with_span('verify')
+	fields := lctx.to_fields()
+	v.check('LogContext trace_id', fields['trace_id'] == 'trace-123')
+	v.check('LogContext request_id', fields['request_id'] == 'req-456')
+	v.check('LogContext span', fields['span'] == 'verify')
+
+	// get_logger_for[T]
+	log_typed := logger.get_logger_for[Product](mut factory)
+	v.check('get_logger_for[T]', log_typed.output_label == 'Product')
+}
+
+// verify_lock_guard 验证锁 RAII Guard 模式（自动解锁）
+fn verify_lock_guard(mut v Verifier) {
+	v.section('锁 RAII Guard — 自动解锁 (locking.LockGuard)')
+
+	mut lm := locking.new_lock_manager()
+
+	// lock_guard + 手动 release
+	mut guard := lm.lock_guard('raii-key') or {
+		v.check('lock_guard', false)
+		return
+	}
+	v.check('lock_guard 获取成功', !guard.is_released())
+	v.check('锁被持有', !lm.try_lock('raii-key'))
+
+	guard.release()
+	v.check('guard.release() 后 is_released', guard.is_released())
+	v.check('guard.release() 后锁可用', lm.try_lock('raii-key'))
+	lm.unlock('raii-key') or {}
+
+	// 重复 release（幂等性）
+	guard.release()
+	v.check('guard 重复 release 不 panic', true)
+
+	// try_lock_guard
+	mut guard2 := lm.try_lock_guard('try-key') or {
+		v.check('try_lock_guard', false)
+		return
+	}
+	v.check('try_lock_guard 成功', !guard2.is_released())
+	guard2.release()
+
+	// with_lock（零心智成本 API）
+	mut with_lock_ok := false
+	lm.with_lock('with-key', fn () ! {
+		with_lock_ok = true
+	}) or {
+		v.check('with_lock 执行', false)
+		return
+	}
+	v.check('with_lock 回调执行', with_lock_ok)
+	v.check('with_lock 后锁可用', lm.try_lock('with-key'))
+	lm.unlock('with-key') or {}
+}

@@ -687,3 +687,260 @@ pub fn extract_bean_methods[T]() []BeanMethod {
 pub fn configuration_type_name[T]() string {
 	return T.name
 }
+
+// ── scan_and_register[T]() — Compile-Time Auto-Registration ──
+//
+// Spring equivalent: @ComponentScan + AnnotationConfigApplicationContext
+//
+// Scans type T at compile time for component-type annotations
+// (@[component], @[service], @[repository], @[controller]) and
+// automatically creates a BeanDefinition with all scanned metadata,
+// then registers it with the ApplicationContext.
+//
+// This is the one-stop-shop for annotation-driven bean registration:
+//   - Struct-level annotations → component type, scope, lazy, qualifier, depends_on
+//   - Field-level annotations → @[autowired] dependencies, @[value] config bindings
+//   - Method-level annotations → @[post_construct], @[pre_destroy] lifecycle
+//
+// Usage:
+//   @[service]
+//   pub struct UserService {
+//       @[autowired]
+//       repo &UserRepository
+//       @[value: 'app.name']
+//       app_name string
+//   }
+//
+//   core.scan_and_register[UserService](mut ctx)!
+//   // ↑ equivalent to manually creating BeanDefinition + register + lifecycle
+pub fn scan_and_register[T](mut ctx ApplicationContext) ! {
+	// 1) Scan struct-level annotations
+	mut component_type := ComponentType.unknown
+	mut scope_val := Scope.singleton
+	mut is_lazy := false
+	mut qualifier_name := ''
+	mut depends_on_list := []string{}
+	mut is_component := false
+
+	$for attr in T.attributes {
+		$if attr.name == attr_component {
+			component_type = .component
+			is_component = true
+		} $else $if attr.name == attr_service {
+			component_type = .service
+			is_component = true
+		} $else $if attr.name == attr_repository {
+			component_type = .repository
+			is_component = true
+		} $else $if attr.name == attr_controller {
+			component_type = .controller
+			is_component = true
+		} $else $if attr.name == attr_scope {
+			$if attr.has_arg {
+				scope_val = scope_from_str(attr.arg.trim("'\""))
+			}
+		} $else $if attr.name == attr_lazy {
+			is_lazy = true
+		} $else $if attr.name == attr_qualifier {
+			$if attr.has_arg {
+				qualifier_name = attr.arg.trim("'\"")
+			}
+		} $else $if attr.name == attr_depends_on {
+			$if attr.has_arg {
+				parts := attr.arg.trim("'\"").split(',')
+				for part in parts {
+					trimmed := part.trim_space().trim("'\"")
+					if trimmed.len > 0 {
+						depends_on_list << trimmed
+					}
+				}
+			}
+		}
+	}
+
+	if !is_component {
+		return error('scan_and_register: type ${T.name} is not annotated with @[component]/@[service]/@[repository]/@[controller] / 类型 ${T.name} 未标记组件注解')
+	}
+
+	// 2) Scan field-level annotations
+	mut dependencies := []Dependency{}
+	mut value_bindings := []ValueBinding{}
+
+	$for field in T.fields {
+		mut has_autowired := false
+		mut field_qualifier := ''
+		mut is_required_field := true
+		for attr in field.attrs {
+			if attr == attr_autowired {
+				has_autowired = true
+			}
+			if attr.starts_with('qualifier:') || attr.starts_with('qualifier(') {
+				field_qualifier = extract_qualifier(field.attrs)
+			}
+			if attr == attr_required {
+				is_required_field = true
+			}
+		}
+		if has_autowired {
+			dependencies << Dependency{
+				type_name: field.name
+				qualifier: field_qualifier
+				is_required: is_required_field
+			}
+		}
+
+		value_key := extract_value_expr(field.attrs)
+		if value_key.len > 0 {
+			value_bindings << ValueBinding{
+				field_name: field.name
+				expr:       value_key
+			}
+		}
+	}
+
+	// 3) Scan method-level annotations
+	mut init_method := ''
+	mut destroy_method := ''
+
+	$for method in T.methods {
+		for attr in method.attrs {
+			if attr == attr_post_construct && init_method.len == 0 {
+				init_method = method.name
+			}
+			if attr == attr_pre_destroy && destroy_method.len == 0 {
+				destroy_method = method.name
+			}
+		}
+	}
+
+	// 4) Build and register BeanDefinition
+	type_name := T.name
+	bean_name := if qualifier_name.len > 0 { qualifier_name } else { type_name }
+
+	mut def := new_bean_definition(bean_name)
+	def.component_type = component_type
+	def.scope = scope_val
+	def.is_lazy = is_lazy
+	def.dependencies = dependencies
+	def.value_bindings = value_bindings
+	def.init_method = init_method
+	def.destroy_method = destroy_method
+	def.depends_on = depends_on_list
+
+	ctx.register(def) or {
+		return error('scan_and_register: failed to register ${bean_name}: ${err} / 注册 ${bean_name} 失败: ${err}')
+	}
+}
+
+// ── scan_component_info[T]() — Lightweight Component Scan ──
+//
+// Returns a ScannedBean descriptor without registering anything.
+// Useful for inspection, validation, or custom registration logic.
+//
+// Usage:
+//   info := core.scan_component_info[UserService]()
+//   println('${info.type_name} is a ${info.component_type} with ${info.dependencies.len} deps')
+pub fn scan_component_info[T]() ScannedBean {
+	mut component_type := ComponentType.unknown
+	mut scope_val := Scope.singleton
+	mut is_lazy := false
+	mut qualifier_name := ''
+	mut depends_on_list := []string{}
+	mut is_component := false
+
+	$for attr in T.attributes {
+		$if attr.name == attr_component {
+			component_type = .component
+			is_component = true
+		} $else $if attr.name == attr_service {
+			component_type = .service
+			is_component = true
+		} $else $if attr.name == attr_repository {
+			component_type = .repository
+			is_component = true
+		} $else $if attr.name == attr_controller {
+			component_type = .controller
+			is_component = true
+		} $else $if attr.name == attr_scope {
+			$if attr.has_arg {
+				scope_val = scope_from_str(attr.arg.trim("'\""))
+			}
+		} $else $if attr.name == attr_lazy {
+			is_lazy = true
+		} $else $if attr.name == attr_qualifier {
+			$if attr.has_arg {
+				qualifier_name = attr.arg.trim("'\"")
+			}
+		} $else $if attr.name == attr_depends_on {
+			$if attr.has_arg {
+				parts := attr.arg.trim("'\"").split(',')
+				for part in parts {
+					trimmed := part.trim_space().trim("'\"")
+					if trimmed.len > 0 {
+						depends_on_list << trimmed
+					}
+				}
+			}
+		}
+	}
+
+	mut dependencies := []Dependency{}
+	mut value_bindings := []ValueBinding{}
+	mut init_method := ''
+	mut destroy_method := ''
+
+	$for field in T.fields {
+		mut has_autowired := false
+		mut field_qualifier := ''
+		mut is_required_field := true
+		for attr in field.attrs {
+			if attr == attr_autowired {
+				has_autowired = true
+			}
+			if attr.starts_with('qualifier:') || attr.starts_with('qualifier(') {
+				field_qualifier = extract_qualifier(field.attrs)
+			}
+			if attr == attr_required {
+				is_required_field = true
+			}
+		}
+		if has_autowired {
+			dependencies << Dependency{
+				type_name: field.name
+				qualifier: field_qualifier
+				is_required: is_required_field
+			}
+		}
+		value_key := extract_value_expr(field.attrs)
+		if value_key.len > 0 {
+			value_bindings << ValueBinding{
+				field_name: field.name
+				expr:       value_key
+			}
+		}
+	}
+
+	$for method in T.methods {
+		for attr in method.attrs {
+			if attr == attr_post_construct && init_method.len == 0 {
+				init_method = method.name
+			}
+			if attr == attr_pre_destroy && destroy_method.len == 0 {
+				destroy_method = method.name
+			}
+		}
+	}
+
+	return ScannedBean{
+		type_name:      T.name
+		component_type: component_type
+		scope:          scope_val
+		is_lazy:        is_lazy
+		qualifier:      qualifier_name
+		dependencies:   dependencies
+		init_method:    init_method
+		destroy_method: destroy_method
+		value_bindings: value_bindings
+		conditions:     depends_on_list
+	}
+}

@@ -115,6 +115,113 @@ log.<span class="fn">remove</span>(<span class="st">'user_id'</span>)
         </ul>
       </div>
 
+      <!-- ═══ 5. LoggerFactory ═══ -->
+      <div class="doc-section" id="logger-factory">
+        <div class="section-header"><div class="section-icon icon-logger">🏭</div><div><div class="section-title">LoggerFactory 日志工厂</div><div class="section-subtitle">命名空间分层 · 类型安全 · 热更新</div></div></div>
+
+        <p><code>LoggerFactory</code> — 创建并管理 Logger 实例，支持基于命名空间的分层级别解析。Spring 等价：<code>org.slf4j.LoggerFactory</code></p>
+
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>说明</th><th>Spring 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>new_logger_factory(config)</code></td><td>使用 LoggerConfig 创建工厂</td><td>—</td></tr>
+            <tr><td><code>get_logger(name)</code></td><td>创建或获取命名 Logger</td><td>—</td></tr>
+            <tr><td><code>get_logger_for[T]()</code></td><td>创建以类型 T 命名的 Logger（使用 T.name 作为命名空间）</td><td><code>LoggerFactory.getLogger(MyClass.class)</code></td></tr>
+            <tr><td><code>reload_all()</code></td><td>使用当前配置级别热更新所有缓存 Logger</td><td>Logback 的 JMX 级别重配置</td></tr>
+            <tr><td><code>logger_count()</code></td><td>缓存 Logger 数量</td><td>—</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.logger
+
+<span class="cm">// 1. 创建 LoggerFactory</span>
+<span class="kw">mut</span> factory := logger.<span class="fn">new_logger_factory</span>(config)
+
+<span class="cm">// 2. 获取命名 Logger</span>
+log_ := factory.<span class="fn">get_logger</span>(<span class="st">'com.photon.UserService'</span>)
+
+<span class="cm">// 3. 获取类型安全 Logger（推荐）</span>
+log_ := logger.<span class="fn">get_logger_for</span>[<span class="tp">UserService</span>](<span class="kw">mut</span> factory)
+<span class="cm">// 等价于：LoggerFactory.getLogger(UserService.class)</span>
+
+<span class="cm">// 4. 配置变更后热更新所有 Logger</span>
+factory.<span class="fn">reload_all</span>()
+
+<span class="cm">// 5. 检查缓存日志器</span>
+<span class="fn">println</span>(<span class="st">'${factory.logger_count()} loggers cached'</span>)
+
+<span class="cm">// Spring 等价：@Slf4j (Lombok) / LoggerFactory.getLogger(MyClass.class)</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 6. LogContext ═══ -->
+      <div class="doc-section" id="log-context">
+        <div class="section-header"><div class="section-icon icon-logger">🔗</div><div><div class="section-title">LogContext 上下文追踪</div><div class="section-subtitle">请求级结构化上下文 · trace_id / request_id 自动传播</div></div></div>
+
+        <p><code>LogContext</code> — 请求级结构化日志上下文，提供 trace_id、request_id 等上下文字段的自动传播。灵感来自 Spring Sleuth 的追踪传播机制。</p>
+
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>new_log_context()</code></td><td>创建空上下文</td></tr>
+            <tr><td><code>with_trace_id(id)</code></td><td>设置 Trace ID（链式调用）</td></tr>
+            <tr><td><code>with_request_id(id)</code></td><td>设置 Request ID（链式调用）</td></tr>
+            <tr><td><code>with_span(name)</code></td><td>设置 Span 名称（链式调用）</td></tr>
+            <tr><td><code>with_field(key, value)</code></td><td>添加自定义字段（链式调用）</td></tr>
+            <tr><td><code>to_fields()</code></td><td>转换为 Map 供 Logger 使用</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.logger
+
+<span class="cm">// 链式创建上下文</span>
+<span class="kw">mut</span> ctx := logger.<span class="fn">new_log_context</span>()
+    .<span class="fn">with_trace_id</span>(<span class="st">'trace-abc123'</span>)
+    .<span class="fn">with_request_id</span>(<span class="st">'req-456'</span>)
+    .<span class="fn">with_span</span>(<span class="st">'process_order'</span>)
+    .<span class="fn">with_field</span>(<span class="st">'user_id'</span>, <span class="st">'42'</span>)
+
+<span class="cm">// 配合 Logger 使用</span>
+log_.<span class="fn">with_fields</span>(ctx.<span class="fn">to_fields</span>())
+log_.<span class="fn">info</span>(<span class="st">'Processing order'</span>)
+
+<span class="cm">// Spring Sleuth 等价：MDC 中的 trace 传播</span>
+<span class="cm">// Go 等价：context.Context with structured fields</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 7. MultiOutputLogger ═══ -->
+      <div class="doc-section" id="multi-output">
+        <div class="section-header"><div class="section-icon icon-logger">📤</div><div><div class="section-title">MultiOutputLogger 多输出</div><div class="section-subtitle">同时输出到多个目标 · Console + File + Remote</div></div></div>
+
+        <p><code>MultiOutputLogger</code> — 包装 Logger 并同时将输出发送到多个目标（如控制台 + 文件）。Spring 等价：Logback 的 Appender 链。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.logger
+
+<span class="kw">mut</span> multi := logger.<span class="fn">new_multi_output_logger</span>(my_logger)
+multi.<span class="fn">add_output</span>(<span class="kw">fn</span> (msg <span class="tp">string</span>) {
+    <span class="cm">// 写入文件</span>
+    os.<span class="fn">write_file</span>(<span class="st">'app.log'</span>, msg + <span class="st">'\n'</span>) <span class="kw">or</span> {}
+})
+multi.<span class="fn">add_output</span>(<span class="kw">fn</span> (msg <span class="tp">string</span>) {
+    <span class="cm">// 发送到远程</span>
+    <span class="fn">http_post</span>(<span class="st">'https://logs.example.com/ingest'</span>, msg) <span class="kw">or</span> {}
+})
+
+<span class="cm">// 所有日志同时输出到原始 Logger + 所有额外输出</span>
+multi.<span class="fn">info</span>(<span class="st">'Server started'</span>)
+multi.<span class="fn">error</span>(<span class="st">'Connection failed'</span>)
+
+<span class="cm">// Spring 等价：Logback 的 Appender 链</span></div>
+        </div>
+      </div>
+
       <div class="page-nav">
         <a href="#pool">← Pool 连接池</a>
         <a href="#queue" class="nav-next">Queue 消息队列 →</a>

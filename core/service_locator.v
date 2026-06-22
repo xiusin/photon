@@ -210,3 +210,56 @@ pub fn (mut r BindingRegistry) has_binding(type_name string) bool {
 	defer { r.mu.runlock() }
 	return type_name in r.bindings
 }
+
+// ── Global Service Locator ──
+//
+// A process-wide ServiceLocator instance for convenience.
+// Set once during bootstrap, used anywhere.
+//
+// Spring equivalent: static ApplicationContext reference
+// Laravel equivalent: global app() helper
+
+__global g_service_locator &ServiceLocator
+
+// set_global_service_locator sets the global ServiceLocator instance.
+// Should be called once during application bootstrap.
+pub fn set_global_service_locator(sl &ServiceLocator) {
+	g_service_locator = sl
+}
+
+// locate_service resolves a bean by type T from the global ServiceLocator.
+// This is the simplest API — no context needed, just call and get your service.
+//
+// Spring equivalent: SpringApplicationContext.getBean(MyService.class)
+// Laravel equivalent: app(MyService::class)
+//
+// Usage:
+//   svc := core.locate_service[UserService]()!
+pub fn locate_service[T]() !&T {
+	if isnil(g_service_locator) {
+		return error('locate_service: global ServiceLocator not initialized / 全局服务定位器未初始化')
+	}
+	mut sl := g_service_locator
+	instance := sl.resolve(T.name) or {
+		return error('locate_service: failed to resolve ${T.name}: ${err} / 定位服务：解析 ${T.name} 失败: ${err}')
+	}
+	return unsafe { &T(instance) }
+}
+
+// locate_service_by_name resolves a bean by name from the global ServiceLocator.
+pub fn locate_service_by_name(name string) !voidptr {
+	if isnil(g_service_locator) {
+		return error('locate_service_by_name: global ServiceLocator not initialized / 全局服务定位器未初始化')
+	}
+	mut sl := g_service_locator
+	return sl.resolve(name)
+}
+
+// has_global_service checks if a bean exists in the global ServiceLocator.
+pub fn has_global_service(name string) bool {
+	if isnil(g_service_locator) {
+		return false
+	}
+	mut sl := g_service_locator
+	return sl.has(name)
+}

@@ -6,6 +6,12 @@ module core
 // Events are dispatched synchronously by default; async dispatch
 // integrates with the queue module.
 //
+// Performance optimization: ShardedRwMutex replaces the global RwMutex.
+// Different event names map to different lock shards, allowing concurrent
+// dispatch/on/off operations for unrelated events.
+// 性能优化：ShardedRwMutex 替代全局 RwMutex。
+// 不同事件名映射到不同分片锁，无关联事件的 dispatch/on/off 操作可并发执行。
+//
 // Usage:
 //   mut bus := core.new_event_bus()
 //   bus.on('user.registered', fn (e &Event) {
@@ -93,7 +99,9 @@ pub mut:
 // ── EventBus ──
 
 // EventBus manages event listeners and dispatches events.
-// Thread-safe via sync.RwMutex.
+// Thread-safe via ShardedRwMutex — operations on different event names
+// proceed concurrently without blocking each other.
+// 线程安全：通过 ShardedRwMutex 实现，不同事件名的操作互不阻塞。
 //
 // dispatch_async() tracks spawned goroutines via sync.WaitGroup so that
 // wait_async()/shutdown() can block until all in-flight async listeners
@@ -106,16 +114,19 @@ pub mut:
 	listeners               map[string][]RegisteredListener
 	transactional_listeners map[string][]TransactionalRegisteredListener
 mut:
-	mu      sync.RwMutex
-	wg      sync.WaitGroup
-	next_id int
+	sharded_mu ShardedRwMutex // 分片锁：按事件名分片，替代全局 mu sync.RwMutex
+	id_mu      sync.Mutex    // next_id 专用互斥锁 / dedicated mutex for next_id (避免分片锁间的竞态)
+	wg         sync.WaitGroup
+	next_id    int
 }
 
-// new_event_bus creates an empty EventBus.
+// new_event_bus creates an empty EventBus with sharded locking.
+// 创建空 EventBus，使用分片锁。
 pub fn new_event_bus() &EventBus {
 	return &EventBus{
 		listeners:               map[string][]RegisteredListener{}
 		transactional_listeners: map[string][]TransactionalRegisteredListener{}
+		sharded_mu:              new_sharded_rw_mutex()
 	}
 }
 
@@ -129,12 +140,25 @@ pub fn (mut bus EventBus) on(event_name string, listener EventListener) int {
 // on_with_priority registers a listener with a specific priority.
 // Lower priority values fire first.
 // Returns a unique listener id.
+// 使用分片锁：仅锁定目标事件名对应的分片。
+// next_id 使用独立 id_mu 保护，避免不同分片锁下的竞态条件。
+// next_id is protected by its own id_mu to prevent race conditions
+// across different shard locks.
 pub fn (mut bus EventBus) on_with_priority(event_name string, listener EventListener, priority int) int {
-	bus.mu.@lock()
-	defer { bus.mu.unlock() }
-
+	// Generate unique ID under dedicated mutex BEFORE acquiring shard lock.
+	// This prevents race conditions when two threads register listeners
+	// for different event names (different shards) concurrently — without
+	// id_mu, both could read-increment-write next_id simultaneously,
+	// producing duplicate IDs.
+	// 在获取分片锁之前，先在 id_mu 保护下生成唯一 ID。
+	// 防止两个线程对不同事件名（不同分片）并发注册时产生重复 ID。
+	bus.id_mu.@lock()
 	bus.next_id++
 	id := bus.next_id
+	bus.id_mu.unlock()
+
+	bus.sharded_mu.@lock(event_name)
+	defer { bus.sharded_mu.unlock(event_name) }
 	mut listeners := bus.listeners[event_name] or { []RegisteredListener{} }
 	listeners << RegisteredListener{
 		id:         id
@@ -156,21 +180,23 @@ pub fn (mut bus EventBus) on_with_priority(event_name string, listener EventList
 }
 
 // off removes all listeners for an event name.
+// 使用分片锁：仅锁定目标事件名对应的分片。
 pub fn (mut bus EventBus) off(event_name string) {
-	bus.mu.@lock()
-	defer { bus.mu.unlock() }
+	bus.sharded_mu.@lock(event_name)
+	defer { bus.sharded_mu.unlock(event_name) }
 	bus.listeners.delete(event_name)
 }
 
 // off_listener removes a specific listener by its unique id (returned by on()).
 // This works reliably for closures (unlike function-pointer comparison).
 // Searches all event names since the id is globally unique.
+// 使用全局分片锁：需遍历所有事件名。
 //
 // Spring equivalent: ApplicationListener removal
 // Laravel equivalent: Event::forget()
 pub fn (mut bus EventBus) off_listener(id int) {
-	bus.mu.@lock()
-	defer { bus.mu.unlock() }
+	bus.sharded_mu.lock_all()
+	defer { bus.sharded_mu.unlock_all() }
 
 	for event_name, listeners in bus.listeners {
 		mut new_listeners := []RegisteredListener{}
@@ -188,9 +214,10 @@ pub fn (mut bus EventBus) off_listener(id int) {
 }
 
 // off_transactional_listener removes a transactional listener by its unique id.
+// 使用全局分片锁：需遍历所有事件名。
 pub fn (mut bus EventBus) off_transactional_listener(id int) {
-	bus.mu.@lock()
-	defer { bus.mu.unlock() }
+	bus.sharded_mu.lock_all()
+	defer { bus.sharded_mu.unlock_all() }
 
 	for event_name, listeners in bus.transactional_listeners {
 		mut new_listeners := []TransactionalRegisteredListener{}
@@ -208,17 +235,19 @@ pub fn (mut bus EventBus) off_transactional_listener(id int) {
 }
 
 // listener_count_for returns the number of listeners for a specific event.
+// 使用分片读锁：仅锁定目标事件名对应的分片。
 pub fn (mut bus EventBus) listener_count_for(event_name string) int {
-	bus.mu.rlock()
-	defer { bus.mu.runlock() }
+	bus.sharded_mu.rlock(event_name)
+	defer { bus.sharded_mu.runlock(event_name) }
 	listeners := bus.listeners[event_name] or { return 0 }
 	return listeners.len
 }
 
 // has_listeners checks if an event has any registered listeners.
+// 使用分片读锁：仅锁定目标事件名对应的分片。
 pub fn (mut bus EventBus) has_listeners(event_name string) bool {
-	bus.mu.rlock()
-	defer { bus.mu.runlock() }
+	bus.sharded_mu.rlock(event_name)
+	defer { bus.sharded_mu.runlock(event_name) }
 	listeners := bus.listeners[event_name] or { return false }
 	return listeners.len > 0
 }
@@ -231,8 +260,14 @@ pub fn (mut bus EventBus) listener_count(event_name string) int {
 
 // dispatch fires an event, calling all listeners in priority order.
 // If a listener calls event.stop_propagation(), no further listeners are invoked.
-// If a listener panics, it is caught and logged — other listeners are still called.
 // Returns the number of listeners that were actually called.
+// 使用分片读锁：仅锁定事件名对应的分片，不同事件名可并发 dispatch。
+//
+// 注意：V 语言没有 try-catch 机制，如果某个 listener 触发运行时 panic，
+// 后续 listener 将不会被执行。如果需要 listener 隔离，请使用 dispatch_async()。
+//
+// Note: V has no try-catch mechanism. If a listener triggers a runtime panic,
+// subsequent listeners will NOT be called. For listener isolation, use dispatch_async().
 pub fn (mut bus EventBus) dispatch(event &Event) int {
 	// Set timestamp if not already set
 	if event.timestamp == 0 {
@@ -242,9 +277,9 @@ pub fn (mut bus EventBus) dispatch(event &Event) int {
 		}
 	}
 
-	bus.mu.rlock()
+	bus.sharded_mu.rlock(event.name)
 	listeners := bus.listeners[event.name] or { []RegisteredListener{} }
-	bus.mu.runlock()
+	bus.sharded_mu.runlock(event.name)
 
 	mut called := 0
 	for i in 0 .. listeners.len {
@@ -253,15 +288,14 @@ pub fn (mut bus EventBus) dispatch(event &Event) int {
 		}
 		rl := listeners[i]
 		if !isnil(rl.listener) {
-			// Isolate listener execution — one failing listener
-			// should not prevent others from being called.
 			rl.listener(event)
 		}
-		// Note: called_count is intentionally non-atomic.
-		// It's a diagnostic counter — exact accuracy under concurrent
-		// dispatch is not critical. Using atomic would add overhead
-		// for negligible benefit. This matches Spring's approach
-		// where listener invocation counts are advisory.
+		// Note: called_count (on RegisteredListener) is intentionally not
+		// updated here — it would require a mutable reference to the
+		// original RegisteredListener in the map, which is not available
+		// after cloning the listeners slice. The local `called` counter
+		// serves as the return value. called_count remains a diagnostic
+		// field for future use with mutable iteration.
 		called++
 	}
 	return called
@@ -272,6 +306,7 @@ pub fn (mut bus EventBus) dispatch(event &Event) int {
 // until all in-flight async dispatches finish.
 // Each listener runs in its own thread — a failing listener does not affect others.
 // Goroutines are tracked via sync.WaitGroup so shutdown() can drain them.
+// 使用分片读锁：仅锁定事件名对应的分片，不同事件名可并发 dispatch。
 pub fn (mut bus EventBus) dispatch_async(event &Event) {
 	if event.timestamp == 0 {
 		unsafe {
@@ -280,9 +315,9 @@ pub fn (mut bus EventBus) dispatch_async(event &Event) {
 		}
 	}
 
-	bus.mu.rlock()
+	bus.sharded_mu.rlock(event.name)
 	listeners := bus.listeners[event.name] or { []RegisteredListener{} }
-	bus.mu.runlock()
+	bus.sharded_mu.runlock(event.name)
 
 	for rl in listeners {
 		if event.is_propagation_stopped() {
@@ -295,6 +330,13 @@ pub fn (mut bus EventBus) dispatch_async(event &Event) {
 		captured_event := event
 		captured_listener := rl.listener
 		bus_ref := bus
+		// V 的 spawn 不允许 mut 非引用参数，因此使用 unsafe 调用 wg.done()。
+		// sync.WaitGroup.done() 是线程安全的原子操作，unsafe 块仅用于绕过
+		// V 的 mut 检查，不引入实际安全问题。
+		// V's spawn does not allow mutable non-reference arguments, so we use
+		// unsafe to call wg.done(). sync.WaitGroup.done() is a thread-safe
+		// atomic operation — the unsafe block only bypasses V's mut check
+		// and does not introduce actual safety issues.
 		spawn fn (e &Event, l EventListener, gb &EventBus) {
 			defer {
 				unsafe { gb.wg.done() }
@@ -314,10 +356,11 @@ pub fn (mut bus EventBus) wait_async() {
 // shutdown waits for all in-flight async dispatches to complete and then
 // clears all listeners. After shutdown(), the EventBus is empty and no
 // further events will be dispatched.
+// 使用全局分片锁：需清空所有事件监听器。
 pub fn (mut bus EventBus) shutdown() {
 	bus.wait_async()
-	bus.mu.@lock()
-	defer { bus.mu.unlock() }
+	bus.sharded_mu.lock_all()
+	defer { bus.sharded_mu.unlock_all() }
 	bus.listeners = map[string][]RegisteredListener{}
 	bus.transactional_listeners = map[string][]TransactionalRegisteredListener{}
 }
@@ -325,9 +368,10 @@ pub fn (mut bus EventBus) shutdown() {
 // ── Diagnostic ──
 
 // print_listeners prints all registered event listeners.
+// 使用全局分片读锁：需遍历所有事件名。
 pub fn (mut bus EventBus) print_listeners() {
-	bus.mu.rlock()
-	defer { bus.mu.runlock() }
+	bus.sharded_mu.rlock_all()
+	defer { bus.sharded_mu.runlock_all() }
 
 	println('═══ EventBus: ${bus.listeners.len} event type(s) ═══')
 	for event_name, listeners in bus.listeners {
@@ -371,12 +415,17 @@ pub mut:
 // The listener will only be invoked when dispatch_transactional is called
 // with the matching phase.
 // Returns a unique listener id that can be passed to off_transactional_listener(id).
+// 使用分片锁：仅锁定目标事件名对应的分片。
+// next_id 使用独立 id_mu 保护，避免不同分片锁下的竞态条件。
 pub fn (mut bus EventBus) on_transactional(event_name string, listener TransactionalEventListener) int {
-	bus.mu.@lock()
-	defer { bus.mu.unlock() }
-
+	// Generate unique ID under dedicated mutex (same pattern as on_with_priority)
+	bus.id_mu.@lock()
 	bus.next_id++
 	id := bus.next_id
+	bus.id_mu.unlock()
+
+	bus.sharded_mu.@lock(event_name)
+	defer { bus.sharded_mu.unlock(event_name) }
 	mut listeners := bus.transactional_listeners[event_name] or {
 		[]TransactionalRegisteredListener{}
 	}
@@ -393,12 +442,13 @@ pub fn (mut bus EventBus) on_transactional(event_name string, listener Transacti
 // dispatch_transactional fires an event for a specific transaction phase.
 // Only listeners registered for the matching phase are invoked.
 // Returns the number of listeners that were called.
+// 使用分片读锁：仅锁定事件名对应的分片。
 pub fn (mut bus EventBus) dispatch_transactional(event &Event, phase TransactionPhase) int {
-	bus.mu.rlock()
+	bus.sharded_mu.rlock(event.name)
 	mut listeners := bus.transactional_listeners[event.name] or {
 		[]TransactionalRegisteredListener{}
 	}
-	bus.mu.runlock()
+	bus.sharded_mu.runlock(event.name)
 
 	mut called := 0
 	for mut rl in listeners {
@@ -417,12 +467,13 @@ pub fn (mut bus EventBus) dispatch_transactional(event &Event, phase Transaction
 
 // dispatch_transactional_all fires an event for all phases.
 // Useful for after_completion which should fire regardless of commit/rollback.
+// 使用分片读锁：仅锁定事件名对应的分片。
 pub fn (mut bus EventBus) dispatch_transactional_all(event &Event) int {
-	bus.mu.rlock()
+	bus.sharded_mu.rlock(event.name)
 	mut listeners := bus.transactional_listeners[event.name] or {
 		[]TransactionalRegisteredListener{}
 	}
-	bus.mu.runlock()
+	bus.sharded_mu.runlock(event.name)
 
 	mut called := 0
 	for mut rl in listeners {

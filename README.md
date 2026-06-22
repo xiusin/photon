@@ -936,6 +936,23 @@ v test queue/
 | `@[roles_allowed('a','b')]` | fn | 角色限制 |
 | `@[permit_all]` | fn | 允许所有人 |
 | `@[deny_all]` | fn | 拒绝所有人 |
+| `@[entity]` | struct | 标记为 ORM 实体 |
+| `@[table('name')]` | struct | 表名映射 |
+| `@[column('name')]` | field | 列名映射 |
+| `@[id]` / `@[primary_key]` | field | 主键标注 |
+| `@[generated_value]` | field | 自增主键 |
+| `@[version]` | field | 乐观锁版本号 |
+| `@[created_at]` / `@[updated_at]` | field | 时间自动填充 |
+| `@[soft_delete]` | field | 软删除标记 |
+| `@[size(255)]` / `@[nullable]` / `@[unique]` | field | 字段约束 |
+| `@[email]` / `@[min(0)]` / `@[max(100)]` | field | DTO 验证 |
+| `@[pattern('regex')]` / `@[length(1, 255)]` | field | DTO 验证 |
+| `@[job]` / `@[job: 'queue_name']` | struct | 队列 Job 标记 |
+| `@[retry: '3']` / `@[backoff: '1,5']` | struct | Job 重试策略 |
+| `@[timeout: '30']` | struct | Job 超时时间 |
+| `@[command]` / `@[command: 'name']` | struct | CLI 命令标记 |
+| `@[description('help')]` | struct | 命令描述 |
+| `@[option('name')]` / `@[argument]` | field | CLI 参数 |
 
 ---
 

@@ -149,6 +149,101 @@ rate := cfg.<span class="fn">get_f64_or</span>(<span class="st">'rate.limit'</sp
         </table>
       </div>
 
+      <!-- ═══ 6. Placeholder Resolution ═══ -->
+      <div class="doc-section" id="placeholders">
+        <div class="section-header"><div class="section-icon icon-config">🔤</div><div><div class="section-title">占位符解析</div><div class="section-subtitle">${key:default} · 嵌套占位符 · 默认值</div></div></div>
+
+        <p>Photon Config 支持在字符串中解析 <code>${key:default}</code> 占位符，与 Spring 的 <code>@Value</code> 占位符语法保持一致：</p>
+
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>说明</th><th>Spring 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>resolve_placeholders(expr)</code></td><td>解析 <code>${key:default}</code> 占位符，支持嵌套与默认值</td><td><code>@Value("${property:defaultValue}")</code></td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.config
+
+<span class="kw">mut</span> env := config.<span class="fn">new_environment</span>()
+env.<span class="fn">add_source</span>(map_source)
+
+<span class="cm">// Simple placeholder / 简单占位符</span>
+value := env.<span class="fn">resolve_placeholders</span>(<span class="st">'${database.host}'</span>)
+<span class="cm">// → 'localhost'</span>
+
+<span class="cm">// Placeholder with default / 带默认值的占位符</span>
+value := env.<span class="fn">resolve_placeholders</span>(<span class="st">'${database.port:5432}'</span>)
+<span class="cm">// → '5432' if database.port not set</span>
+
+<span class="cm">// Nested placeholders / 嵌套占位符</span>
+url := env.<span class="fn">resolve_placeholders</span>(<span class="st">'jdbc://${db.host:localhost}:${db.port:5432}/${db.name:mydb}'</span>)
+<span class="cm">// → 'jdbc://localhost:5432/mydb'</span>
+
+<span class="cm">// Spring equivalent: @Value("${database.host:localhost}")</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 7. Struct Binding ═══ -->
+      <div class="doc-section" id="struct-binding">
+        <div class="section-header"><div class="section-icon icon-config">🔗</div><div><div class="section-title">结构体绑定</div><div class="section-subtitle">bind_to_struct · bind_configuration_properties · MapPropertySource</div></div></div>
+
+        <p>Photon Config 提供类型安全的配置绑定机制，将配置值自动映射到 struct 字段：</p>
+
+        <table class="doc-table">
+          <thead><tr><th>方法 / 类型</th><th>说明</th><th>Spring 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>bind_to_struct[T](binder)</code></td><td>绑定 <code>@[value]</code> 标注的字段</td><td><code>@Value</code> 字段注入</td></tr>
+            <tr><td><code>bind_configuration_properties[T](binder, prefix)</code></td><td>按前缀绑定配置（<code>@ConfigurationProperties</code> 等价）</td><td><code>@ConfigurationProperties(prefix)</code></td></tr>
+            <tr><td><code>MapPropertySource</code></td><td>内存配置源，用于编程式配置</td><td><code>MapPropertySource</code></td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.config
+
+<span class="cm">// 1. bind_to_struct[T]() — Bind @[value] annotated fields</span>
+<span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">DatabaseConfig</span> {
+    <span class="at">@[value('database.host')]</span>
+    host <span class="tp">string</span>
+
+    <span class="at">@[value('database.port')]</span>
+    port <span class="tp">int</span>
+
+    <span class="at">@[value('database.name')]</span>
+    name <span class="tp">string</span>
+}
+
+<span class="kw">mut</span> binder := config.<span class="fn">new_property_binder</span>(cfg)
+<span class="kw">mut</span> db_config := config.<span class="fn">bind_to_struct</span>[<span class="tp">DatabaseConfig</span>](binder)!
+<span class="fn">println</span>(db_config.host)  <span class="cm">// 'localhost'</span>
+
+<span class="cm">// 2. bind_configuration_properties[T]() — Prefix-based binding</span>
+<span class="cm">// Spring equivalent: @ConfigurationProperties(prefix = "database")</span>
+<span class="kw">pub struct</span> <span class="tp">RedisConfig</span> {
+    host <span class="tp">string</span>
+    port <span class="tp">int</span>
+    db   <span class="tp">int</span>
+}
+
+<span class="kw">mut</span> redis_config := config.<span class="fn">bind_configuration_properties</span>[<span class="tp">RedisConfig</span>](binder, <span class="st">'redis'</span>)!
+<span class="cm">// Binds redis.host, redis.port, redis.db to struct fields</span>
+
+<span class="cm">// 3. MapPropertySource — Programmatic configuration / 编程式配置源</span>
+<span class="kw">mut</span> map_source := config.<span class="fn">new_map_property_source</span>(<span class="st">'overrides'</span>, {
+    <span class="st">'database.host'</span>: <span class="st">'prod-db.example.com'</span>
+    <span class="st">'database.port'</span>: <span class="st">'3306'</span>
+})
+cfg.<span class="fn">add_source</span>(map_source)
+
+<span class="cm">// Spring equivalent: @ConfigurationProperties(prefix = "database")</span>
+<span class="cm">// Laravel equivalent: Config::set('database.host', 'prod-db.example.com')</span></div>
+        </div>
+      </div>
+
       <div class="production-box">
         <div class="production-title">🚀 生产实践</div>
         <ul>
@@ -156,6 +251,9 @@ rate := cfg.<span class="fn">get_f64_or</span>(<span class="st">'rate.limit'</sp
           <li>环境变量覆盖文件配置（<code>EnvSource</code> 优先级最高）</li>
           <li>使用 <code>@[value('key')]</code> 绑定到 struct 字段，避免散落的魔术字符串</li>
           <li>Profile 特定配置只覆盖差异项，减少重复配置</li>
+          <li>使用 <code>resolve_placeholders('${key:default}')</code> 统一配置占位符语法，与 Spring 保持一致</li>
+          <li>使用 <code>bind_configuration_properties[T](prefix)</code> 实现类型安全的配置绑定，替代散落的 <code>get_or()</code> 调用</li>
+          <li>使用 <code>MapPropertySource</code> 在测试中注入覆盖配置</li>
         </ul>
       </div>
 

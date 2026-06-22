@@ -62,6 +62,10 @@ fn main() {
 	verify_annotations(mut v)
 	verify_value_injection(mut v)
 	verify_bean_methods(mut v)
+	verify_pool_guard(mut v)
+	verify_service_locator(mut v)
+	verify_auto_logger(mut v)
+	verify_lock_guard(mut v)
 
 	println('\n\033[1m──────────────────────────────────────────────\033[0m')
 	total := v.passed + v.failed
