@@ -241,69 +241,91 @@ fn test_lock_manager_dist_unlock_nil() {
 
 fn test_lock_guard_acquires_lock() {
 	mut lm := new_lock_manager()
-	mut guard := new_lock_guard(mut lm, 'guarded-resource')
-	assert guard.locked == true
+	mut guard := lm.lock_guard('guarded-resource') or { panic(err) }
+	assert guard.is_released() == false
 	assert guard.key == 'guarded-resource'
 
-	// Should not be able to acquire the same lock
+	// Should not be able to acquire the same lock while guard holds it
 	assert lm.try_lock('guarded-resource') == false
 
-	guard.unlock()
+	guard.release()
 }
 
-fn test_lock_guard_unlock() {
+fn test_lock_guard_release() {
 	mut lm := new_lock_manager()
-	mut guard := new_lock_guard(mut lm, 'resource')
-	assert guard.locked == true
+	mut guard := lm.lock_guard('resource') or { panic(err) }
+	assert guard.is_released() == false
 
-	guard.unlock()
-	assert guard.locked == false
+	guard.release()
+	assert guard.is_released() == true
 
 	// Now should be able to acquire
 	assert lm.try_lock('resource') == true
 	lm.unlock('resource') or {}
 }
 
-fn test_lock_guard_double_unlock() {
+fn test_lock_guard_double_release() {
 	mut lm := new_lock_manager()
-	mut guard := new_lock_guard(mut lm, 'resource')
-	guard.unlock()
-	guard.unlock() // Second unlock should be safe (no-op)
-	assert guard.locked == false
+	mut guard := lm.lock_guard('resource') or { panic(err) }
+	guard.release()
+	guard.release() // Second release should be safe (no-op)
+	assert guard.is_released() == true
+}
+
+fn test_try_lock_guard_success() {
+	mut lm := new_lock_manager()
+	mut guard := lm.try_lock_guard('try-resource') or {
+		assert false, 'try_lock_guard should succeed on free key'
+		return
+	}
+	assert guard.is_released() == false
+	guard.release()
+}
+
+fn test_try_lock_guard_fails_when_held() {
+	mut lm := new_lock_manager()
+	lm.lock('held')
+	if _ := lm.try_lock_guard('held') {
+		assert false, 'try_lock_guard should fail when key is held'
+	} else {
+		assert true
+	}
+	lm.unlock('held') or {}
 }
 
 // ============================================================
-// GuardedLock Tests
+// with_lock (callback API) Tests
 // ============================================================
 
-fn test_guarded_lock_executes() {
+fn test_with_lock_executes() {
 	mut lm := new_lock_manager()
 
-	result := guarded_lock(mut lm, 'critical-section', fn [mut lm] () !int {
-		return 42
+	// 用数组作为可共享容器，验证回调确实在锁内执行
+	mut holder := []int{len: 1}
+	lm.with_lock('critical-section', fn [mut holder] () ! {
+		holder[0] = 42
 	})!
 
-	assert result == 42
+	assert holder[0] == 42
 }
 
-fn test_guarded_lock_releases_after_execution() {
+fn test_with_lock_releases_after_execution() {
 	mut lm := new_lock_manager()
-	guarded_lock(mut lm, 'section', fn [mut lm] () !int {
-		return 1
-	}) or {}
+	lm.with_lock('section', fn () ! {}) or {}
 
 	// Lock should be released - can acquire again
 	assert lm.try_lock('section') == true
 	lm.unlock('section') or {}
 }
 
-fn test_guarded_lock_releases_on_error() {
+fn test_with_lock_releases_on_error() {
 	mut lm := new_lock_manager()
-	guarded_lock(mut lm, 'section', fn [mut lm] () !int {
+	lm.with_lock('section', fn () ! {
 		return error('task failed')
 	}) or {}
 
-	// Lock should be released even on error — verified after defer-based cleanup
+	// Lock should be released even on error
 	assert lm.try_lock('section') == true
 	lm.unlock('section') or {}
 }
+

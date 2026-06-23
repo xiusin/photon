@@ -46,8 +46,8 @@ fn (mut s UserService) bare_valid_method(name string) {
 	_ = name
 }
 
-// paren_form_method uses the @[valid('...')] parenthesised form.
-@[valid('name:required; age:min:1|max:150')]
+// paren_form_method uses the colon form of @[valid] (paren form not supported by V 0.5.1 parser).
+@[valid: 'name:required; age:min:1|max:150']
 fn (mut s UserService) paren_form_method(name string, age int) {
 	_ = name
 	_ = age

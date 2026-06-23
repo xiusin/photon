@@ -471,7 +471,7 @@ pub fn reset_middleware_context(obj voidptr) {
 	}
 	// preserved is already a new map, no need to clone
 	// preserved 已经是新 map，无需 clone
-	mctx.data = preserved
+	mctx.data = preserved.move()
 	// Clear veb.Context reference — critical for preventing cross-request leakage
 	// 清除 veb.Context 引用 — 对防止跨请求泄漏至关重要
 	mctx.ctx = unsafe { nil }

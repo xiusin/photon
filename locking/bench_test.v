@@ -178,22 +178,22 @@ fn test_bench_lock_guard() {
 	measure := bench_measure_iters
 
 	for _ in 0 .. warmup {
-		mut guard := new_lock_guard(mut lm, 'guard-bench')
-		guard.unlock()
+		mut guard := lm.lock_guard('guard-bench') or { continue }
+		guard.release()
 	}
 
 	start := time.ticks()
 	for _ in 0 .. measure {
-		mut guard := new_lock_guard(mut lm, 'guard-bench')
-		guard.unlock()
+		mut guard := lm.lock_guard('guard-bench') or { continue }
+		guard.release()
 	}
 	elapsed := time.ticks() - start
 
-	bench_report('LockGuard.create/unlock', measure, elapsed * 1000000)
+	bench_report('LockGuard.create/release', measure, elapsed * 1000000)
 }
 
 // ============================================================
-// 9. guarded_lock — Full Cycle (lock + fn + defer unlock)
+// 9. with_lock — Full Cycle (lock + fn + unlock)
 // ============================================================
 
 fn test_bench_guarded_lock() {
@@ -202,20 +202,16 @@ fn test_bench_guarded_lock() {
 	measure := bench_measure_iters
 
 	for _ in 0 .. warmup {
-		guarded_lock(mut lm, 'g-bench', fn [mut lm] () !int {
-			return 42
-		}) or {}
+		lm.with_lock('g-bench', fn () ! {}) or {}
 	}
 
 	start := time.ticks()
 	for _ in 0 .. measure {
-		guarded_lock(mut lm, 'g-bench', fn [mut lm] () !int {
-			return 42
-		}) or {}
+		lm.with_lock('g-bench', fn () ! {}) or {}
 	}
 	elapsed := time.ticks() - start
 
-	bench_report('guarded_lock (lock+fn+unlock)', measure, elapsed * 1000000)
+	bench_report('with_lock (lock+fn+unlock)', measure, elapsed * 1000000)
 }
 
 // ============================================================

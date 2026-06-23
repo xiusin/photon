@@ -165,7 +165,7 @@ fn test_cookie_builder_build_same_site_none() {
 fn test_cookie_manager_sign_basic() {
 	// sign() 对值进行 HMAC-SHA256 签名
 	// sign() signs the value with HMAC-SHA256
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	signed := cm.sign('hello')
 	// 格式应为 <value>.<hex_signature>
 	// Format should be <value>.<hex_signature>
@@ -176,7 +176,7 @@ fn test_cookie_manager_sign_basic() {
 fn test_cookie_manager_verify_valid_signature() {
 	// verify() 验证有效签名并返回原始值
 	// verify() verifies a valid signature and returns the original value
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	signed := cm.sign('hello')
 	value := cm.verify(signed) or { '' }
 	assert value == 'hello'
@@ -185,7 +185,7 @@ fn test_cookie_manager_verify_valid_signature() {
 fn test_cookie_manager_verify_tampered_value() {
 	// 签名篡改检测：修改值后验证失败
 	// Tamper detection: modified value fails verification
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	signed := cm.sign('hello')
 	// 篡改值部分 / Tamper the value part
 	dot_pos := signed.index('.') or { 0 }
@@ -197,7 +197,7 @@ fn test_cookie_manager_verify_tampered_value() {
 fn test_cookie_manager_verify_wrong_signature() {
 	// 篡改签名部分后验证失败
 	// Tampered signature part fails verification
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	signed := cm.sign('hello')
 	// 替换签名为伪造值 / Replace signature with a fake value
 	tampered := 'hello.0000000000000000000000000000000000000000000000000000000000000000'
@@ -208,8 +208,8 @@ fn test_cookie_manager_verify_wrong_signature() {
 fn test_cookie_manager_verify_wrong_key() {
 	// 不同密钥验证失败
 	// Verification fails with a different key
-	mut cm1 := new_cookie_manager('key-one-that-is-at-least-32-bytes-long', [])
-	mut cm2 := new_cookie_manager('key-two-that-is-at-least-32-bytes-long', [])
+	mut cm1 := new_cookie_manager('key-one-that-is-at-least-32-bytes-long', []) or { panic(err) }
+	mut cm2 := new_cookie_manager('key-two-that-is-at-least-32-bytes-long', []) or { panic(err) }
 	signed := cm1.sign('hello')
 	result := cm2.verify(signed) or { 'none' }
 	assert result == 'none'
@@ -218,7 +218,7 @@ fn test_cookie_manager_verify_wrong_key() {
 fn test_cookie_manager_verify_invalid_format_no_dot() {
 	// 格式错误（无点号）返回 none
 	// Invalid format (no dot) returns none
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	result := cm.verify('nodot') or { 'none' }
 	assert result == 'none'
 }
@@ -226,7 +226,7 @@ fn test_cookie_manager_verify_invalid_format_no_dot() {
 fn test_cookie_manager_verify_invalid_format_empty_value() {
 	// 格式错误（空值部分）返回 none
 	// Invalid format (empty value part) returns none
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	result := cm.verify('.abc123') or { 'none' }
 	assert result == 'none'
 }
@@ -234,7 +234,7 @@ fn test_cookie_manager_verify_invalid_format_empty_value() {
 fn test_cookie_manager_verify_invalid_format_empty_signature() {
 	// 格式错误（空签名部分）返回 none
 	// Invalid format (empty signature part) returns none
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	result := cm.verify('hello.') or { 'none' }
 	assert result == 'none'
 }
@@ -242,7 +242,7 @@ fn test_cookie_manager_verify_invalid_format_empty_signature() {
 fn test_cookie_manager_sign_verify_roundtrip() {
 	// sign() → verify() 往返测试
 	// sign() → verify() round-trip test
-	mut cm := new_cookie_manager('my-super-secret-key-for-signing-cookies!', [])
+	mut cm := new_cookie_manager('my-super-secret-key-for-signing-cookies!', []) or { panic(err) }
 	values := ['hello', 'world', 'test-value-123', '', 'a.b.c.d']
 	for v in values {
 		signed := cm.sign(v)
@@ -254,7 +254,7 @@ fn test_cookie_manager_sign_verify_roundtrip() {
 fn test_cookie_manager_sign_value_with_dots() {
 	// 值中包含 '.' 时签名和验证正常工作
 	// Signing and verification work correctly when the value contains '.'
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	signed := cm.sign('a.b.c')
 	// 验证应返回原始值（从最后一个 '.' 拆分）
 	// Verification should return the original value (split from last '.')
@@ -265,7 +265,7 @@ fn test_cookie_manager_sign_value_with_dots() {
 fn test_cookie_manager_sign_deterministic() {
 	// 相同密钥和值的签名结果一致
 	// Same key and value produce the same signature
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	s1 := cm.sign('hello')
 	s2 := cm.sign('hello')
 	assert s1 == s2
@@ -280,7 +280,7 @@ fn test_cookie_manager_encrypt_basic() {
 	for i in 0 .. 32 {
 		key[i] = u8(42)
 	}
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key)
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key) or { panic(err) }
 	encrypted := cm.encrypt('secret-data') or {
 		assert false // 不应到达这里 / should not reach here
 		return
@@ -295,7 +295,7 @@ fn test_cookie_manager_decrypt_roundtrip() {
 	for i in 0 .. 32 {
 		key[i] = u8(i + 1)
 	}
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key)
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key) or { panic(err) }
 	plaintexts := ['hello', 'world', 'secret-value', 'test-123']
 	for pt in plaintexts {
 		encrypted := cm.encrypt(pt) or {
@@ -314,7 +314,7 @@ fn test_cookie_manager_encrypt_obscures_value() {
 	for i in 0 .. 32 {
 		key[i] = u8(i + 7)
 	}
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key)
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key) or { panic(err) }
 	encrypted := cm.encrypt('sensitive-data') or {
 		assert false
 		return
@@ -331,7 +331,7 @@ fn test_cookie_manager_decrypt_invalid_format() {
 	for i in 0 .. 32 {
 		key[i] = u8(i)
 	}
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key)
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key) or { panic(err) }
 	// 不以 enc:// 开头 / Does not start with enc://
 	result := cm.decrypt('not-encrypted') or { 'none' }
 	assert result == 'none'
@@ -344,7 +344,7 @@ fn test_cookie_manager_decrypt_corrupted_data() {
 	for i in 0 .. 32 {
 		key[i] = u8(i + 3)
 	}
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key)
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key) or { panic(err) }
 	// 构造一个格式正确但内容损坏的加密值
 	// Construct a properly formatted but corrupted encrypted value
 	result := cm.decrypt('enc://aW52YWxpZGRhdGFoZXJl') or { 'none' }
@@ -354,7 +354,7 @@ fn test_cookie_manager_decrypt_corrupted_data() {
 fn test_cookie_manager_encrypt_without_key_returns_error() {
 	// 缺少加密密钥时 encrypt() 返回错误
 	// encrypt() returns an error when no encryption key is provided
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', [])
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', []) or { panic(err) }
 	cm.encrypt('test') or {
 		assert err.msg().contains('32')
 		return
@@ -366,7 +366,7 @@ fn test_cookie_manager_encrypt_with_short_key_returns_error() {
 	// 加密密钥不足 32 字节时返回错误
 	// Encryption key shorter than 32 bytes returns an error
 	short_key := []u8{len: 16} // 只有 16 字节 / Only 16 bytes
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', short_key)
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', short_key) or { panic(err) }
 	cm.encrypt('test') or {
 		assert err.msg().contains('32')
 		return
@@ -377,7 +377,7 @@ fn test_cookie_manager_encrypt_with_short_key_returns_error() {
 fn test_cookie_manager_decrypt_without_key_returns_none() {
 	// 缺少加密密钥时 decrypt() 返回 none
 	// decrypt() returns none when no encryption key is provided
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', [])
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', []) or { panic(err) }
 	result := cm.decrypt('enc://dGVzdA==') or { 'none' }
 	assert result == 'none'
 }
@@ -397,7 +397,7 @@ fn test_same_site_enum_values() {
 fn test_new_cookie_manager_basic() {
 	// 创建 CookieManager
 	// Create a CookieManager
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', [])
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', []) or { panic(err) }
 	assert cm.signing_key == 'signing-key-at-least-32-bytes-long'
 	assert cm.encryption_key.len == 0
 }
@@ -409,7 +409,7 @@ fn test_new_cookie_manager_with_encryption_key() {
 	for i in 0 .. 32 {
 		key[i] = u8(i)
 	}
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key)
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key) or { panic(err) }
 	assert cm.encryption_key.len == 32
 }
 
@@ -451,7 +451,7 @@ fn test_cookie_manager_verify_uses_hex_decoded_comparison() {
 	// 验证：篡改签名的十六进制字符后验证失败
 	// verify() uses hex-decoded constant-time comparison (hmac.equal)
 	// Verify: tampering with hex signature characters fails verification
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	signed := cm.sign('hello')
 	// 找到最后一个点号 / Find the last dot
 	last_dot := signed.last_index('.') or { 0 }
@@ -476,7 +476,7 @@ fn test_cookie_manager_verify_uses_hex_decoded_comparison() {
 fn test_cookie_manager_verify_invalid_hex_signature() {
 	// 签名部分包含无效十六进制字符时返回 none
 	// Returns none when signature part contains invalid hex characters
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	// 签名部分包含非十六进制字符 / Signature part contains non-hex characters
 	result := cm.verify('hello.GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG') or {
 		'none'
@@ -494,7 +494,7 @@ fn test_cookie_manager_decrypt_tampered_ciphertext() {
 	for i in 0 .. 32 {
 		key[i] = u8(i + 5)
 	}
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key)
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key) or { panic(err) }
 	encrypted := cm.encrypt('secret-data') or {
 		assert false
 		return
@@ -527,7 +527,7 @@ fn test_cookie_manager_decrypt_tag_tampered() {
 	for i in 0 .. 32 {
 		key[i] = u8(i + 9)
 	}
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key)
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key) or { panic(err) }
 	encrypted := cm.encrypt('important-data') or {
 		assert false
 		return
@@ -553,7 +553,7 @@ fn test_cookie_manager_decrypt_nonce_tampered() {
 	for i in 0 .. 32 {
 		key[i] = u8(i + 11)
 	}
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key)
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key) or { panic(err) }
 	encrypted := cm.encrypt('nonce-test') or {
 		assert false
 		return
@@ -575,7 +575,7 @@ fn test_cookie_manager_decrypt_nonce_tampered() {
 fn test_cookie_manager_sign_verify_empty_string() {
 	// 空字符串签名和验证
 	// Sign and verify empty string
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	signed := cm.sign('')
 	value := cm.verify(signed) or { '' }
 	assert value == ''
@@ -584,7 +584,7 @@ fn test_cookie_manager_sign_verify_empty_string() {
 fn test_cookie_manager_sign_verify_long_value() {
 	// 超长值的签名和验证
 	// Sign and verify very long value
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	long_value := 'a'.repeat(10000)
 	signed := cm.sign(long_value)
 	value := cm.verify(signed) or { '' }
@@ -594,7 +594,7 @@ fn test_cookie_manager_sign_verify_long_value() {
 fn test_cookie_manager_sign_verify_unicode() {
 	// Unicode 值的签名和验证
 	// Sign and verify Unicode value
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	unicode_value := '你好世界🌍🚀'
 	signed := cm.sign(unicode_value)
 	value := cm.verify(signed) or { '' }
@@ -604,7 +604,7 @@ fn test_cookie_manager_sign_verify_unicode() {
 fn test_cookie_manager_sign_verify_special_chars() {
 	// 特殊字符的签名和验证
 	// Sign and verify special characters
-	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', [])
+	mut cm := new_cookie_manager('this-is-a-very-secret-signing-key-32b', []) or { panic(err) }
 	special_value := 'key=val&foo=bar<script>alert(1)</script>'
 	signed := cm.sign(special_value)
 	value := cm.verify(signed) or { '' }
@@ -620,7 +620,7 @@ fn test_cookie_manager_encrypt_decrypt_empty_string() {
 	for i in 0 .. 32 {
 		key[i] = u8(i + 1)
 	}
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key)
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key) or { panic(err) }
 	encrypted := cm.encrypt('') or {
 		assert false
 		return
@@ -636,7 +636,7 @@ fn test_cookie_manager_encrypt_decrypt_unicode() {
 	for i in 0 .. 32 {
 		key[i] = u8(i + 3)
 	}
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key)
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key) or { panic(err) }
 	encrypted := cm.encrypt('机密数据🔑') or {
 		assert false
 		return
@@ -652,7 +652,7 @@ fn test_cookie_manager_encrypt_produces_different_ciphertexts() {
 	for i in 0 .. 32 {
 		key[i] = u8(i + 7)
 	}
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key)
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key) or { panic(err) }
 	e1 := cm.encrypt('same-input') or { '' }
 	e2 := cm.encrypt('same-input') or { '' }
 	// 由于 nonce 不同，密文应不同 / Due to different nonces, ciphertexts should differ
@@ -671,7 +671,7 @@ fn test_cookie_manager_decrypt_too_short_data() {
 	for i in 0 .. 32 {
 		key[i] = u8(i)
 	}
-	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key)
+	mut cm := new_cookie_manager('signing-key-at-least-32-bytes-long', key) or { panic(err) }
 	// base64 编码一个很短的值 / Base64 encode a very short value
 	short_data := 'enc://${base64.encode([u8(1), 2, 3, 4, 5])}'
 	result := cm.decrypt(short_data) or { 'none' }
@@ -683,7 +683,7 @@ fn test_cookie_manager_decrypt_too_short_data() {
 fn test_cookie_manager_concurrent_sign_verify() {
 	// 并发签名和验证不应 panic
 	// Concurrent sign and verify should not panic
-	mut cm := new_cookie_manager('concurrent-signing-key-at-least-32-bytes!', [])
+	mut cm := new_cookie_manager('concurrent-signing-key-at-least-32-bytes!', []) or { panic(err) }
 	mut wg := sync.new_waitgroup()
 
 	for i in 0 .. 10 {
@@ -706,7 +706,7 @@ fn test_cookie_manager_concurrent_encrypt_decrypt() {
 	for i in 0 .. 32 {
 		key[i] = u8(i + 13)
 	}
-	mut cm := new_cookie_manager('concurrent-signing-key-at-least-32-bytes!', key)
+	mut cm := new_cookie_manager('concurrent-signing-key-at-least-32-bytes!', key) or { panic(err) }
 	mut wg := sync.new_waitgroup()
 
 	for i in 0 .. 5 {

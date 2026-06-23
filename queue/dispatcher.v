@@ -51,7 +51,7 @@ __global (
 // QueueStats holds statistics for a queue
 // QueueStats 队列统计信息
 pub struct QueueStats {
-pub:
+pub mut:
 	pending   int // Jobs waiting to be processed / 等待处理的任务数
 	completed int // Jobs completed successfully / 成功完成的任务数
 	failed    int // Jobs that failed / 失败的任务数

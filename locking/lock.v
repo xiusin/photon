@@ -44,12 +44,15 @@ pub fn (mut m LocalMutex) lock() {
 }
 
 // unlock releases the mutex.
-// Panics if the mutex is not currently held.
+// Idempotent: unlocking an already-unlocked mutex is a safe no-op.
+// This matches the RAII "multiple release calls are no-ops" contract
+// used by guard.v / session locks, and avoids crashing on benign
+// double-release or lock-instance races under concurrency.
 pub fn (mut m LocalMutex) unlock() {
 	select {
 		_ := <-m.ch {}
 		else {
-			panic('unlock of unlocked LocalMutex')
+			// already unlocked — no-op
 		}
 	}
 }

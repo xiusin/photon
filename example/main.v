@@ -17,7 +17,13 @@ import logger
 import apidoc
 import core
 
-// App — 全局应用上下文（veb 控制器，持有从 DI 容器解析的 Bean）
+// App — 全局应用上下文（veb 控制器 = 路由声明层）
+//
+// 分层架构：App 仅做路由分发，不含业务逻辑。
+//   - routes.v        : @[route] 注解方法 → 转发到控制器
+//   - *_controller.v  : 独立控制器，自持 service 依赖（业务逻辑层）
+//   - services.v      : 业务服务层
+//   - middleware.v    : 横切中间件
 @[controller]
 pub struct App {
 	veb.Context
@@ -25,15 +31,14 @@ pub struct App {
 pub mut:
 	start_time i64
 	req_count  int
-	// 从 ApplicationContext 解析注入的服务（@[autowired] 标记注入意图）
-	user_service   &UserService          = unsafe { nil }       @[autowired]
-	auth_service   &AuthService          = unsafe { nil }       @[autowired]
-	cache_service  &CacheService         = unsafe { nil }      @[autowired]
-	health_service &HealthService        = unsafe { nil }     @[autowired]
-	middleware     &MiddlewareManager    = unsafe { nil } @[autowired]
-	app_config     &AppConfig            = unsafe { nil }         @[autowired]
-	log_           &logger.Logger        = unsafe { nil }     @[autowired]
+	// 应用级依赖（用于全局中间件 / 文档）
+	middleware     &MiddlewareManager    = unsafe { nil }
+	log_           &logger.Logger        = unsafe { nil }
 	apidoc_handler &apidoc.ApidocHandler = unsafe { nil }
+	// 分层控制器（持有各自的 service 依赖）
+	home_controller &HomeController = unsafe { nil }
+	auth_controller &AuthController = unsafe { nil }
+	user_controller &UserController = unsafe { nil }
 }
 
 // Context — 请求级上下文
@@ -101,16 +106,21 @@ pub fn main() {
 	mut apidoc_handler := apidoc.enable()
 	log_.info('API Documentation module ready')
 
+	start := time.ticks()
+
+	// ── 5. 构造分层控制器（注入 service 依赖）──
+	home_ctrl := new_home_controller(user_svc, cache_svc, health_svc, app_cfg, start)
+	auth_ctrl := new_auth_controller(auth_svc, user_svc, mw)
+	user_ctrl := new_user_controller(user_svc, mw)
+
 	mut web_app := &App{
-		start_time:     time.ticks()
-		log_:           log_
-		user_service:   user_svc
-		auth_service:   auth_svc
-		cache_service:  cache_svc
-		health_service: health_svc
-		middleware:     mw
-		app_config:     app_cfg
-		apidoc_handler: apidoc_handler
+		start_time:      start
+		log_:            log_
+		middleware:      mw
+		apidoc_handler:  apidoc_handler
+		home_controller: home_ctrl
+		auth_controller: auth_ctrl
+		user_controller: user_ctrl
 	}
 
 	// 注册 apidoc middleware（自动劫持请求/响应采集）

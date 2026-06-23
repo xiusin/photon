@@ -244,7 +244,7 @@ pub fn stream_response(mut ctx veb.Context, content_type string, chunk_fn fn () 
 		if chunk.len == 0 {
 			break
 		}
-		sb.write(chunk.bytestr()) or { break }
+		sb.write(chunk) or { break }
 	}
 
 	return ctx.text(sb.str())
@@ -352,7 +352,7 @@ pub fn download_file(mut ctx veb.Context, file_path string, filename string) veb
 		if n == 0 {
 			break
 		}
-		sb.write(buf[..n].bytestr()) or { break }
+		sb.write(buf[..n]) or { break }
 	}
 
 	return ctx.text(sb.str())

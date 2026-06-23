@@ -379,7 +379,7 @@ fn test_session_lock_concurrent_acquire_release_same_session() {
 		wg.add(1)
 		spawn fn (mut manager SessionLockManager, mut w sync.WaitGroup) {
 			defer { w.done() }
-			mut guard := manager.acquire('session-concurrent')!
+			mut guard := manager.acquire('session-concurrent') or { panic(err) }
 			g_sl_counter++
 			guard.release()
 		}(mut slm, mut wg)
@@ -402,7 +402,7 @@ fn test_session_lock_concurrent_mixed_sessions() {
 		spawn fn (mut manager SessionLockManager, idx int, mut w sync.WaitGroup) {
 			defer { w.done() }
 			session_id := 'session-mixed-${idx % 5}'
-			mut guard := manager.acquire(session_id)!
+			mut guard := manager.acquire(session_id) or { panic(err) }
 			g_sl_mixed++
 			guard.release()
 		}(mut slm, i, mut wg)

@@ -3,44 +3,32 @@ module web
 // controller.v — Photon 控制器抽象（Spring @Controller 等价）
 //
 // 架构：
-//   Controller 是一个标记接口，表示一个 Web 控制器。
-//   每个控制器是一个独立的 struct，通过 @[controller] 注解标记。
-//   控制器的路由方法通过 @[get('/path')] 等注解声明路由。
-//   路由注册在编译期通过 mount_controller[T]() 完成。
+//   Controller 接口（定义于 router.v）要求实现 register_routes(mut RouteRegistry)。
+//   每个控制器是一个独立的 struct，嵌入 BaseController 获得响应辅助方法，
+//   并在 register_routes() 中以闭包形式注册路由。
+//   通过 WebModule.register(&controller) 挂载到应用。
 //
 // 示例控制器：
-//   @[controller]
 //   pub struct UserController {
+//       web.BaseController
 //       user_service &UserService
 //   }
 //
-//   @[get('/users')]
-//   pub fn (c &UserController) list(mut ctx veb.Context, params map[string]string) veb.Result {
-//       return ctx.text('OK')
-//   }
-//
-//   @[get('/users/:id')]
-//   pub fn (c &UserController) show(mut ctx veb.Context, params map[string]string) veb.Result {
-//       id := params['id']
-//       return ctx.text('User ${id}')
-//   }
-//
-//   @[post('/users')]
-//   pub fn (c &UserController) create(mut ctx veb.Context, params map[string]string) veb.Result {
-//       return ctx.text('Created')
+//   pub fn (c &UserController) register_routes(mut r web.RouteRegistry) {
+//       r.get('/users', fn [c] (mut ctx veb.Context, p map[string]string) veb.Result {
+//           return c.ok(mut ctx, '{"users":[]}')
+//       })
+//       r.get('/users/:id', fn [c] (mut ctx veb.Context, p map[string]string) veb.Result {
+//           return c.ok(mut ctx, '{"id":"${p['id']}"}')
+//       })
 //   }
 //
 // 注册：
-//   router.mount_controller(&user_controller, '/api/v1')
-//   // 上述路由变为 /api/v1/users, /api/v1/users/:id
+//   app.WebModule.register(&UserController{ user_service: svc })
 import veb
 import net.http
 
-// Controller — 控制器标记接口
-// 实现此接口的结构体可以被 mount_controller[T]() 自动扫描路由。
-// 不要求任何方法，仅作为框架层面的类型标记。
-pub interface Controller {
-}
+// 注意：Controller 接口定义在 router.v（闭包式 register_routes 契约），此处不再重复声明。
 
 // ============================================================
 // BaseController — 响应辅助方法
@@ -154,4 +142,46 @@ pub fn json_text(mut ctx veb.Context, data string) veb.Result {
 // api_error 构造标准错误 JSON 字符串
 pub fn api_error(code int, msg string) string {
 	return '{"error":"${msg}","code":${code}}'
+}
+
+// ============================================================
+// 请求参数辅助函数（无需 BaseController，作用于 veb.Context）
+// ============================================================
+
+// get_query_param 从 ctx.req.url 的查询串中提取参数值。
+// 不做 URL 解码（原样返回）；缺失或无值时返回空字符串。
+pub fn get_query_param(ctx &veb.Context, key string) string {
+	url := ctx.req.url
+	qmark := url.index('?') or { return '' }
+	query := url[qmark + 1..]
+	if query.len == 0 {
+		return ''
+	}
+	for pair in query.split('&') {
+		kv := pair.split_nth('=', 2)
+		if kv.len == 2 && kv[0] == key {
+			return kv[1]
+		}
+		if kv.len == 1 && kv[0] == key {
+			return '' // key 存在但无 '=' 值
+		}
+	}
+	return ''
+}
+
+// get_path_param 已弃用：veb 路径参数应通过路由处理器的 params 字典获取。
+// 保留此函数仅为向后兼容，恒返回空字符串。
+@[deprecated: 'use route handler params map instead']
+pub fn get_path_param(ctx &veb.Context, key string) string {
+	return ''
+}
+
+// get_header_val 返回请求头的值，缺失时返回空字符串。
+pub fn get_header_val(ctx &veb.Context, key string) string {
+	return ctx.get_custom_header(key) or { '' }
+}
+
+// set_status 设置响应状态码（便捷封装）。
+pub fn set_status(mut ctx veb.Context, code int) {
+	ctx.res.set_status(unsafe { http.Status(code) })
 }

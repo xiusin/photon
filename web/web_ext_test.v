@@ -231,7 +231,7 @@ struct MockHandlerResolver {
 	success bool
 }
 
-fn (r MockHandlerResolver) resolve(ctx voidptr) !fn (ctx voidptr) !voidptr {
+fn (r MockHandlerResolver) resolve(ctx voidptr) !HandlerFn {
 	if r.success {
 		return fn (ctx voidptr) !voidptr {
 			return unsafe { nil }

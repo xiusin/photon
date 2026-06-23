@@ -31,7 +31,7 @@ pub mut:
 // RetryStats holds statistics about retry operations
 // RetryStats 重试操作统计
 pub struct RetryStats {
-pub:
+pub mut:
 	total_retried   int // Total jobs retried / 总重试任务数
 	total_succeeded int // Total retries that succeeded / 重试成功数
 	total_failed    int // Total retries that failed / 重试失败数
@@ -220,14 +220,11 @@ pub fn (mut h FailedJobHandler) retry_with_backoff(id int) ! {
 	// Update retry stats
 	// 更新重试统计
 	mut repo := h.repository
-	if repo is &MemoryFailedJobRepository {
-		unsafe {
-			mut r := repo
-			r.mu.@lock()
-			r.retry_stats.total_retried++
-			r.retry_stats.pending_retries++
-			r.mu.unlock()
-		}
+	if mut repo is &MemoryFailedJobRepository {
+		repo.mu.@lock()
+		repo.retry_stats.total_retried++
+		repo.retry_stats.pending_retries++
+		repo.mu.unlock()
 	}
 }
 
@@ -235,14 +232,11 @@ pub fn (mut h FailedJobHandler) retry_with_backoff(id int) ! {
 // get_retry_stats 返回重试操作统计
 pub fn (mut h FailedJobHandler) get_retry_stats() RetryStats {
 	mut repo := h.repository
-	if repo is &MemoryFailedJobRepository {
-		unsafe {
-			mut r := repo
-			r.mu.@lock()
-			stats := r.retry_stats
-			r.mu.unlock()
-			return stats
-		}
+	if mut repo is &MemoryFailedJobRepository {
+		repo.mu.@lock()
+		stats := repo.retry_stats
+		repo.mu.unlock()
+		return stats
 	}
 	return RetryStats{}
 }

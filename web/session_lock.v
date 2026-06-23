@@ -89,14 +89,20 @@ pub fn new_session_lock_guard(manager &locking.LockManager, key string) SessionL
 // so manual lock acquire/release control is necessary.
 pub fn (mut g SessionLockGuard) release() {
 	g.mu.@lock()
-	if g.released || isnil(g.manager) {
+	if g.released {
 		g.mu.unlock()
 		return
 	}
+	// 标记为已释放（即使 manager 为 nil，guard 也视为已释放/失效）
+	// Mark released even if manager is nil — the guard is spent either way.
 	g.released = true
+	if isnil(g.manager) {
+		g.mu.unlock()
+		return
+	}
 	// Capture manager pointer under lock protection before releasing.
 	// 在锁保护下捕获 manager 指针，然后再释放锁。
-	manager := g.manager
+	mut manager := g.manager
 	g.mu.unlock()
 	manager.unlock(g.key) or {
 		// 静默忽略解锁错误（锁可能已被清理）
