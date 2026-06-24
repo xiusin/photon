@@ -102,16 +102,16 @@ fn test_ratelimiter_hit_and_check() {
 
 fn test_ratelimiter_remaining() {
 	mut r := new_rate_limiter()
-	assert r.remaining('key1', 5) == 5
+	assert r.remaining('key1', 5, 60) == 5
 	r.hit('key1')
-	assert r.remaining('key1', 5) == 4
+	assert r.remaining('key1', 5, 60) == 4
 }
 
 fn test_ratelimiter_remaining_capped() {
 	mut r := new_rate_limiter()
 	r.hit('k')
 	r.hit('k')
-	assert r.remaining('k', 1) == 0
+	assert r.remaining('k', 1, 60) == 0
 }
 
 fn test_ratelimiter_clear() {

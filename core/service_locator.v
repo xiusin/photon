@@ -224,7 +224,7 @@ __global g_service_locator &ServiceLocator
 // set_global_service_locator sets the global ServiceLocator instance.
 // Should be called once during application bootstrap.
 pub fn set_global_service_locator(sl &ServiceLocator) {
-	g_service_locator = sl
+	unsafe { g_service_locator = sl }
 }
 
 // locate_service resolves a bean by type T from the global ServiceLocator.

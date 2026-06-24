@@ -13,11 +13,11 @@ module orm
 // ════════════════════════════════════════════════════════════════
 
 // Custom table name + custom column name + @[id] primary key.
-@[table('t_user')]
+@[table: 't_user']
 struct AnnotCustomUser {
 pub mut:
 	user_id int    @[id]
-	name    string @[column('user_name')]
+	name    string @[column: 'user_name']
 	email   string
 	age     int
 }
@@ -45,10 +45,10 @@ pub mut:
 }
 
 // Custom column name on the primary key field itself.
-@[table('t_order')]
+@[table: 't_order']
 struct AnnotCustomPkColumn {
 pub mut:
-	oid  int @[id; column('order_id')]
+	oid  int @[id; column: 'order_id']
 	name string
 }
 

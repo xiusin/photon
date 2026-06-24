@@ -13,6 +13,19 @@ module support
 //   assert page.total == 25
 //   assert page.total_pages == 3
 
+// Slice[T] is the interface for a slice of data with pagination metadata.
+// Page[T] implements this interface.
+//
+// Spring equivalent: org.springframework.data.domain.Slice<T>
+pub interface Slice[T] {
+	has_content() bool
+	has_next() bool
+	has_previous() bool
+	get_number() int
+	get_size() int
+	get_number_of_elements() int
+}
+
 // Page[T] represents a single page of results with pagination metadata.
 //
 // Fields:
@@ -70,4 +83,35 @@ pub fn (p Page[T]) is_first() bool {
 // is_last returns true if this is the last page.
 pub fn (p Page[T]) is_last() bool {
 	return p.page_number >= p.total_pages
+}
+
+// get_number returns the current page number (1-based).
+// Spring equivalent: Slice.getNumber()
+pub fn (p Page[T]) get_number() int {
+	return p.page_number
+}
+
+// get_size returns the requested page size.
+// Spring equivalent: Slice.getSize()
+pub fn (p Page[T]) get_size() int {
+	return p.page_size
+}
+
+// get_number_of_elements returns the actual number of elements in this page
+// (may be less than page_size on the last page).
+// Spring equivalent: Slice.getNumberOfElements()
+pub fn (p Page[T]) get_number_of_elements() int {
+	return p.items.len
+}
+
+// get_total_elements returns the total number of elements across all pages.
+// Spring equivalent: Page.getTotalElements()
+pub fn (p Page[T]) get_total_elements() i64 {
+	return p.total
+}
+
+// get_total_pages returns the total number of pages.
+// Spring equivalent: Page.getTotalPages()
+pub fn (p Page[T]) get_total_pages() int {
+	return p.total_pages
 }

@@ -501,17 +501,17 @@ struct QaUserRepo {
 	om &OrmManager = unsafe { nil }
 }
 
-@[query('SELECT * FROM users WHERE age > :age')]
+@[query: 'SELECT * FROM users WHERE age > :age']
 fn (r QaUserRepo) find_by_age(age int) []QaUser {
 	return []
 }
 
-@[query('SELECT * FROM users WHERE name = :name AND age > :age')]
+@[query: 'SELECT * FROM users WHERE name = :name AND age > :age']
 fn (r QaUserRepo) find_by_name_and_age(name string, age int) []QaUser {
 	return []
 }
 
-@[query("SELECT * FROM users")]
+@[query: "SELECT * FROM users"]
 fn (r QaUserRepo) find_all() []QaUser {
 	return []
 }

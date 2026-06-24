@@ -27,6 +27,7 @@ module web
 //   app.WebModule.register(&UserController{ user_service: svc })
 import veb
 import net.http
+import json
 
 // 注意：Controller 接口定义在 router.v（闭包式 register_routes 契约），此处不再重复声明。
 
@@ -72,38 +73,43 @@ pub fn (b &BaseController) no_content(mut ctx veb.Context) veb.Result {
 }
 
 // bad_request 返回 400 错误
+// msg 会被 JSON 编码以防止注入 / msg is JSON-encoded to prevent injection.
 pub fn (b &BaseController) bad_request(mut ctx veb.Context, msg string) veb.Result {
 	ctx.res.set_status(unsafe { http.Status(400) })
 	ctx.set_content_type('application/json')
-	return ctx.text('{"error":"${msg}","code":400}')
+	return ctx.text('{"error":${json.encode(msg)},"code":400}')
 }
 
 // not_found 返回 404 错误
+// msg 会被 JSON 编码以防止注入 / msg is JSON-encoded to prevent injection.
 pub fn (b &BaseController) not_found(mut ctx veb.Context, msg string) veb.Result {
 	ctx.res.set_status(unsafe { http.Status(404) })
 	ctx.set_content_type('application/json')
-	return ctx.text('{"error":"${msg}","code":404}')
+	return ctx.text('{"error":${json.encode(msg)},"code":404}')
 }
 
 // unauthorized 返回 401 错误
+// msg 会被 JSON 编码以防止注入 / msg is JSON-encoded to prevent injection.
 pub fn (b &BaseController) unauthorized(mut ctx veb.Context, msg string) veb.Result {
 	ctx.res.set_status(unsafe { http.Status(401) })
 	ctx.set_content_type('application/json')
-	return ctx.text('{"error":"${msg}","code":401}')
+	return ctx.text('{"error":${json.encode(msg)},"code":401}')
 }
 
 // forbidden 返回 403 错误
+// msg 会被 JSON 编码以防止注入 / msg is JSON-encoded to prevent injection.
 pub fn (b &BaseController) forbidden(mut ctx veb.Context, msg string) veb.Result {
 	ctx.res.set_status(unsafe { http.Status(403) })
 	ctx.set_content_type('application/json')
-	return ctx.text('{"error":"${msg}","code":403}')
+	return ctx.text('{"error":${json.encode(msg)},"code":403}')
 }
 
 // server_error 返回 500 错误
+// msg 会被 JSON 编码以防止注入 / msg is JSON-encoded to prevent injection.
 pub fn (b &BaseController) server_error(mut ctx veb.Context, msg string) veb.Result {
 	ctx.res.set_status(unsafe { http.Status(500) })
 	ctx.set_content_type('application/json')
-	return ctx.text('{"error":"${msg}","code":500}')
+	return ctx.text('{"error":${json.encode(msg)},"code":500}')
 }
 
 // text 返回纯文本响应
@@ -140,8 +146,9 @@ pub fn json_text(mut ctx veb.Context, data string) veb.Result {
 }
 
 // api_error 构造标准错误 JSON 字符串
+// msg 会被 JSON 编码以防止注入 / msg is JSON-encoded to prevent injection.
 pub fn api_error(code int, msg string) string {
-	return '{"error":"${msg}","code":${code}}'
+	return '{"error":${json.encode(msg)},"code":${code}}'
 }
 
 // ============================================================

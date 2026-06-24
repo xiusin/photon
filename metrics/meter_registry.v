@@ -37,11 +37,16 @@ pub enum MeterType {
 
 // Counter tracks a monotonically increasing value.
 // Increments are thread-safe; the value never decreases.
+//
+// Note: increment/increment_by use immutable (&) receivers with internal
+// unsafe mutex access (same pattern as value()). This is critical for
+// thread-safety through interface dispatch: V's `mut` receiver interface
+// dispatch can copy the struct (including the Mutex), causing lost updates.
+// The & receiver ensures the original heap-allocated mutex is always used.
 pub interface Counter {
 	name() string
 	tags() map[string]string
 	value() i64
-mut:
 	increment()
 	increment_by(n i64)
 }
@@ -51,7 +56,6 @@ pub interface Gauge {
 	name() string
 	tags() map[string]string
 	value() f64
-mut:
 	set(value f64)
 }
 
@@ -64,7 +68,6 @@ pub interface Timer {
 	start() TimerSample
 	count() i64
 	total_time() time.Duration
-mut:
 	record(duration time.Duration)
 	record_sample(sample TimerSample)
 }
@@ -80,10 +83,9 @@ pub:
 pub interface MeterRegistry {
 	list_meters() []MeterInfo
 	format_prometheus() string
-mut:
-	counter(name string, tags map[string]string) Counter
-	gauge(name string, tags map[string]string) Gauge
-	timer(name string, tags map[string]string) Timer
+	counter(name string, tags map[string]string) &InMemoryCounter
+	gauge(name string, tags map[string]string) &InMemoryGauge
+	timer(name string, tags map[string]string) &InMemoryTimer
 }
 
 // MeterInfo describes a registered meter.
@@ -110,17 +112,23 @@ mut:
 }
 
 // increment adds 1 to the counter.
-pub fn (mut c InMemoryCounter) increment() {
-	c.mu.@lock()
-	c.val++
-	c.mu.unlock()
+// Uses & receiver + unsafe to ensure thread-safe mutex access through
+// interface dispatch (mut receivers can cause struct copies in V).
+pub fn (c &InMemoryCounter) increment() {
+	unsafe {
+		c.mu.@lock()
+		c.val++
+		c.mu.unlock()
+	}
 }
 
 // increment_by adds n to the counter. n may be negative.
-pub fn (mut c InMemoryCounter) increment_by(n i64) {
-	c.mu.@lock()
-	c.val += n
-	c.mu.unlock()
+pub fn (c &InMemoryCounter) increment_by(n i64) {
+	unsafe {
+		c.mu.@lock()
+		c.val += n
+		c.mu.unlock()
+	}
 }
 
 // value returns the current counter value.
@@ -162,10 +170,13 @@ mut:
 }
 
 // set replaces the gauge value.
-pub fn (mut g InMemoryGauge) set(value f64) {
-	g.mu.@lock()
-	g.val = value
-	g.mu.unlock()
+// Uses & receiver + unsafe for thread-safe interface dispatch.
+pub fn (g &InMemoryGauge) set(value f64) {
+	unsafe {
+		g.mu.@lock()
+		g.val = value
+		g.mu.unlock()
+	}
 }
 
 // value returns the current gauge value.
@@ -215,15 +226,18 @@ pub fn (t &InMemoryTimer) start() TimerSample {
 }
 
 // record adds a pre-computed duration to the timer statistics.
-pub fn (mut t InMemoryTimer) record(duration time.Duration) {
-	t.mu.@lock()
-	t.count_val++
-	t.total += duration
-	t.mu.unlock()
+// Uses & receiver + unsafe for thread-safe interface dispatch.
+pub fn (t &InMemoryTimer) record(duration time.Duration) {
+	unsafe {
+		t.mu.@lock()
+		t.count_val++
+		t.total += duration
+		t.mu.unlock()
+	}
 }
 
 // record_sample records the elapsed time since the sample was started.
-pub fn (mut t InMemoryTimer) record_sample(sample TimerSample) {
+pub fn (t &InMemoryTimer) record_sample(sample TimerSample) {
 	elapsed := time.since(sample.started_at)
 	t.record(elapsed)
 }
@@ -313,19 +327,14 @@ fn meter_key(name string, tags map[string]string) string {
 }
 
 // counter returns (creating if necessary) the Counter registered under name+tags.
-pub fn (mut r InMemoryMeterRegistry) counter(name string, tags map[string]string) Counter {
+// Uses & receiver + unsafe for map mutation, matching the interface contract.
+pub fn (r &InMemoryMeterRegistry) counter(name string, tags map[string]string) &InMemoryCounter {
 	key := meter_key(name, tags)
-	// Fast path: existing meter under read-lock.
-	r.mu.@rlock()
-	if key in r.counters {
-		existing := unsafe { r.counters[key] }
-		r.mu.runlock()
-		return existing
-	}
-	r.mu.runlock()
-	// Slow path: create under write-lock with double-check.
-	r.mu.@lock()
-	defer { r.mu.unlock() }
+	// Always use write-lock (no DCL fast path). V's RwMutex read-lock may
+	// not provide sufficient memory barriers for the double-checked locking
+	// pattern, causing rare lost increments in concurrent counter creation.
+	unsafe { r.mu.@lock() }
+	defer { unsafe { r.mu.unlock() } }
 	if key in r.counters {
 		return unsafe { r.counters[key] }
 	}
@@ -333,22 +342,15 @@ pub fn (mut r InMemoryMeterRegistry) counter(name string, tags map[string]string
 		name_str: name
 		tags_str: tags
 	}
-	r.counters[key] = c
+	unsafe { r.counters[key] = c }
 	return c
 }
 
 // gauge returns (creating if necessary) the Gauge registered under name+tags.
-pub fn (mut r InMemoryMeterRegistry) gauge(name string, tags map[string]string) Gauge {
+pub fn (r &InMemoryMeterRegistry) gauge(name string, tags map[string]string) &InMemoryGauge {
 	key := meter_key(name, tags)
-	r.mu.@rlock()
-	if key in r.gauges {
-		existing := unsafe { r.gauges[key] }
-		r.mu.runlock()
-		return existing
-	}
-	r.mu.runlock()
-	r.mu.@lock()
-	defer { r.mu.unlock() }
+	unsafe { r.mu.@lock() }
+	defer { unsafe { r.mu.unlock() } }
 	if key in r.gauges {
 		return unsafe { r.gauges[key] }
 	}
@@ -356,22 +358,15 @@ pub fn (mut r InMemoryMeterRegistry) gauge(name string, tags map[string]string) 
 		name_str: name
 		tags_str: tags
 	}
-	r.gauges[key] = g
+	unsafe { r.gauges[key] = g }
 	return g
 }
 
 // timer returns (creating if necessary) the Timer registered under name+tags.
-pub fn (mut r InMemoryMeterRegistry) timer(name string, tags map[string]string) Timer {
+pub fn (r &InMemoryMeterRegistry) timer(name string, tags map[string]string) &InMemoryTimer {
 	key := meter_key(name, tags)
-	r.mu.@rlock()
-	if key in r.timers {
-		existing := unsafe { r.timers[key] }
-		r.mu.runlock()
-		return existing
-	}
-	r.mu.runlock()
-	r.mu.@lock()
-	defer { r.mu.unlock() }
+	unsafe { r.mu.@lock() }
+	defer { unsafe { r.mu.unlock() } }
 	if key in r.timers {
 		return unsafe { r.timers[key] }
 	}
@@ -379,7 +374,7 @@ pub fn (mut r InMemoryMeterRegistry) timer(name string, tags map[string]string) 
 		name_str: name
 		tags_str: tags
 	}
-	r.timers[key] = t
+	unsafe { r.timers[key] = t }
 	return t
 }
 

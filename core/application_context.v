@@ -77,6 +77,7 @@ pub mut:
 	environment             &Environment           = unsafe { nil }
 	post_processors         []&BeanPostProcessor
 	factory_post_processors []&BeanFactoryPostProcessor
+	registry_post_processors []&BeanDefinitionRegistryPostProcessor
 	auto_config_manager     &AutoConfigurationManager = unsafe { nil }
 	provider_registry       &ProviderRegistry         = unsafe { nil } // ServiceProvider (Laravel)
 	runners                 []&ApplicationRunner
@@ -395,6 +396,18 @@ pub fn (mut ctx ApplicationContext) add_factory_post_processor(fpp &BeanFactoryP
 	ctx.factory_post_processors << fpp
 }
 
+// ── BeanDefinitionRegistryPostProcessor ──
+
+// add_registry_post_processor adds a BeanDefinitionRegistryPostProcessor.
+// Registry post-processors are invoked during refresh() BEFORE factory
+// post-processors, and have the ability to add/remove/redefine bean
+// definitions programmatically.
+//
+// Spring equivalent: BeanDefinitionRegistryPostProcessor
+pub fn (mut ctx ApplicationContext) add_registry_post_processor(rpp &BeanDefinitionRegistryPostProcessor) {
+	ctx.registry_post_processors << rpp
+}
+
 // ── AutoConfiguration ──
 
 // add_auto_configuration registers an auto-configuration with conditions.
@@ -622,7 +635,18 @@ pub fn (mut ctx ApplicationContext) refresh() ! {
 	ctx.state = .refreshing
 	ctx.mu.unlock()
 
+	// 0. Run BeanDefinitionRegistryPostProcessors (before factory post-processors)
+	//    These can add/remove/redefine bean definitions — the most powerful hook.
+	//    Spring equivalent: invokeBeanFactoryPostProcessors() — registry post-processors first
+	for rpp in ctx.registry_post_processors {
+		rpp.post_process_bean_definition_registry(mut ctx)
+	}
+
 	// 1. Run BeanFactoryPostProcessors (before any bean instantiation)
+	//    Also run the post_process_bean_factory hook of registry post-processors.
+	for rpp in ctx.registry_post_processors {
+		rpp.post_process_bean_factory(mut ctx)
+	}
 	for fpp in ctx.factory_post_processors {
 		fpp.post_process_bean_factory(mut ctx)
 	}

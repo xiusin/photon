@@ -34,14 +34,14 @@ fn test_too_many_attempts_over_limit() {
 
 fn test_remaining_attempts() {
 	mut limiter := new_rate_limiter()
-	assert limiter.remaining('key', 10) == 10
+	assert limiter.remaining('key', 10, 3600) == 10
 
 	limiter.hit('key')
-	assert limiter.remaining('key', 10) == 9
+	assert limiter.remaining('key', 10, 3600) == 9
 
 	limiter.hit('key')
 	limiter.hit('key')
-	assert limiter.remaining('key', 10) == 7
+	assert limiter.remaining('key', 10, 3600) == 7
 }
 
 fn test_remaining_does_not_go_negative() {
@@ -49,7 +49,7 @@ fn test_remaining_does_not_go_negative() {
 	for _ in 0 .. 15 {
 		limiter.hit('key')
 	}
-	assert limiter.remaining('key', 10) == 0
+	assert limiter.remaining('key', 10, 3600) == 0
 }
 
 fn test_clear_key() {

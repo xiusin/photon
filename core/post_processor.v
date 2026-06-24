@@ -359,6 +359,63 @@ pub interface BeanFactoryPostProcessor {
 	post_process_bean_factory(mut ctx ApplicationContext)
 }
 
+// ── BeanDefinitionRegistryPostProcessor ──
+
+// BeanDefinitionRegistryPostProcessor extends BeanFactoryPostProcessor with
+// the ability to modify the bean definition registry (add/remove/redefine
+// bean definitions) before any beans are instantiated.
+//
+// This is the most powerful extension point in the container lifecycle —
+// it runs BEFORE BeanFactoryPostProcessor and can register entirely new
+// bean definitions programmatically.
+//
+// Spring equivalent:
+//   org.springframework.beans.factory.support.BeanDefinitionRegistryPostProcessor
+//
+// Usage:
+//   struct DynamicBeanRegistrar {}
+//
+//   fn (r &DynamicBeanRegistrar) post_process_bean_definition_registry(mut ctx ApplicationContext) {
+//       // Register additional bean definitions at runtime
+//       mut def := core.new_bean_definition('DynamicService')
+//       def.tags = ['dynamic']
+//       ctx.register(def) or {}
+//   }
+//
+//   fn (r &DynamicBeanRegistrar) post_process_bean_factory(mut ctx ApplicationContext) {
+//       // Optionally modify existing definitions
+//   }
+//
+//   ctx.add_registry_post_processor(&core.BeanDefinitionRegistryPostProcessor(&DynamicBeanRegistrar{}))
+pub interface BeanDefinitionRegistryPostProcessor {
+	// post_process_bean_definition_registry is called after all bean
+	// definitions are registered but before any beans are instantiated.
+	// This is the hook to add, remove, or redefine bean definitions.
+	post_process_bean_definition_registry(mut ctx ApplicationContext)
+	// post_process_bean_factory is inherited from BeanFactoryPostProcessor.
+	// Called after all registry post-processors have run, but still
+	// before bean instantiation. Useful for final definition adjustments.
+	post_process_bean_factory(mut ctx ApplicationContext)
+}
+
+// BaseRegistryPostProcessor provides a no-op implementation of
+// BeanDefinitionRegistryPostProcessor. Custom post-processors can embed
+// this struct and override only the methods they need.
+//
+// Spring equivalent: BeanDefinitionRegistryPostProcessor with no-op defaults
+pub struct BaseRegistryPostProcessor {
+pub:
+	name string = 'BaseRegistryPostProcessor'
+}
+
+pub fn (bp &BaseRegistryPostProcessor) post_process_bean_definition_registry(mut ctx ApplicationContext) {
+	// No-op — override in subclass
+}
+
+pub fn (bp &BaseRegistryPostProcessor) post_process_bean_factory(mut ctx ApplicationContext) {
+	// No-op — override in subclass
+}
+
 // ── Ordered ──
 
 // Ordered provides a way to specify the order of post-processors.

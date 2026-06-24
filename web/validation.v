@@ -610,13 +610,15 @@ pub fn validate_max_len(value string, arg string) bool {
 }
 
 // validate_email checks basic email format.
+// Delegates to is_valid_email() which correctly handles dots in the local
+// part (e.g., 'john.doe@example.com') by checking that the domain part
+// (after @) contains at least one dot, rather than checking that the
+// first dot in the entire string comes after @.
 pub fn validate_email(value string) bool {
 	if value.len == 0 {
 		return true // empty passes (use required for emptiness)
 	}
-	return value.contains('@') && value.contains('.') && value.index('@') or { 0 } > 0 && value.index('.') or {
-		0
-	} > value.index('@') or { 0 }
+	return is_valid_email(value)
 }
 
 // validate_url checks basic URL format.
@@ -655,16 +657,22 @@ pub fn validate_alpha_num(value string) bool {
 }
 
 // validate_numeric checks if the value is a valid number.
+// Allows at most one decimal point and an optional leading minus sign.
 pub fn validate_numeric(value string) bool {
 	if value.len == 0 {
 		return true
 	}
 	mut has_digit := false
+	mut has_dot := false
 	for i, ch in value {
 		if ch == `-` && i == 0 {
 			continue
 		}
 		if ch == `.` {
+			if has_dot {
+				return false // multiple decimal points
+			}
+			has_dot = true
 			continue
 		}
 		if ch < `0` || ch > `9` {
@@ -798,12 +806,49 @@ pub fn validate_ip(value string) bool {
 }
 
 // validate_vjson checks if value is valid JSON.
+// Uses bracket-balancing validation (tracking string literals and escape
+// sequences) rather than just checking the first and last characters
+// (which would accept invalid strings like '{' or '[}'). Empty values
+// are considered valid (use 'required' to reject empty).
 pub fn validate_vjson(value string) bool {
 	if value.len == 0 {
 		return true
 	}
-	return (value.starts_with('{') && value.ends_with('}'))
-		|| (value.starts_with('[') && value.ends_with(']'))
+	// Only accept strings that look like JSON objects or arrays.
+	if !((value.starts_with('{') && value.ends_with('}'))
+		|| (value.starts_with('[') && value.ends_with(']'))) {
+		return false
+	}
+	// Check balanced brackets, respecting string literals and escapes.
+	mut depth := 0
+	mut in_string := false
+	mut escape := false
+	for ch in value {
+		if escape {
+			escape = false
+			continue
+		}
+		if ch == `\\` {
+			escape = true
+			continue
+		}
+		if ch == `"` {
+			in_string = !in_string
+			continue
+		}
+		if in_string {
+			continue
+		}
+		if ch == `{` || ch == `[` {
+			depth++
+		} else if ch == `}` || ch == `]` {
+			depth--
+			if depth < 0 {
+				return false
+			}
+		}
+	}
+	return depth == 0
 }
 
 // ── Rule Application ──

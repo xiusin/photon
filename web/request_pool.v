@@ -236,7 +236,7 @@ pub fn (mut rp RequestPool) acquire[T](name string) !pool.PooledGuard[T] {
 // 推荐使用 acquire[T]() 以获得 RAII 安全性。
 pub fn (mut rp RequestPool) acquire_raw(name string) !voidptr {
 	rp.mu.rlock()
-	entry := rp.entries[name]
+	entry := rp.entries[name] or { PoolEntry{ pool: unsafe { nil } } }
 	rp.mu.runlock()
 
 	if isnil(entry.pool) {
@@ -269,7 +269,7 @@ pub fn (mut rp RequestPool) release(name string, obj voidptr) {
 	}
 
 	rp.mu.rlock()
-	entry := rp.entries[name]
+	entry := rp.entries[name] or { PoolEntry{ pool: unsafe { nil } } }
 	rp.mu.runlock()
 
 	// Call the registered reset_fn to clear request-specific data

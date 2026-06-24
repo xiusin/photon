@@ -103,7 +103,8 @@ pub fn find_route(routes []&RouteDef, method string, url_path string) ?(&RouteDe
 			if route_path == '' {
 				route_path = '/'
 			}
-			if route_path == url_path || route_path == url_path + '/' {
+			// Match exact path, or either side having a trailing slash
+			if route_path == url_path || route_path + '/' == url_path || route_path == url_path + '/' {
 				return route, map[string]string{}
 			}
 		}

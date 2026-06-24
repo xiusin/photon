@@ -21,10 +21,52 @@ module tracing
 //
 // All span identity (trace_id/span_id) is generated with sufficient entropy
 // (32 hex chars for trace_id, 16 for span_id) to guarantee uniqueness.
+//
+// Thread-safety notes:
+//   - V's rand module uses a process-wide PRNG that is NOT thread-safe.
+//     We use C.arc4random() instead (thread-safe CSPRNG).
+//   - V's time.now() calls C.localtime() which returns a pointer to a static
+//     buffer — NOT thread-safe. We store time as i64 ticks (from time.ticks(),
+//     which uses mach_absolute_time on macOS / clock_gettime on Linux) and
+//     i64 unix seconds (from C.time(0), which returns time_t by value).
+//     Conversion to time.Time happens lazily in start_time()/end_time(),
+//     which are only called from the main thread (e.g. list_spans).
 import sync
 import time
-import rand
 import strings
+
+// C function declarations for thread-safe primitives.
+fn C.arc4random() u32
+fn C.time(t voidptr) i64
+
+// thread_safe_now_ticks returns monotonic milliseconds from time.ticks().
+// On macOS: uses mach_absolute_time() — thread-safe.
+// On Linux: uses clock_gettime(CLOCK_MONOTONIC) — thread-safe.
+fn thread_safe_now_ticks() i64 {
+	return time.ticks()
+}
+
+// thread_safe_unix returns Unix seconds from C.time(0), which is thread-safe
+// (returns time_t by value, unlike C.localtime() which returns a static buffer).
+fn thread_safe_unix() i64 {
+	return C.time(unsafe { nil })
+}
+
+// ticks_to_duration converts a tick difference (milliseconds) to time.Duration
+// (nanoseconds).
+fn ticks_to_duration(ticks_diff i64) time.Duration {
+	return time.Duration(ticks_diff * 1_000_000)
+}
+
+// unix_to_time converts Unix seconds to time.Time. This calls time.unix()
+// internally, which uses C.localtime() — only safe to call from the main
+// thread (not from goroutines).
+pub fn unix_to_time(unix_secs i64) time.Time {
+	if unix_secs == 0 {
+		return time.Time{}
+	}
+	return time.unix(int(unix_secs))
+}
 
 // ============================================================
 // Span Status
@@ -79,13 +121,20 @@ pub fn (ctx TraceContext) is_valid() bool {
 
 // Tracer creates and manages spans. Implementations record the full span
 // chain so it can be inspected (e.g. by tests or an exporter).
+//
+// Note: start_span/finish_span/start_span_with_parent use &InMemorySpan
+// (concrete pointer) instead of Span (interface). V's interface dispatch
+// in goroutines causes GC crashes because the GC scans interface fat
+// pointers on thread stacks incorrectly. current_span() returns ?Span
+// because it's only called from the main thread (safe for interface use),
+// and ?&InMemorySpan has a V compiler codegen bug.
 pub interface Tracer {
 	current_span() ?Span
 	list_spans() []SpanRecord
 mut:
-	start_span(name string) Span
-	start_span_with_parent(name string, parent Span) Span
-	finish_span(span Span)
+	start_span(name string) &InMemorySpan
+	start_span_with_parent(name string, parent &InMemorySpan) &InMemorySpan
+	finish_span(span &InMemorySpan)
 	clear()
 }
 
@@ -109,22 +158,28 @@ pub:
 
 // InMemorySpan is a thread-safe Span backed by a per-span sync.Mutex.
 //
-// Identity fields (trace_id_str, span_id_str, parent_id, name_str,
-// started_at) are pub and immutable after creation. Mutable state
-// (ended_at, status_val, attrs, ended) is guarded by mu.
+// Time is stored as i64 fields instead of time.Time, because V's
+// time.now() calls C.localtime() which is NOT thread-safe (returns a
+// pointer to a static buffer). Instead:
+//   - started_ticks / ended_ticks: monotonic ms from time.ticks() (thread-safe)
+//   - started_unix / ended_unix: Unix seconds from C.time(0) (thread-safe)
+// Conversion to time.Time happens lazily in start_time()/end_time(),
+// which are only called from the main thread (e.g. list_spans).
 pub struct InMemorySpan {
 pub:
-	trace_id_str string
-	span_id_str  string
-	parent_id    string
-	name_str     string
-	started_at   time.Time
+	trace_id_str   string
+	span_id_str    string
+	parent_id      string
+	name_str       string
+	started_ticks  i64
+	started_unix   i64
 mut:
-	mu         sync.Mutex
-	ended_at   time.Time
-	status_val SpanStatus = .unset
-	attrs      map[string]string
-	ended      bool
+	mu           sync.Mutex
+	ended_ticks  i64
+	ended_unix   i64
+	status_val   SpanStatus = .unset
+	attrs        map[string]string
+	ended        bool
 }
 
 // span_id returns this span's unique identifier.
@@ -148,37 +203,41 @@ pub fn (s &InMemorySpan) name() string {
 }
 
 // start_time returns when the span was started.
+// Converts from stored Unix seconds to time.Time. This calls time.unix()
+// internally (which uses C.localtime) — only safe from the main thread.
 pub fn (s &InMemorySpan) start_time() time.Time {
-	return s.started_at
+	return unix_to_time(s.started_unix)
 }
 
 // end_time returns when the span was ended (zero Time if not yet ended).
+// Converts from stored Unix seconds to time.Time. Only safe from main thread.
 pub fn (s &InMemorySpan) end_time() time.Time {
 	unsafe {
 		s.mu.@lock()
 	}
-	v := s.ended_at
+	v := s.ended_unix
 	unsafe {
 		s.mu.unlock()
 	}
-	return v
+	return unix_to_time(v)
 }
 
 // duration returns the elapsed time of the span. If the span is still open,
 // returns the time since start; otherwise returns end_time - start_time.
+// Uses thread-safe time.ticks() for current time (not time.now()).
 pub fn (s &InMemorySpan) duration() time.Duration {
 	unsafe {
 		s.mu.@lock()
 	}
 	is_ended := s.ended
-	ended := s.ended_at
+	ended := s.ended_ticks
 	unsafe {
 		s.mu.unlock()
 	}
 	if is_ended {
-		return ended - s.started_at
+		return ticks_to_duration(ended - s.started_ticks)
 	}
-	return time.now() - s.started_at
+	return ticks_to_duration(thread_safe_now_ticks() - s.started_ticks)
 }
 
 // status returns the current span status.
@@ -225,11 +284,13 @@ pub fn (s &InMemorySpan) attributes() map[string]string {
 
 // end marks the span as completed and records the end timestamp.
 // Calling end() more than once is a no-op.
+// Uses thread_safe_now_ticks() + thread_safe_unix() instead of time.now().
 pub fn (s &InMemorySpan) end() {
 	unsafe {
 		s.mu.@lock()
 		if !s.ended {
-			s.ended_at = time.now()
+			s.ended_ticks = thread_safe_now_ticks()
+			s.ended_unix = thread_safe_unix()
 			s.ended = true
 		}
 		s.mu.unlock()
@@ -301,24 +362,31 @@ pub fn (mut t InMemoryTracer) trace_id_of() string {
 
 // start_span begins a new span. If there is an active span, it becomes the
 // parent (enabling automatic nesting); otherwise this is a root span.
-pub fn (mut t InMemoryTracer) start_span(name string) Span {
+//
+// Thread-safety: All operations (parent lookup, span ID generation, struct
+// allocation, array append) are performed UNDER the write lock. This
+// serializes all work across goroutines, preventing:
+//   - GC concurrent-allocation races (Boehm GC thread_suspend failures)
+//   - PRNG state corruption (C.arc4random is per-thread safe anyway)
+//   - time.now() localtime() static buffer races (avoided by using
+//     thread-safe time.ticks() + C.time(0))
+pub fn (mut t InMemoryTracer) start_span(name string) &InMemorySpan {
+	t.mu.@lock()
+
 	mut parent_id := ''
-	t.mu.@rlock()
 	if t.stack.len > 0 {
 		parent_id = t.stack[t.stack.len - 1].span_id_str
 	}
-	t.mu.runlock()
 
 	span := &InMemorySpan{
-		trace_id_str: t.trace_id
-		span_id_str: generate_span_id()
-		parent_id: parent_id
-		name_str: name
-		started_at: time.now()
-		attrs: map[string]string{}
+		trace_id_str:  t.trace_id
+		span_id_str:   generate_span_id()
+		parent_id:     parent_id
+		name_str:      name
+		started_ticks: thread_safe_now_ticks()
+		started_unix:  thread_safe_unix()
 	}
 
-	t.mu.@lock()
 	t.spans << span
 	t.stack << span
 	t.mu.unlock()
@@ -329,17 +397,21 @@ pub fn (mut t InMemoryTracer) start_span(name string) Span {
 // start_span_with_parent begins a new span as a child of an explicit parent.
 // The new span inherits the parent's trace_id, allowing traces to cross
 // tracer boundaries.
-pub fn (mut t InMemoryTracer) start_span_with_parent(name string, parent Span) Span {
+//
+// Thread-safety: same as start_span — all work under the write lock.
+pub fn (mut t InMemoryTracer) start_span_with_parent(name string, parent &InMemorySpan) &InMemorySpan {
+	t.mu.@lock()
+
 	span := &InMemorySpan{
-		trace_id_str: parent.trace_id()
-		span_id_str: generate_span_id()
-		parent_id: parent.span_id()
-		name_str: name
-		started_at: time.now()
-		attrs: map[string]string{}
+		trace_id_str:  parent.trace_id_str
+		span_id_str:   generate_span_id()
+		parent_id:     parent.span_id_str
+		name_str:      name
+		started_ticks: thread_safe_now_ticks()
+		started_unix:  thread_safe_unix()
+		attrs:         map[string]string{}
 	}
 
-	t.mu.@lock()
 	t.spans << span
 	t.stack << span
 	t.mu.unlock()
@@ -363,7 +435,7 @@ pub fn (mut t InMemoryTracer) current_span() ?Span {
 // finish_span ends the given span and pops the active span stack. Spans
 // should be finished in LIFO (reverse-start) order to keep the nesting
 // stack consistent.
-pub fn (mut t InMemoryTracer) finish_span(span Span) {
+pub fn (mut t InMemoryTracer) finish_span(span &InMemorySpan) {
 	span.end()
 	t.mu.@lock()
 	if t.stack.len > 0 {
@@ -383,7 +455,7 @@ pub fn (mut t InMemoryTracer) list_spans() []SpanRecord {
 			span_id: span.span_id_str
 			parent_span_id: span.parent_id
 			name: span.name_str
-			start_time: span.started_at
+			start_time: span.start_time()
 			end_time: span.end_time()
 			duration: span.duration()
 			status: span.status()
@@ -420,12 +492,18 @@ fn generate_span_id() string {
 	return random_hex(16)
 }
 
-// random_hex builds a random hex string of the given length using rand.intn.
+// random_hex builds a random hex string of the given length.
+//
+// Thread-safety: Uses C.arc4random() instead of V's rand.intn(). V's rand
+// module uses a process-wide PRNG that is NOT thread-safe — concurrent calls
+// corrupt the PRNG state and segfault in rand__PRNG_u32n. C.arc4random() is
+// thread-safe (uses a per-thread CSPRNG on macOS/BSD, getrandom on Linux)
+// and requires no mutex.
 fn random_hex(length int) string {
 	mut sb := strings.new_builder(length)
 	for _ in 0 .. length {
-		idx := rand.intn(hex_charset.len) or { 0 }
-		sb.write_byte(hex_charset[idx])
+		r := C.arc4random()
+		sb.write_byte(hex_charset[int(r & 0xF)])
 	}
 	return sb.str()
 }

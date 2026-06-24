@@ -1054,6 +1054,48 @@ pub fn (mut env Environment) get_subtree(prefix string) map[string]string {
 	return result
 }
 
+// to_map merges all property sources into a single flat map, respecting
+// the priority chain: CLI > env vars > profile config > default config > properties.
+//
+// This is useful for passing the full property set to expression evaluators
+// or external systems that need a snapshot of all configuration.
+//
+// Spring equivalent: ConfigurableEnvironment.getPropertySources() snapshot
+pub fn (mut env Environment) to_map() map[string]string {
+	mut result := map[string]string{}
+
+	// 5. Programmatic properties (lowest priority)
+	env.mu.rlock()
+	for k, v in env.properties {
+		result[k] = v
+	}
+	// 4. Default config
+	for k, v in env.default_config_properties {
+		result[k] = v
+	}
+	// 3. Profile config
+	for k, v in env.profile_config_properties {
+		result[k] = v
+	}
+	// 1. CLI args (highest in-memory priority)
+	for k, v in env.cli_args {
+		result[k] = v
+	}
+	env.mu.runlock()
+
+	// 2. Env vars (checked outside lock — os.getenv is a syscall)
+	// We check for PHOTON_ prefixed env vars for all known keys
+	for k, _ in result {
+		env_var_key := 'PHOTON_' + k.replace('.', '_').to_upper()
+		val := os.getenv(env_var_key)
+		if val.len > 0 {
+			result[k] = val
+		}
+	}
+
+	return result
+}
+
 // ── @ConfigurationProperties Support (Spring Boot inspired) ──
 
 // contains_prefix checks if any property starts with the given prefix.

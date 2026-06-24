@@ -151,7 +151,7 @@ pub fn (mut m PoolAutoManager) unregister(name string) {
 pub fn (mut m PoolAutoManager) get(name string) ?&Pool {
 	m.mu.rlock()
 	defer { m.mu.runlock() }
-	return m.pools[name]
+	return m.pools[name] or { none }
 }
 
 // close_all closes all registered pools. This should be called during

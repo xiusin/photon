@@ -96,6 +96,31 @@ pub fn (s Sort) to_sql() string {
 	return result
 }
 
+// Pageable is the interface for pagination requests.
+// PageRequest implements this interface.
+//
+// Spring equivalent: org.springframework.data.domain.Pageable
+pub interface Pageable {
+	get_page_number() int
+	get_page_size() int
+	get_offset() int
+	get_sort() Sort
+	has_previous() bool
+}
+
+// unsorted creates a Sort with no orders (empty sort).
+pub fn unsorted() Sort {
+	return Sort{
+		orders: []
+	}
+}
+
+// and_sort returns a new Sort combining this sort with another.
+// Alias for and() — provides a more readable DSL.
+pub fn (s Sort) and_sort(other Sort) Sort {
+	return s.and(other)
+}
+
 // PageRequest represents a pagination request
 pub struct PageRequest {
 pub:

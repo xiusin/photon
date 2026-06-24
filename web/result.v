@@ -73,12 +73,14 @@ pub fn fail(code int, msg string) Result {
 
 // page creates a paginated Result
 pub fn page(data string, page int, page_size int, total int) PageResult {
-	total_pages := (total + page_size - 1) / page_size
+	// Guard against division by zero — treat page_size == 0 as 1
+	safe_page_size := if page_size <= 0 { 1 } else { page_size }
+	total_pages := (total + safe_page_size - 1) / safe_page_size
 	return PageResult{
 		Result:     success(data)
 		pagination: Pagination{
 			page:        page
-			page_size:   page_size
+			page_size:   safe_page_size
 			total:       total
 			total_pages: total_pages
 			has_next:    page < total_pages

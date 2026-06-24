@@ -197,7 +197,6 @@ pub fn (mut cm CookieManager) verify(signed_value string) ?string {
 	cm.mu.runlock()
 
 	expected_mac := hmac.new(key.bytes(), value.bytes(), sha256.sum, sha256.block_size)
-	expected_hex := hex.encode(expected_mac)
 
 	// Constant-time comparison to prevent timing attacks.
 	// Compare hex-decoded bytes rather than hex strings to ensure

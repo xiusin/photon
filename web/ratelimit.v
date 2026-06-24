@@ -95,15 +95,30 @@ pub fn (mut r RateLimiter) hit(key string) {
 	r.attempts[key] = attempts
 }
 
-// remaining returns the number of remaining attempts.
+// remaining returns the number of remaining attempts within the decay window.
 // Only locks the shard for this key.
-pub fn (mut r RateLimiter) remaining(key string, max_attempts int) int {
+//
+// Bug fix: previously this method counted ALL attempts (including expired ones),
+// causing the remaining count to stay artificially low after the decay window
+// elapsed. Now expired attempts are filtered out before counting, consistent
+// with too_many_attempts().
+pub fn (mut r RateLimiter) remaining(key string, max_attempts int, decay_seconds i64) int {
 	idx := r.shard_for(key)
 	r.shards[idx].@lock()
 	defer { r.shards[idx].unlock() }
 
 	attempts := r.attempts[key] or { return max_attempts }
-	remaining := max_attempts - attempts.len
+	now := time.now().unix()
+
+	// Filter out expired attempts (same logic as too_many_attempts)
+	mut valid_count := 0
+	for ts in attempts {
+		if now - ts < decay_seconds {
+			valid_count++
+		}
+	}
+
+	remaining := max_attempts - valid_count
 	if remaining < 0 {
 		return 0
 	}
@@ -181,14 +196,34 @@ pub fn (mut r RateLimiter) clear_expired(decay_seconds i64) {
 	}
 }
 
-// attempts returns the number of attempts for a key.
+// attempts returns the total number of recorded attempts for a key (including expired).
 // Only locks the shard for this key.
+//
+// Note: this returns the raw count without expiry filtering. For the count of
+// valid (non-expired) attempts, use attempts_within() instead.
 pub fn (mut r RateLimiter) attempts(key string) int {
 	idx := r.shard_for(key)
 	r.shards[idx].@lock()
 	defer { r.shards[idx].unlock() }
 	a := r.attempts[key] or { return 0 }
 	return a.len
+}
+
+// attempts_within returns the number of non-expired attempts for a key.
+// Only locks the shard for this key.
+pub fn (mut r RateLimiter) attempts_within(key string, decay_seconds i64) int {
+	idx := r.shard_for(key)
+	r.shards[idx].@lock()
+	defer { r.shards[idx].unlock() }
+	attempts := r.attempts[key] or { return 0 }
+	now := time.now().unix()
+	mut count := 0
+	for ts in attempts {
+		if now - ts < decay_seconds {
+			count++
+		}
+	}
+	return count
 }
 
 // key_count returns the total number of tracked keys.

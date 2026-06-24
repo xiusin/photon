@@ -875,6 +875,32 @@ pub fn (mut c Container) has_instance(type_name string) bool {
 	return type_name in c.instances
 }
 
+// is_singleton checks if the bean with the given name has singleton scope.
+// Returns false if the bean is not registered.
+//
+// Spring equivalent: BeanFactory.isSingleton(name)
+pub fn (mut c Container) is_singleton(type_name string) bool {
+	c.mu.rlock()
+	defer { c.mu.runlock() }
+	if def := c.definitions[type_name] {
+		return def.scope == .singleton
+	}
+	return false
+}
+
+// is_prototype checks if the bean with the given name has prototype scope.
+// Returns false if the bean is not registered.
+//
+// Spring equivalent: BeanFactory.isPrototype(name)
+pub fn (mut c Container) is_prototype(type_name string) bool {
+	c.mu.rlock()
+	defer { c.mu.runlock() }
+	if def := c.definitions[type_name] {
+		return def.scope == .prototype
+	}
+	return false
+}
+
 // ── @Primary Support ──
 
 // resolve_primary resolves a bean that is marked as @[primary].

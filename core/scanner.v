@@ -46,6 +46,7 @@ pub const attr_depends_on = 'depends_on'
 pub const attr_primary = 'primary'
 pub const attr_extends = 'extends'
 pub const attr_bean = 'bean'
+pub const attr_profile = 'profile'
 
 // ── Component Types ──
 
@@ -267,6 +268,61 @@ pub fn extract_parent_name(attrs []string) string {
 		}
 	}
 	return ''
+}
+
+// ── @[profile] Annotation Parsing ──
+
+// extract_profiles parses @[profile('dev')] or @[profile('dev','prod')] from
+// attributes. Returns a list of profile names.
+//
+// Spring equivalent: @Profile("dev")
+//
+// A bean with @[profile('dev')] is only registered when the 'dev' profile
+// is active. Multiple profiles can be specified — the bean is registered
+// if ANY of the profiles match (logical OR, same as Spring's @Profile).
+//
+// Usage:
+//   @[service]
+//   @[profile: 'dev']
+//   pub struct DevOnlyService { ... }
+//
+//   profiles := core.extract_profiles(attrs)
+//   // → ['dev']
+pub fn extract_profiles(attrs []string) []string {
+	mut profiles := []string{}
+	for attr in attrs {
+		if attr.starts_with('profile:') || attr.starts_with('profile(') {
+			mut val := attr
+			if val.starts_with('profile:') {
+				val = val['profile:'.len..]
+			} else if val.starts_with('profile(') {
+				val = val['profile('.len..]
+				if val.ends_with(')') {
+					val = val[..val.len - 1]
+				}
+			}
+			val = val.trim_space()
+			// Support comma-separated list: 'dev','prod' or dev,prod
+			parts := val.split(',')
+			for part in parts {
+				trimmed := part.trim_space().trim("'").trim('"')
+				if trimmed.len > 0 {
+					profiles << trimmed
+				}
+			}
+		}
+	}
+	return profiles
+}
+
+// has_profile_attr checks if any @[profile] attribute is present.
+pub fn has_profile_attr(attrs []string) bool {
+	for attr in attrs {
+		if attr == 'profile' || attr.starts_with('profile:') || attr.starts_with('profile(') {
+			return true
+		}
+	}
+	return false
 }
 
 // ── New Scanner Helpers (Spring Boot / Laravel inspired) ──
@@ -813,7 +869,24 @@ pub fn scan_and_register[T](mut ctx ApplicationContext) ! {
 		}
 	}
 
-	// 4) Build and register BeanDefinition
+	// 4) Scan @[profile] annotations and add profile conditions
+	// Spring equivalent: @Profile — bean is only registered if the profile is active
+	mut profile_conditions := []&Condition{}
+	$for attr in T.attributes {
+		$if attr.name == attr_profile {
+			$if attr.has_arg {
+				profiles := attr.arg.trim("'\"").split(',')
+				for p in profiles {
+					trimmed := p.trim_space().trim("'\"")
+					if trimmed.len > 0 {
+						profile_conditions << &Condition(&OnProfileCondition{ profile: trimmed })
+					}
+				}
+			}
+		}
+	}
+
+	// 5) Build and register BeanDefinition
 	type_name := T.name
 	bean_name := if qualifier_name.len > 0 { qualifier_name } else { type_name }
 
@@ -826,6 +899,7 @@ pub fn scan_and_register[T](mut ctx ApplicationContext) ! {
 	def.init_method = init_method
 	def.destroy_method = destroy_method
 	def.depends_on = depends_on_list
+	def.conditions = profile_conditions
 
 	ctx.register(def) or {
 		return error('scan_and_register: failed to register ${bean_name}: ${err} / 注册 ${bean_name} 失败: ${err}')
