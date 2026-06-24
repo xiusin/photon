@@ -137,25 +137,28 @@ pub fn (pp &ValueAnnotationPostProcessor) post_process_after_initialization(bean
 //
 // Usage:
 //   mut config := MyConfig{}
-//   mut env := app.environment
-//   pp.inject_values[MyConfig](mut config, mut env)!
+//   env := app.environment
+//   pp.inject_values[MyConfig](mut config, env)!
 //   // config fields are now populated from environment properties
 //
-// NOTE (V 0.5.1): this generic takes a `mut env &Environment` parameter, which
-// the compiler mis-resolves to `&&Environment` at the call site, so it is not
-// callable from outside this module. Prefer `inject_values_for_bean[T]()`
-// (set `environment` first) or `bind_values[T]()` for the map-based path.
-pub fn (mut pp ValueAnnotationPostProcessor) inject_values[T](mut bean T, mut env &Environment) ! {
+// NOTE (V 0.5.1): previously this function took `mut env &Environment` which
+// the compiler mis-resolved to `&&Environment` at the call site. The signature
+// now uses `env &Environment` (non-mut) with an internal `mut env_mut := env`
+// local to call mut-receiver methods on Environment. This is fully callable
+// from outside this module. Prefer `inject_values_for_bean[T]()` (set
+// `environment` first) for the convenience wrapper.
+pub fn (mut pp ValueAnnotationPostProcessor) inject_values[T](mut bean T, env &Environment) ! {
+	mut env_mut := env
 	$for field in T.fields {
 		key := extract_value_expr(field.attrs)
 		// Skip fields without @[value('...')] (continue is not allowed
 		// in comptime $for loops, so we guard with an if-block).
 		if key.len > 0 {
 			// Look up the property — error if not found in any source.
-			if !env.has_property(key) {
+			if !env_mut.has_property(key) {
 				return error('value injection failed: key "${key}" not found / 值注入失败：键 "${key}" 未找到')
 			}
-			raw_value := env.get_property(key)
+			raw_value := env_mut.get_property(key)
 
 			// Convert and assign by field type (comptime — zero runtime reflection).
 			$if field.typ is string {

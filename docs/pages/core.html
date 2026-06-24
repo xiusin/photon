@@ -437,9 +437,9 @@ conn := ctx.<span class="fn">resolve</span>(<span class="st">'DatabaseConnection
 <span class="at">@[conditional_on_profile('prod')]</span>
 <span class="at">@[conditional_on_property('cache.driver', 'redis')]</span>
 <span class="kw">pub struct</span> <span class="tp">RedisCacheService</span> {
-    <span class="at">@[value('redis.host')]</span>
+    <span class="at">@[value: 'redis.host']</span>
     host <span class="tp">string</span>
-    <span class="at">@[value('redis.port')]</span>
+    <span class="at">@[value: 'redis.port']</span>
     port <span class="tp">int</span>
 }
 
@@ -554,7 +554,7 @@ conn := ctx.<span class="fn">resolve</span>(<span class="st">'DatabaseConnection
           <thead><tr><th>层级</th><th>注解</th><th>扫描内容</th></tr></thead>
           <tbody>
             <tr><td>Struct 级</td><td><code>@[component]</code> / <code>@[service]</code> / <code>@[repository]</code> / <code>@[controller]</code></td><td>组件类型、scope、lazy、qualifier、depends_on</td></tr>
-            <tr><td>Field 级</td><td><code>@[autowired]</code> / <code>@[value('key')]</code></td><td>依赖注入字段、配置绑定字段</td></tr>
+            <tr><td>Field 级</td><td><code>@[autowired]</code> / <code>@[value: 'key']</code></td><td>依赖注入字段、配置绑定字段</td></tr>
             <tr><td>Method 级</td><td><code>@[post_construct]</code> / <code>@[pre_destroy]</code></td><td>生命周期回调方法</td></tr>
           </tbody>
         </table>
@@ -570,7 +570,7 @@ conn := ctx.<span class="fn">resolve</span>(<span class="st">'DatabaseConnection
     <span class="at">@[autowired]</span>
     user_repo &<span class="tp">UserRepository</span>
 
-    <span class="at">@[value('app.name')]</span>
+    <span class="at">@[value: 'app.name']</span>
     app_name <span class="tp">string</span>
 }
 
@@ -887,13 +887,13 @@ profiles := app.environment.<span class="fn">get_active_profiles</span>()
 <span class="cm">// @[value] 注入配置属性</span>
 <span class="at">@[component]</span>
 <span class="kw">pub struct</span> <span class="tp">AppConfig</span> {
-    <span class="at">@[value('app.name')]</span>
+    <span class="at">@[value: 'app.name']</span>
     name <span class="tp">string</span>
 
-    <span class="at">@[value('app.port')]</span>
+    <span class="at">@[value: 'app.port']</span>
     port <span class="tp">int</span>
 
-    <span class="at">@[value('app.debug')]</span>
+    <span class="at">@[value: 'app.debug']</span>
     debug <span class="tp">bool</span>
 }
 
@@ -923,7 +923,7 @@ profiles := app.environment.<span class="fn">get_active_profiles</span>()
 
 <span class="cm">// 内置后置处理器：</span>
 <span class="cm">// - AutowiredAnnotationPostProcessor  → 处理 @[autowired]</span>
-<span class="cm">// - ValueAnnotationPostProcessor      → 处理 @[value('key')]</span>
+<span class="cm">// - ValueAnnotationPostProcessor      → 处理 @[value: 'key']</span>
 <span class="cm">// - LifecycleAnnotationPostProcessor  → 处理 @[post_construct] / @[pre_destroy]</span>
 <span class="cm">// - EventListenerPostProcessor        → 处理 @[event_listener]</span>
 
@@ -1080,6 +1080,186 @@ service := core.<span class="fn">get_service</span>[<span class="tp">UserService
 
         <div class="info-box info-tip">
           💡 <strong>类型安全</strong>：<code>get_service[T]()</code> 和 <code>create_and_wire[T]()</code> 返回强类型 <code>&T</code>，无需 <code>unsafe</code> 类型转换，编译期即可捕获类型不匹配错误。
+        </div>
+      </div>
+
+      <!-- ═══ 14. Controller DI ═══ -->
+      <div class="doc-section" id="controller-di">
+        <div class="section-header">
+          <div class="section-icon icon-core">🎮</div>
+          <div><div class="section-title">控制器依赖注入</div><div class="section-subtitle">autowire_controller · wire_controller — Spring @Controller + @Autowired 等价</div></div>
+        </div>
+
+        <p>Photon 提供编译期扫描控制器字段 <code>@[autowired]</code> 注解，并从 <code>ApplicationContext</code> 自动注入依赖的能力。这是实现 Spring 风格「控制器任意拆分」的关键 DI 基础设施。控制器可在任意目录、任意包中定义，只需在挂载点 import 即可。</p>
+
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>返回值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>ctx.autowire_controller[T](controller)</code></td><td><code>!</code></td><td>扫描 T 的 <code>@[autowired]</code> 字段并注入依赖</td></tr>
+            <tr><td><code>ctx.wire_controller[T]()</code></td><td><code>!&T</code></td><td>创建新实例 + 自动注入依赖（一步到位）</td></tr>
+            <tr><td><code>ctx.register_controller[T]()</code></td><td><code>!&T</code></td><td>注册控制器为单例 + 注入依赖，可通过 <code>resolve()</code> 再次获取</td></tr>
+            <tr><td><code>core.locate_controller[T]()</code></td><td><code>!&T</code></td><td>通过全局 ServiceLocator 创建并注入（无需传递 Context）</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 1. 定义控制器（可在任意文件/包中）</span>
+<span class="at">@[controller]</span>
+<span class="at">@[prefix: '/api/v1']</span>
+<span class="kw">pub struct</span> <span class="tp">UserController</span> {
+    user_service &<span class="tp">UserService</span> <span class="at">@[autowired]</span>
+    auth_service &<span class="tp">AuthService</span> <span class="at">@[autowired]</span>
+}
+
+<span class="cm">// 2. 从 DI 容器创建并注入依赖</span>
+<span class="kw">mut</span> app := core.<span class="fn">new_application_context</span>()
+app.<span class="fn">refresh</span>()!
+
+<span class="cm">// 方式一：wire_controller — 创建 + 注入（一步到位）</span>
+ctrl := app.<span class="fn">wire_controller</span>[<span class="tp">UserController</span>]()!
+app.WebModule.<span class="fn">mount_controller</span>[<span class="tp">UserController</span>](ctrl, <span class="st">'/api/v1'</span>)
+
+<span class="cm">// 方式二：register_controller — 注册为单例 + 注入</span>
+ctrl2 := app.<span class="fn">register_controller</span>[<span class="tp">OrderController</span>]()!
+<span class="cm">// 后续可通过 ctx.resolve('OrderController') 再次获取</span>
+
+<span class="cm">// 方式三：locate_controller — 全局定位器（无需传递 Context）</span>
+ctrl3 := core.<span class="fn">locate_controller</span>[<span class="tp">HealthController</span>]()!
+
+<span class="cm">// Spring 等价：@Controller + @Autowired 自动注册</span>
+<span class="cm">// Laravel 等价：app()->make(Controller::class)</span></div>
+        </div>
+
+        <div class="info-box info-tip">
+          💡 <strong>解析顺序</strong>：<code>autowire_controller[T]()</code> 按 <code>@[qualifier('name')]</code> → 字段名 → 首字母大写形式 的顺序解析依赖。仅对标注 <code>@[autowired]</code> 的字段执行注入，非注解字段不受影响。
+        </div>
+
+        <div class="info-box info-warn">
+          ⚠️ <strong>V comptime 限制</strong>：由于 V 0.5.1 无法在 comptime 中获取引用类型字段的完整类型名，控制器 DI 使用 <code>unsafe</code> 指针写入方式设置字段值。仅对指针类型字段安全，不要在非指针字段上使用 <code>@[autowired]</code>。
+        </div>
+      </div>
+
+      <!-- ═══ 15. AOP Support ═══ -->
+      <div class="doc-section" id="aop">
+        <div class="section-header">
+          <div class="section-icon icon-core">🧩</div>
+          <div><div class="section-title">AOP 切面支持</div><div class="section-subtitle">transactional_wrap · cacheable_wrap · detect_aop_methods — 编译期注解检测 + 辅助包装函数</div></div>
+        </div>
+
+        <p>V 语言无运行时反射，不支持运行时方法拦截（如 CGLIB / JDK 动态代理）。Photon 采用务实的 AOP 方案：编译期注解检测 + 辅助包装函数。</p>
+
+        <h3>核心机制</h3>
+        <table class="doc-table">
+          <thead><tr><th>组件</th><th>说明</th><th>Spring 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>detect_aop_methods[T]()</code></td><td>编译期扫描 <code>@[transactional]</code> / <code>@[cacheable]</code> 方法</td><td><code>AnnotationAwareAspectJAutoProxyCreator</code></td></tr>
+            <tr><td><code>transactional_wrap[T](mut tm, f)</code></td><td>事务包装：begin → f → commit/rollback</td><td><code>@Transactional</code> advice</td></tr>
+            <tr><td><code>cacheable_wrap[T](mut cache, key, ttl, f)</code></td><td>缓存包装：先查缓存，miss 则执行并缓存</td><td><code>@Cacheable</code> advice</td></tr>
+            <tr><td><code>AnnotationAwarePostProcessor</code></td><td>记录 AOP 方法元数据，用于验证和内省</td><td><code>AnnotationAwareAspectJAutoProxyCreator</code></td></tr>
+          </tbody>
+        </table>
+
+        <h3>事务包装示例</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="at">@[service]</span>
+<span class="kw">pub struct</span> <span class="tp">UserService</span> {
+    <span class="at">@[autowired]</span>
+    tm &<span class="tp">TransactionManager</span>
+}
+
+<span class="at">@[transactional]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">s</span> <span class="tp">UserService</span>) <span class="fn">transfer</span>(from <span class="tp">int</span>, to <span class="tp">int</span>, amount <span class="tp">f64</span>) ! {
+    <span class="cm">// 在事务中执行 — 失败自动回滚</span>
+    core.<span class="fn">transactional_wrap</span>(<span class="kw">mut</span> s.tm, fn () ! {
+        <span class="cm">// 实际事务逻辑...</span>
+    })!
+}</div>
+        </div>
+
+        <h3>缓存包装示例</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="at">@[cacheable]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">s</span> <span class="tp">UserService</span>) <span class="fn">get_user</span>(id <span class="tp">int</span>) !<span class="tp">string</span> {
+    <span class="kw">return</span> core.<span class="fn">cacheable_wrap</span>(<span class="kw">mut</span> s.cache, <span class="st">'user:${id}'</span>, <span class="nm">300</span>, fn () !<span class="tp">string</span> {
+        <span class="cm">// 缓存未命中时执行 — 如数据库查询</span>
+        <span class="kw">return</span> <span class="st">'user_data'</span>
+    })!
+}</div>
+        </div>
+
+        <div class="info-box info-warn">
+          ⚠️ <strong>设计说明</strong>：V 不支持运行时方法拦截，因此 <code>@[transactional]</code> 和 <code>@[cacheable]</code> 不会自动织入。开发者需在方法体内调用 <code>transactional_wrap()</code> / <code>cacheable_wrap()</code> 辅助函数。<code>detect_aop_methods[T]()</code> 在编译期检测注解用于验证和内省。
+        </div>
+      </div>
+
+      <!-- ═══ 16. Value Injection Syntax ═══ -->
+      <div class="doc-section" id="value-injection-syntax">
+        <div class="section-header">
+          <div class="section-icon icon-core">🔤</div>
+          <div><div class="section-title">值注入注解语法</div><div class="section-subtitle">@[value] · @[config_field] · @[scheduled] — V 0.5.1 兼容写法</div></div>
+        </div>
+
+        <p>V 0.5.1 的属性语法对带括号的参数支持有限。Photon 支持两种注解写法，推荐使用冒号分隔式（更兼容）：</p>
+
+        <table class="doc-table">
+          <thead><tr><th>注解</th><th>冒号式（推荐）</th><th>括号式（兼容）</th></tr></thead>
+          <tbody>
+            <tr><td>值注入</td><td><code>@[value: 'app.name']</code></td><td><code>@[value('app.name')]</code></td></tr>
+            <tr><td>配置绑定</td><td><code>@[config_field: 'db.host']</code></td><td><code>@[config_field('db.host')]</code></td></tr>
+            <tr><td>定时任务</td><td><code>@[scheduled: '0 * * * *']</code></td><td><code>@[scheduled('0 * * * *')]</code></td></tr>
+            <tr><td>路由前缀</td><td><code>@[prefix: '/api/v1']</code></td><td>—</td></tr>
+            <tr><td>限定符</td><td><code>@[qualifier: 'redis-cache']</code></td><td><code>@[qualifier('redis-cache')]</code></td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">AppConfig</span> {
+    <span class="at">@[value: 'app.name']</span>
+    name <span class="tp">string</span>
+
+    <span class="at">@[value: 'app.port']</span>
+    port <span class="tp">int</span>
+
+    <span class="at">@[value: 'app.debug']</span>
+    debug <span class="tp">bool</span>
+}
+
+<span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">DatabaseConfig</span> {
+    <span class="at">@[config_field: 'database.host']</span>
+    host <span class="tp">string</span>
+
+    <span class="at">@[config_field: 'database.port']</span>
+    port <span class="tp">int</span>
+}
+
+<span class="at">@[component]</span>
+<span class="kw">pub struct</span> <span class="tp">ScheduledTasks</span> {
+    <span class="at">@[scheduled: '0 * * * *']</span>
+    <span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">s</span> <span class="tp">ScheduledTasks</span>) <span class="fn">hourly_cleanup</span>() {
+        <span class="cm">// 每小时执行清理</span>
+    }
+}</div>
+        </div>
+
+        <h3>值注入 API</h3>
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>pp.inject_values[T](mut bean, env)</code></td><td>从 Environment 注入 <code>@[value]</code> 字段（需要显式传递 Environment）</td></tr>
+            <tr><td><code>pp.inject_values_for_bean[T](mut bean)</code></td><td>便捷封装：使用内置 Environment 解析（推荐）</td></tr>
+            <tr><td><code>pp.bind_values[T](mut bean, props)</code></td><td>从预解析的 <code>map[string]string</code> 绑定（跨模块安全）</td></tr>
+            <tr><td><code>value_keys[T]()</code></td><td>编译期获取 T 的所有 <code>@[value]</code> 键名</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box info-tip">
+          💡 <strong>跨模块安全</strong>：<code>bind_values[T]()</code> 接受 <code>map[string]string</code> 而非 <code>&Environment</code>，避免了 V 0.5.1 中 <code>mut env &Environment</code> 泛型参数被误解析为 <code>&&Environment</code> 的问题。在非 core 模块中调用值注入时，优先使用 <code>inject_values_for_bean[T]()</code> 或 <code>bind_values[T]()</code>。
         </div>
       </div>
 

@@ -130,7 +130,7 @@ fn test_map_config_source_name() {
 }
 
 fn test_map_config_source_load() {
-	source := MapConfigSource{
+	mut source := MapConfigSource{
 		data: {
 			'app.name':    'TestApp'
 			'server.port': '8080'
@@ -145,7 +145,7 @@ fn test_map_config_source_load() {
 }
 
 fn test_map_config_source_load_empty() {
-	source := MapConfigSource{
+	mut source := MapConfigSource{
 		data: map[string]string{}
 	}
 	props := source.load()!
@@ -509,7 +509,7 @@ fn test_property_binder_resolve_value_with_placeholders() {
 		'db.port': '5432'
 	})
 	env.add_source(source)
-	binder := new_property_binder_with_env(cfg, env)
+	mut binder := new_property_binder_with_env(cfg, env)
 	result := binder.resolve_value_with_placeholders('jdbc://\${db.host:localhost}:\${db.port:5432}/mydb')
 	assert result == 'jdbc://localhost:5432/mydb'
 }

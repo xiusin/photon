@@ -153,7 +153,7 @@
           </a>
           <a href="#config" class="module-card">
             <h3>⚙️ Config · 配置管理 <span class="module-badge badge-ga">GA</span></h3>
-            <p>多源配置加载、Profile 环境、属性绑定、<code>@[value('key')]</code> 注入 — 与 Spring Environment 等价。</p>
+            <p>多源配置加载、Profile 环境、属性绑定、<code>@[value: 'key']</code> 注入 — 与 Spring Environment 等价。</p>
             <div class="mc-tags"><span class="mc-tag">Profile</span><span class="mc-tag">Property</span><span class="mc-tag">Binding</span></div>
           </a>
           <a href="#web" class="module-card">
@@ -231,10 +231,43 @@
         <div class="card-grid">
           <div class="card"><h4>⚙️ 编译期 DI</h4><p>所有 <code>@[autowired]</code> 依赖在编译期通过 <code>comptime $for</code> 扫描解析，零运行时反射开销。启动即巅峰性能。</p></div>
           <div class="card"><h4>🔒 类型安全</h4><p>V 语言的强类型系统 + 编译期检查 = 循环依赖检测、类型不匹配在编译期报错，而非运行时崩溃。</p></div>
-          <div class="card"><h4>📦 注解驱动</h4><p><code>@[component]</code>、<code>@[get('/path')]</code>、<code>@[cacheable]</code> — 声明式编程，极低心智成本。</p></div>
+          <div class="card"><h4>📦 注解驱动</h4><p><code>@[component]</code>、<code>@[get: '/path']</code>、<code>@[cacheable]</code> — 声明式编程，极低心智成本。</p></div>
           <div class="card"><h4>🔌 可插拔架构</h4><p>模块间通过 trait 解耦，按需引入。不用 Cache？不 import 即可，零开销。</p></div>
           <div class="card"><h4>🔄 向后兼容</h4><p>公开 API 变更必须经过弃用周期，遵循语义化版本控制（SemVer）。</p></div>
           <div class="card"><h4>🏭 生产就绪</h4><p>SQL 注入防护、XSS 转义、CSRF Token、敏感信息脱敏 — 安全不是可选项。</p></div>
+        </div>
+      </div>
+
+      <!-- Changelog -->
+      <div class="doc-section" id="changelog">
+        <div class="section-header">
+          <div class="section-icon icon-core">📝</div>
+          <div><div class="section-title">更新日志</div><div class="section-subtitle">最新变更 · V 0.5.1 兼容性修复 · 新功能</div></div>
+        </div>
+
+        <h3>v0.1.1 — V 0.5.1 兼容性 + 控制器挂载 + 配置增强</h3>
+        <table class="doc-table">
+          <thead><tr><th>变更</th><th>模块</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>✨ 控制器挂载</td><td><code>web</code></td><td>新增 <code>mount_controller[T]()</code> / <code>mount_controller_auto[T]()</code>，支持控制器在任意目录定义</td></tr>
+            <tr><td>✨ 控制器 DI</td><td><code>core</code></td><td>新增 <code>autowire_controller[T]()</code> / <code>wire_controller[T]()</code> / <code>register_controller[T]()</code></td></tr>
+            <tr><td>✨ AOP 支持</td><td><code>core</code></td><td>新增 <code>transactional_wrap[T]()</code> / <code>cacheable_wrap[T]()</code> / <code>detect_aop_methods[T]()</code></td></tr>
+            <tr><td>✨ YAML 配置源</td><td><code>config</code></td><td>新增 <code>YamlConfigSource</code>，支持嵌套、列表、Profile 覆盖</td></tr>
+            <tr><td>✨ TOML 配置源</td><td><code>config</code></td><td>新增 <code>TomlConfigSource</code>，使用 V 官方 <code>toml</code> 模块</td></tr>
+            <tr><td>✨ MapPropertySource</td><td><code>config</code></td><td>新增编程式配置源，支持测试覆盖</td></tr>
+            <tr><td>✨ Profile 批量加载</td><td><code>config</code></td><td>新增 <code>load_yaml_with_profiles()</code> / <code>load_toml_with_profiles()</code></td></tr>
+            <tr><td>🔧 注解语法修复</td><td><code>core</code></td><td><code>@[value('key')]</code> → <code>@[value: 'key']</code>（V 0.5.1 兼容）</td></tr>
+            <tr><td>🔧 <code>&&Environment</code> 修复</td><td><code>core</code></td><td>泛型参数 <code>mut env &Environment</code> 改为 <code>env &Environment</code> + 内部 <code>mut</code></td></tr>
+            <tr><td>🔧 PropertySource <code>none</code> 修复</td><td><code>config</code></td><td>所有 <code>get_property()</code> 在键缺失时返回 <code>none</code> 而非空字符串</td></tr>
+            <tr><td>🔧 TOML <code>_v_type_idx_</code> 修复</td><td><code>config</code></td><td><code>flatten_toml_any()</code> 绕过 V 0.5.1 C 后端 <code>toml.Any</code> 类型索引 bug</td></tr>
+            <tr><td>🔧 占位符解析修复</td><td><code>core</code></td><td><code>resolve_placeholders_with_visited()</code> 正确使用 <code>get_property_or</code></td></tr>
+            <tr><td>🔧 事件事务测试修复</td><td><code>core</code></td><td><code>assert</code> 中使用完整枚举路径 <code>TransactionPhase.before_commit</code></td></tr>
+            <tr><td>🔧 调度方法接收者修复</td><td><code>core</code></td><td>comptime dispatch 中值接收者方法改为 <code>mut</code> 接收者</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box info-tip">
+          💡 <strong>升级指南</strong>：将所有 <code>@[value('key')]</code> 改为 <code>@[value: 'key']</code>，<code>@[config_field('key')]</code> 改为 <code>@[config_field: 'key']</code>，<code>@[scheduled('cron')]</code> 改为 <code>@[scheduled: 'cron']</code>。括号式写法在简单场景仍可工作，但冒号式在 V 0.5.1 下更可靠。
         </div>
       </div>
 

@@ -2,7 +2,7 @@ module core
 
 // value_injection_test.v - Tests for ValueAnnotationPostProcessor
 //
-// Tests the real @[value('key')] injection via the comptime
+// Tests the real @[value: 'key'] injection via the comptime
 // ValueAnnotationPostProcessor.inject_values[T]() method.
 //
 // Covers:
@@ -17,67 +17,67 @@ module core
 
 // ValueTestConfig covers all 4 primitive types in a single struct.
 struct ValueTestConfig {
-	app_name string @[value('app.name')]
-	port     int    @[value('app.port')]
-	debug    bool   @[value('app.debug')]
-	ratio    f64    @[value('app.ratio')]
+	app_name string @[value: 'app.name']
+	port     int    @[value: 'app.port']
+	debug    bool   @[value: 'app.debug']
+	ratio    f64    @[value: 'app.ratio']
 }
 
 // ValueTestMissingKey has a field referencing a non-existent property key.
 struct ValueTestMissingKey {
-	missing_field string @[value('app.nonexistent')]
+	missing_field string @[value: 'app.nonexistent']
 }
 
 // ValueTestBool isolates bool conversion for variation testing.
 struct ValueTestBool {
-	flag bool @[value('flag')]
+	flag bool @[value: 'flag']
 }
 
 // ValueTestString isolates string injection.
 struct ValueTestString {
-	greeting string @[value('greeting')]
+	greeting string @[value: 'greeting']
 }
 
 // ValueTestAppName isolates string injection with an app.name key.
 struct ValueTestAppName {
-	app_name string @[value('app.name')]
+	app_name string @[value: 'app.name']
 }
 
 // ValueTestInt isolates int injection.
 struct ValueTestInt {
-	count int @[value('count')]
+	count int @[value: 'count']
 }
 
 // ValueTestAppPort isolates int injection with an app.port key.
 struct ValueTestAppPort {
-	port int @[value('app.port')]
+	port int @[value: 'app.port']
 }
 
 // ValueTestF64 isolates f64 injection.
 struct ValueTestF64 {
-	temperature f64 @[value('temperature')]
+	temperature f64 @[value: 'temperature']
 }
 
 // ValueTestAppRatio isolates f64 injection with an app.ratio key.
 struct ValueTestAppRatio {
-	ratio f64 @[value('app.ratio')]
+	ratio f64 @[value: 'app.ratio']
 }
 
 // ValueTestI64 tests i64 field type.
 struct ValueTestI64 {
-	big_number i64 @[value('big.number')]
+	big_number i64 @[value: 'big.number']
 }
 
 // ValueTestF32 tests f32 field type.
 struct ValueTestF32 {
-	precision f32 @[value('precision')]
+	precision f32 @[value: 'precision']
 }
 
 // ValueTestMixedAnnotated has a mix of annotated and non-annotated fields.
 // Non-annotated fields must remain at their zero values.
 struct ValueTestMixedAnnotated {
-	title           string @[value('app.title')]
-	version         int    @[value('app.version')]
+	title           string @[value: 'app.title']
+	version         int    @[value: 'app.version']
 	untouched_field string
 	untouched_count  int
 }
@@ -90,7 +90,7 @@ fn test_inject_string_value() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestAppName{}
-	pp.inject_values[ValueTestAppName](mut cfg, mut env)!
+	pp.inject_values[ValueTestAppName](mut cfg, env)!
 
 	assert cfg.app_name == 'Photon'
 }
@@ -101,7 +101,7 @@ fn test_inject_string_isolated() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestString{}
-	pp.inject_values[ValueTestString](mut cfg, mut env)!
+	pp.inject_values[ValueTestString](mut cfg, env)!
 
 	assert cfg.greeting == 'Hello, Photon!'
 }
@@ -112,7 +112,7 @@ fn test_inject_string_with_special_chars() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestString{}
-	pp.inject_values[ValueTestString](mut cfg, mut env)!
+	pp.inject_values[ValueTestString](mut cfg, env)!
 
 	assert cfg.greeting == 'Hello "World" / 你好'
 }
@@ -125,7 +125,7 @@ fn test_inject_int_value() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestAppPort{}
-	pp.inject_values[ValueTestAppPort](mut cfg, mut env)!
+	pp.inject_values[ValueTestAppPort](mut cfg, env)!
 
 	assert cfg.port == 8080
 }
@@ -136,7 +136,7 @@ fn test_inject_int_isolated() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestInt{}
-	pp.inject_values[ValueTestInt](mut cfg, mut env)!
+	pp.inject_values[ValueTestInt](mut cfg, env)!
 
 	assert cfg.count == 42
 }
@@ -147,7 +147,7 @@ fn test_inject_int_zero() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestInt{}
-	pp.inject_values[ValueTestInt](mut cfg, mut env)!
+	pp.inject_values[ValueTestInt](mut cfg, env)!
 
 	assert cfg.count == 0
 }
@@ -158,7 +158,7 @@ fn test_inject_int_negative() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestInt{}
-	pp.inject_values[ValueTestInt](mut cfg, mut env)!
+	pp.inject_values[ValueTestInt](mut cfg, env)!
 
 	assert cfg.count == -100
 }
@@ -171,7 +171,7 @@ fn test_inject_f64_value() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestAppRatio{}
-	pp.inject_values[ValueTestAppRatio](mut cfg, mut env)!
+	pp.inject_values[ValueTestAppRatio](mut cfg, env)!
 
 	assert cfg.ratio == 0.95
 }
@@ -182,7 +182,7 @@ fn test_inject_f64_isolated() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestF64{}
-	pp.inject_values[ValueTestF64](mut cfg, mut env)!
+	pp.inject_values[ValueTestF64](mut cfg, env)!
 
 	assert cfg.temperature == 36.6
 }
@@ -193,7 +193,7 @@ fn test_inject_f64_integer_string() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestF64{}
-	pp.inject_values[ValueTestF64](mut cfg, mut env)!
+	pp.inject_values[ValueTestF64](mut cfg, env)!
 
 	assert cfg.temperature == 100.0
 }
@@ -204,7 +204,7 @@ fn test_inject_f64_zero() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestF64{}
-	pp.inject_values[ValueTestF64](mut cfg, mut env)!
+	pp.inject_values[ValueTestF64](mut cfg, env)!
 
 	assert cfg.temperature == 0.0
 }
@@ -217,7 +217,7 @@ fn test_inject_bool_true() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestBool{}
-	pp.inject_values[ValueTestBool](mut cfg, mut env)!
+	pp.inject_values[ValueTestBool](mut cfg, env)!
 
 	assert cfg.flag == true
 }
@@ -228,7 +228,7 @@ fn test_inject_bool_false() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestBool{}
-	pp.inject_values[ValueTestBool](mut cfg, mut env)!
+	pp.inject_values[ValueTestBool](mut cfg, env)!
 
 	assert cfg.flag == false
 }
@@ -239,7 +239,7 @@ fn test_inject_bool_variation_true_uppercase() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestBool{}
-	pp.inject_values[ValueTestBool](mut cfg, mut env)!
+	pp.inject_values[ValueTestBool](mut cfg, env)!
 
 	assert cfg.flag == true
 }
@@ -250,7 +250,7 @@ fn test_inject_bool_variation_false_uppercase() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestBool{}
-	pp.inject_values[ValueTestBool](mut cfg, mut env)!
+	pp.inject_values[ValueTestBool](mut cfg, env)!
 
 	assert cfg.flag == false
 }
@@ -261,7 +261,7 @@ fn test_inject_bool_variation_one() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestBool{}
-	pp.inject_values[ValueTestBool](mut cfg, mut env)!
+	pp.inject_values[ValueTestBool](mut cfg, env)!
 
 	assert cfg.flag == true
 }
@@ -272,7 +272,7 @@ fn test_inject_bool_variation_zero() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestBool{}
-	pp.inject_values[ValueTestBool](mut cfg, mut env)!
+	pp.inject_values[ValueTestBool](mut cfg, env)!
 
 	assert cfg.flag == false
 }
@@ -283,7 +283,7 @@ fn test_inject_bool_variation_mixed_case() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestBool{}
-	pp.inject_values[ValueTestBool](mut cfg, mut env)!
+	pp.inject_values[ValueTestBool](mut cfg, env)!
 
 	assert cfg.flag == true
 }
@@ -299,7 +299,7 @@ fn test_inject_missing_key_returns_error() {
 
 	mut got_error := false
 	mut error_msg := ''
-	pp.inject_values[ValueTestMissingKey](mut cfg, mut env) or {
+	pp.inject_values[ValueTestMissingKey](mut cfg, env) or {
 		got_error = true
 		error_msg = err.msg()
 	}
@@ -319,7 +319,7 @@ fn test_inject_missing_key_error_is_bilingual() {
 
 	mut got_error := false
 	mut error_msg := ''
-	pp.inject_values[ValueTestMissingKey](mut cfg, mut env) or {
+	pp.inject_values[ValueTestMissingKey](mut cfg, env) or {
 		got_error = true
 		error_msg = err.msg()
 	}
@@ -338,7 +338,7 @@ fn test_inject_missing_key_does_not_mutate_bean() {
 	mut cfg := ValueTestMissingKey{}
 
 	mut got_error := false
-	pp.inject_values[ValueTestMissingKey](mut cfg, mut env) or {
+	pp.inject_values[ValueTestMissingKey](mut cfg, env) or {
 		got_error = true
 	}
 
@@ -358,7 +358,7 @@ fn test_inject_all_four_types_in_one_struct() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut config := ValueTestConfig{}
-	pp.inject_values[ValueTestConfig](mut config, mut env)!
+	pp.inject_values[ValueTestConfig](mut config, env)!
 
 	assert config.app_name == 'Photon'
 	assert config.port == 8080
@@ -373,7 +373,7 @@ fn test_inject_mixed_annotated_and_non_annotated_fields() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestMixedAnnotated{}
-	pp.inject_values[ValueTestMixedAnnotated](mut cfg, mut env)!
+	pp.inject_values[ValueTestMixedAnnotated](mut cfg, env)!
 
 	// Annotated fields are injected
 	assert cfg.title == 'MyApp'
@@ -391,7 +391,7 @@ fn test_inject_i64_field() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestI64{}
-	pp.inject_values[ValueTestI64](mut cfg, mut env)!
+	pp.inject_values[ValueTestI64](mut cfg, env)!
 
 	assert cfg.big_number == 9223372036854775807
 }
@@ -402,7 +402,7 @@ fn test_inject_f32_field() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestF32{}
-	pp.inject_values[ValueTestF32](mut cfg, mut env)!
+	pp.inject_values[ValueTestF32](mut cfg, env)!
 
 	assert cfg.precision == f32(3.14)
 }
@@ -417,7 +417,7 @@ fn test_inject_uses_environment_priority_chain() {
 
 	mut pp := ValueAnnotationPostProcessor{}
 	mut cfg := ValueTestAppName{}
-	pp.inject_values[ValueTestAppName](mut cfg, mut env)!
+	pp.inject_values[ValueTestAppName](mut cfg, env)!
 
 	// CLI arg should win over programmatic property
 	assert cfg.app_name == 'FromCLI'
@@ -430,10 +430,12 @@ fn test_inject_with_environment_from_application_context() {
 	ctx.set_property('app.debug', 'true')
 	ctx.set_property('app.ratio', '1.5')
 
-	mut pp := ValueAnnotationPostProcessor{}
+	// 使用 inject_values_for_bean 规避 V 0.5.1 的 &&Environment 泛型 bug
+	mut pp := ValueAnnotationPostProcessor{
+		environment: ctx.environment
+	}
 	mut config := ValueTestConfig{}
-	mut env := ctx.environment
-	pp.inject_values[ValueTestConfig](mut config, mut env)!
+	pp.inject_values_for_bean[ValueTestConfig](mut config)!
 
 	assert config.app_name == 'CtxApp'
 	assert config.port == 3000
@@ -501,10 +503,13 @@ fn test_inject_struct_with_no_value_annotations() {
 	mut env := new_environment()
 	env.set_property('name', 'ShouldNotBeInjected')
 
-	mut pp := ValueAnnotationPostProcessor{}
+	// 使用 inject_values_for_bean 规避 V 0.5.1 的 &&Environment 泛型 bug
+	mut pp := ValueAnnotationPostProcessor{
+		environment: env
+	}
 	mut cfg := ValueTestNoAnnotations{}
 	// Should succeed (no-op) since no fields have @[value] annotations
-	pp.inject_values[ValueTestNoAnnotations](mut cfg, mut env)!
+	pp.inject_values_for_bean[ValueTestNoAnnotations](mut cfg)!
 
 	// Fields remain at zero values — no @[value] annotations to process
 	assert cfg.name == ''

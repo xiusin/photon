@@ -6,9 +6,10 @@ module config
 // YAML is the most popular config format (Spring Boot, Laravel).
 // TOML is the standard for V/Go projects.
 //
-// TOML parsing uses V's official `toml` standard library module,
-// which supports the full TOML 1.0 specification including
-// arrays of tables, inline tables, datetime values, etc.
+// NOTE: TOML parsing uses a lightweight string-based parser instead of V's
+// official `toml` module. This is because V 0.5.1's C backend generates invalid
+// C function names for `toml.Any` sum type (which contains `map[string]toml.Any`
+// and `[]toml.Any`), causing C compilation errors.
 //
 // YAML parsing uses a built-in lightweight parser that supports
 // the most common YAML patterns (no V official YAML module exists).
@@ -27,7 +28,12 @@ module config
 //
 //   db_host := mgr.get('database.host') or { 'localhost' }
 import os
-import toml
+import strconv
+
+// ascii_str converts a byte to a string (helper for TOML parsing)
+fn ascii_str(ch u8) string {
+	return unsafe { strconv.v_sprintf('%c', ch) }
+}
 
 // ── YamlConfigSource ──
 
@@ -111,14 +117,14 @@ pub fn (mut s YamlConfigSource) get_property(key string) ?string {
 		s.loaded = true
 	}
 	// Try exact key first
-	if val := s.cached[key] {
-		return val
+	if key in s.cached {
+		return s.cached[key]
 	}
 	// Try with dot notation (app.database.host → app.database.host)
 	// Also try colon notation (app.database.host → app:database:host)
 	colon_key := key.replace('.', ':')
-	if val := s.cached[colon_key] {
-		return val
+	if colon_key in s.cached {
+		return s.cached[colon_key]
 	}
 	return none
 }
@@ -221,7 +227,7 @@ pub fn (s TomlConfigSource) name() string {
 }
 
 // load reads and parses a TOML file into a flat key-value map.
-// Delegates to V's official `toml` module for spec-compliant parsing.
+// Uses lightweight string-based parser to avoid V 0.5.1 C backend issues.
 pub fn (mut s TomlConfigSource) load() !map[string]string {
 	if s.loaded {
 		return s.cached.clone()
@@ -229,8 +235,8 @@ pub fn (mut s TomlConfigSource) load() !map[string]string {
 	if !os.exists(s.filepath) {
 		return map[string]string{}
 	}
-	doc := toml.parse_file(s.filepath)!
-	result := toml_doc_to_flat_map(doc)
+	content := os.read_file(s.filepath)!
+	result := parse_toml_lightweight(content)
 	s.cached = result.clone()
 	s.loaded = true
 	return result
@@ -243,7 +249,10 @@ pub fn (mut s TomlConfigSource) get_property(key string) ?string {
 		s.cached = s.load() or { map[string]string{} }
 		s.loaded = true
 	}
-	return s.cached[key]
+	if key in s.cached {
+		return s.cached[key]
+	}
+	return none
 }
 
 // contains_property checks if a key exists in the loaded TOML config.
@@ -323,7 +332,8 @@ pub fn load_toml_with_profiles(base_path string, profiles []string) !map[string]
 
 	// Load base config
 	if os.exists(base_path) {
-		base := toml_doc_to_flat_map(toml.parse_file(base_path)!)
+		content := os.read_file(base_path)!
+		base := parse_toml_lightweight(content)
 		for key, value in base {
 			result[key] = value
 		}
@@ -333,7 +343,8 @@ pub fn load_toml_with_profiles(base_path string, profiles []string) !map[string]
 	for profile in profiles {
 		profile_path := build_profile_path(base_path, profile, 'toml')
 		if os.exists(profile_path) {
-			profile_props := toml_doc_to_flat_map(toml.parse_file(profile_path)!)
+			profile_content := os.read_file(profile_path)!
+			profile_props := parse_toml_lightweight(profile_content)
 			for key, value in profile_props {
 				result[key] = value
 			}
@@ -487,50 +498,174 @@ fn clean_yaml_value(value string) string {
 	}
 }
 
-// ── TOML Helpers (using V official toml module) ──
+// ── TOML Helpers (lightweight string-based parser) ──
+//
+// NOTE: V 0.5.1 的 C 后端在为 `map[string]toml.Any` 和 `[]toml.Any` 等复杂嵌套泛型类型
+// 生成 `_v_type_idx_` 函数时会产生无效的 C 函数名（含 `[string]`），导致 C 编译失败。
+// 因此不能使用 V 标准库的 `toml` 模块（它使用了 `toml.Any` sum type）。
+// 改用轻量级的字符串解析方案，支持常见的 TOML 配置模式。
 
 // parse_toml parses a TOML document string into a flat key-value map.
-// Delegates to V's official `toml` module for spec-compliant parsing.
+// Uses a lightweight string-based parser that supports the most common TOML patterns:
+//   - key = value (string, number, bool, datetime)
+//   - [section] headers for nesting
+//   - inline tables { key = value }
+//   - arrays [value1, value2]
 pub fn parse_toml(content string) !map[string]string {
-	doc := toml.parse_text(content)!
-	return toml_doc_to_flat_map(doc)
+	return parse_toml_lightweight(content)
 }
 
-// toml_doc_to_flat_map converts a toml.Doc into a flat dot-notation map.
-fn toml_doc_to_flat_map(doc toml.Doc) map[string]string {
+// parse_toml_lightweight parses TOML using string processing.
+// Supports: sections [section], array of tables [[section]], key=value pairs, inline tables, arrays.
+fn parse_toml_lightweight(content string) map[string]string {
 	mut result := map[string]string{}
-	any := doc.to_any()
-	flatten_toml_any(any, '', mut result)
+	mut current_section := ''
+	mut array_table_indices := map[string]int{} // Track indices for array of tables
+
+	lines := content.split_into_lines()
+	for line in lines {
+		trimmed := line.trim_space()
+
+		// Skip empty lines and comments
+		if trimmed.len == 0 || trimmed.starts_with('#') {
+			continue
+		}
+
+		// Section header [section] or [[array_of_tables]]
+		if trimmed.starts_with('[') && trimmed.ends_with(']') {
+			section := trimmed[1..trimmed.len - 1].trim_space()
+			// Handle array of tables [[section]]
+			if section.starts_with('[') && section.ends_with(']') {
+				array_name := section[1..section.len - 1].trim_space()
+				// Get current index for this array table
+				idx := array_table_indices[array_name] or { 0 }
+				array_table_indices[array_name] = idx + 1
+				current_section = '${array_name}[${idx}]'
+			} else {
+				current_section = section
+			}
+			continue
+		}
+
+		// Parse key = value
+		if trimmed.contains('=') {
+			parts := trimmed.split_nth('=', 2)
+			if parts.len == 2 {
+				mut key := parts[0].trim_space()
+				mut value := parts[1].trim_space()
+
+				// Skip inline comments (but not inside quoted strings)
+				value = strip_toml_comment(value)
+
+				// Build full key with section prefix
+				full_key := if current_section.len > 0 { '${current_section}.${key}' } else { key }
+
+				// Parse the value
+				parsed_value := parse_toml_value(value)
+				result[full_key] = parsed_value
+
+				// Handle inline tables recursively
+				if value.starts_with('{') && value.ends_with('}') {
+					inline_table := value[1..value.len - 1]
+					parse_inline_table(inline_table, full_key, mut result)
+				}
+			}
+		}
+	}
+
 	return result
 }
 
-// flatten_toml_any recursively flattens a toml.Any value into dot-notation keys.
-fn flatten_toml_any(val toml.Any, prefix string, mut result map[string]string) {
-	match val {
-		map[string]toml.Any {
-			for key, any_val in val {
-				new_key := if prefix.len > 0 { '${prefix}.${key}' } else { key }
-				flatten_toml_any(any_val, new_key, mut result)
+// strip_toml_comment removes inline comments from a TOML value.
+// Handles quoted strings properly.
+fn strip_toml_comment(value string) string {
+	mut in_single_quote := false
+	mut in_double_quote := false
+	mut escaped := false
+
+	for i, ch in value {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == `\\` {
+			escaped = true
+			continue
+		}
+		if ch == `"` && !in_single_quote {
+			in_double_quote = !in_double_quote
+			continue
+		}
+		if ch == `'` && !in_double_quote {
+			in_single_quote = !in_single_quote
+			continue
+		}
+		if ch == `#` && !in_single_quote && !in_double_quote {
+			return value[..i].trim_space()
+		}
+	}
+	return value
+}
+
+// parse_toml_value parses a TOML value string, handling quotes and arrays.
+fn parse_toml_value(value string) string {
+	mut v := value.trim_space()
+
+	// Handle quoted strings
+	if (v.starts_with('"') && v.ends_with('"')) || (v.starts_with("'") && v.ends_with("'")) {
+		return v[1..v.len - 1]
+	}
+
+	// Handle arrays - return as-is for now (flattened separately if needed)
+	if v.starts_with('[') && v.ends_with(']') {
+		return v // Keep array syntax for potential further processing
+	}
+
+	// Return other values as-is (numbers, booleans, dates)
+	return v
+}
+
+// parse_inline_table parses an inline table { key = value, ... } recursively.
+fn parse_inline_table(table_content string, prefix string, mut result map[string]string) {
+	// Split by comma, but handle nested braces
+	mut items := []string{}
+	mut depth := 0
+	mut current := ''
+
+	for ch in table_content {
+		if ch == `{` {
+			depth++
+			current += ch.ascii_str()
+		} else if ch == `}` {
+			depth--
+			current += ch.ascii_str()
+		} else if ch == `,` && depth == 0 {
+			items << current.trim_space()
+			current = ''
+		} else {
+			current += ch.ascii_str()
+		}
+	}
+	if current.len > 0 {
+		items << current.trim_space()
+	}
+
+	// Parse each key=value pair
+	for item in items {
+		if item.contains('=') {
+			parts := item.split_nth('=', 2)
+			if parts.len == 2 {
+				key := parts[0].trim_space()
+				value := parts[1].trim_space()
+				full_key := '${prefix}.${key}'
+				result[full_key] = parse_toml_value(value)
+
+				// Handle nested inline tables
+				if value.starts_with('{') && value.ends_with('}') {
+					nested_table := value[1..value.len - 1]
+					parse_inline_table(nested_table, full_key, mut result)
+				}
 			}
-		}
-		[]toml.Any {
-			for i, any_val in val {
-				new_key := '${prefix}[${i}]'
-				flatten_toml_any(any_val, new_key, mut result)
-			}
-		}
-		string {
-			result[prefix] = val
-		}
-		bool {
-			result[prefix] = if val { 'true' } else { 'false' }
-		}
-		int, i64, u64, f32, f64 {
-			result[prefix] = val.str()
-		}
-		else {
-			// DateTime, Date, Time, Null — use str()
-			result[prefix] = val.str()
 		}
 	}
 }

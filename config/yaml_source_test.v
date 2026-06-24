@@ -162,7 +162,7 @@ fn test_yaml_source_load_from_file() ! {
 		os.rm(tmp_file) or {}
 	}
 
-	source := new_yaml_source(tmp_file)
+	mut source := new_yaml_source(tmp_file)
 	result := source.load()!
 	assert result['app.name'] == 'TestApp'
 	assert result['app.debug'] == 'true'
@@ -179,7 +179,7 @@ fn test_toml_source_load_from_file() ! {
 		os.rm(tmp_file) or {}
 	}
 
-	source := new_toml_source(tmp_file)
+	mut source := new_toml_source(tmp_file)
 	result := source.load()!
 	assert result['app.name'] == 'TestApp'
 	assert result['app.debug'] == 'true'

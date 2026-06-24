@@ -30,7 +30,7 @@ mut:
 	call_count int
 }
 
-@[scheduled('* * * * *')]
+@[scheduled: '* * * * *']
 fn (mut s SchedCronService) heartbeat() {
 	s.mu.@lock()
 	s.call_count++
@@ -46,14 +46,14 @@ mut:
 	count_b int
 }
 
-@[scheduled('* * * * *')]
+@[scheduled: '* * * * *']
 fn (mut s SchedMultiService) task_a() {
 	s.mu.@lock()
 	s.count_a++
 	s.mu.unlock()
 }
 
-@[scheduled('0 * * * *')]
+@[scheduled: '0 * * * *']
 fn (mut s SchedMultiService) task_b() {
 	s.mu.@lock()
 	s.count_b++
@@ -66,7 +66,7 @@ struct SchedPlainService {
 	x int
 }
 
-fn (s SchedPlainService) do_something() {
+fn (mut s SchedPlainService) do_something() {
 }
 
 // SchedSecondService is used alongside SchedCronService to test multiple
@@ -77,7 +77,7 @@ mut:
 	count int
 }
 
-@[scheduled('*/5 * * * *')]
+@[scheduled: '*/5 * * * *']
 fn (mut s SchedSecondService) periodic() {
 	s.mu.@lock()
 	s.count++
@@ -92,21 +92,21 @@ mut:
 	count int
 }
 
-@[scheduled('0 9 * * 1-5')]
+@[scheduled: '0 9 * * 1-5']
 fn (mut s SchedVariousCronService) weekday_report() {
 	s.mu.@lock()
 	s.count++
 	s.mu.unlock()
 }
 
-@[scheduled('*/15 * * * *')]
+@[scheduled: '*/15 * * * *']
 fn (mut s SchedVariousCronService) every_15_min() {
 	s.mu.@lock()
 	s.count++
 	s.mu.unlock()
 }
 
-@[scheduled('30 0 1 1 *')]
+@[scheduled: '30 0 1 1 *']
 fn (mut s SchedVariousCronService) new_year() {
 	s.mu.@lock()
 	s.count++

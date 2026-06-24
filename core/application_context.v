@@ -1341,7 +1341,7 @@ pub fn (mut ctx ApplicationContext) bind_to(prefix string) !map[string]string {
 //   config := ctx.bind_to_struct[DbConfig]('app.db')!
 //   // config.host == 'localhost', config.port == 5432
 pub fn (mut ctx ApplicationContext) bind_to_struct[T](prefix string) !T {
-	return bind_to_struct[T](mut ctx.environment, prefix)
+	return bind_to_struct[T](ctx.environment, prefix)
 }
 
 // register_configuration_properties binds environment properties to a struct T
@@ -1367,7 +1367,7 @@ pub fn (mut ctx ApplicationContext) bind_to_struct[T](prefix string) !T {
 //   // config is now registered as a singleton bean and can be resolved:
 //   resolved := ctx.resolve('DatabaseConfig')!
 pub fn (mut ctx ApplicationContext) register_configuration_properties[T](type_name string, prefix string) !&T {
-	config := bind_to_struct[T](mut ctx.environment, prefix)!
+	config := bind_to_struct[T](ctx.environment, prefix)!
 	// V escapes `config` to the heap when we take a reference that outlives the function.
 	config_ptr := &config
 	ctx.register_instance(type_name, config_ptr)!

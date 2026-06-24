@@ -184,6 +184,115 @@ chain.<span class="fn">use</span>(web.<span class="fn">cors_middleware</span>(co
         </div>
       </div>
 
+      <!-- ═══ 5. Controller Mounting ═══ -->
+      <div class="doc-section" id="controller-mounting">
+        <div class="section-header"><div class="section-icon icon-web">🔌</div><div><div class="section-title">控制器挂载</div><div class="section-subtitle">mount_controller · mount_controller_auto — 编译期 comptime 路由扫描</div></div></div>
+
+        <p>Photon Web 的核心能力：通过 <code>comptime $for</code> 扫描控制器 T 的方法，自动发现路由注解（<code>@[get]</code>、<code>@[post]</code> 等）并注册为 <code>RouteHandler</code> 闭包。控制器可在任意目录、任意包中定义，只需在挂载点 import 即可。</p>
+
+        <h3>路由注解格式</h3>
+        <p>支持两种写法，推荐使用合并式（Spring 风格）：</p>
+        <table class="doc-table">
+          <thead><tr><th>格式</th><th>写法</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>合并式（推荐）</td><td><code>@[get: '/users']</code></td><td>Spring 风格，方法与路径合并在一个注解中</td></tr>
+            <tr><td>分离式</td><td><code>@[get]</code> + <code>@['/users']</code></td><td>veb 风格，HTTP 方法和路径分开标注</td></tr>
+          </tbody>
+        </table>
+
+        <h3>控制器前缀</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 使用 @[prefix] 注解定义路由前缀</span>
+<span class="at">@[controller]</span>
+<span class="at">@[prefix: '/api/v1']</span>
+<span class="kw">pub struct</span> <span class="tp">UserController</span> {
+    web.<span class="tp">BaseController</span>
+    veb.<span class="tp">Context</span>
+    user_service &<span class="tp">UserService</span> <span class="at">@[autowired]</span>
+}
+
+<span class="at">@[get: '/users']</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">c</span> <span class="tp">UserController</span>) <span class="fn">list</span>(<span class="at">mut</span> <span class="at">ctx</span> veb.<span class="tp">Context</span>, params map[string]<span class="tp">string</span>) veb.<span class="tp">Result</span> {
+    <span class="kw">return</span> ctx.<span class="fn">text</span>(<span class="st">'{"users":[]}'</span>)
+}
+
+<span class="at">@[get: '/users/:id']</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">c</span> <span class="tp">UserController</span>) <span class="fn">show</span>(<span class="at">mut</span> <span class="at">ctx</span> veb.<span class="tp">Context</span>, params map[string]<span class="tp">string</span>) veb.<span class="tp">Result</span> {
+    id := params[<span class="st">'id'</span>] <span class="kw">or</span> { <span class="st">''</span> }
+    <span class="kw">return</span> ctx.<span class="fn">text</span>(<span class="st">'{"id":"${id}"}'</span>)
+}</div>
+        </div>
+
+        <h3>挂载 API</h3>
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>rr.mount_controller[T](controller, prefix)</code></td><td>扫描 T 的路由方法并注册到 RouteRegistry</td></tr>
+            <tr><td><code>rr.mount_controller_auto[T](controller, default_prefix)</code></td><td>自动从 <code>@[prefix]</code> 注解提取前缀，无注解则使用 default_prefix</td></tr>
+            <tr><td><code>wm.mount_controller[T](controller, prefix)</code></td><td>通过 WebModule 挂载（委托给 RouteRegistry）</td></tr>
+            <tr><td><code>wm.mount_controller_auto[T](controller, default_prefix)</code></td><td>通过 WebModule 自动挂载</td></tr>
+            <tr><td><code>core.wire_controller[T]()</code></td><td>创建控制器 + 自动注入 <code>@[autowired]</code> 依赖</td></tr>
+          </tbody>
+        </table>
+
+        <h3>完整挂载示例</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.core
+<span class="kw">import</span> photon.web
+<span class="kw">import</span> veb
+
+<span class="cm">// 主应用结构体</span>
+<span class="kw">pub struct</span> <span class="tp">App</span> {
+    web.<span class="tp">WebModule</span>
+}
+
+<span class="cm">// 1. 定义控制器（可在任意文件/包中）</span>
+<span class="at">@[controller]</span>
+<span class="at">@[prefix: '/api/v1']</span>
+<span class="kw">pub struct</span> <span class="tp">UserController</span> {
+    user_service &<span class="tp">UserService</span> <span class="at">@[autowired]</span>
+}
+
+<span class="at">@[get: '/users']</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">c</span> <span class="tp">UserController</span>) <span class="fn">list</span>(<span class="at">mut</span> <span class="at">ctx</span> veb.<span class="tp">Context</span>, params map[string]<span class="tp">string</span>) veb.<span class="tp">Result</span> {
+    <span class="kw">return</span> ctx.<span class="fn">text</span>(<span class="st">'{"users":[]}'</span>)
+}
+
+<span class="cm">// 2. 在 main 中挂载</span>
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">mut</span> app := core.<span class="fn">new_application_context</span>()
+    app.<span class="fn">refresh</span>()!
+
+    <span class="cm">// 创建应用实例</span>
+    <span class="kw">mut</span> server := &<span class="tp">App</span>{
+        WebModule: web.<span class="fn">init_web_module</span>()
+    }
+
+    <span class="cm">// 创建控制器（自动注入依赖）+ 挂载路由</span>
+    ctrl := app.<span class="fn">wire_controller</span>[<span class="tp">UserController</span>]()!
+    server.WebModule.<span class="fn">mount_controller</span>[<span class="tp">UserController</span>](ctrl, <span class="st">'/api/v1'</span>)
+
+    <span class="cm">// 或使用 mount_controller_auto（自动提取 @[prefix]）</span>
+    <span class="cm">// server.WebModule.mount_controller_auto[UserController](ctrl, '/api')</span>
+
+    <span class="cm">// 3. 在 before_request 中分发请求</span>
+    <span class="cm">// pub fn (mut ctx Context) before_request() {
+    <span class="cm">//     ctx.app.WebModule.handle_request(mut ctx)
+    <span class="cm">// }</span>
+}</div>
+        </div>
+
+        <div class="info-box info-tip">
+          💡 <strong>控制器方法签名约定</strong>：路由处理方法必须具有签名 <code>fn (mut c T, mut ctx veb.Context, params map[string]string) veb.Result</code>。<code>mount_controller[T]()</code> 通过 <code>$if method.return_type is veb.Result</code> 确保只对返回 <code>veb.Result</code> 的方法生成调用代码，非路由方法（构造器等）不会被匹配。
+        </div>
+
+        <div class="info-box info-warn">
+          ⚠️ <strong>V 0.5.1 comptime 限制</strong>：闭包内不能直接使用 <code>$method</code>，因此通过 <code>dispatch_controller_method[T]()</code> 顶层泛型函数进行分发。<code>$for</code> 循环中不允许 <code>continue</code>，使用 <code>if</code> 嵌套代替。
+        </div>
+      </div>
+
       <div class="production-box">
         <div class="production-title">🚀 生产实践</div>
         <ul>
@@ -192,6 +301,9 @@ chain.<span class="fn">use</span>(web.<span class="fn">cors_middleware</span>(co
           <li>CORS 配置不要使用 <code>*</code>，明确指定允许的 Origin</li>
           <li>中间件顺序很重要：recovery → logging → cors → auth → business</li>
           <li>路径参数使用 <code>:id</code> 风格，避免路由冲突</li>
+          <li>使用 <code>@[prefix: '/api/v1']</code> + <code>mount_controller_auto[T]()</code> 实现自动化路由挂载</li>
+          <li>控制器拆分到不同文件/包中，通过 <code>wire_controller[T]()</code> 注入依赖后挂载</li>
+          <li>路由注解推荐使用合并式 <code>@[get: '/users']</code>，与 Spring <code>@GetMapping</code> 风格一致</li>
         </ul>
       </div>
 

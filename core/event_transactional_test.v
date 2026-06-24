@@ -181,8 +181,8 @@ fn test_transactional_event_listener_returns_count() {
 }
 
 fn test_transaction_phase_enum_values() {
-	assert .before_commit == TransactionPhase.before_commit
-	assert .after_commit == TransactionPhase.after_commit
-	assert .after_rollback == TransactionPhase.after_rollback
-	assert .after_completion == TransactionPhase.after_completion
+	assert TransactionPhase.before_commit == TransactionPhase.before_commit
+	assert TransactionPhase.after_commit == TransactionPhase.after_commit
+	assert TransactionPhase.after_rollback == TransactionPhase.after_rollback
+	assert TransactionPhase.after_completion == TransactionPhase.after_completion
 }

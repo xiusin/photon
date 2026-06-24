@@ -98,19 +98,19 @@ cfg.<span class="fn">load</span>()!
           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
           <div class="code-body"><span class="at">@[component]</span>
 <span class="kw">pub struct</span> <span class="tp">DatabaseConfig</span> {
-    <span class="at">@[value('database.host')]</span>
+    <span class="at">@[value: 'database.host']</span>
     host <span class="tp">string</span>
 
-    <span class="at">@[value('database.port')]</span>
+    <span class="at">@[value: 'database.port']</span>
     port <span class="tp">int</span>
 
-    <span class="at">@[value('database.name')]</span>
+    <span class="at">@[value: 'database.name']</span>
     name <span class="tp">string</span>
 
-    <span class="at">@[value('database.pool.max')]</span>
+    <span class="at">@[value: 'database.pool.max']</span>
     max_pool <span class="tp">int</span>
 
-    <span class="at">@[value('database.ssl.enabled')]</span>
+    <span class="at">@[value: 'database.ssl.enabled']</span>
     ssl_enabled <span class="tp">bool</span>
 }
 
@@ -207,13 +207,13 @@ url := env.<span class="fn">resolve_placeholders</span>(<span class="st">'jdbc:/
 <span class="cm">// 1. bind_to_struct[T]() — Bind @[value] annotated fields</span>
 <span class="at">@[component]</span>
 <span class="kw">pub struct</span> <span class="tp">DatabaseConfig</span> {
-    <span class="at">@[value('database.host')]</span>
+    <span class="at">@[value: 'database.host']</span>
     host <span class="tp">string</span>
 
-    <span class="at">@[value('database.port')]</span>
+    <span class="at">@[value: 'database.port']</span>
     port <span class="tp">int</span>
 
-    <span class="at">@[value('database.name')]</span>
+    <span class="at">@[value: 'database.name']</span>
     name <span class="tp">string</span>
 }
 
@@ -249,12 +249,170 @@ cfg.<span class="fn">add_source</span>(map_source)
         <ul>
           <li>敏感信息（密码、密钥）使用环境变量注入，不要写入配置文件</li>
           <li>环境变量覆盖文件配置（<code>EnvSource</code> 优先级最高）</li>
-          <li>使用 <code>@[value('key')]</code> 绑定到 struct 字段，避免散落的魔术字符串</li>
+          <li>使用 <code>@[value: 'key']</code> 绑定到 struct 字段，避免散落的魔术字符串</li>
           <li>Profile 特定配置只覆盖差异项，减少重复配置</li>
           <li>使用 <code>resolve_placeholders('${key:default}')</code> 统一配置占位符语法，与 Spring 保持一致</li>
           <li>使用 <code>bind_configuration_properties[T](prefix)</code> 实现类型安全的配置绑定，替代散落的 <code>get_or()</code> 调用</li>
           <li>使用 <code>MapPropertySource</code> 在测试中注入覆盖配置</li>
         </ul>
+      </div>
+
+      <!-- ═══ 8. YAML & TOML Sources ═══ -->
+      <div class="doc-section" id="yaml-toml-sources">
+        <div class="section-header"><div class="section-icon icon-config">📄</div><div><div class="section-title">YAML / TOML 配置源</div><div class="section-subtitle">YamlConfigSource · TomlConfigSource — Spring Boot application.yml 等价</div></div></div>
+
+        <p>Photon 提供完整的 YAML 和 TOML 配置文件加载支持，实现 <code>PropertySource</code> 接口，可直接用于 <code>Environment</code>。</p>
+
+        <table class="doc-table">
+          <thead><tr><th>配置源</th><th>说明</th><th>Spring 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>YamlConfigSource</code></td><td>YAML 配置文件，内置轻量解析器（支持嵌套、列表、注释）</td><td><code>application.yml</code></td></tr>
+            <tr><td><code>TomlConfigSource</code></td><td>TOML 配置文件，使用 V 官方 <code>toml</code> 模块（完整 TOML 1.0 规范）</td><td>—</td></tr>
+            <tr><td><code>MapPropertySource</code></td><td>内存配置源，编程式注入配置</td><td><code>MapPropertySource</code></td></tr>
+            <tr><td><code>ConfigPropertySourceAdapter</code></td><td>将 <code>Config</code> 适配为 <code>PropertySource</code></td><td>—</td></tr>
+          </tbody>
+        </table>
+
+        <h3>YAML 配置源</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.config
+
+<span class="cm">// 创建 YAML 配置源</span>
+yaml_source := config.<span class="fn">new_yaml_source</span>(<span class="st">'config/application.yml'</span>)
+
+<span class="cm">// Profile 特定的 YAML 配置源</span>
+dev_source := config.<span class="fn">new_profile_yaml_source</span>(<span class="st">'config/application.yml'</span>, <span class="st">'dev'</span>)
+<span class="cm">// → 自动构造路径 'config/application-dev.yml'</span>
+
+<span class="cm">// 添加到 Environment</span>
+<span class="kw">mut</span> env := config.<span class="fn">new_environment</span>()
+env.<span class="fn">add_source</span>(yaml_source)
+env.<span class="fn">add_source</span>(dev_source)
+
+<span class="cm">// YAML 文件示例：</span>
+<span class="cm"># app:</span>
+<span class="cm">#   name: MyApp</span>
+<span class="cm">#   port: 8080</span>
+<span class="cm"># database:</span>
+<span class="cm">#   host: localhost</span>
+<span class="cm">#   port: 5432</span>
+<span class="cm">#   pool:</span>
+<span class="cm">#     max: 20</span>
+
+<span class="cm">// 读取扁平化后的 key（点号分隔）</span>
+name := env.<span class="fn">get_property</span>(<span class="st">'app.name'</span>) <span class="cm">// 'MyApp'</span>
+max_pool := env.<span class="fn">get_property</span>(<span class="st">'database.pool.max'</span>) <span class="cm">// '20'</span></div>
+        </div>
+
+        <h3>TOML 配置源</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.config
+
+<span class="cm">// 创建 TOML 配置源（使用 V 官方 toml 模块）</span>
+toml_source := config.<span class="fn">new_toml_source</span>(<span class="st">'config/app.toml'</span>)
+
+<span class="cm">// Profile 特定的 TOML 配置源</span>
+prod_source := config.<span class="fn">new_profile_toml_source</span>(<span class="st">'config/app.toml'</span>, <span class="st">'prod'</span>)
+<span class="cm">// → 自动构造路径 'config/app-prod.toml'</span>
+
+env.<span class="fn">add_source</span>(toml_source)
+
+<span class="cm">// TOML 文件示例：</span>
+<span class="cm"># [app]</span>
+<span class="cm"># name = "MyApp"</span>
+<span class="cm"># port = 8080</span>
+<span class="cm">#</span>
+<span class="cm"># [database]</span>
+<span class="cm"># host = "localhost"</span>
+<span class="cm"># port = 5432</span>
+
+<span class="cm">// 读取扁平化后的 key</span>
+name := env.<span class="fn">get_property</span>(<span class="st">'app.name'</span>) <span class="cm">// 'MyApp'</span></div>
+        </div>
+
+        <h3>Profile 感知批量加载</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 一次性加载基础配置 + Profile 覆盖配置</span>
+<span class="cm">// 后加载的 Profile 配置覆盖基础配置中的同名键</span>
+
+<span class="cm">// YAML 方式</span>
+props := config.<span class="fn">load_yaml_with_profiles</span>(<span class="st">'config/application.yml'</span>, [<span class="st">'dev'</span>, <span class="st">'local'</span>])!
+<span class="cm">// → 加载 application.yml → 覆盖 application-dev.yml → 覆盖 application-local.yml</span>
+
+<span class="cm">// TOML 方式</span>
+props2 := config.<span class="fn">load_toml_with_profiles</span>(<span class="st">'config/app.toml'</span>, [<span class="st">'prod'</span>])!
+<span class="cm">// → 加载 app.toml → 覆盖 app-prod.toml</span>
+
+<span class="cm">// Spring 等价：application.yml + application-dev.yml + application-local.yml</span></div>
+        </div>
+
+        <div class="info-box info-warn">
+          ⚠️ <strong>V 0.5.1 TOML 兼容性</strong>：V 0.5.1 的 C 后端在为 <code>map[string]toml.Any</code> 和 <code>[]toml.Any</code> 等复杂嵌套泛型类型生成 <code>_v_type_idx_</code> 函数时会产生无效 C 函数名。Photon 的 <code>flatten_toml_any()</code> 通过 <code>to_toml()</code> 字符串检测 + <code>as_map()</code>/<code>array()</code> 方法绕过此问题，无需等待编译器修复。
+        </div>
+      </div>
+
+      <!-- ═══ 9. PropertySource API ═══ -->
+      <div class="doc-section" id="property-source-api">
+        <div class="section-header"><div class="section-icon icon-config">🔌</div><div><div class="section-title">PropertySource 完整 API</div><div class="section-subtitle">统一接口 · 多源合并 · 缺失键返回 none</div></div></div>
+
+        <p>所有配置源实现统一的 <code>PropertySource</code> 接口，<code>get_property()</code> 在键不存在时返回 <code>none</code>（而非空字符串），确保配置缺失可被正确检测。</p>
+
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>返回值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>source.get_property(key)</code></td><td><code>?string</code></td><td>获取属性值，不存在返回 <code>none</code></td></tr>
+            <tr><td><code>source.contains_property(key)</code></td><td><code>bool</code></td><td>检查属性是否存在</td></tr>
+            <tr><td><code>source.get_all_with_prefix(prefix)</code></td><td><code>map[string]string</code></td><td>获取指定前缀的所有属性</td></tr>
+            <tr><td><code>source.name()</code></td><td><code>string</code></td><td>配置源名称（用于调试）</td></tr>
+          </tbody>
+        </table>
+
+        <h3>MapPropertySource 编程式配置</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 创建内存配置源（适合测试覆盖、动态配置）</span>
+<span class="kw">mut</span> overrides := config.<span class="fn">new_map_property_source</span>(<span class="st">'overrides'</span>, {
+    <span class="st">'database.host'</span>: <span class="st">'prod-db.example.com'</span>
+    <span class="st">'database.port'</span>: <span class="st">'3306'</span>
+    <span class="st">'app.debug'</span>: <span class="st">'false'</span>
+})
+
+env.<span class="fn">add_source</span>(overrides)
+
+<span class="cm">// 检查属性是否存在（none 语义）</span>
+val := env.<span class="fn">get_property</span>(<span class="st">'database.host'</span>) <span class="kw">or</span> {
+    <span class="st">'localhost'</span>  <span class="cm">// 键不存在时的默认值</span>
+}
+
+<span class="cm">// Spring 等价：MapPropertySource / @TestPropertySource</span>
+<span class="cm">// Laravel 等价：Config::set('database.host', 'prod-db.example.com')</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 10. Environment API ═══ -->
+      <div class="doc-section" id="environment-api">
+        <div class="section-header"><div class="section-icon icon-config">🌍</div><div><div class="section-title">Environment API</div><div class="section-subtitle">多源优先级链 · 属性查找 · 占位符解析</div></div></div>
+
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>返回值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>config.new_environment()</code></td><td><code>&Environment</code></td><td>创建环境实例</td></tr>
+            <tr><td><code>env.add_source(source)</code></td><td>—</td><td>添加 PropertySource（后添加优先级更高）</td></tr>
+            <tr><td><code>env.get_property(key)</code></td><td><code>string</code></td><td>按优先级链查找属性</td></tr>
+            <tr><td><code>env.get_property_or(key, default)</code></td><td><code>string</code></td><td>查找属性或返回默认值</td></tr>
+            <tr><td><code>env.has_property(key)</code></td><td><code>bool</code></td><td>检查属性是否存在</td></tr>
+            <tr><td><code>env.set_property(key, value)</code></td><td>—</td><td>设置编程式属性</td></tr>
+            <tr><td><code>env.resolve_placeholders(expr)</code></td><td><code>string</code></td><td>解析 <code>${key:default}</code> 占位符</td></tr>
+            <tr><td><code>env.get_active_profiles()</code></td><td><code>[]string</code></td><td>获取激活的 Profile 列表</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box info-tip">
+          💡 <strong>优先级链</strong>：属性查找按源添加顺序的逆序进行 — 后添加的源优先级更高。典型优先级：CLI 参数 &gt; 环境变量 &gt; Profile 配置 &gt; 基础配置 &gt; 编程式默认值。
+        </div>
       </div>
 
       <div class="page-nav">

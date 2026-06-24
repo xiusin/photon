@@ -17,9 +17,11 @@ module i18n
 //
 // Thread-safety: all read/write operations are guarded by an RwMutex.
 // Lazy loading: resolve() auto-loads the bundle on first access if not preloaded.
+//
+// NOTE: Uses lightweight string-based TOML parser instead of V's toml module
+// to avoid V 0.5.1 C backend issues with toml.Any sum type.
 import os
 import sync
-import toml
 
 // Locale represents a supported language/region identifier.
 pub enum Locale {
@@ -86,8 +88,7 @@ pub fn new_resource_bundle_message_source(basename string, base_dir string) &Res
 // load_locale loads the message bundle for the given locale from disk.
 // If the file is not found and the locale is not the fallback locale, it
 // attempts to load the fallback locale's bundle instead.
-// Returns an error if neither the requested nor fallback bundle can be loaded,
-// or if the TOML is invalid.
+// Returns an error if neither the requested nor fallback bundle can be loaded.
 pub fn (mut rb ResourceBundleMessageSource) load_locale(locale Locale) ! {
 	lang := locale.code()
 	file_path := os.join_path(rb.base_dir, '${rb.basename}_${lang}.toml')
@@ -103,17 +104,68 @@ pub fn (mut rb ResourceBundleMessageSource) load_locale(locale Locale) ! {
 		return
 	}
 
-	doc := toml.parse_text(content) or { return error('invalid TOML in ${file_path}: ${err}') }
-
-	mut bundle := map[string]string{}
-	any := doc.to_any()
-	for k, v in any.as_map() {
-		bundle[k] = v.string()
-	}
+	// Parse simple TOML key=value pairs (lightweight parser)
+	mut bundle := parse_simple_toml(content)
 
 	rb.mu.@lock()
 	defer { rb.mu.unlock() }
 	rb.bundles[lang] = bundle.move()
+}
+
+// parse_simple_toml parses simple TOML content with key = "value" pairs.
+// Supports: basic keys, quoted strings, inline comments.
+fn parse_simple_toml(content string) map[string]string {
+	mut result := map[string]string{}
+
+	lines := content.split_into_lines()
+	for line in lines {
+		trimmed := line.trim_space()
+
+		// Skip empty lines and comments
+		if trimmed.len == 0 || trimmed.starts_with('#') {
+			continue
+		}
+
+		// Parse key = value
+		if trimmed.contains('=') {
+			parts := trimmed.split_nth('=', 2)
+			if parts.len == 2 {
+				key := parts[0].trim_space()
+				mut value := parts[1].trim_space()
+
+				// Strip inline comments (not inside quotes)
+				value = strip_toml_comment_simple(value)
+
+				// Unquote if quoted
+				if (value.starts_with('"') && value.ends_with('"'))
+					|| (value.starts_with("'") && value.ends_with("'")) {
+					value = value[1..value.len - 1]
+				}
+
+				result[key] = value
+			}
+		}
+	}
+
+	return result
+}
+
+// strip_toml_comment_simple removes inline comments from a value.
+fn strip_toml_comment_simple(value string) string {
+	mut in_quote := false
+	mut quote_char := u8(0)
+
+	for i, ch in value {
+		if !in_quote && (ch == `"` || ch == `'` ) {
+			in_quote = true
+			quote_char = ch
+		} else if in_quote && ch == quote_char {
+			in_quote = false
+		} else if !in_quote && ch == `#` {
+			return value[..i].trim_space()
+		}
+	}
+	return value.trim_space()
 }
 
 // ensure_loaded loads the bundle for the given locale if not already loaded.

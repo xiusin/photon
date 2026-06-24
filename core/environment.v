@@ -27,7 +27,11 @@ module core
 //   // Priority chain: CLI > env vars > profile config > default config > properties
 import sync
 import os
-import toml
+
+// NOTE: We don't import the `toml` module here because V 0.5.1's C backend
+// generates invalid C function names for `toml.Any` sum type (which contains
+// `map[string]toml.Any` and `[]toml.Any`). Instead, we use a lightweight
+// string-based TOML parser (see parse_toml_to_flat_map at the end of this file).
 
 // ── Property Source Priority (Task A4) ──
 
@@ -1257,9 +1261,9 @@ pub fn extract_config_field_key(attrs []string) string {
 //   env.set_property('app.db.replicas', 'r1,r2,r3')
 //   config := core.bind_to_struct[DatabaseConfig](env, 'app.db')!
 //   // config.host == 'localhost', config.port == 5432, config.replicas == ['r1','r2','r3']
-pub fn bind_to_struct[T](mut env &Environment, prefix string) !T {
+pub fn bind_to_struct[T](env &Environment, prefix string) !T {
 	// The `&T{}` dummy instance is used for type inference of nested struct fields.
-	return bind_to_struct_impl[T](mut env, prefix, &T{})
+	return bind_to_struct_impl[T](env, prefix, &T{})
 }
 
 // bind_to_struct_impl is the internal helper that carries a `&T` dummy instance
@@ -1268,7 +1272,8 @@ pub fn bind_to_struct[T](mut env &Environment, prefix string) !T {
 // read for its values.
 //
 // This pattern is inspired by V's toml/json decoder implementations.
-fn bind_to_struct_impl[T](mut env &Environment, prefix string, typ &T) !T {
+fn bind_to_struct_impl[T](env &Environment, prefix string, typ &T) !T {
+	mut env_mut := env
 	mut config := T{}
 
 	$for field in T.fields {
@@ -1282,33 +1287,33 @@ fn bind_to_struct_impl[T](mut env &Environment, prefix string, typ &T) !T {
 
 		// Bind based on field type — primitive types first, then arrays, then nested structs
 		$if field.typ is string {
-			if env.has_property(full_key) {
-				config.$(field.name) = env.get_property(full_key)
+			if env_mut.has_property(full_key) {
+				config.$(field.name) = env_mut.get_property(full_key)
 			}
 		} $else $if field.typ is int {
-			if env.has_property(full_key) {
-				config.$(field.name) = env.get_property(full_key).int()
+			if env_mut.has_property(full_key) {
+				config.$(field.name) = env_mut.get_property(full_key).int()
 			}
 		} $else $if field.typ is i64 {
-			if env.has_property(full_key) {
-				config.$(field.name) = env.get_property(full_key).i64()
+			if env_mut.has_property(full_key) {
+				config.$(field.name) = env_mut.get_property(full_key).i64()
 			}
 		} $else $if field.typ is f32 {
-			if env.has_property(full_key) {
-				config.$(field.name) = f32(env.get_property(full_key).f64())
+			if env_mut.has_property(full_key) {
+				config.$(field.name) = f32(env_mut.get_property(full_key).f64())
 			}
 		} $else $if field.typ is f64 {
-			if env.has_property(full_key) {
-				config.$(field.name) = env.get_property(full_key).f64()
+			if env_mut.has_property(full_key) {
+				config.$(field.name) = env_mut.get_property(full_key).f64()
 			}
 		} $else $if field.typ is bool {
-			if env.has_property(full_key) {
-				val := env.get_property(full_key)
+			if env_mut.has_property(full_key) {
+				val := env_mut.get_property(full_key)
 				config.$(field.name) = val == 'true' || val == '1' || val == 'yes' || val == 'on'
 			}
 		} $else $if field.typ is []string {
-			if env.has_property(full_key) {
-				raw := env.get_property(full_key)
+			if env_mut.has_property(full_key) {
+				raw := env_mut.get_property(full_key)
 				if raw.len > 0 {
 					mut arr := []string{}
 					for part in raw.split(',') {
@@ -1318,8 +1323,8 @@ fn bind_to_struct_impl[T](mut env &Environment, prefix string, typ &T) !T {
 				}
 			}
 		} $else $if field.typ is []int {
-			if env.has_property(full_key) {
-				raw := env.get_property(full_key)
+			if env_mut.has_property(full_key) {
+				raw := env_mut.get_property(full_key)
 				if raw.len > 0 {
 					mut arr := []int{}
 					for part in raw.split(',') {
@@ -1329,8 +1334,8 @@ fn bind_to_struct_impl[T](mut env &Environment, prefix string, typ &T) !T {
 				}
 			}
 		} $else $if field.typ is []f64 {
-			if env.has_property(full_key) {
-				raw := env.get_property(full_key)
+			if env_mut.has_property(full_key) {
+				raw := env_mut.get_property(full_key)
 				if raw.len > 0 {
 					mut arr := []f64{}
 					for part in raw.split(',') {
@@ -1340,8 +1345,8 @@ fn bind_to_struct_impl[T](mut env &Environment, prefix string, typ &T) !T {
 				}
 			}
 		} $else $if field.typ is []bool {
-			if env.has_property(full_key) {
-				raw := env.get_property(full_key)
+			if env_mut.has_property(full_key) {
+				raw := env_mut.get_property(full_key)
 				if raw.len > 0 {
 					mut arr := []bool{}
 					for part in raw.split(',') {
@@ -1358,7 +1363,7 @@ fn bind_to_struct_impl[T](mut env &Environment, prefix string, typ &T) !T {
 			// Note: `continue` is not allowed in comptime $for loops, so we use
 			// `or { typ_ }` to fall back to the zero-value instance on error.
 			typ_ := typ.$(field.name)
-			nested := bind_to_struct_impl(mut env, full_key, &typ_) or { typ_ }
+			nested := bind_to_struct_impl(env, full_key, &typ_) or { typ_ }
 			config.$(field.name) = nested
 		}
 	}
@@ -1368,7 +1373,8 @@ fn bind_to_struct_impl[T](mut env &Environment, prefix string, typ &T) !T {
 // ── TOML Parsing Helper (Task A4) ──
 
 // parse_toml_to_flat_map parses a TOML document string into a flat
-// dot-notation key-value map. Uses V's official `toml` module.
+// dot-notation key-value map. Uses a lightweight string-based parser
+// to avoid V 0.5.1 C backend issues with toml.Any sum type.
 //
 // Example:
 //   Input TOML:
@@ -1381,51 +1387,82 @@ fn bind_to_struct_impl[T](mut env &Environment, prefix string, typ &T) !T {
 //     { 'app.name': 'MyApp', 'server.port': '8080' }
 //
 // This is a self-contained implementation in `core` to avoid a dependency
-// on the `config` module. The `config` module has a similar function
-// (toml_doc_to_flat_map) for its own use cases.
+// on the `config` module.
 pub fn parse_toml_to_flat_map(content string) !map[string]string {
-	doc := toml.parse_text(content)!
-	mut result := map[string]string{}
-	any := doc.to_any()
-	flatten_toml_value(any, '', mut result)
-	return result
+	return parse_toml_lightweight_core(content)
 }
 
-// flatten_toml_value recursively flattens a toml.Any value into dot-notation keys.
-fn flatten_toml_value(val toml.Any, prefix string, mut result map[string]string) {
-	match val {
-		map[string]toml.Any {
-			for key, any_val in val {
-				new_key := if prefix.len > 0 { '${prefix}.${key}' } else { key }
-				flatten_toml_value(any_val, new_key, mut result)
-			}
+// parse_toml_lightweight_core parses TOML using string processing.
+// Supports: sections [section], array of tables [[section]], key=value pairs.
+fn parse_toml_lightweight_core(content string) map[string]string {
+	mut result := map[string]string{}
+	mut current_section := ''
+	mut array_table_indices := map[string]int{}
+
+	lines := content.split_into_lines()
+	for line in lines {
+		trimmed := line.trim_space()
+
+		// Skip empty lines and comments
+		if trimmed.len == 0 || trimmed.starts_with('#') {
+			continue
 		}
-		[]toml.Any {
-			for i, any_val in val {
-				new_key := '${prefix}[${i}]'
-				flatten_toml_value(any_val, new_key, mut result)
+
+		// Section header [section] or [[array_of_tables]]
+		if trimmed.starts_with('[') && trimmed.ends_with(']') {
+			section := trimmed[1..trimmed.len - 1].trim_space()
+			// Handle array of tables [[section]]
+			if section.starts_with('[') && section.ends_with(']') {
+				array_name := section[1..section.len - 1].trim_space()
+				idx := array_table_indices[array_name] or { 0 }
+				array_table_indices[array_name] = idx + 1
+				current_section = '${array_name}[${idx}]'
+			} else {
+				current_section = section
 			}
+			continue
 		}
-		string {
-			if prefix.len > 0 {
-				result[prefix] = val
-			}
-		}
-		bool {
-			if prefix.len > 0 {
-				result[prefix] = if val { 'true' } else { 'false' }
-			}
-		}
-		int, i64, u64, f32, f64 {
-			if prefix.len > 0 {
-				result[prefix] = val.str()
-			}
-		}
-		else {
-			// DateTime, Date, Time, Null — use str()
-			if prefix.len > 0 {
-				result[prefix] = val.str()
+
+		// Parse key = value
+		if trimmed.contains('=') {
+			parts := trimmed.split_nth('=', 2)
+			if parts.len == 2 {
+				key := parts[0].trim_space()
+				mut value := parts[1].trim_space()
+
+				// Strip inline comments
+				value = strip_toml_comment_core(value)
+
+				// Unquote if quoted
+				if (value.starts_with('"') && value.ends_with('"'))
+					|| (value.starts_with("'") && value.ends_with("'")) {
+					value = value[1..value.len - 1]
+				}
+
+				// Build full key with section prefix
+				full_key := if current_section.len > 0 { '${current_section}.${key}' } else { key }
+				result[full_key] = value
 			}
 		}
 	}
+
+	return result
+}
+
+// strip_toml_comment_core removes inline comments from a TOML value.
+fn strip_toml_comment_core(value string) string {
+	mut in_quote := false
+	mut quote_char := u8(0)
+
+	for i, ch in value {
+		if !in_quote && (ch == `"` || ch == `'` ) {
+			in_quote = true
+			quote_char = ch
+		} else if in_quote && ch == quote_char {
+			in_quote = false
+		} else if !in_quote && ch == `#` {
+			return value[..i].trim_space()
+		}
+	}
+	return value.trim_space()
 }

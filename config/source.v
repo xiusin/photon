@@ -76,7 +76,10 @@ fn (mut s FileConfigSource) ensure_loaded() {
 // but is not part of the PropertySource interface.
 pub fn (mut s FileConfigSource) get_property(key string) ?string {
 	s.ensure_loaded()
-	return s.cached[key]
+	if key in s.cached {
+		return s.cached[key]
+	}
+	return none
 }
 
 // contains_property checks if a key exists in the loaded config.
@@ -153,7 +156,10 @@ fn (mut s EnvConfigSource) ensure_loaded() {
 // get_property retrieves an environment variable as a property.
 pub fn (mut s EnvConfigSource) get_property(key string) ?string {
 	s.ensure_loaded()
-	return s.cached[key]
+	if key in s.cached {
+		return s.cached[key]
+	}
+	return none
 }
 
 // contains_property checks if an environment variable key exists.
@@ -190,7 +196,10 @@ pub fn (mut s MapConfigSource) load() !map[string]string {
 
 // get_property retrieves a property from the in-memory map.
 pub fn (s MapConfigSource) get_property(key string) ?string {
-	return s.data[key]
+	if key in s.data {
+		return s.data[key]
+	}
+	return none
 }
 
 // contains_property checks if a key exists in the map.
@@ -231,7 +240,10 @@ pub fn (s MapPropertySource) name() string {
 }
 
 pub fn (s MapPropertySource) get_property(key string) ?string {
-	return s.data[key]
+	if key in s.data {
+		return s.data[key]
+	}
+	return none
 }
 
 pub fn (s MapPropertySource) contains_property(key string) bool {
