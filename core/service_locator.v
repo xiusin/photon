@@ -230,20 +230,94 @@ pub fn set_global_service_locator(sl &ServiceLocator) {
 // locate_service resolves a bean by type T from the global ServiceLocator.
 // This is the simplest API — no context needed, just call and get your service.
 //
+// 解析顺序（Spring @Autowired 语义）：
+//   1. 若 T 是接口类型，先按接口名查找所有实现：
+//      - 仅一个实现 → 返回该实现
+//      - 多个实现 → 返回标记了 @[primary] 的实现
+//      - 无实现 → 回退到步骤 2
+//   2. 按类型名 T.name 直接解析（适用于结构体类型或已注册的接口实例）
+//
 // Spring equivalent: SpringApplicationContext.getBean(MyService.class)
+//   - 接口类型 → getBean(MyInterface.class) 返回 @Primary 实现
 // Laravel equivalent: app(MyService::class)
+//
+// V 0.5.1 限制说明：当 T 是接口类型时，`unsafe { &T(instance) }` 无法正确设置
+// 接口的 vtable（接口引用是胖指针 = 对象指针 + vtable 指针）。因此对接口类型
+// 调用方法可能导致运行时崩溃。对接口类型，建议使用 locate_service_name[T]()
+// 获取选中的 bean 名称，再用 locate_service_by_name() + 具体类型转换。
+// 对结构体类型，locate_service[T]() 完全可用。
 //
 // Usage:
 //   svc := core.locate_service[UserService]()!
+//   // 或按接口定位（仅获取名称，不直接调用方法）：
+//   name := core.locate_service_name[CacheService]()!
+//   ptr := core.locate_service_by_name(name)!
+//   cache := unsafe { &RedisCache(ptr) }
 pub fn locate_service[T]() !&T {
 	if isnil(g_service_locator) {
 		return error('locate_service: global ServiceLocator not initialized / 全局服务定位器未初始化')
 	}
 	mut sl := g_service_locator
-	instance := sl.resolve(T.name) or {
-		return error('locate_service: failed to resolve ${T.name}: ${err} / 定位服务：解析 ${T.name} 失败: ${err}')
+	selected_name := locate_service_name[T]() or {
+		return error('locate_service: ${err} / 定位服务: ${err}')
+	}
+	instance := sl.resolve(selected_name) or {
+		return error('locate_service: failed to resolve "${selected_name}": ${err} / 定位服务：解析 "${selected_name}" 失败: ${err}')
 	}
 	return unsafe { &T(instance) }
+}
+
+// locate_service_name resolves the bean NAME for type T from the global
+// ServiceLocator, applying the same interface/primary selection logic as
+// locate_service[T]() but returning the name instead of the instance.
+//
+// This is useful for:
+//   - Interface types where locate_service[T]() cannot safely return an
+//     interface reference due to V's vtable limitations (see note above).
+//   - Debugging which bean was selected.
+//   - Deferred resolution patterns.
+//
+// 解析顺序与 locate_service[T]() 相同：
+//   1. 若 T 是接口类型，按接口名查找所有实现，选择 @[primary] 或唯一实现
+//   2. 回退到按类型名 T.name 直接查找
+//
+// Spring equivalent: BeanFactory.getBeanNamesForType() + @Primary selection
+//
+// Usage:
+//   name := core.locate_service_name[CacheService]()!
+//   ptr := core.locate_service_by_name(name)!
+//   cache := unsafe { &RedisCache(ptr) }
+pub fn locate_service_name[T]() !string {
+	if isnil(g_service_locator) {
+		return error('locate_service_name: global ServiceLocator not initialized / 全局服务定位器未初始化')
+	}
+	mut sl := g_service_locator
+	type_name := T.name
+
+	// 1) 尝试按接口查找所有实现
+	names := sl.context.beans_for_interface(type_name)
+	if names.len > 0 {
+		// 选择要解析的 bean 名称
+		selected_name := if names.len == 1 {
+			names[0]
+		} else {
+			// 多个实现：优先选择 @[primary] 标记的 bean
+			primary_name := sl.context.container.get_primary_bean_name()
+			if primary_name.len > 0 && primary_name in names {
+				primary_name
+			} else {
+				names[0] // 无 primary 时回退到第一个
+			}
+		}
+		return selected_name
+	}
+
+	// 2) 回退：按类型名直接查找
+	if sl.has(type_name) {
+		return type_name
+	}
+
+	return error('locate_service_name: no bean found for type ${type_name} / 未找到类型 ${type_name} 的 bean')
 }
 
 // locate_service_by_name resolves a bean by name from the global ServiceLocator.

@@ -41,6 +41,7 @@ module web
 //       veb.run_at[App, Context](mut app)
 //   }
 import veb
+import core
 
 // WebModule — 可嵌入的 Web 模块
 // 嵌入到 App 中，提供路由分发、控制器挂载、中间件链能力。
@@ -73,9 +74,31 @@ pub fn (mut wm WebModule) register(controller Controller) {
 	controller.register_routes(mut wm.router)
 }
 
-// mount 是 register 的别名（保持 API 一致性）
-pub fn (mut wm WebModule) mount(controller Controller) {
-	wm.register(controller)
+// ============================================================
+// mount[T] — 编译期控制器挂载（Spring @RestController + 组件扫描等价）
+// ============================================================
+//
+// mount[T] 扫描控制器类型 T 的方法，为每个带 HTTP 路由注解的方法
+// 生成包装闭包并注册到路由表。控制器可定义在任意包中。
+//
+// 与 register(controller Controller) 的区别：
+//   - register(controller) 需要控制器实现 Controller 接口（手动注册路由）
+//   - mount[T] 通过编译期注解扫描自动注册路由（声明式）
+//
+// 用法：
+//   mut wm := init_web_module()
+//   mut ctx := core.new_application_context()
+//   wm.mount[UserController](mut ctx)
+//   wm.mount[OrderController](mut ctx, MountOptions{prefix: '/api/v2'})
+
+// mount 扫描控制器类型 T 并注册其路由
+// opts 可指定额外路径前缀与中间件；无选项时传 MountOptions{} 即可
+//
+// 用法：
+//   wm.mount[UserController](mut ctx, MountOptions{})
+//   wm.mount[OrderController](mut ctx, MountOptions{prefix: '/api/v2'})
+pub fn (mut wm WebModule) mount[T](mut ctx core.ApplicationContext, opts MountOptions) {
+	wm.router.mount[T](mut ctx, opts)
 }
 
 // ============================================================
@@ -83,15 +106,33 @@ pub fn (mut wm WebModule) mount(controller Controller) {
 // ============================================================
 
 // handle_request 从路由表中匹配并执行处理器
-// 返回 true 表示已匹配并处理，false 表示无匹配
-// 若已处理，ctx.done 会被设置为 true（由 ctx.text() 等触发）
+// 返回 true 表示已匹配并处理，false 表示无匹配。
 //
-// 用法：
+// 响应就绪标志同步：mount[T] 注册的控制器在嵌入的 veb.Context 副本上
+// 写入响应（ctx.text() 等会设置副本的 done=true），copy_controller_response
+// 通过整结构赋值将 done 标志同步回原始请求上下文，使 veb 在 before_request
+// 返回后能识别响应已就绪并提前返回（不再走 veb 自带的路由匹配）。
+//
+// 用法（完整 before_request 模式）：
+//   pub struct App {
+//       veb.Context
+//       web.WebModule
+//   }
+//   pub struct Context {
+//       veb.Context
+//       app &App
+//   }
+//   // 覆写 before_request：将请求分发到挂载的控制器
 //   pub fn (mut ctx Context) before_request() {
-//       if ctx.app.WebModule.handle_request(mut ctx) {
-//           return  // 已处理
-//       }
-//       // 未匹配，veb 会自动处理 404
+//       // handle_request 返回 true 表示已匹配并处理；
+//       // 此时 ctx.done 已被设为 true，veb 会直接发送响应
+//       ctx.app.WebModule.handle_request(mut ctx)
+//   }
+//   pub fn main() {
+//       mut app := &App{...}
+//       mut ctx := core.new_application_context()
+//       app.WebModule.mount[UserController](mut ctx, MountOptions{prefix: '/api'})
+//       veb.run_at[App, Context](mut app)
 //   }
 pub fn (mut wm WebModule) handle_request(mut ctx veb.Context) bool {
 	path := ctx.req.url

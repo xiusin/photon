@@ -139,6 +139,7 @@ pub struct BeanDefinition {
 pub:
 	type_name string // struct name, e.g. 'UserService'
 pub mut:
+	component_type ComponentType = .unknown // @[component]/@[service]/@[repository]/@[controller]
 	scope          Scope = .singleton
 	is_lazy        bool         // @[lazy]
 	dependencies   []Dependency // @[autowired] fields
@@ -151,12 +152,20 @@ pub mut:
 	depends_on     []string // @[depends_on('BeanA','BeanB')] — explicit creation order
 	is_primary     bool     // @[primary] — prefer this bean when multiple candidates exist
 	parent_name    string   // parent bean definition name for property inheritance
+	value_bindings []ValueBinding // @[value('key')] field bindings
 	// ── Enhanced DI fields (Spring/Laravel inspired) ──
 	interfaces            []string              // interfaces this bean implements (for type-based lookup)
 	method_injections     []MethodInjection     // @[autowired] on setter/method (Spring method injection)
 	collection_injections []CollectionInjection // inject all beans of a type (Spring List<T> injection)
 	lookup_injections     []LookupInjection     // @[lookup] method injection (Spring @Lookup)
 	conditions            []&Condition          // @[conditional] — conditions that must pass for registration
+	// ── Constructor Injection (Task B2) ──
+	// @[autowired] init 方法参数（Spring 构造器注入）
+	// V comptime 限制：typeof(method.args[i].typ) 返回 'int'（类型索引），
+	// 无法获取参数类型名字符串。因此 constructor_params 仅记录参数名作为元数据，
+	// 实际依赖注入通过 @[autowired] 字段注入完成，@[autowired] init() 无参方法
+	// 作为构造后生命周期回调被调用（等价于 Spring @PostConstruct）。
+	constructor_params []Dependency // @[autowired] init 方法参数（元数据）
 }
 
 // new_bean_definition creates a BeanDefinition with defaults.
@@ -167,11 +176,13 @@ pub fn new_bean_definition(type_name string) BeanDefinition {
 		dependencies:          []Dependency{}
 		tags:                  []string{}
 		depends_on:            []string{}
+		value_bindings:        []ValueBinding{}
 		interfaces:            []string{}
 		method_injections:     []MethodInjection{}
 		collection_injections: []CollectionInjection{}
 		lookup_injections:     []LookupInjection{}
 		conditions:            []&Condition{}
+		constructor_params:    []Dependency{}
 	}
 }
 
@@ -206,6 +217,8 @@ pub mut:
 	collection_injections_ []CollectionInjection
 	lookup_injections_     []LookupInjection
 	conditions_            []&Condition
+	// Constructor Injection (Task B2)
+	constructor_params_    []Dependency
 }
 
 // new_bean_definition_builder creates a builder for the given type.
@@ -221,6 +234,7 @@ pub fn new_bean_definition_builder(type_name string) BeanDefinitionBuilder {
 		collection_injections_: []CollectionInjection{}
 		lookup_injections_:     []LookupInjection{}
 		conditions_:            []&Condition{}
+		constructor_params_:    []Dependency{}
 	}
 }
 
@@ -251,6 +265,13 @@ pub fn (mut b BeanDefinitionBuilder) add_tag(tag string) &BeanDefinitionBuilder 
 // add_dependency adds an @[autowired] dependency.
 pub fn (mut b BeanDefinitionBuilder) add_dependency(dep Dependency) &BeanDefinitionBuilder {
 	b.dependencies_ << dep
+	return unsafe { b }
+}
+
+// add_constructor_param adds an @[autowired] init method parameter (constructor injection).
+// Spring equivalent: @Autowired on constructor parameter
+pub fn (mut b BeanDefinitionBuilder) add_constructor_param(param Dependency) &BeanDefinitionBuilder {
+	b.constructor_params_ << param
 	return unsafe { b }
 }
 
@@ -344,6 +365,7 @@ pub fn (b &BeanDefinitionBuilder) build() BeanDefinition {
 		collection_injections: b.collection_injections_.clone()
 		lookup_injections:     b.lookup_injections_.clone()
 		conditions:            b.conditions_.clone()
+		constructor_params:    b.constructor_params_.clone()
 	}
 }
 
@@ -360,6 +382,13 @@ pub fn (bd &BeanDefinition) is_prototype() bool {
 // has_dependencies returns true if the bean has any @[autowired] fields.
 pub fn (bd &BeanDefinition) has_dependencies() bool {
 	return bd.dependencies.len > 0
+}
+
+// has_constructor_params returns true if the bean has an @[autowired] init method
+// with parameters (constructor injection metadata).
+// Spring equivalent: @Autowired constructor detection
+pub fn (bd &BeanDefinition) has_constructor_params() bool {
+	return bd.constructor_params.len > 0
 }
 
 // ── BeanInstance ──
@@ -1602,15 +1631,17 @@ pub fn (mut c Container) beans_for_tag(tag string) []string {
 }
 
 // resolve_all_by_interface resolves all beans implementing the given interface.
-// Returns a list of voidptr instances.
+// Returns a list of voidptr instances sorted by BeanDefinition.order_ ascending
+// (lower order = earlier in the list). Beans without @[order] have order_ = 0.
 // Spring equivalent: ListableBeanFactory.getBeansOfType(MyInterface.class)
 //
 // Usage:
 //   handlers := container.resolve_all_by_interface('EventHandler')!
 pub fn (mut c Container) resolve_all_by_interface(interface_name string) ![]voidptr {
 	names := c.beans_for_interface(interface_name)
+	sorted_names := c.sort_names_by_order(names)
 	mut instances := []voidptr{}
-	for name in names {
+	for name in sorted_names {
 		instance := c.resolve(name) or { continue }
 		instances << instance
 	}
@@ -1618,15 +1649,72 @@ pub fn (mut c Container) resolve_all_by_interface(interface_name string) ![]void
 }
 
 // resolve_all_by_tag resolves all beans with the given tag.
+// Returns a list of voidptr instances sorted by BeanDefinition.order_ ascending.
 // Laravel equivalent: Container::tagged('cache')
 pub fn (mut c Container) resolve_all_by_tag(tag string) ![]voidptr {
 	names := c.beans_for_tag(tag)
+	sorted_names := c.sort_names_by_order(names)
 	mut instances := []voidptr{}
-	for name in names {
+	for name in sorted_names {
 		instance := c.resolve(name) or { continue }
 		instances << instance
 	}
 	return instances
+}
+
+// sort_names_by_order sorts a list of bean names by their BeanDefinition.order_
+// field in ascending order (lower order = earlier in the list).
+// Beans without an explicit @[order] annotation have order_ = 0.
+//
+// 线程安全：在读取锁下构建 order_ 快照，释放锁后执行排序（纯本地数据计算），
+// 避免在排序期间持有锁导致死锁。
+//
+// 实现说明：使用 NameOrderPair 结构体配对名称与 order_，避免在 sort_with_compare
+// 闭包中捕获外部 map（V 0.5.1 闭包捕获 map 在 sort_with_compare 中可能触发运行时错误）。
+fn (mut c Container) sort_names_by_order(names []string) []string {
+	if names.len <= 1 {
+		return names.clone()
+	}
+	// 在读取锁下构建 (name, order) 配对快照
+	c.mu.rlock()
+	mut pairs := []NameOrderPair{}
+	for name in names {
+		if def := c.definitions[name] {
+			pairs << NameOrderPair{
+				name:  name
+				order: def.order_
+			}
+		} else {
+			pairs << NameOrderPair{
+				name:  name
+				order: 0
+			}
+		}
+	}
+	c.mu.runlock()
+
+	// 排序：闭包仅使用参数 a/b，不捕获外部变量，避免 V 0.5.1 闭包捕获问题
+	pairs.sort_with_compare(fn (a &NameOrderPair, b &NameOrderPair) int {
+		if a.order < b.order {
+			return -1
+		}
+		if a.order > b.order {
+			return 1
+		}
+		return 0
+	})
+
+	mut sorted := []string{cap: pairs.len}
+	for p in pairs {
+		sorted << p.name
+	}
+	return sorted
+}
+
+// NameOrderPair 用于按 order_ 排序 bean 名称的辅助结构体
+struct NameOrderPair {
+	name  string
+	order int
 }
 
 // create_deferred_provider creates a DeferredProvider for the given type.

@@ -1605,17 +1605,19 @@ pub fn (mut ctx ApplicationContext) autowire_bean[T](mut bean T) ! {
 	// Phase 1: @[autowired] field injection
 	$for field in T.fields {
 		mut has_autowired := false
-		mut field_qualifier := ''
 		for attr in field.attrs {
 			if attr == attr_autowired {
 				has_autowired = true
 			}
 		}
-		field_qualifier = extract_qualifier(field.attrs)
+		field_qualifier := extract_qualifier(field.attrs)
 
 		if has_autowired {
-			// Try qualifier-based resolution first, then type-based
+			// 按类型解析依赖（Spring @Autowired 语义）
+			// 解析顺序：qualifier → 类型名 → 字段名（向后兼容）
 			mut resolved := false
+
+			// 1) 按 qualifier 解析（若标注了 @[qualifier('name')]）
 			if field_qualifier.len > 0 {
 				instance := ctx.resolve(field_qualifier) or { unsafe { nil } }
 				if !isnil(instance) {
@@ -1623,17 +1625,39 @@ pub fn (mut ctx ApplicationContext) autowire_bean[T](mut bean T) ! {
 					resolved = true
 				}
 			}
+
+			// 2) 按字段类型名解析（Spring 默认行为）
+			// typeof(field.typ) 返回如 '&core.UserRepository'，去除前导 '&' 得到
+			// 完全限定类型名（如 'core.UserRepository'），与 T.name 一致。
+			// 同时尝试简单类型名（如 'UserRepository'）以兼容 register_instance
+			// 按简单名注册的场景。
 			if !resolved {
-				// Type-based resolution: try to resolve by field type name
-				// V comptime: $if field.typ is Type { ... }
-				$if field.typ is string {
-					// String fields with @[autowired] are not typical; skip
-				} $else $if field.typ is int {
-					// Primitive autowired fields not supported; skip
+				dep_type_name := typeof(field.typ).trim_left('&')
+				if dep_type_name.len > 0 {
+					instance := ctx.resolve(dep_type_name) or { unsafe { nil } }
+					if !isnil(instance) {
+						bean.$(field.name) = unsafe { instance }
+						resolved = true
+					}
 				}
-				// For reference types, we attempt resolve by the field's type name
-				// This is a best-effort approach since V comptime doesn't expose
-				// the full type name of reference fields directly
+				// 回退：尝试简单类型名（去除模块前缀，如 'core.X' -> 'X'）
+				if !resolved && dep_type_name.contains('.') {
+					simple_name := dep_type_name.split('.').last()
+					instance := ctx.resolve(simple_name) or { unsafe { nil } }
+					if !isnil(instance) {
+						bean.$(field.name) = unsafe { instance }
+						resolved = true
+					}
+				}
+			}
+
+			// 3) 按字段名解析（向后兼容回退）
+			if !resolved {
+				instance := ctx.resolve(field.name) or { unsafe { nil } }
+				if !isnil(instance) {
+					bean.$(field.name) = unsafe { instance }
+					resolved = true
+				}
 			}
 		}
 	}
@@ -1692,10 +1716,25 @@ pub fn (mut ctx ApplicationContext) register_component[T]() ! {
 }
 
 // create_and_wire creates a new instance of T, performs @[autowired] and
-// @[value] injection, then invokes any @[post_construct] method.
+// @[value] injection, then invokes the @[autowired] init() constructor
+// callback (if present and zero-arg), and finally any @[post_construct] method.
 // Returns the fully initialized bean.
 //
 // Spring equivalent: AbstractAutowireCapableBeanFactory.createBean()
+//
+// Lifecycle order (Photon pragmatic approach for V comptime):
+//   1. Zero-arg construction: `T{}`
+//   2. Field injection: `@[autowired]` fields + `@[value]` config bindings
+//   3. Constructor callback: `@[autowired] init()` (zero-arg) — invoked after
+//      field injection so the callback can use injected dependencies.
+//      Equivalent to Spring @PostConstruct semantics.
+//   4. Post-construct: `@[post_construct]` method
+//
+// NOTE: V 0.5.1 comptime cannot pass resolved dependencies as arguments to
+// `init(params...)`. True parameterized constructor injection is provided by
+// `create_and_wire_with_constructor[T, D1]` (1 dep) and
+// `create_and_wire_with_constructor2[T, D1, D2]` (2 deps), which use
+// `$if method.args[i].typ is Di` comptime type matching.
 //
 // Usage:
 //   mut svc := ctx.create_and_wire[UserService]()!
@@ -1703,12 +1742,184 @@ pub fn (mut ctx ApplicationContext) register_component[T]() ! {
 pub fn (mut ctx ApplicationContext) create_and_wire[T]() !T {
 	mut bean := T{}
 
-	// Phase 1: @[autowired] + @[value] injection
+	// Phase 1: @[autowired] + @[value] field injection
 	ctx.autowire_bean[T](mut bean) or {
 		// Non-fatal: some dependencies may not be available yet
 	}
 
-	// Phase 2: @[post_construct] lifecycle callback
+	// Phase 2: @[autowired] init() 构造器回调（零参）
+	// V comptime: runtime `if method.args.len == 0` 守卫确保只对零参方法
+	// 生成 `bean.$method()` 调用；带参方法的分支在编译期被消除。
+	$for method in T.methods {
+		if method.name == 'init' {
+			mut has_autowired := false
+			for attr in method.attrs {
+				if attr == attr_autowired {
+					has_autowired = true
+				}
+			}
+			if has_autowired {
+				// 仅调用零参 init()；带参 init 需使用 create_and_wire_with_constructor*
+				if method.args.len == 0 {
+					bean.$method()
+				}
+			}
+		}
+	}
+
+	// Phase 3: @[post_construct] lifecycle callback
+	$for method in T.methods {
+		for attr in method.attrs {
+			if attr == attr_post_construct {
+				bean.$method()
+			}
+		}
+	}
+
+	return bean
+}
+
+// create_and_wire_with_constructor creates a new instance of T, resolves a
+// single dependency D from the container, and calls T's `@[autowired] init(d)`
+// constructor with the resolved dependency. This provides true Spring-style
+// constructor injection for a single-parameter constructor.
+//
+// V comptime pattern: `$if method.args[0].typ is D` restricts the
+// `bean.$method(dep)` call to methods whose first parameter matches D,
+// mirroring `register_bean_method_with_dep`.
+//
+// Spring equivalent: @Autowired constructor with single dependency.
+//
+// Usage:
+//   @[service]
+//   pub struct UserService {
+//   mut:
+//       repo &UserRepository
+//   }
+//
+//   @[autowired]
+//   pub fn (mut s UserService) init(repo &UserRepository) {
+//       s.repo = unsafe { repo }
+//   }
+//
+//   svc := ctx.create_and_wire_with_constructor[UserService, UserRepository]()!
+pub fn (mut ctx ApplicationContext) create_and_wire_with_constructor[T, D]() !T {
+	mut bean := T{}
+
+	// 解析构造器依赖 D（按类型名 D.name，回退简单类型名）
+	// 与 autowire_bean 一致：先尝试完全限定名，再回退简单类型名
+	mut dep1_ptr := ctx.resolve(D.name) or { unsafe { nil } }
+	if isnil(dep1_ptr) && D.name.contains('.') {
+		simple_name := D.name.split('.').last()
+		dep1_ptr = ctx.resolve(simple_name) or { unsafe { nil } }
+	}
+	if isnil(dep1_ptr) {
+		return error('create_and_wire_with_constructor: dependency "${D.name}" not found / 依赖 "${D.name}" 未找到')
+	}
+	dep1 := unsafe { &D(dep1_ptr) }
+
+	// comptime 调用 @[autowired] init(d)
+	// V comptime: $if method.args[0].typ is D 匹配 &D 和 D 两种参数形式。
+	// 方法签名为 init(d &D) 时传指针 dep1 直接匹配。
+	$for method in T.methods {
+		if method.name == 'init' {
+			mut has_autowired := false
+			for attr in method.attrs {
+				if attr == attr_autowired {
+					has_autowired = true
+				}
+			}
+			if has_autowired {
+				if method.args.len == 1 {
+					$if method.args[0].typ is D {
+						// 传指针：方法签名为 init(d &D) 时直接匹配
+						bean.$method(dep1)
+					}
+				}
+			}
+		}
+	}
+
+	// 字段注入（补充：构造器未覆盖的字段）
+	ctx.autowire_bean[T](mut bean) or {}
+
+	// @[post_construct] 回调
+	$for method in T.methods {
+		for attr in method.attrs {
+			if attr == attr_post_construct {
+				bean.$method()
+			}
+		}
+	}
+
+	return bean
+}
+
+// create_and_wire_with_constructor2 creates a new instance of T, resolves two
+// dependencies (D, E) from the container, and calls T's `@[autowired] init(d, e)`
+// constructor with the resolved dependencies. This provides true Spring-style
+// constructor injection for a two-parameter constructor.
+//
+// V comptime pattern: nested `$if method.args[i].typ is Di` restricts the
+// `bean.$method(dep1, dep2)` call to methods whose parameters match D, E.
+//
+// Spring equivalent: @Autowired constructor with two dependencies.
+//
+// Usage:
+//   @[autowired]
+//   pub fn (mut s OrderService) init(repo &OrderRepo, cache &Cache) {
+//       s.repo = unsafe { repo }
+//       s.cache = unsafe { cache }
+//   }
+//
+//   svc := ctx.create_and_wire_with_constructor2[OrderService, OrderRepo, Cache]()!
+pub fn (mut ctx ApplicationContext) create_and_wire_with_constructor2[T, D, E]() !T {
+	mut bean := T{}
+
+	// 解析构造器依赖 D, E（按类型名，回退简单类型名）
+	mut dep1_ptr := ctx.resolve(D.name) or { unsafe { nil } }
+	if isnil(dep1_ptr) && D.name.contains('.') {
+		dep1_ptr = ctx.resolve(D.name.split('.').last()) or { unsafe { nil } }
+	}
+	if isnil(dep1_ptr) {
+		return error('create_and_wire_with_constructor2: dependency "${D.name}" not found / 依赖 "${D.name}" 未找到')
+	}
+	mut dep2_ptr := ctx.resolve(E.name) or { unsafe { nil } }
+	if isnil(dep2_ptr) && E.name.contains('.') {
+		dep2_ptr = ctx.resolve(E.name.split('.').last()) or { unsafe { nil } }
+	}
+	if isnil(dep2_ptr) {
+		return error('create_and_wire_with_constructor2: dependency "${E.name}" not found / 依赖 "${E.name}" 未找到')
+	}
+	dep1 := unsafe { &D(dep1_ptr) }
+	dep2 := unsafe { &E(dep2_ptr) }
+
+	// comptime 调用 @[autowired] init(d, e)
+	$for method in T.methods {
+		if method.name == 'init' {
+			mut has_autowired := false
+			for attr in method.attrs {
+				if attr == attr_autowired {
+					has_autowired = true
+				}
+			}
+			if has_autowired {
+				if method.args.len == 2 {
+					$if method.args[0].typ is D {
+						$if method.args[1].typ is E {
+							// 传指针：方法签名为 init(d &D, e &E) 时直接匹配
+							bean.$method(dep1, dep2)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 字段注入（补充：构造器未覆盖的字段）
+	ctx.autowire_bean[T](mut bean) or {}
+
+	// @[post_construct] 回调
 	$for method in T.methods {
 		for attr in method.attrs {
 			if attr == attr_post_construct {

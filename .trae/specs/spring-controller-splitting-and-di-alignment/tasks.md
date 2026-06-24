@@ -2,36 +2,36 @@
 
 ## Phase A — Web 模块任意包控制器拆分
 
-- [ ] Task A1: 实现 `web.mount[T]` comptime 控制器挂载核心
-  - [ ] SubTask A1.1: 在 `web/router.v` 新增 `MountOptions` 结构体（`prefix string`、`middlewares []string`）与 `mount[T](mut rr &RouteRegistry, mut ctx &core.ApplicationContext, opts MountOptions)` comptime 函数签名
-  - [ ] SubTask A1.2: 实现 comptime 扫描逻辑——`$for method in T.methods` 检测 `@[get]`/`@[post]`/`@[put]`/`@[delete]`/`@[patch]` 与 `@['/path']` 属性，解析 HTTP 方法与路径
-  - [ ] SubTask A1.3: 实现 `@[group('/prefix')]` 类级注解扫描——`$for attr in T.attributes` 提取前缀，与 `opts.prefix` 合并
-  - [ ] SubTask A1.4: 实现包装闭包生成器 `warp_handler[T](method, ctx)`——每次请求 `mut ctrl := T{}`，通过 comptime 填充 `veb.Context` 嵌入字段与 `@[autowired]` 服务字段，调用控制器方法
-  - [ ] SubTask A1.5: 将生成的路由注册到 `RouteRegistry`（复用 `rr.register(method, path, handler)`）
-- [ ] Task A2: 扩展 `dispatcher.v` 支持通配符 `*filepath`
-  - [ ] SubTask A2.1: `RouteSegment` 新增 `is_wildcard bool` 字段
-  - [ ] SubTask A2.2: `parse_path` 识别 `*name` 段为通配符段
-  - [ ] SubTask A2.3: `match_route` 支持通配符段匹配剩余所有路径并捕获为参数
-- [ ] Task A3: 激活 `WebModule` 嵌入分发模式
-  - [ ] SubTask A3.1: `WebModule` 新增 `mount[T](mut ctx, opts)` 方法委托到 `router.mount[T]`
-  - [ ] SubTask A3.2: `handle_request` 增强——匹配成功返回 true，未匹配返回 false（向后兼容 veb 原生路由）
-  - [ ] SubTask A3.3: 在 `web/web.v` 文档注释更新使用示例
-- [ ] Task A4: 控制器方法级中间件织入
-  - [ ] SubTask A4.1: `scan_controller`/`mount[T]` 扫描方法 `@[middleware('name1','name2')]` 属性
-  - [ ] SubTask A4.2: `RouteDef` 新增 `middlewares []string` 字段
-  - [ ] SubTask A4.3: `dispatch` 执行路由前按序调用命名中间件（从 `MiddlewareGroupRegistry` 解析）
-- [ ] Task A5: 控制器方法返回值兼容
-  - [ ] SubTask A5.1: 包装闭包支持控制器方法返回 `veb.Result`
-  - [ ] SubTask A5.2: 包装闭包支持控制器方法返回 `!`（错误传播，转换为 500 响应）
-  - [ ] SubTask A5.3: 包装闭包支持控制器方法返回 `!veb.Result`
+- [x] Task A1: 实现 `web.mount[T]` comptime 控制器挂载核心 ✅
+  - [x] SubTask A1.1: 在 `web/router.v` 新增 `MountOptions` 结构体（`prefix string`、`middlewares []string`）与 `mount[T](mut rr &RouteRegistry, mut ctx &core.ApplicationContext, opts MountOptions)` comptime 函数签名
+  - [x] SubTask A1.2: 实现 comptime 扫描逻辑——`$for method in T.methods` 检测 `@[get]`/`@[post]`/`@[put]`/`@[delete]`/`@[patch]` 与 `@['/path']` 属性，解析 HTTP 方法与路径
+  - [x] SubTask A1.3: 实现 `@[group('/prefix')]` 类级注解扫描——`$for attr in T.attributes` 提取前缀，与 `opts.prefix` 合并
+  - [x] SubTask A1.4: 实现包装闭包生成器 `warp_handler[T](method, ctx)`——每次请求 `mut ctrl := T{}`，通过 comptime 填充 `veb.Context` 嵌入字段与 `@[autowired]` 服务字段，调用控制器方法
+  - [x] SubTask A1.5: 将生成的路由注册到 `RouteRegistry`（复用 `rr.register(method, path, handler)`）
+- [x] Task A2: 扩展 `dispatcher.v` 支持通配符 `*filepath` ✅
+  - [x] SubTask A2.1: `RouteSegment` 新增 `is_wildcard bool` 字段
+  - [x] SubTask A2.2: `parse_path` 识别 `*name` 段为通配符段
+  - [x] SubTask A2.3: `match_route` 支持通配符段匹配剩余所有路径并捕获为参数
+- [x] Task A3: 激活 `WebModule` 嵌入分发模式 ✅
+  - [x] SubTask A3.1: `WebModule` 新增 `mount[T](mut ctx, opts)` 方法委托到 `router.mount[T]`
+  - [x] SubTask A3.2: `handle_request` 增强——匹配成功返回 true，未匹配返回 false（向后兼容 veb 原生路由）
+  - [x] SubTask A3.3: 在 `web/web.v` 文档注释更新使用示例
+- [x] Task A4: 控制器方法级中间件织入 ✅
+  - [x] SubTask A4.1: `scan_controller`/`mount[T]` 扫描方法 `@[middleware('name1','name2')]` 属性
+  - [x] SubTask A4.2: `RouteDef` 新增 `middlewares []string` 字段
+  - [x] SubTask A4.3: `dispatch` 执行路由前按序调用命名中间件（从 `MiddlewareGroupRegistry` 解析）
+- [x] Task A5: 控制器方法返回值兼容 ✅
+  - [x] SubTask A5.1: 包装闭包支持控制器方法返回 `veb.Result`
+  - [x] SubTask A5.2: 包装闭包支持控制器方法返回 `!`（错误传播，转换为 500 响应）
+  - [x] SubTask A5.3: 包装闭包支持控制器方法返回 `!veb.Result`
 
 ## Phase B — Core DI 深度对齐 Spring
 
-- [ ] Task B1: 修复字段注入按类型解析
-  - [ ] SubTask B1.1: `scanner.v` `scan_and_register[T]` 中通过 comptime `$if field.typ is &X` 分支提取类型名，替换 `field.name` 作为 `Dependency.type_name`
-  - [ ] SubTask B1.2: 保留 `@[qualifier('name')]` 按名解析旁路（`Dependency.qualifier` 非空时优先按名）
-  - [ ] SubTask B1.3: 更新 `autowire_bean[T]`（`application_context.v`）按新 `type_name` 解析
-  - [ ] SubTask B1.4: 编写 `core/di_type_injection_test.v` 验证按类型注入
+- [x] Task B1: 修复字段注入按类型解析 ✅
+  - [x] SubTask B1.1: `scanner.v` `scan_and_register[T]` 中通过 comptime `$if field.typ is &X` 分支提取类型名，替换 `field.name` 作为 `Dependency.type_name`
+  - [x] SubTask B1.2: 保留 `@[qualifier('name')]` 按名解析旁路（`Dependency.qualifier` 非空时优先按名）
+  - [x] SubTask B1.3: 更新 `autowire_bean[T]`（`application_context.v`）按新 `type_name` 解析
+  - [x] SubTask B1.4: 编写 `core/di_type_injection_test.v` 验证按类型注入
 - [ ] Task B2: 实现构造器注入
   - [ ] SubTask B2.1: `scanner.v` 新增 `extract_constructor[T](mut def BeanDefinition)`——扫描 `@[autowired]` 标注的 `init` 方法，提取参数类型作为构造依赖
   - [ ] SubTask B2.2: `BeanDefinition` 新增 `constructor_params []Dependency` 字段

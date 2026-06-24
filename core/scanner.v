@@ -46,6 +46,8 @@ pub const attr_depends_on = 'depends_on'
 pub const attr_primary = 'primary'
 pub const attr_extends = 'extends'
 pub const attr_bean = 'bean'
+pub const attr_order = 'order'
+pub const attr_profile = 'profile'
 
 // ── Component Types ──
 
@@ -92,16 +94,17 @@ pub fn component_type_from_attr(attr string) ComponentType {
 // Used to build a BeanDefinition for the container.
 pub struct ScannedBean {
 pub:
-	type_name      string
-	component_type ComponentType
-	scope          Scope = .singleton
-	is_lazy        bool
-	qualifier      string
-	dependencies   []Dependency
-	init_method    string // @[post_construct]
-	destroy_method string // @[pre_destroy]
-	value_bindings []ValueBinding
-	conditions     []string // @[conditional_on_*] attribute strings
+	type_name         string
+	component_type    ComponentType
+	scope             Scope = .singleton
+	is_lazy           bool
+	qualifier         string
+	dependencies      []Dependency
+	init_method       string // @[post_construct]
+	destroy_method    string // @[pre_destroy]
+	value_bindings    []ValueBinding
+	conditions        []string // @[conditional_on_*] attribute strings
+	constructor_params []Dependency // @[autowired] init 方法参数（Task B2）
 }
 
 // ValueBinding represents an @[value('config.key')] annotation on a field.
@@ -174,7 +177,9 @@ pub fn extract_qualifier(attrs []string) string {
 					val = val[..val.len - 1]
 				}
 			}
-			return val.trim("'").trim('"').trim_space()
+			// Trim space first so surrounding quotes become the outermost
+			// characters and can be stripped in one pass (matches extract_value_expr).
+			return val.trim_space().trim("'").trim('"').trim_space()
 		}
 	}
 	return ''
@@ -381,6 +386,119 @@ pub fn extract_scheduled_methods[T]() []ScheduledTaskInfo {
 		}
 	}
 	return tasks
+}
+
+// ── @[autowired] Constructor Injection (Task B2) ──
+//
+// Spring equivalent: @Autowired on a constructor.
+//
+// In V, the closest analogue to a constructor is the `init` method. When a
+// struct's `init` method is annotated with `@[autowired]`, Photon treats it
+// as a constructor-injection marker.
+//
+// V 0.5.1 comptime limitation: `typeof(method.args[i].typ)` returns 'int'
+// (the type index), NOT the parameter's type name as a string. This differs
+// from `typeof(field.typ)` which DOES return the type name for struct fields.
+// As a result, `extract_constructor` can record parameter NAMES but cannot
+// record parameter TYPE NAMES. The `constructor_params` entries therefore
+// carry `field_name` (the parameter name) with an empty `type_name`.
+//
+// Actual dependency wiring is performed by field-level @[autowired] injection
+// (Task B1). The `@[autowired] init()` method (with zero parameters) is
+// invoked as a post-construction lifecycle callback by `create_and_wire[T]`,
+// equivalent to Spring's @PostConstruct. This is the "Simplest working
+// approach" documented in the task specification: zero-arg construction +
+// field injection + optional `init()` lifecycle callback.
+//
+// For true parameterized constructor injection, use the type-parameterized
+// helpers `create_and_wire_with_constructor[T, D1]` /
+// `create_and_wire_with_constructor2[T, D1, D2]` which leverage
+// `$if method.args[i].typ is Di` comptime type matching (same pattern as
+// `register_bean_method_with_dep`).
+
+// extract_constructor scans type T at compile time for an `init` method
+// annotated with `@[autowired]`. Returns a list of Dependency descriptors
+// describing the constructor parameters (metadata only — type_name is empty
+// due to the V comptime limitation documented above).
+//
+// Spring equivalent: @Autowired constructor parameter discovery.
+//
+// Usage:
+//   params := core.extract_constructor[MyService]()
+//   if params.len > 0 {
+//       println('${T.name} has @autowired constructor with ${params.len} params')
+//   }
+pub fn extract_constructor[T]() []Dependency {
+	mut params := []Dependency{}
+	$for method in T.methods {
+		if method.name == 'init' {
+			mut has_autowired := false
+			for attr in method.attrs {
+				if attr == attr_autowired {
+					has_autowired = true
+				}
+			}
+			if has_autowired {
+				// 提取参数名作为构造器依赖元数据
+				// V comptime 限制：typeof(method.args[i].typ) 返回 'int'，
+				// 无法获取参数类型名。仅记录参数名，type_name 留空。
+				for i, _ in method.args {
+					param_name := method.args[i].name
+					// 跳过隐式 self 参数（V 方法首个参数通常为 mut self）
+					if param_name == 'self' || param_name == '' {
+						continue
+					}
+					params << Dependency{
+						field_name: param_name
+						type_name:  '' // V 限制：无法获取参数类型名
+						is_required: true
+					}
+				}
+			}
+		}
+	}
+	return params
+}
+
+// has_autowired_init returns true if type T has an `init` method annotated
+// with `@[autowired]`. This is a pure comptime check used by
+// `create_and_wire[T]` to decide whether to invoke the constructor callback.
+//
+// Spring equivalent: @Autowired constructor detection.
+pub fn has_autowired_init[T]() bool {
+	mut found := false
+	$for method in T.methods {
+		if method.name == 'init' {
+			for attr in method.attrs {
+				if attr == attr_autowired {
+					found = true
+				}
+			}
+		}
+	}
+	return found
+}
+
+// autowired_init_param_count returns the number of parameters on T's
+// `@[autowired] init` method, or 0 if no such method exists. Used by
+// `create_and_wire[T]` to distinguish the 0-arg callback case (invokable
+// directly) from the parameterized case (requires type-parameterized helpers).
+pub fn autowired_init_param_count[T]() int {
+	mut count := 0
+	$for method in T.methods {
+		if method.name == 'init' {
+			mut has_autowired := false
+			for attr in method.attrs {
+				if attr == attr_autowired {
+					has_autowired = true
+				}
+			}
+			if has_autowired {
+				count = method.args.len
+			}
+		}
+	}
+	return count
 }
 
 // dispatch_scheduled_method invokes the method named `method_name` on the
@@ -721,31 +839,44 @@ pub fn scan_and_register[T](mut ctx ApplicationContext) ! {
 	mut qualifier_name := ''
 	mut depends_on_list := []string{}
 	mut is_component := false
+	mut order_val := 0
+	mut is_primary_val := false
+	mut conditions := []&Condition{}
 
 	$for attr in T.attributes {
-		$if attr.name == attr_component {
+		// 使用运行时 if 而非 comptime $if——V 0.5.1 编译器在 comptime $if attr.name
+		// 分支过多时会报 "unknown at compile time" 错误。attr.name 是字符串常量，
+		// 运行时比较语义等价且无分支数限制。
+		if attr.name == attr_component {
 			component_type = .component
 			is_component = true
-		} $else $if attr.name == attr_service {
+		}
+		if attr.name == attr_service {
 			component_type = .service
 			is_component = true
-		} $else $if attr.name == attr_repository {
+		}
+		if attr.name == attr_repository {
 			component_type = .repository
 			is_component = true
-		} $else $if attr.name == attr_controller {
+		}
+		if attr.name == attr_controller {
 			component_type = .controller
 			is_component = true
-		} $else $if attr.name == attr_scope {
+		}
+		if attr.name == attr_scope {
 			$if attr.has_arg {
 				scope_val = scope_from_str(attr.arg.trim("'\""))
 			}
-		} $else $if attr.name == attr_lazy {
+		}
+		if attr.name == attr_lazy {
 			is_lazy = true
-		} $else $if attr.name == attr_qualifier {
+		}
+		if attr.name == attr_qualifier {
 			$if attr.has_arg {
 				qualifier_name = attr.arg.trim("'\"")
 			}
-		} $else $if attr.name == attr_depends_on {
+		}
+		if attr.name == attr_depends_on {
 			$if attr.has_arg {
 				parts := attr.arg.trim("'\"").split(',')
 				for part in parts {
@@ -754,6 +885,22 @@ pub fn scan_and_register[T](mut ctx ApplicationContext) ! {
 						depends_on_list << trimmed
 					}
 				}
+			}
+		}
+		if attr.name == attr_order {
+			$if attr.has_arg {
+				order_val = attr.arg.trim("'\"").int()
+			}
+		}
+		if attr.name == attr_primary {
+			is_primary_val = true
+		}
+		if attr.name == attr_profile {
+			$if attr.has_arg {
+				profile_name := attr.arg.trim("'\"")
+				conditions << &Condition(&OnProfileCondition{
+					profile: profile_name
+				})
 			}
 		}
 	}
@@ -782,9 +929,14 @@ pub fn scan_and_register[T](mut ctx ApplicationContext) ! {
 			}
 		}
 		if has_autowired {
+			// 按字段类型名解析依赖（Spring @Autowired 语义），而非按字段名
+			// typeof(field.typ) 返回如 '&core.UserRepository'，去除前导 '&' 得到
+			// 与 T.name 一致的完全限定类型名（如 'core.UserRepository'）
+			dep_type_name := typeof(field.typ).trim_left('&')
 			dependencies << Dependency{
-				type_name: field.name
-				qualifier: field_qualifier
+				field_name: field.name
+				type_name:  dep_type_name
+				qualifier:  field_qualifier
 				is_required: is_required_field
 			}
 		}
@@ -813,6 +965,12 @@ pub fn scan_and_register[T](mut ctx ApplicationContext) ! {
 		}
 	}
 
+	// 3.5) 扫描 @[autowired] init 方法参数（构造器注入元数据，Task B2）
+	// V comptime 限制：无法获取方法参数类型名，constructor_params 仅记录参数名。
+	// 实际依赖注入由字段级 @[autowired] 完成，@[autowired] init() 无参方法
+	// 作为构造后回调由 create_and_wire[T] 调用。
+	constructor_params := extract_constructor[T]()
+
 	// 4) Build and register BeanDefinition
 	type_name := T.name
 	bean_name := if qualifier_name.len > 0 { qualifier_name } else { type_name }
@@ -826,6 +984,10 @@ pub fn scan_and_register[T](mut ctx ApplicationContext) ! {
 	def.init_method = init_method
 	def.destroy_method = destroy_method
 	def.depends_on = depends_on_list
+	def.order_ = order_val
+	def.is_primary = is_primary_val
+	def.conditions = conditions
+	def.constructor_params = constructor_params
 
 	ctx.register(def) or {
 		return error('scan_and_register: failed to register ${bean_name}: ${err} / 注册 ${bean_name} 失败: ${err}')
@@ -846,32 +1008,37 @@ pub fn scan_component_info[T]() ScannedBean {
 	mut is_lazy := false
 	mut qualifier_name := ''
 	mut depends_on_list := []string{}
-	mut is_component := false
 
 	$for attr in T.attributes {
-		$if attr.name == attr_component {
+		// 使用运行时 if 而非 comptime $if——V 0.5.1 编译器在 comptime $if attr.name
+		// 分支过多时会报 "unknown at compile time" 错误。attr.name 是字符串常量，
+		// 运行时比较语义等价且无分支数限制。
+		if attr.name == attr_component {
 			component_type = .component
-			is_component = true
-		} $else $if attr.name == attr_service {
+		}
+		if attr.name == attr_service {
 			component_type = .service
-			is_component = true
-		} $else $if attr.name == attr_repository {
+		}
+		if attr.name == attr_repository {
 			component_type = .repository
-			is_component = true
-		} $else $if attr.name == attr_controller {
+		}
+		if attr.name == attr_controller {
 			component_type = .controller
-			is_component = true
-		} $else $if attr.name == attr_scope {
+		}
+		if attr.name == attr_scope {
 			$if attr.has_arg {
 				scope_val = scope_from_str(attr.arg.trim("'\""))
 			}
-		} $else $if attr.name == attr_lazy {
+		}
+		if attr.name == attr_lazy {
 			is_lazy = true
-		} $else $if attr.name == attr_qualifier {
+		}
+		if attr.name == attr_qualifier {
 			$if attr.has_arg {
 				qualifier_name = attr.arg.trim("'\"")
 			}
-		} $else $if attr.name == attr_depends_on {
+		}
+		if attr.name == attr_depends_on {
 			$if attr.has_arg {
 				parts := attr.arg.trim("'\"").split(',')
 				for part in parts {
@@ -905,9 +1072,14 @@ pub fn scan_component_info[T]() ScannedBean {
 			}
 		}
 		if has_autowired {
+			// 按字段类型名解析依赖（Spring @Autowired 语义），而非按字段名
+			// typeof(field.typ) 返回如 '&core.UserRepository'，去除前导 '&' 得到
+			// 与 T.name 一致的完全限定类型名（如 'core.UserRepository'）
+			dep_type_name := typeof(field.typ).trim_left('&')
 			dependencies << Dependency{
-				type_name: field.name
-				qualifier: field_qualifier
+				field_name: field.name
+				type_name:  dep_type_name
+				qualifier:  field_qualifier
 				is_required: is_required_field
 			}
 		}
@@ -931,6 +1103,9 @@ pub fn scan_component_info[T]() ScannedBean {
 		}
 	}
 
+	// 扫描 @[autowired] init 方法参数（构造器注入元数据，Task B2）
+	constructor_params := extract_constructor[T]()
+
 	return ScannedBean{
 		type_name:      T.name
 		component_type: component_type
@@ -942,5 +1117,6 @@ pub fn scan_component_info[T]() ScannedBean {
 		destroy_method: destroy_method
 		value_bindings: value_bindings
 		conditions:     depends_on_list
+		constructor_params: constructor_params
 	}
 }
