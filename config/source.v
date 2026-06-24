@@ -138,7 +138,7 @@ pub fn (mut s EnvConfigSource) load() !map[string]string {
 		}
 	}
 
-	s.cached = result
+	s.cached = result.clone()
 	s.loaded = true
 	return s.cached.clone()
 }

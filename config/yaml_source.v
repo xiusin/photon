@@ -98,7 +98,7 @@ pub fn (mut s YamlConfigSource) load() !map[string]string {
 	}
 	content := os.read_file(s.filepath)!
 	result := parse_yaml(content)!
-	s.cached = result
+	s.cached = result.clone()
 	s.loaded = true
 	return result
 }
@@ -231,7 +231,7 @@ pub fn (mut s TomlConfigSource) load() !map[string]string {
 	}
 	doc := toml.parse_file(s.filepath)!
 	result := toml_doc_to_flat_map(doc)
-	s.cached = result
+	s.cached = result.clone()
 	s.loaded = true
 	return result
 }

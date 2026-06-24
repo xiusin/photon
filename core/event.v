@@ -123,11 +123,16 @@ mut:
 // new_event_bus creates an empty EventBus with sharded locking.
 // 创建空 EventBus，使用分片锁。
 pub fn new_event_bus() &EventBus {
-	return &EventBus{
+	mut bus := &EventBus{
 		listeners:               map[string][]RegisteredListener{}
 		transactional_listeners: map[string][]TransactionalRegisteredListener{}
 		sharded_mu:              new_sharded_rw_mutex()
 	}
+	// WaitGroup 必须调用 init() 初始化内部信号量，否则 wait() 会永远阻塞。
+	// WaitGroup.init() must be called to initialize the internal semaphore,
+	// otherwise wait() will block forever.
+	bus.wg.init()
+	return bus
 }
 
 // on registers a listener for an event name with normal priority.
@@ -326,23 +331,14 @@ pub fn (mut bus EventBus) dispatch_async(event &Event) {
 		if isnil(rl.listener) {
 			continue
 		}
-		bus.wg.add(1)
 		captured_event := event
 		captured_listener := rl.listener
-		bus_ref := bus
-		// V 的 spawn 不允许 mut 非引用参数，因此使用 unsafe 调用 wg.done()。
-		// sync.WaitGroup.done() 是线程安全的原子操作，unsafe 块仅用于绕过
-		// V 的 mut 检查，不引入实际安全问题。
-		// V's spawn does not allow mutable non-reference arguments, so we use
-		// unsafe to call wg.done(). sync.WaitGroup.done() is a thread-safe
-		// atomic operation — the unsafe block only bypasses V's mut check
-		// and does not introduce actual safety issues.
-		spawn fn (e &Event, l EventListener, gb &EventBus) {
-			defer {
-				unsafe { gb.wg.done() }
-			}
-			l(e)
-		}(captured_event, captured_listener, bus_ref)
+		// 使用 wg.go() 替代手动 add(1)+spawn+done()。
+		// wg.go() 内部正确处理了 mut WaitGroup 的传递，
+		// 避免了 unsafe 调用 done() 的潜在问题。
+		bus.wg.go(fn [captured_event, captured_listener] () {
+			captured_listener(captured_event)
+		})
 	}
 }
 

@@ -123,7 +123,7 @@ fn (mut e Environment) resolve_placeholders_with_visited(text string, visited []
 
 		// Recursively resolve nested placeholders inside the key first
 		// e.g., ${app.${env}.host} → resolve ${env} first → ${app.dev.host}
-		resolved_key_part := placeholder
+		mut resolved_key_part := placeholder
 		if placeholder.contains(open_pattern) {
 			resolved_key_part = e.resolve_placeholders_with_visited(placeholder, visited)
 		}

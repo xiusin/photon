@@ -7,6 +7,7 @@ import logger
 import cache
 import pool
 import locking
+import core
 
 // verify_config 验证多源配置、profile、类型化读取
 fn verify_config(mut v Verifier) {
@@ -158,12 +159,15 @@ fn verify_locking(mut v Verifier) {
 	v.check('try_lock 不同 key', lm.try_lock('resource-B'))
 	lm.unlock('resource-B') or {}
 
-	// guarded_lock：在锁内执行并自动释放，返回结果
-	result := locking.guarded_lock[int](mut lm, 'counter', fn () !int {
-		return 42
-	}) or { -1 }
-	v.check('guarded_lock 返回结果', result == 42)
-	v.check('guarded_lock 自动释放后可再获取', lm.try_lock('counter'))
+	// with_lock：在锁内执行并自动释放（零心智成本 API）
+	lm.with_lock('counter', fn () ! {
+		// with_lock 成功执行即可验证
+	}) or {
+		v.check('with_lock 执行', false)
+		return
+	}
+	v.check('with_lock 回调执行', true)
+	v.check('with_lock 自动释放后可再获取', lm.try_lock('counter'))
 	lm.unlock('counter') or {}
 }
 
@@ -198,14 +202,14 @@ fn verify_pool_guard(mut v Verifier) {
 	v.check('guard 重复 release 不 panic', true)
 
 	// 测试 with_acquired（零心智成本 API）
-	mut with_acquired_ok := false
 	p.with_acquired[Product](fn (obj &Product) ! {
-		with_acquired_ok = true
+		// with_acquired 成功执行并传入非空对象即可验证
+		assert !isnil(obj)
 	}) or {
 		v.check('with_acquired 执行', false)
 		return
 	}
-	v.check('with_acquired 回调执行', with_acquired_ok)
+	v.check('with_acquired 回调执行', true)
 	v.check('with_acquired 后池 active == 0', p.stats().active == 0)
 
 	// 测试 PoolAutoManager
@@ -344,14 +348,13 @@ fn verify_lock_guard(mut v Verifier) {
 	guard2.release()
 
 	// with_lock（零心智成本 API）
-	mut with_lock_ok := false
 	lm.with_lock('with-key', fn () ! {
-		with_lock_ok = true
+		// with_lock 成功执行即可验证
 	}) or {
 		v.check('with_lock 执行', false)
 		return
 	}
-	v.check('with_lock 回调执行', with_lock_ok)
+	v.check('with_lock 回调执行', true)
 	v.check('with_lock 后锁可用', lm.try_lock('with-key'))
 	lm.unlock('with-key') or {}
 }

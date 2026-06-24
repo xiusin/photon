@@ -66,6 +66,13 @@ fn main() {
 	verify_service_locator(mut v)
 	verify_auto_logger(mut v)
 	verify_lock_guard(mut v)
+	verify_controller_mount(mut v)
+	verify_controller_di_injection(mut v)
+	verify_controller_register_container(mut v)
+	verify_webmodule_integration(mut v)
+	verify_multi_controller_dispatch(mut v)
+	verify_locate_controller_global(mut v)
+	verify_dispatch_controller_method(mut v)
 
 	println('\n\033[1m──────────────────────────────────────────────\033[0m')
 	total := v.passed + v.failed
