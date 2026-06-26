@@ -293,6 +293,31 @@ pub fn (mut ctx ApplicationContext) register_instance(type_name string, instance
 	ctx.invalidate_cache(type_name)
 }
 
+// register_instance_with_aliases registers a pre-created instance as a singleton
+// under the primary name, then registers all aliases pointing to it.
+//
+// This is a convenience method that combines register_instance() + register_alias()
+// to eliminate the common pattern of registering the same instance multiple times
+// under different names (e.g., 'log' + 'Logger').
+//
+// Spring equivalent: BeanDefinition + alias registration
+//
+// Usage:
+//   app_ctx.register_instance_with_aliases('log', unsafe { voidptr(log) }, ['Logger'])!
+//   // ↑ registers 'log' as the primary name, 'Logger' as an alias
+pub fn (mut ctx ApplicationContext) register_instance_with_aliases(type_name string, instance voidptr, aliases []string) ! {
+	if ctx.is_frozen {
+		return error('cannot register instance "${type_name}": bean definitions are frozen / BeanDefinition 已冻结，无法注册 "${type_name}"')
+	}
+	ctx.container.register_instance(type_name, instance)!
+	ctx.invalidate_cache(type_name)
+	for alias in aliases {
+		ctx.container.register_alias(alias, type_name) or {
+			// alias already exists — non-fatal, continue
+		}
+	}
+}
+
 // register_factory registers a FactoryBean with the container.
 // Laravel equivalent: Container::bind('name', fn() => new Service())
 pub fn (mut ctx ApplicationContext) register_factory(factory_type_name string, factory &FactoryBean) ! {
@@ -1638,8 +1663,13 @@ pub fn (mut ctx ApplicationContext) autowire_bean[T](mut bean T) ! {
 		field_qualifier = extract_qualifier(field.attrs)
 
 		if has_autowired {
-			// Try qualifier-based resolution first, then type-based
+			// Resolution order (consistent with autowire_controller):
+			//   1. @[qualifier('name')] → resolve by qualifier
+			//   2. field name → resolve by field name (e.g., 'repo')
+			//   3. capitalized field name → resolve by PascalCase (e.g., 'Repo')
 			mut resolved := false
+
+			// 1. Qualifier-based resolution
 			if field_qualifier.len > 0 {
 				instance := ctx.resolve(field_qualifier) or { unsafe { nil } }
 				if !isnil(instance) {
@@ -1647,17 +1677,28 @@ pub fn (mut ctx ApplicationContext) autowire_bean[T](mut bean T) ! {
 					resolved = true
 				}
 			}
+
+			// 2. Field-name-based resolution (same strategy as autowire_controller)
 			if !resolved {
-				// Type-based resolution: try to resolve by field type name
-				// V comptime: $if field.typ is Type { ... }
+				instance_resolved := ctx.resolve(field.name) or {
+					// 3. Try capitalized field name
+					ctx.resolve(capitalize_first(field.name)) or {
+						unsafe { nil }
+					}
+				}
+				if !isnil(instance_resolved) {
+					bean.$(field.name) = unsafe { instance_resolved }
+					resolved = true
+				}
+			}
+
+			// 4. Type-based resolution fallback (best-effort for reference types)
+			if !resolved {
 				$if field.typ is string {
 					// String fields with @[autowired] are not typical; skip
 				} $else $if field.typ is int {
 					// Primitive autowired fields not supported; skip
 				}
-				// For reference types, we attempt resolve by the field's type name
-				// This is a best-effort approach since V comptime doesn't expose
-				// the full type name of reference fields directly
 			}
 		}
 	}

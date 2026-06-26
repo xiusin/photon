@@ -150,7 +150,7 @@ fn verify_controller_mount(mut v Verifier) {
 	// ── 1. 分离式注解挂载 ──
 	mut rr := web.new_route_registry()
 	ctrl_health := &VerifyHealthController{}
-	rr.mount_controller[VerifyHealthController](ctrl_health, '/api')
+	rr.mount_controller[VerifyHealthController, veb.Context](ctrl_health, '/api')
 
 	v.check('分离式注解：注册 2 条路由', rr.route_count() == 2)
 
@@ -170,7 +170,7 @@ fn verify_controller_mount(mut v Verifier) {
 	// ── 2. 合并式注解挂载 ──
 	mut rr2 := web.new_route_registry()
 	ctrl_user := &VerifyUserController{}
-	rr2.mount_controller[VerifyUserController](ctrl_user, '/api/v1')
+	rr2.mount_controller[VerifyUserController, veb.Context](ctrl_user, '/api/v1')
 
 	v.check('合并式注解：注册 3 条路由', rr2.route_count() == 3)
 
@@ -194,28 +194,28 @@ fn verify_controller_mount(mut v Verifier) {
 
 	// ── 3. 路由分发与控制器方法调用 ──
 	mut ctx1 := new_test_veb_context()
-	found := rr2.dispatch('GET', '/api/v1/users', mut ctx1)
+	found := rr2.dispatch('GET', '/api/v1/users', '', voidptr(ctx1))
 	v.check('路由分发：GET /api/v1/users 命中', found)
 	v.check('控制器方法被调用 (called_method=list)', ctrl_user.called_method == 'list')
 
 	mut ctx2 := new_test_veb_context()
-	found2 := rr2.dispatch('POST', '/api/v1/users', mut ctx2)
+	found2 := rr2.dispatch('POST', '/api/v1/users', '', voidptr(ctx2))
 	v.check('路由分发：POST /api/v1/users 命中', found2)
 	v.check('控制器方法被调用 (called_method=create)', ctrl_user.called_method == 'create')
 
 	// ── 4. 路径参数传递 ──
 	mut ctrl_user2 := &VerifyUserController{}
 	mut rr3 := web.new_route_registry()
-	rr3.mount_controller[VerifyUserController](ctrl_user2, '/api/v1')
+	rr3.mount_controller[VerifyUserController, veb.Context](ctrl_user2, '/api/v1')
 
 	mut ctx3 := new_test_veb_context()
-	found3 := rr3.dispatch('GET', '/api/v1/users/42', mut ctx3)
+	found3 := rr3.dispatch('GET', '/api/v1/users/42', '', voidptr(ctx3))
 	v.check('路径参数：GET /api/v1/users/42 命中', found3)
 	v.check('路径参数：控制器收到 id=42', ctrl_user2.called_method == 'show')
 
 	// ── 5. 未匹配路由 ──
 	mut ctx4 := new_test_veb_context()
-	not_found := rr2.dispatch('DELETE', '/api/v1/nonexistent', mut ctx4)
+	not_found := rr2.dispatch('DELETE', '/api/v1/nonexistent', '', voidptr(ctx4))
 	v.check('未匹配路由：DELETE /api/v1/nonexistent 返回 false', !not_found)
 
 	// ── 6. 自动前缀提取 ──
@@ -272,10 +272,10 @@ fn verify_controller_di_injection(mut v Verifier) {
 
 	// ── 3. 注入后挂载 + 路由分发验证 ──
 	mut rr := web.new_route_registry()
-	rr.mount_controller[VerifyUserController](ctrl, '/api/v1')
+	rr.mount_controller[VerifyUserController, veb.Context](ctrl, '/api/v1')
 
 	mut vctx := new_test_veb_context()
-	rr.dispatch('GET', '/api/v1/users', mut vctx)
+	rr.dispatch('GET', '/api/v1/users', '', voidptr(vctx))
 	v.check('DI+挂载：list 方法可调用 (called_method=list)', ctrl.called_method == 'list')
 	v.check('DI+挂载：user_service 在方法中可用', !isnil(ctrl.user_service))
 
@@ -296,10 +296,10 @@ fn verify_controller_di_injection(mut v Verifier) {
 	v.check('wire_controller: admin auth_service 已注入', !isnil(admin_ctrl.auth_service))
 
 	// 挂载并验证
-	rr.mount_controller[VerifyAdminController](admin_ctrl, '/admin')
+	rr.mount_controller[VerifyAdminController, veb.Context](admin_ctrl, '/admin')
 
 	mut vctx2 := new_test_veb_context()
-	found := rr.dispatch('GET', '/admin/dashboard', mut vctx2)
+	found := rr.dispatch('GET', '/admin/dashboard', '', voidptr(vctx2))
 	v.check('Admin 控制器路由命中', found)
 	v.check('Admin 控制器方法调用', 'dashboard' in admin_ctrl.action_log)
 
@@ -343,18 +343,18 @@ fn verify_webmodule_integration(mut v Verifier) {
 
 	mut wm := web.init_web_module()
 	ctrl := &VerifyHealthController{}
-	wm.mount_controller[VerifyHealthController](ctrl, '/api')
+	wm.mount_controller[VerifyHealthController, veb.Context](ctrl, '/api')
 
 	v.check('WebModule.mount_controller: 注册 2 条路由', wm.router.route_count() == 2)
 
 	mut ctx := new_test_veb_context()
-	found := wm.router.dispatch('GET', '/api/health', mut ctx)
+	found := wm.router.dispatch('GET', '/api/health', '', voidptr(ctx))
 	v.check('WebModule: GET /api/health 命中', found)
 
 	// mount_controller_auto — 自动提取前缀
 	mut wm2 := web.init_web_module()
 	ctrl_user := &VerifyUserController{}
-	wm2.mount_controller_auto[VerifyUserController](ctrl_user, '/default')
+	wm2.mount_controller_auto[VerifyUserController, veb.Context](ctrl_user, '/default')
 
 	mut found_auto := false
 	for route in wm2.router.routes {
@@ -367,7 +367,7 @@ fn verify_webmodule_integration(mut v Verifier) {
 	// 无注解前缀时使用默认值
 	mut wm3 := web.init_web_module()
 	ctrl_health := &VerifyHealthController{}
-	wm3.mount_controller_auto[VerifyHealthController](ctrl_health, '/fallback')
+	wm3.mount_controller_auto[VerifyHealthController, veb.Context](ctrl_health, '/fallback')
 
 	mut found_fallback := false
 	for route in wm3.router.routes {
@@ -389,9 +389,9 @@ fn verify_multi_controller_dispatch(mut v Verifier) {
 	ctrl_admin := &VerifyAdminController{}
 	ctrl_health := &VerifyHealthController{}
 
-	rr.mount_controller[VerifyUserController](ctrl_user, '/api/v1')
-	rr.mount_controller[VerifyAdminController](ctrl_admin, '/admin')
-	rr.mount_controller[VerifyHealthController](ctrl_health, '/')
+	rr.mount_controller[VerifyUserController, veb.Context](ctrl_user, '/api/v1')
+	rr.mount_controller[VerifyAdminController, veb.Context](ctrl_admin, '/admin')
+	rr.mount_controller[VerifyHealthController, veb.Context](ctrl_health, '/')
 
 	// 3+2+2 = 7 条路由
 	v.check('多控制器：共注册 7 条路由', rr.route_count() == 7)
@@ -401,9 +401,9 @@ fn verify_multi_controller_dispatch(mut v Verifier) {
 	mut ctx2 := new_test_veb_context()
 	mut ctx3 := new_test_veb_context()
 
-	found1 := rr.dispatch('GET', '/api/v1/users', mut ctx1)
-	found2 := rr.dispatch('GET', '/admin/dashboard', mut ctx2)
-	found3 := rr.dispatch('GET', '/health', mut ctx3)
+	found1 := rr.dispatch('GET', '/api/v1/users', '', voidptr(ctx1))
+	found2 := rr.dispatch('GET', '/admin/dashboard', '', voidptr(ctx2))
+	found3 := rr.dispatch('GET', '/health', '', voidptr(ctx3))
 
 	v.check('多控制器：用户路由命中', found1)
 	v.check('多控制器：管理路由命中', found2)
@@ -451,13 +451,13 @@ fn verify_dispatch_controller_method(mut v Verifier) {
 	mut ctx := new_test_veb_context()
 
 	// 直接调用分发函数
-	result := web.dispatch_controller_method[VerifyHealthController](voidptr(ctrl), 'check', mut ctx, map[string]string{})
+	result := web.dispatch_controller_method[VerifyHealthController, veb.Context](voidptr(ctrl), 'check', voidptr(ctx), map[string]string{})
 	v.check('dispatch_controller_method: check 方法返回 veb.Result', result.str().len > 0)
 	v.check('dispatch_controller_method: 控制器方法被调用', ctrl.checked)
 
 	// 调用不存在的方法 → 不会 panic，正常返回 404 结果
 	mut ctx2 := new_test_veb_context()
-	result2 := web.dispatch_controller_method[VerifyHealthController](voidptr(ctrl), 'nonexistent', mut ctx2, map[string]string{})
+	result2 := web.dispatch_controller_method[VerifyHealthController, veb.Context](voidptr(ctrl), 'nonexistent', voidptr(ctx2), map[string]string{})
 	// dispatch_controller_method 对未找到的方法返回一个包含 404 错误的 veb.Result
 	// 无法直接检查 Result 内容，但验证其不 panic 且返回了非空结果即可
 	v.check('dispatch_controller_method: 未找到方法安全返回结果', result2.str().len > 0)

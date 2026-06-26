@@ -4,7 +4,8 @@ module web
 import veb
 
 // 测试用占位处理器（闭包），仅用于注册，不实际调用
-fn noop_handler(mut ctx veb.Context, params map[string]string) veb.Result {
+fn noop_handler(ctx_ptr voidptr, params map[string]string) veb.Result {
+	mut ctx := unsafe { &veb.Context(ctx_ptr) }
 	return ctx.text('')
 }
 

@@ -60,6 +60,7 @@ module web
 //   }
 import veb
 import net.http
+import core
 
 // ═══════════════════════════════════════════════════════════
 // 路由属性解析
@@ -172,8 +173,9 @@ pub fn extract_controller_prefix[T]() string {
 //   生成 ctrl.$method(mut ctx, params) 调用。所有路由处理方法必须具有
 //   签名 fn (mut ctx veb.Context, params map[string]string) veb.Result。
 //   非路由方法（构造器等）返回 &T 或 void，不会被匹配。
-pub fn dispatch_controller_method[T](controller_ptr voidptr, method_name string, mut ctx veb.Context, params map[string]string) veb.Result {
+pub fn dispatch_controller_method[T, X](controller_ptr voidptr, method_name string, ctx_ptr voidptr, params map[string]string) veb.Result {
 	mut ctrl := unsafe { &T(controller_ptr) }
+	mut ctx := unsafe { &X(ctx_ptr) }
 	$for method in T.methods {
 		$if method.return_type is veb.Result {
 			if method_name == method.name {
@@ -182,9 +184,11 @@ pub fn dispatch_controller_method[T](controller_ptr voidptr, method_name string,
 		}
 	}
 	// 方法未找到，返回 404
-	ctx.res.set_status(unsafe { http.Status(404) })
-	ctx.set_content_type('application/json')
-	return ctx.text('{"error":"method not found","code":404}')
+	// C 嵌入 veb.Context，所以 ctx_ptr 也可以当作 &veb.Context 使用
+	mut veb_ctx := unsafe { &veb.Context(ctx_ptr) }
+	veb_ctx.res.set_status(unsafe { http.Status(404) })
+	veb_ctx.set_content_type('application/json')
+	return veb_ctx.text('{"error":"method not found","code":404}')
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -212,7 +216,7 @@ pub fn dispatch_controller_method[T](controller_ptr voidptr, method_name string,
 //   rr.mount_controller[UserController](&UserController{...}, '/api/v1')
 //   // 或通过 WebModule：
 //   app.WebModule.mount_controller[UserController](&UserController{...}, '/api/v1')
-pub fn (mut rr RouteRegistry) mount_controller[T](controller &T, prefix string) {
+pub fn (mut rr RouteRegistry) mount_controller[T, X](controller &T, prefix string) {
 	// 编译期扫描控制器的所有方法
 	$for method in T.methods {
 		// 仅处理返回 veb.Result 的方法
@@ -236,10 +240,11 @@ pub fn (mut rr RouteRegistry) mount_controller[T](controller &T, prefix string) 
 
 					// 创建路由处理器闭包
 					// 注意：V 0.5.1 comptime 限制下，闭包内不能直接使用 $method，
-					// 所以通过 dispatch_controller_method[T] 顶层函数进行分发。
-					dispatcher := dispatch_controller_method[T]
-					handler := fn [ctrl_ptr, method_name, dispatcher] (mut ctx veb.Context, params map[string]string) veb.Result {
-						return dispatcher(ctrl_ptr, method_name, mut ctx, params)
+					// 所以通过 dispatch_controller_method[T, X] 顶层函数进行分发。
+					// X 泛型参数允许控制器方法使用任意嵌入 veb.Context 的自定义 Context 类型
+					dispatcher := dispatch_controller_method[T, X]
+					handler := fn [ctrl_ptr, method_name, dispatcher] (ctx_ptr voidptr, params map[string]string) veb.Result {
+						return dispatcher(ctrl_ptr, method_name, ctx_ptr, params)
 					}
 
 					rr.register(route_attr.method, full_path, handler)
@@ -256,12 +261,12 @@ pub fn (mut rr RouteRegistry) mount_controller[T](controller &T, prefix string) 
 // 用法：
 //   rr.mount_controller_auto[UserController](&UserController{})
 //   // 如果 UserController 有 @[prefix: '/api/v1']，则自动使用 '/api/v1'
-pub fn (mut rr RouteRegistry) mount_controller_auto[T](controller &T, default_prefix string) {
+pub fn (mut rr RouteRegistry) mount_controller_auto[T, X](controller &T, default_prefix string) {
 	mut prefix := extract_controller_prefix[T]()
 	if prefix.len == 0 {
 		prefix = default_prefix
 	}
-	rr.mount_controller[T](controller, prefix)
+	rr.mount_controller[T, X](controller, prefix)
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -271,19 +276,54 @@ pub fn (mut rr RouteRegistry) mount_controller_auto[T](controller &T, default_pr
 // mount_controller 通过 WebModule 挂载控制器（委托给 RouteRegistry）。
 // 用法：
 //   app.WebModule.mount_controller[UserController](&UserController{...}, '/api/v1')
-pub fn (mut wm WebModule) mount_controller[T](controller &T, prefix string) {
-	wm.router.mount_controller[T](controller, prefix)
+pub fn (mut wm WebModule) mount_controller[T, X](controller &T, prefix string) {
+	wm.router.mount_controller[T, X](controller, prefix)
 }
 
 // mount_controller_auto 通过 WebModule 自动挂载控制器（委托给 RouteRegistry）。
 // 用法：
 //   app.WebModule.mount_controller_auto[UserController](&UserController{})
-pub fn (mut wm WebModule) mount_controller_auto[T](controller &T, default_prefix string) {
-	wm.router.mount_controller_auto[T](controller, default_prefix)
+pub fn (mut wm WebModule) mount_controller_auto[T, X](controller &T, default_prefix string) {
+	wm.router.mount_controller_auto[T, X](controller, default_prefix)
 }
 
 // ═══════════════════════════════════════════════════════════
-// 批量挂载
+// DI + 挂载一体化（wire_and_mount_controller）
 // ═══════════════════════════════════════════════════════════
 
+// wire_and_mount_controller 一步完成「DI 创建+注入」和「路由挂载」。
+//
+// 这是 wire_controller[T]() + mount_controller[T, X]() 的便捷封装——
+// 将两步操作合并为一次调用，消除 main.v 中的样板代码。
+//
+// 参数：
+//   ctx:    ApplicationContext（DI 容器）
+//   prefix: 路由前缀（如 '' 或 '/api/v1'），会自动拼接到每条路由路径前
+//
+// 返回：完全初始化的控制器实例指针（依赖已注入、路由已注册）
+//
+// Spring 等价：@Controller + @Autowired + @RequestMapping 一体化
+//
+// 用法：
+//   ctrl := app.WebModule.wire_and_mount_controller[UserController, http.Context](mut app_ctx, '/api/v1')!
+//   // ↑ 等价于：
+//   // ctrl := app_ctx.wire_controller[UserController]()!
+//   // app.WebModule.mount_controller[UserController, http.Context](ctrl, '/api/v1')
+pub fn (mut wm WebModule) wire_and_mount_controller[T, X](mut ctx core.ApplicationContext, prefix string) !&T {
+	ctrl := ctx.wire_controller[T]()!
+	wm.mount_controller[T, X](ctrl, prefix)
+	return ctrl
+}
 
+// wire_and_mount_controller_auto 一步完成「DI 创建+注入」和「路由挂载（自动前缀）」。
+//
+// 如果控制器有 @[prefix: '/api/v1'] 注解，则使用注解前缀；
+// 否则使用传入的 default_prefix。
+//
+// 用法：
+//   ctrl := app.WebModule.wire_and_mount_controller_auto[UserController, http.Context](mut app_ctx, '')!
+pub fn (mut wm WebModule) wire_and_mount_controller_auto[T, X](mut ctx core.ApplicationContext, default_prefix string) !&T {
+	ctrl := ctx.wire_controller[T]()!
+	wm.mount_controller_auto[T, X](ctrl, default_prefix)
+	return ctrl
+}

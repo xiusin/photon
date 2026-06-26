@@ -78,8 +78,16 @@ pub fn (mut ctx ApplicationContext) autowire_controller[T](controller &T) ! {
 				// 这种方式对指针类型字段是安全的
 				mut ctrl := unsafe { &T(controller) }
 				unsafe {
-					mut field_ptr := &voidptr(&ctrl.$(field.name))
-					*field_ptr = instance_resolved
+					// ⚠️ 重要提示：必须分两步操作，不能内联为
+					//   *(&voidptr(&ctrl.$(field.name))) = instance_resolved
+					// 因为 V 0.5.x 编译器在解析内联形式时，会将
+					// &ctrl.$(field.name) 误解为"取字段字符串值"而非"取字段地址"，
+					// 导致 "cannot cast string to &voidptr" 编译错误。
+					// 先将字段地址存入中间变量 addr，再通过 &voidptr(addr)
+					// 解引用写入，既避免了编译器误解析，又消除了
+					// 原先 "unused variable: field_ptr" 的编译器警告。
+					addr := &ctrl.$(field.name)
+					*(&voidptr(addr)) = instance_resolved
 				}
 			}
 		}

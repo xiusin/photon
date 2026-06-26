@@ -21,8 +21,8 @@ pub type JobFactory = fn () &Job
 // WorkerConfig 队列 Worker 配置
 pub struct WorkerConfig {
 pub:
-	max_jobs          int  = 0    // Max jobs to process (0 = unlimited) / 最大处理任务数（0 = 无限）
-	rest_interval     int  = 0    // Rest interval in secs after max_jobs / 达到上限后休息间隔（秒）
+	max_jobs          int    // Max jobs to process (0 = unlimited) / 最大处理任务数（0 = 无限）
+	rest_interval     int    // Rest interval in secs after max_jobs / 达到上限后休息间隔（秒）
 	timeout           int  = 30   // Job timeout in seconds / 任务超时时间（秒）
 	graceful_shutdown bool = true // Enable graceful shutdown / 启用优雅关闭
 }

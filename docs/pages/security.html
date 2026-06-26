@@ -2,7 +2,7 @@
 <!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Security · 安全 -->
 <div class="hero">
         <h1>Security · 安全</h1>
-        <p>JWT 令牌、RBAC 权限、CSRF 防护、SecurityFilterChain — Spring Security 的 V 语言实现，与 Web 模块无缝集成。</p>
+        <p>JWT 令牌、RBAC 权限、CSRF 防护、SecurityFilterChain、密码哈希、Token 管理、OAuth 第三方登录 — Spring Security 的 V 语言实现，与 Web 模块无缝集成。</p>
         <div class="hero-tags"><span class="hero-tag">🇻‍🇦 GA</span><span class="hero-tag">import photon.security</span><span class="hero-tag">对标 Spring Security</span></div>
       </div>
 
@@ -131,7 +131,241 @@ valid := repo.<span class="fn">validate_token</span>(submitted_token)
         </div>
       </div>
 
-      <!-- ═══ 4. SecurityFilterChain ═══ -->
+      <!-- ═══ 4. veb.auth 认证桥接 ═══ -->
+      <div class="doc-section" id="auth-bridge">
+        <div class="section-header"><div class="section-icon icon-security">🔐</div><div><div class="section-title">veb.auth 认证桥接</div><div class="section-subtitle">密码哈希 · Token 生成与验证 · 安全随机数</div></div></div>
+
+        <p>桥接 <code>veb.auth</code> 的认证能力，提供 SHA256+salt 密码哈希、安全 Token 生成与验证、Token 管理器（存储/吊销/过期清理）等功能。与 Photon Security 模块无缝集成。</p>
+
+        <h3>密码哈希与验证</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.security
+
+<span class="cm">// 1. 创建密码编码器</span>
+encoder := security.<span class="fn">new_password_encoder</span>()
+
+<span class="cm">// 2. 哈希密码（自动生成随机 salt）</span>
+hashed := encoder.<span class="fn">hash_password</span>(<span class="st">'my-secret-password'</span>)!
+<span class="cm">// 返回格式: "sha256:salt_hex:hash_hex"</span>
+
+<span class="cm">// 3. 验证密码</span>
+ok := encoder.<span class="fn">verify_password</span>(<span class="st">'my-secret-password'</span>, hashed)!
+<span class="fn">println</span>(ok)  <span class="cm">// true</span>
+
+<span class="cm">// 4. 检查密码是否需要重哈希</span>
+<span class="cm">// （例如算法升级后，旧哈希需要更新）</span>
+<span class="kw">if</span> encoder.<span class="fn">needs_rehash</span>(hashed) {
+    new_hashed := encoder.<span class="fn">hash_password</span>(raw_password)!
+    <span class="cm">// 存储 new_hashed...</span>
+}
+
+<span class="cm">// Spring 等价: PasswordEncoder (BCryptPasswordEncoder)</span>
+<span class="cm">// Laravel 等价: Hash::make() / Hash::check()</span></div>
+        </div>
+
+        <h3>安全 Token 生成</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 生成安全随机 Token</span>
+token := security.<span class="fn">generate_token</span>(<span class="nm">32</span>)  <span class="cm">// 32 字节随机数 → hex 字符串</span>
+<span class="fn">println</span>(token)  <span class="cm">// "a1b2c3d4e5f6..."（64 字符）</span>
+
+<span class="cm">// 验证 Token（防止时序攻击，使用恒定时间比较）</span>
+valid := security.<span class="fn">verify_token</span>(submitted_token, stored_token)
+<span class="kw">if</span> !valid {
+    <span class="kw">return</span> error(<span class="st">'invalid token'</span>)
+}</div>
+        </div>
+
+        <h3>Token 管理器（存储 / 吊销 / 过期清理）</h3>
+        <p>TokenManager 提供 Token 的完整生命周期管理：生成、存储、验证、吊销、过期清理。适用于 API Token、密码重置链接、邮箱验证等场景。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 1. 创建 Token 管理器</span>
+<span class="at">mut</span> tm := security.<span class="fn">new_token_manager</span>(<span class="nm">86400</span>)  <span class="cm">// 24h 过期</span>
+
+<span class="cm">// 2. 生成 Token 并关联用户</span>
+token := tm.<span class="fn">generate</span>(<span class="st">'user-42'</span>)!
+<span class="fn">println</span>(token)  <span class="cm">// "f3e2d1c0..."</span>
+
+<span class="cm">// 3. 验证 Token</span>
+user_id := tm.<span class="fn">validate</span>(token) <span class="kw">or</span> {
+    <span class="cm">// Token 不存在或已过期</span>
+    <span class="kw">return</span> error(<span class="st">'invalid or expired token'</span>)
+}
+<span class="fn">println</span>(user_id)  <span class="cm">// "user-42"</span>
+
+<span class="cm">// 4. 吊销 Token（登出 / 注销）</span>
+tm.<span class="fn">revoke</span>(token)!
+
+<span class="cm">// 5. 吊销用户的所有 Token</span>
+tm.<span class="fn">revoke_all_for_user</span>(<span class="st">'user-42'</span>)!
+
+<span class="cm">// 6. 清理过期 Token（定期调用）</span>
+cleaned := tm.<span class="fn">cleanup_expired</span>()
+<span class="fn">println</span>(<span class="st">'cleaned ${cleaned} expired tokens'</span>)</div>
+        </div>
+
+        <div class="info-box info-tip">
+          💡 <strong>密码哈希说明</strong>：当前实现使用 SHA256+salt 方案。生产环境如需更强的安全性（抗 GPU/ASIC 暴力破解），建议升级到 argon2id 或 bcrypt。V 语言的 <code>v.crypto.argon2</code> 模块提供了 argon2id 支持。
+        </div>
+
+        <h3>密码编码器 API</h3>
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>签名</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>hash_password</code></td><td><code>fn (raw string) !string</code></td><td>使用随机 salt 哈希密码，返回 <code>"sha256:salt:hash"</code></td></tr>
+            <tr><td><code>verify_password</code></td><td><code>fn (raw, hashed string) !bool</code></td><td>验证密码与哈希是否匹配</td></tr>
+            <tr><td><code>needs_rehash</code></td><td><code>fn (hashed string) bool</code></td><td>检查哈希是否需要更新（算法升级检测）</td></tr>
+          </tbody>
+        </table>
+
+        <h3>TokenManager API</h3>
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>签名</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>generate</code></td><td><code>fn (user_id string) !string</code></td><td>生成新 Token 并关联用户</td></tr>
+            <tr><td><code>validate</code></td><td><code>fn (token string) !string</code></td><td>验证 Token，返回 user_id</td></tr>
+            <tr><td><code>revoke</code></td><td><code>fn (token string) !</code></td><td>吊销单个 Token</td></tr>
+            <tr><td><code>revoke_all_for_user</code></td><td><code>fn (user_id string) !</code></td><td>吊销用户的所有 Token</td></tr>
+            <tr><td><code>cleanup_expired</code></td><td><code>fn () int</code></td><td>清理过期 Token，返回清理数量</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ═══ 5. OAuth 桥接 ═══ -->
+      <div class="doc-section" id="oauth-bridge">
+        <div class="section-header"><div class="section-icon icon-security">🔗</div><div><div class="section-title">OAuth 令牌交换桥接</div><div class="section-subtitle">veb.oauth → Photon — GitHub / Google / 微信等第三方登录</div></div></div>
+
+        <p>桥接 <code>veb.oauth</code> 的 OAuth 2.0 授权码流程（Authorization Code Flow），支持 GitHub、Google、微信等第三方登录。自动处理 state 参数防 CSRF、PKCE 校验。</p>
+
+        <h3>配置 OAuth Provider</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.security
+
+<span class="cm">// 1. 配置 GitHub OAuth</span>
+github_config := security.<span class="tp">OAuthConfig</span>{
+    provider:           <span class="st">'github'</span>
+    client_id:          <span class="st">'your-github-client-id'</span>
+    client_secret:      <span class="st">'your-github-client-secret'</span>
+    redirect_uri:       <span class="st">'https://app.com/auth/github/callback'</span>
+    scopes:             [<span class="st">'user:email'</span>, <span class="st">'read:user'</span>]
+    auth_url:           <span class="st">'https://github.com/login/oauth/authorize'</span>
+    token_url:          <span class="st">'https://github.com/login/oauth/access_token'</span>
+    user_info_url:      <span class="st">'https://api.github.com/user'</span>
+}
+
+<span class="cm">// 2. 配置 Google OAuth</span>
+google_config := security.<span class="tp">OAuthConfig</span>{
+    provider:           <span class="st">'google'</span>
+    client_id:          <span class="st">'your-google-client-id.apps.googleusercontent.com'</span>
+    client_secret:      <span class="st">'your-google-client-secret'</span>
+    redirect_uri:       <span class="st">'https://app.com/auth/google/callback'</span>
+    scopes:             [<span class="st">'openid'</span>, <span class="st">'email'</span>, <span class="st">'profile'</span>]
+    auth_url:           <span class="st">'https://accounts.google.com/o/oauth2/v2/auth'</span>
+    token_url:          <span class="st">'https://oauth2.googleapis.com/token'</span>
+    user_info_url:      <span class="st">'https://www.googleapis.com/oauth2/v2/userinfo'</span>
+}
+
+<span class="cm">// 3. 创建 OAuth 桥接器</span>
+oauth := security.<span class="fn">new_oauth_bridge</span>(github_config)</div>
+        </div>
+
+        <h3>完整 OAuth 登录流程</h3>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// ─── 步骤 1: 重定向到 OAuth Provider ───</span>
+<span class="at">@[get('/auth/github')]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">ctx</span> <span class="tp">Context</span>) <span class="fn">github_login</span>() veb.<span class="tp">Result</span> {
+    <span class="cm">// 生成授权 URL（含 state 防 CSRF）</span>
+    auth_url := oauth.<span class="fn">get_authorization_url</span>()!
+    <span class="kw">return</span> ctx.<span class="fn">redirect</span>(auth_url, .found)
+}
+
+<span class="cm">// ─── 步骤 2: OAuth Provider 回调 ───</span>
+<span class="at">@[get('/auth/github/callback')]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">ctx</span> <span class="tp">Context</span>) <span class="fn">github_callback</span>() veb.<span class="tp">Result</span> {
+    code := ctx.<span class="fn">query</span>(<span class="st">'code'</span>) <span class="kw">or</span> { <span class="kw">return</span> ctx.<span class="fn">text</span>(<span class="st">'missing code'</span>) }
+    state := ctx.<span class="fn">query</span>(<span class="st">'state'</span>) <span class="kw">or</span> { <span class="kw">return</span> ctx.<span class="fn">text</span>(<span class="st">'missing state'</span>) }
+
+    <span class="cm">// 1. 验证 state（防 CSRF）</span>
+    oauth.<span class="fn">validate_state</span>(state) <span class="kw">or</span> {
+        <span class="kw">return</span> ctx.<span class="fn">text</span>(<span class="st">'invalid state'</span>)
+    }
+
+    <span class="cm">// 2. 用授权码交换 Access Token</span>
+    token_resp := oauth.<span class="fn">exchange_code</span>(code) <span class="kw">or</span> {
+        <span class="kw">return</span> ctx.<span class="fn">text</span>(<span class="st">'token exchange failed'</span>)
+    }
+
+    <span class="cm">// 3. 获取用户信息</span>
+    user_info := oauth.<span class="fn">get_user_info</span>(token_resp.access_token) <span class="kw">or</span> {
+        <span class="kw">return</span> ctx.<span class="fn">text</span>(<span class="st">'failed to get user info'</span>)
+    }
+
+    <span class="cm">// 4. 在本地系统中创建/更新用户</span>
+    user := user_service.<span class="fn">find_or_create_oauth_user</span>(
+        provider:    <span class="st">'github'</span>
+        provider_id: user_info.id
+        email:       user_info.email
+        name:        user_info.name
+        avatar:      user_info.avatar_url
+    )!
+
+    <span class="cm">// 5. 生成 JWT 并设置 Cookie</span>
+    jwt_token := jwt.<span class="fn">create_token</span>(user.id, user.roles)!
+    ctx.<span class="fn">set_cookie</span>(<span class="st">'access_token'</span>, jwt_token, ...)
+
+    <span class="kw">return</span> ctx.<span class="fn">redirect</span>(<span class="st">'/dashboard'</span>, .found)
+}</div>
+        </div>
+
+        <h3>OAuthUserInfo 结构</h3>
+        <table class="doc-table">
+          <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>id</code></td><td><code>string</code></td><td>Provider 侧用户 ID</td></tr>
+            <tr><td><code>email</code></td><td><code>string</code></td><td>用户邮箱（可能需要额外 scope）</td></tr>
+            <tr><td><code>name</code></td><td><code>string</code></td><td>显示名称</td></tr>
+            <tr><td><code>avatar_url</code></td><td><code>string</code></td><td>头像 URL</td></tr>
+            <tr><td><code>provider</code></td><td><code>string</code></td><td>Provider 标识（github/google/wechat）</td></tr>
+            <tr><td><code>raw</code></td><td><code>map[string]string</code></td><td>原始用户信息 JSON</td></tr>
+          </tbody>
+        </table>
+
+        <h3>OAuthTokenResponse 结构</h3>
+        <table class="doc-table">
+          <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>access_token</code></td><td><code>string</code></td><td>访问令牌</td></tr>
+            <tr><td><code>token_type</code></td><td><code>string</code></td><td>令牌类型（通常为 "Bearer"）</td></tr>
+            <tr><td><code>expires_in</code></td><td><code>i64</code></td><td>过期时间（秒）</td></tr>
+            <tr><td><code>refresh_token</code></td><td><code>string</code></td><td>刷新令牌（部分 Provider 提供）</td></tr>
+            <tr><td><code>scope</code></td><td><code>string</code></td><td>授权范围</td></tr>
+          </tbody>
+        </table>
+
+        <h3>OAuth Bridge API</h3>
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>签名</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>get_authorization_url</code></td><td><code>fn () !string</code></td><td>生成授权 URL（含随机 state）</td></tr>
+            <tr><td><code>validate_state</code></td><td><code>fn (state string) !</code></td><td>验证回调 state 参数</td></tr>
+            <tr><td><code>exchange_code</code></td><td><code>fn (code string) !OAuthTokenResponse</code></td><td>用授权码交换 Access Token</td></tr>
+            <tr><td><code>get_user_info</code></td><td><code>fn (access_token string) !OAuthUserInfo</code></td><td>获取第三方用户信息</td></tr>
+            <tr><td><code>refresh_token</code></td><td><code>fn (refresh_token string) !OAuthTokenResponse</code></td><td>刷新 Access Token</td></tr>
+          </tbody>
+        </table>
+
+        <div class="info-box info-warn">
+          ⚠️ <strong>安全注意</strong>：OAuth <code>state</code> 参数必须验证，否则会导致 CSRF 攻击。<code>client_secret</code> 必须从环境变量注入，绝不能硬编码在源码中。
+        </div>
+      </div>
+
+      <!-- ═══ 6. SecurityFilterChain ═══ -->
       <div class="doc-section" id="filter-chain">
         <div class="section-header"><div class="section-icon icon-security">🔗</div><div><div class="section-title">SecurityFilterChain</div><div class="section-subtitle">与 Web 中间件链集成</div></div></div>
 
@@ -165,6 +399,11 @@ chain.<span class="fn">deny_all</span>()
           <li>CSRF 保护在生产环境必须开启，API 场景可关闭（使用 JWT 替代）</li>
           <li>RBAC 角色设计遵循最小权限原则</li>
           <li>密码使用 bcrypt/argon2 哈希，永远不要明文存储</li>
+          <li>使用 <code>TokenManager</code> 管理 API Token，定期调用 <code>cleanup_expired()</code> 清理过期 Token</li>
+          <li>用户登出时调用 <code>revoke_all_for_user()</code> 吊销所有 Token，确保安全</li>
+          <li>OAuth <code>client_secret</code> 从环境变量注入，<code>state</code> 参数必须验证</li>
+          <li>OAuth 回调处理中，使用 <code>find_or_create</code> 模式关联本地用户，避免重复注册</li>
+          <li>密码重置链接使用 <code>TokenManager.generate()</code> 生成一次性 Token，设置较短过期时间（如 1 小时）</li>
         </ul>
       </div>
 

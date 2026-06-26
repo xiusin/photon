@@ -920,21 +920,16 @@ pub fn scan_component_info[T]() ScannedBean {
 	mut is_lazy := false
 	mut qualifier_name := ''
 	mut depends_on_list := []string{}
-	mut is_component := false
 
 	$for attr in T.attributes {
 		$if attr.name == attr_component {
 			component_type = .component
-			is_component = true
 		} $else $if attr.name == attr_service {
 			component_type = .service
-			is_component = true
 		} $else $if attr.name == attr_repository {
 			component_type = .repository
-			is_component = true
 		} $else $if attr.name == attr_controller {
 			component_type = .controller
-			is_component = true
 		} $else $if attr.name == attr_scope {
 			$if attr.has_arg {
 				scope_val = scope_from_str(attr.arg.trim("'\""))

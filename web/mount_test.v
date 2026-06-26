@@ -110,7 +110,7 @@ pub:
 fn test_mount_controller_separated_attrs() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA](ctrl, '/api')
+	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
 	// 应该注册 4 条路由（hello, create, show, ping）
 	assert rr.route_count() == 4, 'expected 4 routes, got ${rr.route_count()}'
@@ -145,7 +145,7 @@ fn test_mount_controller_separated_attrs() {
 fn test_mount_controller_merged_attrs() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerB{}
-	rr.mount_controller[TestControllerB](ctrl, '')
+	rr.mount_controller[TestControllerB, veb.Context](ctrl, '')
 
 	// 应该注册 3 条路由
 	assert rr.route_count() == 3, 'expected 3 routes, got ${rr.route_count()}'
@@ -175,7 +175,7 @@ fn test_mount_controller_merged_attrs() {
 fn test_mount_controller_with_prefix() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA](ctrl, '/api/v1')
+	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api/v1')
 
 	// 验证前缀正确拼接
 	mut found := false
@@ -191,7 +191,7 @@ fn test_mount_controller_auto_prefix() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerB{}
 	// TestControllerB 有 @[prefix: '/api/v2'] 注解
-	rr.mount_controller_auto[TestControllerB](ctrl, '/default')
+	rr.mount_controller_auto[TestControllerB, veb.Context](ctrl, '/default')
 
 	mut found := false
 	for route in rr.routes {
@@ -251,53 +251,53 @@ fn test_parse_route_attrs_no_method() {
 fn test_dispatch_finds_route() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA](ctrl, '/api')
+	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
 	mut ctx := &veb.Context{}
 	ctx.req.url = '/api/hello'
 
-	found := rr.dispatch('GET', '/api/hello', mut ctx)
+	found := rr.dispatch('GET', '/api/hello', '', voidptr(ctx))
 	assert found, 'should have found and dispatched GET /api/hello'
 }
 
 fn test_dispatch_post_route() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA](ctrl, '/api')
+	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
 	mut ctx := &veb.Context{}
-	found := rr.dispatch('POST', '/api/create', mut ctx)
+	found := rr.dispatch('POST', '/api/create', '', voidptr(ctx))
 	assert found, 'should have found and dispatched POST /api/create'
 }
 
 fn test_dispatch_with_params() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA](ctrl, '/api')
+	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
 	mut ctx := &veb.Context{}
-	found := rr.dispatch('GET', '/api/item/42', mut ctx)
+	found := rr.dispatch('GET', '/api/item/42', '', voidptr(ctx))
 	assert found, 'should have found and dispatched GET /api/item/42'
 }
 
 fn test_dispatch_not_found() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA](ctrl, '/api')
+	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
 	mut ctx := &veb.Context{}
-	found := rr.dispatch('GET', '/api/nonexistent', mut ctx)
+	found := rr.dispatch('GET', '/api/nonexistent', '', voidptr(ctx))
 	assert !found, 'should not have found /api/nonexistent'
 }
 
 fn test_dispatch_wrong_method() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA](ctrl, '/api')
+	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
 	mut ctx := &veb.Context{}
 	// GET route should not match POST
-	found := rr.dispatch('DELETE', '/api/hello', mut ctx)
+	found := rr.dispatch('DELETE', '/api/hello', '', voidptr(ctx))
 	assert !found, 'should not have found DELETE /api/hello (only GET registered)'
 }
 
@@ -308,10 +308,10 @@ fn test_dispatch_wrong_method() {
 fn test_controller_method_called() {
 	mut rr := new_route_registry()
 	mut ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA](ctrl, '/api')
+	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
 	mut ctx := &veb.Context{}
-	rr.dispatch('GET', '/api/hello', mut ctx)
+	rr.dispatch('GET', '/api/hello', '', voidptr(ctx))
 
 	// 验证控制器方法被实际调用（called_name 被设置）
 	assert ctrl.called_name == 'hello', 'controller method should have been called, called_name=${ctrl.called_name}'
@@ -320,10 +320,10 @@ fn test_controller_method_called() {
 fn test_controller_method_called_with_params() {
 	mut rr := new_route_registry()
 	mut ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA](ctrl, '/api')
+	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
 	mut ctx := &veb.Context{}
-	rr.dispatch('GET', '/api/item/99', mut ctx)
+	rr.dispatch('GET', '/api/item/99', '', voidptr(ctx))
 
 	// 验证路径参数被正确传递
 	assert ctrl.called_name == 'show:99', 'controller should have received id=99, got ${ctrl.called_name}'
@@ -332,10 +332,10 @@ fn test_controller_method_called_with_params() {
 fn test_controller_method_ping_default_path() {
 	mut rr := new_route_registry()
 	mut ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA](ctrl, '/api')
+	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
 	mut ctx := &veb.Context{}
-	rr.dispatch('GET', '/api/ping', mut ctx)
+	rr.dispatch('GET', '/api/ping', '', voidptr(ctx))
 
 	assert ctrl.called_name == 'ping', 'ping method should have been called'
 }
@@ -349,16 +349,16 @@ fn test_mount_multiple_controllers() {
 	ctrl_a := &TestControllerA{}
 	ctrl_b := &TestControllerB{}
 
-	rr.mount_controller[TestControllerA](ctrl_a, '/v1')
-	rr.mount_controller[TestControllerB](ctrl_b, '/v2')
+	rr.mount_controller[TestControllerA, veb.Context](ctrl_a, '/v1')
+	rr.mount_controller[TestControllerB, veb.Context](ctrl_b, '/v2')
 
 	// 总共 4 + 3 = 7 条路由
 	assert rr.route_count() == 7, 'expected 7 routes, got ${rr.route_count()}'
 
 	// 验证两个控制器的路由都能匹配
 	mut ctx := &veb.Context{}
-	assert rr.dispatch('GET', '/v1/hello', mut ctx)
-	assert rr.dispatch('GET', '/v2/users', mut ctx)
+	assert rr.dispatch('GET', '/v1/hello', '', voidptr(ctx))
+	assert rr.dispatch('GET', '/v2/users', '', voidptr(ctx))
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -368,7 +368,7 @@ fn test_mount_multiple_controllers() {
 fn test_web_module_mount_controller() {
 	mut wm := init_web_module()
 	ctrl := &TestControllerA{}
-	wm.mount_controller[TestControllerA](ctrl, '/api')
+	wm.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
 	assert wm.router.route_count() == 4, 'WebModule should have 4 routes'
 }
@@ -376,7 +376,7 @@ fn test_web_module_mount_controller() {
 fn test_web_module_mount_controller_auto() {
 	mut wm := init_web_module()
 	ctrl := &TestControllerB{}
-	wm.mount_controller_auto[TestControllerB](ctrl, '/default')
+	wm.mount_controller_auto[TestControllerB, veb.Context](ctrl, '/default')
 
 	assert wm.router.route_count() == 3, 'WebModule should have 3 routes'
 

@@ -2,7 +2,7 @@
 <!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Web · Web 框架 -->
 <div class="hero">
         <h1>Web · Web 框架</h1>
-        <p>注解驱动路由、可组合中间件链、统一响应封装、CORS 支持 — Spring MVC 的 V 语言实现，基于 veb 高性能 HTTP 引擎。</p>
+        <p>注解驱动路由、可组合中间件链、统一响应封装、CORS 支持 — Spring MVC 的 V 语言实现，基于 veb 高性能 HTTP 引擎。深度集成 veb 16 项原生能力：预压缩、CSRF HMAC、WebSocket、SSE、Host 路由、翻译桥接等。</p>
         <div class="hero-tags"><span class="hero-tag">🇻‍🇦 GA</span><span class="hero-tag">import photon.web</span><span class="hero-tag">对标 Spring MVC</span></div>
       </div>
 
@@ -184,7 +184,382 @@ chain.<span class="fn">use</span>(web.<span class="fn">cors_middleware</span>(co
         </div>
       </div>
 
-      <!-- ═══ 5. Controller Mounting ═══ -->
+      <!-- ═══ 5. veb 深度集成 ═══ -->
+      <div class="doc-section" id="veb-integration">
+        <div class="section-header"><div class="section-icon icon-web">⚡</div><div><div class="section-title">veb 深度集成</div><div class="section-subtitle">16 项原生能力桥接 — 预压缩、CSRF、WebSocket、Host 路由、翻译、资源管理</div></div></div>
+
+        <p>Photon Web 模块深度桥接了 veb 框架的 16 项原生能力，在保持 Photon API 风格的同时，让开发者可以直接使用 veb 的高性能特性。所有桥接均通过 Photon 的 <code>MiddlewareChain</code> 或 <code>WebModule</code> 体系暴露，无需直接操作 veb 底层 API。</p>
+
+        <div class="info-box info-tip">
+          💡 <strong>设计原则</strong>：编译期优于运行期，显式优于隐式。所有 veb 桥接功能均为可选引入，不影响现有代码。
+        </div>
+
+        <!-- ═══ 5.1 预压缩 + 即时压缩 ═══ -->
+        <h3>静态文件预压缩与即时压缩</h3>
+        <p>桥接 <code>veb.Context.serve_precompressed_file()</code> 和 <code>veb.Context.serve_compressed_static()</code>。当客户端发送 <code>Accept-Encoding: gzip</code> 或 <code>zstd</code> 时，自动优先使用预压缩的 <code>.gz</code> / <code>.zst</code> 文件（零拷贝），未找到则即时压缩并缓存到磁盘。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.web
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">mut</span> wm := web.<span class="fn">init_web_module</span>()
+
+    <span class="cm">// 1. 注册静态资源目录</span>
+    wm.<span class="fn">add_resource_handler</span>(<span class="st">'/static/**'</span>, <span class="st">'./public'</span>)
+
+    <span class="cm">// 2. 启用自动压缩（zstd 优先，gzip 回退）</span>
+    wm.<span class="fn">enable_static_compression</span>(
+        enable:   <span class="kw">true</span>
+        max_size: <span class="nm">2_000_000</span>  <span class="cm">// 2MB 以下自动压缩</span>
+    )
+
+    <span class="cm">// 3. 仅 gzip 模式（兼容性更好）</span>
+    <span class="cm">// wm.enable_static_compression(enable_gzip_only: true)</span>
+
+    <span class="cm">// 4. 仅 zstd 模式（更好的压缩比）</span>
+    <span class="cm">// wm.enable_static_compression(enable_zstd_only: true)</span>
+}
+
+<span class="cm">// 压缩策略：
+//   1. 查找 .zst / .gz 预压缩文件（零拷贝，最快）
+//   2. 未找到 → 即时压缩并写入 .zst / .gz 缓存
+//   3. 客户端不支持压缩 → 返回原始文件</span></div>
+        </div>
+
+        <!-- ═══ 5.2 Markdown 内容协商 ═══ -->
+        <h3>Markdown 内容协商</h3>
+        <p>桥接 <code>veb.StaticHandler.enable_markdown_negotiation</code>。当客户端发送 <code>Accept: text/markdown</code> 时，自动返回 <code>.md</code> 变体文件。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 启用 Markdown 内容协商</span>
+wm.<span class="fn">enable_markdown_negotiation</span>()
+
+<span class="cm">// 请求 /docs/api → 按优先级查找：
+//   1. ./public/api.md
+//   2. ./public/api.html.md
+//   3. ./public/api/index.html.md
+//   4. 回退到 ./public/api（原始文件）</span>
+
+<span class="cm">// 客户端请求示例：
+//   curl -H "Accept: text/markdown" https://app.com/docs/api</span></div>
+        </div>
+
+        <!-- ═══ 5.3 CSRF HMAC 桥接 ═══ -->
+        <h3>CSRF 防护（HMAC-SHA256 签名）</h3>
+        <p>桥接 <code>veb.csrf.CsrfConfig</code>。相比 <code>security/csrf.v</code> 的 Double-Submit Cookie 模式，此实现提供 HMAC-SHA256 签名的 CSRF token、Origin/Referer 双重验证、Token 过期时间嵌入。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.web
+
+<span class="cm">// 1. 创建 CSRF 配置</span>
+csrf := web.<span class="fn">new_csrf_bridge</span>(
+    secret:                <span class="st">'your-hmac-secret-key'</span>
+    allowed_hosts:         [<span class="st">'example.com'</span>, <span class="st">'app.example.com'</span>]
+    max_age:               <span class="nm">86400</span>          <span class="cm">// 24 小时</span>
+    check_origin_and_referer: <span class="kw">true</span>         <span class="cm">// 双重验证</span>
+    same_site:             .same_site_strict_mode
+)
+
+<span class="cm">// 2. 注册为前置中间件</span>
+wm.<span class="fn">use</span>(csrf.<span class="fn">to_before_middleware</span>())
+
+<span class="cm">// 3. 在表单页面生成 CSRF Token</span>
+<span class="at">@[get('/form')]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">ctx</span> <span class="tp">Context</span>) <span class="fn">show_form</span>() veb.<span class="tp">Result</span> {
+    token := web.<span class="fn">csrf_set_token</span>(<span class="at">mut</span> ctx, &csrf)
+    html := <span class="st">'&lt;form method="POST"&gt;${web.csrf_token_input(token, &csrf)}&lt;input...&gt;&lt;/form&gt;'</span>
+    <span class="kw">return</span> ctx.<span class="fn">html</span>(html)
+}
+
+<span class="cm">// 验证流程：
+//   1. GET/HEAD/OPTIONS 直接放行
+//   2. POST/PUT/DELETE → 检查 Origin + Referer
+//   3. 从表单/头提取 CSRF Token
+//   4. 验证 Token 的 HMAC 签名和过期时间
+//   5. 验证 Cookie 中的 HMAC 与 Token 匹配</span></div>
+        </div>
+
+        <!-- ═══ 5.4 WebSocket ═══ -->
+        <h3>WebSocket 长连接支持</h3>
+        <p>桥接 <code>veb.Context.takeover_conn()</code> + RFC 6455 握手。通过接管 TCP 连接实现 WebSocket 协议升级，支持文本帧读写。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.web
+<span class="kw">import</span> veb
+
+<span class="cm">// 注册 WebSocket 路由</span>
+wm.<span class="fn">get</span>(<span class="st">'/ws'</span>, <span class="kw">fn</span> (ctx_ptr <span class="tp">voidptr</span>, _ map[string]<span class="tp">string</span>) veb.<span class="tp">Result</span> {
+    <span class="at">mut</span> ctx := <span class="kw">unsafe</span> { &<span class="tp">veb.Context</span>(ctx_ptr) }
+
+    <span class="cm">// 1. 执行 WebSocket 升级握手</span>
+    <span class="at">mut</span> ws := web.<span class="fn">upgrade_websocket</span>(<span class="at">mut</span> ctx, <span class="st">'secret'</span>) <span class="kw">or</span> {
+        <span class="kw">return</span> ctx.<span class="fn">text</span>(<span class="st">'WebSocket upgrade failed'</span>)
+    }
+
+    <span class="cm">// 2. 循环读取消息</span>
+    <span class="kw">for</span> {
+        msg := ws.<span class="fn">read</span>() <span class="kw">or</span> { <span class="kw">break</span> }
+        <span class="cm">// 3. 回显消息</span>
+        ws.<span class="fn">send</span>(<span class="st">'echo: ${msg}'</span>)!
+    }
+
+    <span class="cm">// 4. 关闭连接</span>
+    ws.<span class="fn">close</span>()
+    <span class="kw">return</span> veb.<span class="tp">Result</span>{}
+})</div>
+        </div>
+
+        <!-- ═══ 5.5 Host 级路由 ═══ -->
+        <h3>Host 级路由隔离</h3>
+        <p>桥接 <code>veb.controller_host()</code>。通过 <code>host</code> 参数实现多租户/多域名场景下的路由隔离。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 1. 注册带 host 限制的路由</span>
+wm.router.<span class="fn">register_with_host</span>(<span class="st">'GET'</span>, <span class="st">'/admin'</span>, admin_handler, <span class="st">'admin.example.com'</span>)
+wm.router.<span class="fn">register_with_host</span>(<span class="st">'GET'</span>, <span class="st">'/admin'</span>, tenant_handler, <span class="st">'tenant.example.com'</span>)
+
+<span class="cm">// 2. 带 host + 中间件的路由</span>
+wm.router.<span class="fn">register_with_middleware</span>(
+    <span class="st">'GET'</span>, <span class="st">'/api/internal'</span>, internal_handler,
+    [auth_middleware], [], <span class="st">'internal.corp.com'</span>
+)
+
+<span class="cm">// 路由匹配规则：
+//   - route.host 为空 → 匹配任意 host
+//   - route.host 非空 → 必须与请求 Host 头完全匹配
+//   - host 限制的路由优先于无限制路由</span></div>
+        </div>
+
+        <!-- ═══ 5.6 可配置 Request ID ═══ -->
+        <h3>可配置 Request ID 中间件</h3>
+        <p>桥接 <code>veb.request_id.Config</code>。相比固定的 <code>request_id_middleware</code>，此配置支持自定义生成器、请求头名称、强制生成等选项。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 自定义 Request ID 配置</span>
+config := web.<span class="tp">RequestIdConfig</span>{
+    header: <span class="st">'X-Correlation-ID'</span>   <span class="cm">// 自定义头名</span>
+    force:  <span class="kw">true</span>                    <span class="cm">// 总是生成新 ID</span>
+}
+
+wm.<span class="fn">use</span>(web.<span class="fn">configurable_request_id_middleware</span>(config))
+
+<span class="cm">// 带自定义生成器 + 跳过函数</span>
+config2 := web.<span class="tp">RequestIdConfig</span>{
+    header: <span class="st">'X-Request-ID'</span>
+    generator: <span class="kw">fn</span> () <span class="tp">string</span> {
+        <span class="kw">return</span> <span class="st">'req-${time.ticks().hex()}'</span>
+    }
+    next: <span class="kw">fn</span> (ctx &veb.<span class="tp">Context</span>) <span class="tp">bool</span> {
+        <span class="kw">return</span> ctx.req.url.<span class="fn">starts_with</span>(<span class="st">'/health'</span>)  <span class="cm">// 跳过健康检查</span>
+    }
+}
+wm.<span class="fn">use</span>(web.<span class="fn">configurable_request_id_middleware</span>(config2))</div>
+        </div>
+
+        <!-- ═══ 5.7 SSE ═══ -->
+        <h3>SSE 长连接（Server-Sent Events）</h3>
+        <p>桥接 <code>veb.sse.SSEConnection</code>。支持事件类型、事件 ID、注释心跳。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// SSE 事件推送</span>
+wm.<span class="fn">get</span>(<span class="st">'/events'</span>, <span class="kw">fn</span> (ctx_ptr <span class="tp">voidptr</span>, _ map[string]<span class="tp">string</span>) veb.<span class="tp">Result</span> {
+    <span class="at">mut</span> ctx := <span class="kw">unsafe</span> { &<span class="tp">veb.Context</span>(ctx_ptr) }
+    <span class="at">mut</span> sse := web.<span class="fn">sse_start</span>(<span class="at">mut</span> ctx)
+
+    <span class="kw">for</span> i <span class="kw">in</span> <span class="nm">0</span> .. <span class="nm">10</span> {
+        sse.<span class="fn">send</span>(<span class="st">'update'</span>, <span class="st">'{"count":${i}}'</span>, <span class="st">'${i}'</span>)!
+        time.<span class="fn">sleep</span>(<span class="nm">1</span> * time.<span class="tp">second</span>)
+    }
+
+    <span class="cm">// 发送心跳注释（客户端忽略，但连接保持活跃）</span>
+    sse.<span class="fn">send_comment</span>(<span class="st">'keep-alive'</span>)!
+
+    sse.<span class="fn">close</span>()
+    <span class="kw">return</span> veb.<span class="tp">Result</span>{}
+})</div>
+        </div>
+
+        <!-- ═══ 5.8 前端资源管理 ═══ -->
+        <h3>前端资源管理与压缩合并</h3>
+        <p>桥接 <code>veb.assets.AssetManager</code>。递归扫描 CSS/JS 文件，支持 minify、combine、include 标签生成。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.web
+
+<span class="cm">// 1. 创建资源管理器</span>
+<span class="kw">mut</span> am := web.<span class="fn">new_asset_manager</span>()
+am.minify = <span class="kw">true</span>                     <span class="cm">// 启用压缩</span>
+am.cache_dir = <span class="st">'./.cache/assets'</span>       <span class="cm">// 缓存目录</span>
+
+<span class="cm">// 2. 扫描 CSS/JS 目录</span>
+am.<span class="fn">handle_assets_at</span>(<span class="st">'./public/css'</span>, <span class="st">'/css'</span>)!
+am.<span class="fn">handle_assets_at</span>(<span class="st">'./public/js'</span>, <span class="st">'/js'</span>)!
+
+<span class="cm">// 3. 合并所有 CSS 为一个文件</span>
+combined := am.<span class="fn">combine</span>(.css)!
+<span class="fn">println</span>(<span class="st">'Combined CSS: ${combined}'</span>)
+
+<span class="cm">// 4. 在模板中生成引用标签</span>
+<span class="cm">// @{am.include(.css, 'main.css')}</span>
+<span class="cm">// 输出: &lt;link rel="stylesheet" href="/css/main.css"&gt;</span>
+<span class="cm">// @{am.include(.js, 'app.js')}</span>
+<span class="cm">// 输出: &lt;script src="/js/app.js"&gt;&lt;/script&gt;</span>
+
+<span class="cm">// 5. 清理过期缓存</span>
+am.<span class="fn">cleanup_cache</span>()!</div>
+        </div>
+
+        <!-- ═══ 5.9 翻译桥接 ═══ -->
+        <h3>模板翻译桥接（veb.tr → Photon i18n）</h3>
+        <p>桥接 <code>veb.tr</code> / <code>veb.tr_plural</code>。将 Photon i18n MessageSource 的翻译资源对接到 veb 模板系统。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 1. 创建翻译桥接器</span>
+<span class="at">mut</span> bridge := web.<span class="fn">new_translation_bridge</span>(<span class="st">'zh-CN'</span>)
+
+<span class="cm">// 2. 加载翻译（可从 Photon i18n.MessageSource 导入）</span>
+bridge.<span class="fn">add_translation</span>(<span class="st">'zh-CN'</span>, <span class="st">'welcome'</span>, <span class="st">'欢迎'</span>)
+bridge.<span class="fn">add_translation</span>(<span class="st">'zh-CN'</span>, <span class="st">'goods'</span>, <span class="st">'商品|件|件'</span>)
+
+bridge.<span class="fn">load_translations</span>(<span class="st">'en-US'</span>, {
+    <span class="st">'welcome'</span>: <span class="st">'Welcome'</span>
+    <span class="st">'goods'</span>:   <span class="st">'item|items|items'</span>
+})
+
+<span class="cm">// 3. 在路由 handler 中使用</span>
+msg := bridge.<span class="fn">tr</span>(<span class="st">'welcome'</span>)              <span class="cm">// '欢迎'</span>
+plural := bridge.<span class="fn">tr_plural</span>(<span class="st">'goods'</span>, <span class="nm">5</span>)  <span class="cm">// '件'（复数形式）</span></div>
+        </div>
+
+        <!-- ═══ 5.10 Context API 便捷包装 ═══ -->
+        <h3>Context API 便捷包装</h3>
+        <p>对 <code>veb.Context</code> 的丰富 API 进行 Photon 风格的包装，提供更一致的开发体验。</p>
+
+        <table class="doc-table">
+          <thead><tr><th>函数</th><th>桥接来源</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>json_response[T](ctx, data)</code></td><td><code>ctx.json[T]()</code></td><td>发送 JSON 响应</td></tr>
+            <tr><td><code>json_pretty_response[T](ctx, data)</code></td><td><code>ctx.json_pretty[T]()</code></td><td>发送美化 JSON</td></tr>
+            <tr><td><code>redirect_found(ctx, url)</code></td><td><code>ctx.redirect(url, .found)</code></td><td>302 重定向</td></tr>
+            <tr><td><code>redirect_permanent(ctx, url)</code></td><td><code>ctx.redirect(url, .moved_permanently)</code></td><td>301 永久重定向</td></tr>
+            <tr><td><code>redirect_see_other(ctx, url)</code></td><td><code>ctx.redirect(url, .see_other)</code></td><td>303 POST → GET</td></tr>
+            <tr><td><code>redirect_temporary(ctx, url)</code></td><td><code>ctx.redirect(url, .temporary_redirect)</code></td><td>307 临时重定向（保持方法）</td></tr>
+            <tr><td><code>redirect_permanent_redirect(ctx, url)</code></td><td><code>ctx.redirect(url, .permanent_redirect)</code></td><td>308 永久重定向（保持方法）</td></tr>
+            <tr><td><code>no_content_response(ctx)</code></td><td><code>ctx.no_content()</code></td><td>204 空响应</td></tr>
+            <tr><td><code>server_error_with_status(ctx, status)</code></td><td><code>ctx.server_error_with_status()</code></td><td>自定义状态码错误</td></tr>
+            <tr><td><code>get_client_ip(ctx)</code></td><td><code>ctx.ip()</code></td><td>客户端 IP（支持代理链）</td></tr>
+            <tr><td><code>user_agent(ctx)</code></td><td><code>ctx.user_agent()</code></td><td>User-Agent</td></tr>
+            <tr><td><code>time_to_render(ctx)</code></td><td><code>ctx.time_to_render()</code></td><td>页面渲染耗时（ms）</td></tr>
+            <tr><td><code>get_cookie(ctx, key)</code></td><td><code>ctx.get_cookie()</code></td><td>获取 Cookie</td></tr>
+            <tr><td><code>set_cookie(ctx, cookie)</code></td><td><code>ctx.set_cookie()</code></td><td>设置 Cookie</td></tr>
+            <tr><td><code>set_content_type(ctx, mime)</code></td><td><code>ctx.set_content_type()</code></td><td>设置 Content-Type</td></tr>
+            <tr><td><code>markdown(ctx, content)</code></td><td>—</td><td>发送 Markdown 响应</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.web
+
+<span class="at">@[get('/api/users/:id')]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">ctx</span> <span class="tp">Context</span>) <span class="fn">get_user</span>(id <span class="tp">string</span>) veb.<span class="tp">Result</span> {
+    user := user_service.<span class="fn">find</span>(id) <span class="kw">or</span> {
+        <span class="kw">return</span> web.<span class="fn">server_error_with_status</span>(<span class="at">mut</span> ctx, .not_found)
+    }
+
+    <span class="cm">// 获取客户端信息</span>
+    ip := web.<span class="fn">get_client_ip</span>(ctx)
+    ua := web.<span class="fn">user_agent</span>(ctx)
+
+    <span class="cm">// 发送 JSON 响应</span>
+    <span class="kw">return</span> web.<span class="fn">json_response</span>(<span class="at">mut</span> ctx, user)
+}
+
+<span class="at">@[get('/old-page')]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">ctx</span> <span class="tp">Context</span>) <span class="fn">old_page</span>() veb.<span class="tp">Result</span> {
+    <span class="cm">// 301 永久重定向</span>
+    <span class="kw">return</span> web.<span class="fn">redirect_permanent</span>(<span class="at">mut</span> ctx, <span class="st">'/new-page'</span>)
+}
+
+<span class="at">@[get('/readme')]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">ctx</span> <span class="tp">Context</span>) <span class="fn">readme</span>() veb.<span class="tp">Result</span> {
+    <span class="cm">// Markdown 响应</span>
+    <span class="kw">return</span> web.<span class="fn">markdown</span>(<span class="at">mut</span> ctx, <span class="st">'# Hello\n\nThis is **markdown**.'</span>)
+}</div>
+        </div>
+
+        <!-- ═══ 5.11 BeforeAcceptApp ═══ -->
+        <h3>BeforeAcceptApp 启动前钩子</h3>
+        <p>桥接 <code>veb.BeforeAcceptApp</code> 接口。在 veb 事件循环启动前执行预热操作。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">pub struct</span> <span class="tp">App</span> {
+    veb.<span class="tp">Context</span>
+    web.<span class="tp">WebModule</span>
+}
+
+<span class="cm">// 在 veb 事件循环启动前执行</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">app</span> <span class="tp">App</span>) <span class="fn">before_accept_loop</span>() {
+    <span class="fn">println</span>(<span class="st">'[App] warming up before accept loop...'</span>)
+    <span class="cm">// 预热缓存、建立连接池、加载配置等</span>
+}</div>
+        </div>
+
+        <!-- ═══ 5.12 fasthttp / Livereload ═══ -->
+        <h3>fasthttp 后端与热重载</h3>
+        <p>Photon 完全兼容 veb 的 <code>fasthttp</code> 高性能后端和开发模式热重载功能，用户无需修改任何代码。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 使用默认 picoev 后端</span>
+veb.<span class="fn">run_at</span>[<span class="tp">App</span>, <span class="tp">Context</span>](<span class="at">mut</span> app)
+
+<span class="cm">// 使用 fasthttp 后端（2-3x QPS）</span>
+veb.<span class="fn">run_at</span>[<span class="tp">App</span>, <span class="tp">Context</span>](<span class="at">mut</span> app, veb.<span class="tp">RunParams</span>{
+    family: .ip
+})
+
+<span class="cm">// 开发模式热重载（自动检测 .v 文件变更并刷新浏览器）</span>
+<span class="cm">// 命令行: v -dev run main.v</span>
+<span class="cm">// 或设置环境变量 VEXCLUDE_LIVERELOAD=1 禁用</span></div>
+        </div>
+
+        <!-- ═══ 集成能力总表 ═══ -->
+        <h3>veb 深度集成能力总表</h3>
+        <table class="doc-table">
+          <thead><tr><th>#</th><th>能力</th><th>桥接来源</th><th>文件</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>预压缩文件服务（.gz/.zst 零拷贝）</td><td><code>veb.Context.serve_precompressed_file</code></td><td><code>resource_handler.v</code></td></tr>
+            <tr><td>2</td><td>即时压缩 + 磁盘缓存</td><td><code>veb.Context.serve_compressed_static</code></td><td><code>resource_handler.v</code></td></tr>
+            <tr><td>3</td><td>Markdown 内容协商</td><td><code>veb.enable_markdown_negotiation</code></td><td><code>resource_handler.v</code></td></tr>
+            <tr><td>4</td><td>CSRF HMAC-SHA256 防护</td><td><code>veb.csrf.CsrfConfig</code></td><td><code>veb_bridge.v</code></td></tr>
+            <tr><td>5</td><td>WebSocket 长连接</td><td><code>veb.Context.takeover_conn</code></td><td><code>veb_bridge.v</code></td></tr>
+            <tr><td>6</td><td>Host 级路由隔离</td><td><code>veb.controller_host</code></td><td><code>dispatcher.v</code></td></tr>
+            <tr><td>7</td><td>可配置 Request ID</td><td><code>veb.request_id.Config</code></td><td><code>middleware.v</code></td></tr>
+            <tr><td>8</td><td>SSE 长连接</td><td><code>veb.sse.SSEConnection</code></td><td><code>veb_bridge.v</code></td></tr>
+            <tr><td>9</td><td>前端资源管理</td><td><code>veb.assets.AssetManager</code></td><td><code>assets.v</code></td></tr>
+            <tr><td>10</td><td>模板翻译桥接</td><td><code>veb.tr / veb.tr_plural</code></td><td><code>veb_bridge.v</code></td></tr>
+            <tr><td>11</td><td>Context API 便捷包装</td><td><code>veb.Context</code></td><td><code>context_helpers.v</code></td></tr>
+            <tr><td>12</td><td>BeforeAcceptApp 钩子</td><td><code>veb.BeforeAcceptApp</code></td><td><code>web.v</code></td></tr>
+            <tr><td>13</td><td>fasthttp 后端</td><td><code>veb_d_new_veb.v</code></td><td>兼容性文档</td></tr>
+            <tr><td>14</td><td>热重载</td><td><code>veb_livereload.v</code></td><td>兼容性文档</td></tr>
+            <tr><td>15</td><td>路由 <code>host:</code> 属性</td><td><code>veb.controller_host</code></td><td><code>dispatcher.v</code></td></tr>
+            <tr><td>16</td><td>gzip/zstd 响应压缩</td><td><code>veb.encode_auto</code></td><td><code>middleware.v</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ═══ 6. Controller Mounting ═══ -->
       <div class="doc-section" id="controller-mounting">
         <div class="section-header"><div class="section-icon icon-web">🔌</div><div><div class="section-title">控制器挂载</div><div class="section-subtitle">mount_controller · mount_controller_auto — 编译期 comptime 路由扫描</div></div></div>
 
@@ -304,6 +679,11 @@ chain.<span class="fn">use</span>(web.<span class="fn">cors_middleware</span>(co
           <li>使用 <code>@[prefix: '/api/v1']</code> + <code>mount_controller_auto[T]()</code> 实现自动化路由挂载</li>
           <li>控制器拆分到不同文件/包中，通过 <code>wire_controller[T]()</code> 注入依赖后挂载</li>
           <li>路由注解推荐使用合并式 <code>@[get: '/users']</code>，与 Spring <code>@GetMapping</code> 风格一致</li>
+          <li>静态资源启用 <code>enable_static_compression</code>，预压缩 <code>.gz</code>/<code>.zst</code> 文件可减少 70% 传输量</li>
+          <li>多租户场景使用 <code>register_with_host</code> 实现 Host 级路由隔离</li>
+          <li>WebSocket / SSE 长连接路由放在中间件链末尾，避免被 <code>recovery_middleware</code> 超时中断</li>
+          <li>生产环境使用 <code>veb.RunParams{family: .ip}</code> 启用 fasthttp 后端，QPS 提升 2-3 倍</li>
+          <li>前端资源使用 <code>AssetManager</code> 统一管理，开启 <code>minify</code> + <code>combine</code> 减少请求数</li>
         </ul>
       </div>
 

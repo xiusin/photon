@@ -1202,15 +1202,35 @@ pub fn (mut env Environment) bind_to(prefix string) !map[string]string {
 pub fn (mut env Environment) bind_to_with_defaults(prefix string, defaults map[string]string) !map[string]string {
 	mut result := defaults.clone()
 
-	bound := env.bind_to(prefix) or {
-		// If no properties found, just return defaults
-		return result
+	// Inline the bind_to logic to avoid using the deprecated method.
+	// Determine the effective prefix: if prefix doesn't end with '.' and
+	// there are keys starting with prefix + '.', use the dotted form.
+	env.mu.rlock()
+	mut effective_prefix := prefix
+	if !prefix.ends_with('.') {
+		dotted_prefix := prefix + '.'
+		mut has_dotted := false
+		for key, _ in env.properties {
+			if key.starts_with(dotted_prefix) {
+				has_dotted = true
+				break
+			}
+		}
+		if has_dotted {
+			effective_prefix = dotted_prefix
+		}
 	}
 
 	// Override defaults with environment values
-	for key, value in bound {
-		result[key] = value
+	for key, value in env.properties {
+		if key.starts_with(effective_prefix) {
+			stripped := key[effective_prefix.len..]
+			if stripped.len > 0 {
+				result[stripped] = value
+			}
+		}
 	}
+	env.mu.runlock()
 
 	return result
 }

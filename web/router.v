@@ -119,7 +119,8 @@ pub fn print_registered_routes[T]() {
 // 新版路由系统
 // ═══════════════════════════════════════════════════════════
 
-// RouteRegistry — 路由注册表
+// RouteRegistry — 路由注册表（@[heap] 确保指针安全跨模块传递）
+@[heap]
 pub struct RouteRegistry {
 pub mut:
 	routes []&RouteDef
@@ -137,6 +138,45 @@ pub fn (mut rr RouteRegistry) register(method string, path string, handler Route
 		path:     path
 		handler:  handler
 		segments: parse_path(path)
+	}
+}
+
+// register_with_host 注册一条带 host 限制的路由。
+// 只有当请求的 Host 头匹配 host 参数时，路由才会匹配。
+// host 为空字符串时等同于 register()。
+//
+// 桥接 veb.controller_host() 的 host 级路由隔离能力。
+//
+// 用法：
+//   rr.register_with_host('GET', '/api/admin', handler, 'admin.example.com')
+pub fn (mut rr RouteRegistry) register_with_host(method string, path string, handler RouteHandler, host string) {
+	rr.routes << &RouteDef{
+		method:   method
+		path:     path
+		handler:  handler
+		segments: parse_path(path)
+		host:     host.to_lower()
+	}
+}
+
+// register_with_middleware 注册一条路由，附带路由级中间件和可选 host 限制。
+// 路由级中间件仅在匹配该路由时执行，不影响其他路由。
+//
+// 执行顺序：全局前置 → 路由前置 → handler → 路由后置 → 全局后置
+//
+// 用法：
+//   rr.register_with_middleware('GET', '/api/admin', handler, [auth_middleware, role_middleware], [audit_middleware])
+//   // 带 host 限制：
+//   rr.register_with_middleware('GET', '/api/admin', handler, [auth_middleware], [], 'admin.example.com')
+pub fn (mut rr RouteRegistry) register_with_middleware(method string, path string, handler RouteHandler, middlewares []MiddlewareFunc, after_middlewares []MiddlewareFunc, host string) {
+	rr.routes << &RouteDef{
+		method:            method
+		path:              path
+		handler:           handler
+		segments:          parse_path(path)
+		middlewares:       middlewares
+		after_middlewares: after_middlewares
+		host:              host.to_lower()
 	}
 }
 
@@ -217,11 +257,85 @@ pub interface Controller {
 
 // dispatch 在路由表中查找并执行匹配的处理器
 // 返回 true 表示已处理（请求发送完成），false 表示未匹配
-pub fn (rr &RouteRegistry) dispatch(method string, url_path string, mut ctx veb.Context) bool {
-	route, params := find_route(rr.routes, method, url_path) or {
+// ctx_ptr 是上下文指针（voidptr），支持任意嵌入 veb.Context 的自定义 Context 类型
+// 在 handle_request 中从 veb.Context 转换而来
+//
+// 注意：此方法不执行中间件。如需中间件支持，请使用 dispatch_with_chain()。
+// host 参数用于 host 级路由隔离（空字符串 = 不限制）。
+pub fn (rr &RouteRegistry) dispatch(method string, url_path string, host string, ctx_ptr voidptr) bool {
+	route, params := find_route(rr.routes, method, url_path, host) or {
 		return false
 	}
-	route.handler(mut ctx, params)
+	route.handler(ctx_ptr, params)
+	return true
+}
+
+// dispatch_with_chain 在路由表中查找并执行匹配的处理器，
+// 同时执行全局中间件链和路由级中间件。
+//
+// 执行顺序：
+//   1. 全局前置中间件（chain.middlewares）
+//   2. 路由级前置中间件（route.middlewares）
+//   3. 路由 handler
+//   4. 路由级后置中间件（route.after_middlewares）
+//   5. 全局后置中间件（chain.after_middlewares）
+//
+// 如果前置中间件返回 false 或出错，handler 不会执行（短路）。
+// 后置中间件错误不会阻止后续后置中间件执行。
+//
+// host 参数用于 host 级路由隔离（空字符串 = 不限制）。
+//
+// 用法：
+//   wm.router.dispatch_with_chain(method, path, host, ctx_ptr, wm.chain)
+pub fn (rr &RouteRegistry) dispatch_with_chain(method string, url_path string, host string, ctx_ptr voidptr, chain &MiddlewareChain) bool {
+	route, params := find_route(rr.routes, method, url_path, host) or {
+		return false
+	}
+
+	mut mctx := new_middleware_context(unsafe { &veb.Context(ctx_ptr) })
+	mctx.route_path = url_path
+	mctx.route_method = method
+
+	// 1. 执行全局前置中间件
+	if chain.len() > 0 {
+		allowed := chain.execute(mctx) or {
+			eprintln('[middleware] before-chain error: ${err}')
+			false
+		}
+		if !allowed {
+			return true // 中间件短路，响应已发送
+		}
+	}
+
+	// 2. 执行路由级前置中间件
+	for mw in route.middlewares {
+		allowed := mw(mctx) or {
+			eprintln('[middleware] route before-middleware error: ${err}')
+			false
+		}
+		if !allowed {
+			return true // 中间件短路
+		}
+	}
+
+	// 3. 执行路由 handler
+	route.handler(ctx_ptr, params)
+
+	// 4. 执行路由级后置中间件
+	for mw in route.after_middlewares {
+		mw(mctx) or {
+			eprintln('[middleware] route after-middleware error: ${err}')
+			continue
+		}
+	}
+
+	// 5. 执行全局后置中间件
+	if chain.after_len() > 0 {
+		chain.execute_after(mctx) or {
+			eprintln('[middleware] after-chain error: ${err}')
+		}
+	}
+
 	return true
 }
 
