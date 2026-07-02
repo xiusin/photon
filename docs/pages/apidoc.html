@@ -1,0 +1,77 @@
+<!-- title: ApiDoc · API文档 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>ApiDoc · API文档 -->
+<div class="hero">
+        <h1>ApiDoc · API文档</h1>
+        <p>Collector 收集端点元数据 + ApiDocStore 持久化存储 + 标准 JSON 响应封装 — 自动化 API 文档生成的 V 语言实现。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 Alpha</span><span class="hero-tag">import photon.apidoc</span><span class="hero-tag">对标 SpringDoc</span></div>
+      </div>
+
+      <!-- ═══ 1. Quick Start ═══ -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header"><div class="section-icon icon-core">📖</div><div><div class="section-title">快速上手</div><div class="section-subtitle">init · Collector · Store</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.apidoc
+
+<span class="cm">// 1. 初始化 — 返回 Store + Collector</span>
+store, coll := apidoc.<span class="fn">init</span>(<span class="st">'./data/apidoc'</span>) <span class="kw">or</span> { <span class="kw">panic</span>(err) }
+
+<span class="cm">// 2. Collector — 收集端点信息</span>
+coll.<span class="fn">add_endpoint</span>(
+    method:    <span class="st">'GET'</span>
+    path:      <span class="st">'/api/users/:id'</span>
+    summary:   <span class="st">'获取用户详情'</span>
+    tags:      [<span class="st">'user'</span>]
+    response_type: <span class="st">'User'</span>
+)
+
+<span class="cm">// 3. Store — 持久化与查询</span>
+endpoints := store.<span class="fn">list_endpoints</span>()
+<span class="fn">println</span>(endpoints.<span class="fn">len</span>) <span class="cm">// 已收集的端点数量</span>
+
+<span class="cm">// 4. 仅初始化 Store（无 Collector）</span>
+store2 := apidoc.<span class="fn">init_store</span>(<span class="st">'./data/apidoc'</span>) <span class="kw">or</span> { <span class="kw">panic</span>(err) }</div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. JSON Response ═══ -->
+      <div class="doc-section" id="json-response">
+        <div class="section-header"><div class="section-icon icon-core">📝</div><div><div class="section-title">标准 JSON 响应</div><div class="section-subtitle">encode_response · api_error</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 成功响应 — {"code":0,"msg":"ok","data":{...}}</span>
+json := apidoc.<span class="fn">encode_response</span>(<span class="nm">0</span>, <span class="st">'ok'</span>, <span class="st">'{"id":1,"name":"alice"}'</span>)
+<span class="fn">println</span>(json)
+<span class="cm">// {"code":0,"msg":"ok","data":{"id":1,"name":"alice"}}</span>
+
+<span class="cm">// 错误响应 — {"code":404,"msg":"not found"}</span>
+err_json := apidoc.<span class="fn">api_error</span>(<span class="nm">404</span>, <span class="st">'not found'</span>)
+<span class="fn">println</span>(err_json)
+<span class="cm">// {"code":404,"msg":"not found"}</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. Web Integration ═══ -->
+      <div class="doc-section" id="web-integration">
+        <div class="section-header"><div class="section-icon icon-core">🔗</div><div><div class="section-title">Web 集成</div><div class="section-subtitle">自动收集路由端点 · 暴露文档端点</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 在 Controller 中使用 Collector 自动收集</span>
+<span class="at">@['/api/users/:id'; get]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">app</span> <span class="tp">App</span>) <span class="fn">get_user</span>(id <span class="tp">int</span>) veb.<span class="tp">Result</span> {
+    user := user_repo.<span class="fn">find_by_id</span>(id) <span class="kw">or</span> {
+        <span class="kw">return</span> app.<span class="fn">json</span>(apidoc.<span class="fn">api_error</span>(<span class="nm">404</span>, err.<span class="fn">msg</span>()))
+    }
+    <span class="kw">return</span> app.<span class="fn">json</span>(apidoc.<span class="fn">encode_response</span>(<span class="nm">0</span>, <span class="st">'ok'</span>, user.<span class="fn">json_str</span>()))
+}
+
+<span class="cm">// 暴露文档端点</span>
+<span class="at">@['/apidoc'; get]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">app</span> <span class="tp">App</span>) <span class="fn">api_docs</span>() veb.<span class="tp">Result</span> {
+    <span class="kw">return</span> app.<span class="fn">json</span>(app.store.<span class="fn">list_endpoints</span>())
+}</div>
+        </div>
+      </div>

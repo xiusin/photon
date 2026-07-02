@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/V-0.4.x%2B-5d87bf?style=flat-square" alt="V version">
-  <img src="https://img.shields.io/badge/version-0.1.0-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.4.0-blue?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License">
   <a href=".github/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/photon-framework/photon/ci.yml?branch=master&style=flat-square" alt="CI"></a>
 </p>
@@ -34,6 +34,15 @@ photon/
 ├── storage/    # 文件系统抽象：本地/S3 适配器
 ├── ticker/     # 高性能定时器：4-ary 堆、64 桶分片
 ├── http/       # HTTP 客户端
+├── logger/     # 日志：多通道、JSON/Console 编码器
+├── mailer/     # 邮件：SMTP 发送、模板渲染
+├── metrics/    # 指标监控：Counter/Gauge/Timer、Prometheus 导出
+├── retry/      # 重试策略：指数退避、抖动、@[retryable] 注解
+├── async/      # 异步任务：TaskExecutor、背压控制、@[async] 注解
+├── health/     # 健康检查：指示器聚合、K8s Liveness/Readiness 探针
+├── i18n/       # 国际化：TOML 资源包、占位符解析、懒加载
+├── tracing/    # 分布式追踪：TraceContext、Span、@[trace] 注解
+├── apidoc/     # API 文档：Collector 收集、Store 持久化
 ├── support/    # 工具：Collection、Str、Arr、分页、排序
 └── example/    # 示例应用
 ```
@@ -950,6 +959,9 @@ v test queue/
 | `@[job]` / `@[job: 'queue_name']` | struct | 队列 Job 标记 |
 | `@[retry: '3']` / `@[backoff: '1,5']` | struct | Job 重试策略 |
 | `@[timeout: '30']` | struct | Job 超时时间 |
+| `@[retryable]` | fn | 声明式重试 |
+| `@[trace]` | fn | 分布式追踪 Span |
+| `@[health_indicator]` | struct | 健康检查指示器 |
 | `@[command]` / `@[command: 'name']` | struct | CLI 命令标记 |
 | `@[description('help')]` | struct | 命令描述 |
 | `@[option('name')]` / `@[argument]` | field | CLI 参数 |

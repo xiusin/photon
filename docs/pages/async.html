@@ -1,0 +1,78 @@
+<!-- title: Async · 异步任务 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Async · 异步任务 -->
+<div class="hero">
+        <h1>Async · 异步任务</h1>
+        <p>线程池异步执行器、背压保护、优雅关闭、@[async] 注解发现 — Spring @Async / TaskExecutor 的 V 语言实现。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 Alpha</span><span class="hero-tag">import photon.async</span><span class="hero-tag">对标 Spring @Async</span></div>
+      </div>
+
+      <!-- ═══ 1. Quick Start ═══ -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header"><div class="section-icon icon-core">🔄</div><div><div class="section-title">快速上手</div><div class="section-subtitle">创建执行器 · 提交任务 · 等待完成</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.async
+
+<span class="cm">// 1. 创建执行器（4 个 worker 线程，队列容量 64）</span>
+<span class="kw">mut</span> te := async.<span class="fn">new_task_executor</span>(<span class="nm">4</span>, <span class="nm">64</span>)
+<span class="kw">defer</span> { te.<span class="fn">shutdown</span>() }
+
+<span class="cm">// 2. 提交任务（阻塞式，队列满时产生背压）</span>
+te.<span class="fn">submit</span>(fn () {
+    <span class="fn">send_email</span>(user)
+})!
+
+<span class="cm">// 3. 非阻塞提交（队列满时丢弃）</span>
+te.<span class="fn">try_submit</span>(fn () {
+    <span class="fn">log_metrics</span>()
+})
+
+<span class="cm">// 4. 等待所有任务完成</span>
+te.<span class="fn">wait_all</span>()
+
+<span class="cm">// Spring 等价：@Async + TaskExecutor</span>
+<span class="cm">// Laravel 等价：dispatch(new ProcessPodcast($podcast))</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. Annotation ═══ -->
+      <div class="doc-section" id="annotation">
+        <div class="section-header"><div class="section-icon icon-core">📦</div><div><div class="section-title">@[async] 注解</div><div class="section-subtitle">编译期扫描 · 零运行时反射</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="at">@[service]</span>
+<span class="kw">pub struct</span> <span class="tp">EmailService</span> {
+    @[autowired]
+    executor &async.<span class="tp">TaskExecutor</span>
+}
+
+<span class="at">@[async]</span>
+<span class="kw">pub fn</span> (<span class="at">s</span> &<span class="tp">EmailService</span>) <span class="fn">send_welcome</span>(user <span class="tp">User</span>) {
+    <span class="cm">// 该方法将异步执行</span>
+    s.mailer.<span class="fn">send</span>(user.email, <span class="st">'Welcome'</span>, <span class="st">'...'</span>)!
+}
+
+<span class="cm">// 编译期发现所有 @[async] 方法</span>
+methods := async.<span class="fn">extract_async_methods</span>[<span class="tp">EmailService</span>]()</div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. Graceful Shutdown ═══ -->
+      <div class="doc-section" id="shutdown">
+        <div class="section-header"><div class="section-icon icon-core">🛑</div><div><div class="section-title">优雅关闭</div><div class="section-subtitle">排空任务 · 等待完成</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// shutdown() 会：</span>
+<span class="cm">//   1. 拒绝新任务提交</span>
+<span class="cm">//   2. 等待已提交任务完成</span>
+<span class="cm">//   3. 关闭所有 worker 线程</span>
+te.<span class="fn">shutdown</span>()
+
+<span class="cm">// 也可手动分步：</span>
+te.<span class="fn">stop_accepting</span>()  <span class="cm">// 停止接受新任务</span>
+te.<span class="fn">wait_all</span>()         <span class="cm">// 等待剩余任务完成</span></div>
+        </div>
+      </div>

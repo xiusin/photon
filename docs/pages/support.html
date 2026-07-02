@@ -1,0 +1,74 @@
+<!-- title: Support · 工具库 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Support · 工具库 -->
+<div class="hero">
+        <h1>Support · 工具库</h1>
+        <p>Collection / Str / Arr / Hash / Error / Sort / Page — 零依赖通用工具集，贯穿 Photon 全框架的基础设施层。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 Alpha</span><span class="hero-tag">import photon.support</span><span class="hero-tag">零依赖 · 全模块可用</span></div>
+      </div>
+
+      <!-- ═══ 1. Collection ═══ -->
+      <div class="doc-section" id="collection">
+        <div class="section-header"><div class="section-icon icon-core">📦</div><div><div class="section-title">Collection · 动态集合</div><div class="section-subtitle">Map / Filter / Reduce / Unique / Flatten</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.support
+
+<span class="cm">// Collection — 泛型动态数组</span>
+<span class="kw">mut</span> col := support.<span class="fn">new_collection</span>[<span class="tp">int</span>]()
+col.<span class="fn">push</span>(<span class="nm">1</span>).<span class="fn">push</span>(<span class="nm">2</span>).<span class="fn">push</span>(<span class="nm">3</span>).<span class="fn">push</span>(<span class="nm">2</span>)
+
+<span class="cm">// 函数式操作</span>
+doubled := col.<span class="fn">map</span>(fn <span class="tp">(x int</span>) <span class="tp">int</span> { <span class="kw">return</span> x * <span class="nm">2</span> })       <span class="cm">// [2, 4, 6, 4]</span>
+evens   := col.<span class="fn">filter</span>(fn <span class="tp">(x int</span>) <span class="tp">bool</span> { <span class="kw">return</span> x % <span class="nm">2</span> == <span class="nm">0</span> }) <span class="cm">// [2, 2]</span>
+unique  := col.<span class="fn">unique</span>()                               <span class="cm">// [1, 2, 3]</span>
+sum     := col.<span class="fn">reduce</span>(<span class="nm">0</span>, fn <span class="tp">(acc int, x int</span>) <span class="tp">int</span> {
+    <span class="kw">return</span> acc + x
+}) <span class="cm">// 8</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. Str / Arr ═══ -->
+      <div class="doc-section" id="str-arr">
+        <div class="section-header"><div class="section-icon icon-core">🔤</div><div><div class="section-title">Str / Arr · 字符串与数组增强</div><div class="section-subtitle">snake_case / camelCase / chunk / flatten</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// Str — 字符串工具</span>
+support.<span class="fn">str_snake_case</span>(<span class="st">'camelCaseString'</span>)    <span class="cm">// "camel_case_string"</span>
+support.<span class="fn">str_camel_case</span>(<span class="st">'snake_case_string'</span>)    <span class="cm">// "snakeCaseString"</span>
+support.<span class="fn">str_kebab_case</span>(<span class="st">'PascalCaseName'</span>)      <span class="cm">// "pascal-case-name"</span>
+support.<span class="fn">str_after</span>(<span class="st">'user@example.com'</span>, <span class="st">'@'</span>)       <span class="cm">// "example.com"</span>
+support.<span class="fn">str_before</span>(<span class="st">'user@example.com'</span>, <span class="st">'@'</span>)      <span class="cm">// "user"</span>
+support.<span class="fn">str_limit</span>(<span class="st">'Hello World'</span>, <span class="nm">5</span>)             <span class="cm">// "Hello..."</span>
+
+<span class="cm">// Arr — 数组工具</span>
+support.<span class="fn">arr_chunk</span>([<span class="nm">1</span>, <span class="nm">2</span>, <span class="nm">3</span>, <span class="nm">4</span>, <span class="nm">5</span>], <span class="nm">2</span>)  <span class="cm">// [[1,2], [3,4], [5]]</span>
+support.<span class="fn">arr_flatten</span>([[<span class="nm">1</span>,<span class="nm">2</span>], [<span class="nm">3</span>,<span class="nm">4</span>]])        <span class="cm">// [1, 2, 3, 4]</span>
+support.<span class="fn">arr_pluck</span>(users, <span class="st">'name'</span>)               <span class="cm">// 提取字段值</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. Sort / Page / Error ═══ -->
+      <div class="doc-section" id="utilities">
+        <div class="section-header"><div class="section-icon icon-core">🛠️</div><div><div class="section-title">Sort / Page / Error</div><div class="section-subtitle">多字段排序 · 分页封装 · 错误链</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// Sort — 多字段排序</span>
+<span class="kw">mut</span> sort := support.<span class="fn">new_sort</span>()
+sort.<span class="fn">by</span>(<span class="st">'name'</span>, .asc).<span class="fn">by</span>(<span class="st">'age'</span>, .desc)
+sorted := sort.<span class="fn">apply</span>(users)
+
+<span class="cm">// Page — 分页封装</span>
+page := support.<span class="fn">new_page</span>(data, page_num: <span class="nm">1</span>, per_page: <span class="nm">20</span>)
+<span class="fn">println</span>(page.total)      <span class="cm">// 总记录数</span>
+<span class="fn">println</span>(page.last_page)  <span class="cm">// 末页页码</span>
+<span class="fn">println</span>(page.items)      <span class="cm">// 当前页数据</span>
+
+<span class="cm">// Error — 错误链</span>
+err := support.<span class="fn">new_error</span>(<span class="st">'E001'</span>, <span class="st">'connection failed'</span>)
+err.<span class="fn">wrap</span>(<span class="st">'database unavailable'</span>)
+<span class="fn">println</span>(err.<span class="fn">full_message</span>()) <span class="cm">// "E001: connection failed — database unavailable"</span></div>
+        </div>
+      </div>

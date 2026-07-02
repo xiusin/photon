@@ -1,0 +1,82 @@
+<!-- title: Ticker · 定时器 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Ticker · 定时器 -->
+<div class="hero">
+        <h1>Ticker · 定时器</h1>
+        <p>高性能定时调度、4-ary 最小堆 + 64 桶分片、Go 风格 Timer/Ticker API — Go runtime timer 的 V 语言实现。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 GA</span><span class="hero-tag">import photon.ticker</span><span class="hero-tag">对标 Go runtime timer</span></div>
+      </div>
+
+      <!-- ═══ 1. Quick Start ═══ -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header"><div class="section-icon icon-core">⏱️</div><div><div class="section-title">快速上手</div><div class="section-subtitle">Timer · Ticker · 便捷函数</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.ticker
+<span class="kw">import</span> time
+
+<span class="cm">// 1. 一次性定时器</span>
+t := ticker.<span class="fn">new_timer</span>(<span class="nm">1</span> * time.second)
+<span class="cm">// 阻塞等待触发</span>
+<-t.c
+
+<span class="cm">// 2. 周期性 Ticker</span>
+tk := ticker.<span class="fn">new_ticker</span>(<span class="nm">500</span> * time.millisecond)
+<span class="kw">for</span> {
+    <-tk.c
+    <span class="cm">// 每 500ms 执行一次</span>
+    do_periodic_task()
+}
+
+<span class="cm">// 3. 便捷函数</span>
+ticker.<span class="fn">sleep</span>(<span class="nm">100</span> * time.millisecond)   <span class="cm">// 替代 time.sleep</span>
+ch := ticker.<span class="fn">after</span>(<span class="nm">2</span> * time.second)      <span class="cm">// 返回 channel</span>
+ticker.<span class="fn">after_func</span>(<span class="nm">3</span> * time.second, fn () {
+    <span class="fn">println</span>(<span class="st">'3s elapsed'</span>)
+})</div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. Architecture ═══ -->
+      <div class="doc-section" id="architecture">
+        <div class="section-header"><div class="section-icon icon-core">🏗️</div><div><div class="section-title">架构设计</div><div class="section-subtitle">4-ary 堆 · 64 桶分片 · 零外部依赖</div></div></div>
+
+        <p>Ticker 模块采用 Go runtime timer 的设计思路：</p>
+
+        <div class="comparison-grid-2">
+          <div class="comparison-header ch-photon">组件</div>
+          <div class="comparison-header ch-spring">职责</div>
+          <div class="comparison-cell">4-ary Min-Heap</div>
+          <div class="comparison-cell">高效定时器管理，O(log n) 插入/删除</div>
+          <div class="comparison-cell">64 桶分片</div>
+          <div class="comparison-cell">减少锁竞争，每个桶独立互斥锁</div>
+          <div class="comparison-cell">Channel 通知</div>
+          <div class="comparison-cell">容量为 1 的缓冲 channel，与 Go API 兼容</div>
+          <div class="comparison-cell">自动重插入</div>
+          <div class="comparison-cell">周期性 Ticker 触发后自动重新入堆</div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. Advanced ═══ -->
+      <div class="doc-section" id="advanced">
+        <div class="section-header"><div class="section-icon icon-core">🔧</div><div><div class="section-title">进阶用法</div><div class="section-subtitle">停止 · 重置 · Schedule 注解</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 停止 Ticker</span>
+tk.<span class="fn">stop</span>()
+
+<span class="cm">// 重置 Timer</span>
+t.<span class="fn">reset</span>(<span class="nm">5</span> * time.second)
+
+<span class="cm">// 注解式调度（配合 Core DI 容器）</span>
+<span class="at">@[scheduled: '0 */5 * * *']</span>
+<span class="kw">pub fn</span> (<span class="at">s</span> &<span class="tp">CleanupService</span>) <span class="fn">cleanup</span>() {
+    s.session_store.<span class="fn">flush_expired</span>()!
+}</div>
+        </div>
+
+        <div class="info-box info-tip">
+          <strong>提示：</strong> Ticker 模块零外部依赖，所有底层数据结构自行实现，适合对依赖敏感的生产环境。
+        </div>
+      </div>

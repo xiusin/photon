@@ -1,0 +1,78 @@
+<!-- title: I18n · 国际化 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>I18n · 国际化 -->
+<div class="hero">
+        <h1>I18n · 国际化</h1>
+        <p>MessageSource 抽象、TOML 资源包加载、占位符替换、懒加载 — Spring MessageSource 的 V 语言实现。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 Alpha</span><span class="hero-tag">import photon.i18n</span><span class="hero-tag">对标 Spring MessageSource</span></div>
+      </div>
+
+      <!-- ═══ 1. Quick Start ═══ -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header"><div class="section-icon icon-core">🌍</div><div><div class="section-title">快速上手</div><div class="section-subtitle">加载资源包 · 解析消息 · 占位符替换</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.i18n
+
+<span class="cm">// 1. 创建 MessageSource</span>
+<span class="kw">mut</span> ms := i18n.<span class="fn">new_resource_bundle_message_source</span>(<span class="st">'messages'</span>, <span class="st">'config/i18n'</span>)
+
+<span class="cm">// 2. 加载语言包</span>
+ms.<span class="fn">load_locale</span>(.en)!
+ms.<span class="fn">load_locale</span>(.zh)!
+
+<span class="cm">// 3. 解析消息（支持 {0} {1} 占位符）</span>
+msg := ms.<span class="fn">resolve</span>(<span class="st">'greeting'</span>, .zh, <span class="st">'张三'</span>)
+<span class="cm">// → "你好,张三"</span>
+
+msg2 := ms.<span class="fn">resolve</span>(<span class="st">'welcome'</span>, .en, <span class="st">'Alice'</span>, <span class="st">'MyApp'</span>)
+<span class="cm">// → "Welcome to MyApp, Alice!"</span>
+
+<span class="cm">// Spring 等价：MessageSource.getMessage("greeting", args, Locale.CHINA)</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. Resource Bundle ═══ -->
+      <div class="doc-section" id="bundle">
+        <div class="section-header"><div class="section-icon icon-core">📁</div><div><div class="section-title">资源包格式</div><div class="section-subtitle">TOML 文件命名 · 占位符语法</div></div></div>
+
+        <p>资源包文件使用 TOML 格式，命名规则为 <code>{basename}_{lang}.toml</code>：</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">toml</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm"># config/i18n/messages_zh.toml</span>
+greeting = <span class="st">"你好,{0}"</span>
+welcome = <span class="st">"欢迎来到{1},{0}!"</span>
+error.not_found = <span class="st">"资源未找到"</span>
+error.unauthorized = <span class="st">"未授权访问"</span></div>
+        </div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">toml</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm"># config/i18n/messages_en.toml</span>
+greeting = <span class="st">"Hello, {0}"</span>
+welcome = <span class="st">"Welcome to {1}, {0}!"</span>
+error.not_found = <span class="st">"Resource not found"</span>
+error.unauthorized = <span class="st">"Unauthorized access"</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. Supported Locales ═══ -->
+      <div class="doc-section" id="locales">
+        <div class="section-header"><div class="section-icon icon-core">🌐</div><div><div class="section-title">支持的语言</div><div class="section-subtitle">Locale 枚举 · 懒加载</div></div></div>
+
+        <div class="comparison-grid-2">
+          <div class="comparison-header ch-photon">Locale</div>
+          <div class="comparison-header ch-spring">代码</div>
+          <div class="comparison-cell">English</div>
+          <div class="comparison-cell"><code>.en</code></div>
+          <div class="comparison-cell">Chinese</div>
+          <div class="comparison-cell"><code>.zh</code></div>
+          <div class="comparison-cell">Japanese</div>
+          <div class="comparison-cell"><code>.ja</code></div>
+        </div>
+
+        <div class="info-box info-tip">
+          <strong>懒加载：</strong> <code>resolve()</code> 首次访问时自动加载对应的语言包，无需手动调用 <code>load_locale()</code>。
+        </div>
+      </div>

@@ -1,0 +1,79 @@
+<!-- title: Metrics · 指标监控 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Metrics · 指标监控 -->
+<div class="hero">
+        <h1>Metrics · 指标监控</h1>
+        <p>Counter / Gauge / Timer 三种度量、线程安全注册、Prometheus 格式导出 — Spring Actuator / Micrometer 的 V 语言实现。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 Alpha</span><span class="hero-tag">import photon.metrics</span><span class="hero-tag">对标 Micrometer</span></div>
+      </div>
+
+      <!-- ═══ 1. Quick Start ═══ -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header"><div class="section-icon icon-core">📊</div><div><div class="section-title">快速上手</div><div class="section-subtitle">MeterRegistry · Counter · Gauge · Timer</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.metrics
+
+<span class="cm">// 1. 创建注册中心</span>
+<span class="kw">mut</span> registry := metrics.<span class="fn">new_meter_registry</span>()
+
+<span class="cm">// 2. Counter — 单调递增计数器（请求数、字节数）</span>
+<span class="kw">mut</span> counter := registry.<span class="fn">counter</span>(<span class="st">'http.requests.total'</span>)
+counter.<span class="fn">increment</span>()
+counter.<span class="fn">increment_by</span>(<span class="nm">5</span>)
+<span class="fn">println</span>(counter.<span class="fn">value</span>())  <span class="cm">// 6</span>
+
+<span class="cm">// 3. Gauge — 瞬时值（队列深度、温度）</span>
+<span class="kw">mut</span> gauge := registry.<span class="fn">gauge</span>(<span class="st">'queue.depth'</span>)
+gauge.<span class="fn">set</span>(<span class="nm">42</span>)
+gauge.<span class="fn">increment</span>()
+gauge.<span class="fn">decrement</span>()
+
+<span class="cm">// 4. Timer — 耗时统计（请求数 + 总耗时）</span>
+<span class="kw">mut</span> timer := registry.<span class="fn">timer</span>(<span class="st">'http.request.duration'</span>)
+timer.<span class="fn">record</span>(<span class="nm">150</span> * time.millisecond)
+timer.<span class="fn">record</span>(<span class="nm">230</span> * time.millisecond)
+<span class="fn">println</span>(timer.<span class="fn">count</span>())      <span class="cm">// 2</span>
+<span class="fn">println</span>(timer.<span class="fn">total_time</span>()) <span class="cm">// 380ms</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. Prometheus Export ═══ -->
+      <div class="doc-section" id="prometheus">
+        <div class="section-header"><div class="section-icon icon-core">🔥</div><div><div class="section-title">Prometheus 导出</div><div class="section-subtitle">文本格式 · /metrics 端点</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 导出 Prometheus 文本格式 (v0.0.4)</span>
+output := registry.<span class="fn">format_prometheus</span>()
+<span class="cm">// # TYPE http_requests_total counter</span>
+<span class="cm">// http_requests_total 6</span>
+<span class="cm">// # TYPE queue_depth gauge</span>
+<span class="cm">// queue_depth 42</span>
+<span class="cm">// # TYPE http_request_duration timer</span>
+<span class="cm">// http_request_duration_count 2</span>
+<span class="cm">// http_request_duration_total 0.380</span>
+
+<span class="cm">// 配合 Web 模块暴露 /metrics</span>
+<span class="at">@['/metrics'; get]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">app</span> <span class="tp">App</span>) <span class="fn">metrics</span>() veb.<span class="tp">Result</span> {
+    <span class="kw">return</span> app.<span class="fn">text</span>(app.registry.<span class="fn">format_prometheus</span>())
+}</div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. Thread Safety ═══ -->
+      <div class="doc-section" id="safety">
+        <div class="section-header"><div class="section-icon icon-core">🔒</div><div><div class="section-title">线程安全</div><div class="section-subtitle">细粒度锁 · 无全局竞争</div></div></div>
+
+        <p>Metrics 模块采用细粒度锁策略，避免全局锁竞争：</p>
+
+        <div class="comparison-grid-2">
+          <div class="comparison-header ch-photon">层级</div>
+          <div class="comparison-header ch-spring">锁策略</div>
+          <div class="comparison-cell">Registry</div>
+          <div class="comparison-cell">RwMutex：查找用读锁，创建用写锁（双检锁）</div>
+          <div class="comparison-cell">Meter (Counter/Gauge/Timer)</div>
+          <div class="comparison-cell">每个 Meter 独立 Mutex，不同 Meter 不互斥</div>
+        </div>
+      </div>
