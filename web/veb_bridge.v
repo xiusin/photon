@@ -531,12 +531,12 @@ pub fn (mut ws WebSocketUpgrader) read() !string {
 	if payload_len == 126 {
 		mut ext_len := [2]u8{}
 		unsafe { ws.ctx.conn.read_ptr(&ext_len[0], 2)! }
-		payload_len = (int(ext_len[0]) << 8) | int(ext_len[1])
+		payload_len = (int(ext_len[0]) * 256) + int(ext_len[1])
 	} else if payload_len == 127 {
 		mut ext_len := [8]u8{}
 		unsafe { ws.ctx.conn.read_ptr(&ext_len[0], 8)! }
 		// 简化：只读低 32 位
-		payload_len = (int(ext_len[4]) << 24) | (int(ext_len[5]) << 16) | (int(ext_len[6]) << 8) | int(ext_len[7])
+		payload_len = (int(ext_len[4]) * 16777216) + (int(ext_len[5]) * 65536) + (int(ext_len[6]) * 256) + int(ext_len[7])
 	}
 
 	mut mask_key := [4]u8{}

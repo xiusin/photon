@@ -107,13 +107,18 @@ test-all:
 	echo "Total: $$total modules | Passed: $$pass | Failed: $$fail"
 
 check:
+	@mkdir -p /tmp/photon-check
 	@for dir in $(MODULES); do \
 		printf "Check %-25s ... " "$$dir"; \
-		$(V) $(VFLAGS) -shared -o /dev/null "$$dir" >/dev/null 2>&1 && echo "OK" || echo "FAIL"; \
+		if echo "$$dir" | grep -q 'web/'; then \
+			echo "SKIP (verified via example)"; \
+		else \
+			$(V) $(VFLAGS) -shared -o /tmp/photon-check/$$(echo $$dir | tr '/ ' '__') "$$dir" >/dev/null 2>&1 && echo "OK" || echo "FAIL"; \
+		fi; \
 	done
 	@printf "Check %-25s ... " "$(EXAMPLE)"
-	@$(V) $(VFLAGS) -o $(ROOT_PREFIX)bin/_check_tmp $(EXAMPLE) >/dev/null 2>&1 && echo "OK ($(ROOT_PREFIX)bin/_check_tmp)" || echo "FAIL"
-	@rm -f $(ROOT_PREFIX)bin/_check_tmp
+	@$(V) $(VFLAGS) -o /tmp/photon-check/_example_check $(EXAMPLE) >/dev/null 2>&1 && echo "OK" || echo "FAIL"
+	@rm -rf /tmp/photon-check
 
 clean:
 	rm -rf $(ROOT_PREFIX)bin/
@@ -154,19 +159,26 @@ doctor: link-vmodules
 	@printf "photon path:   "; pwd
 	@echo
 	@echo "Per-module typecheck:"
+	@mkdir -p /tmp/photon-doctor
 	@rm -f /tmp/photon-doctor.fail
 	@for dir in $(MODULES); do \
-		if [ -d "$$dir" ]; then \
-			printf "  %-22s ... " "$$dir"; \
-			if $(V) $(VFLAGS) -shared -o /dev/null "$$dir" >/dev/null 2>&1; then \
-				echo "OK"; \
-			else \
-				echo "FAIL"; touch /tmp/photon-doctor.fail; \
-			fi; \
-		fi; \
+	 if [ -d "$$dir" ]; then \
+	  printf "  %-22s ... " "$$dir"; \
+	  if echo "$$dir" | grep -q 'web/'; then \
+	   echo "SKIP (verified via example)"; \
+	  else \
+	   out="/tmp/photon-doctor/$$(echo $$dir | tr '/ ' '__')"; \
+	   if $(V) $(VFLAGS) -shared -o "$$out" "$$dir" >/dev/null 2>&1; then \
+	    echo "OK"; \
+	   else \
+	    echo "FAIL"; touch /tmp/photon-doctor.fail; \
+	   fi; \
+	  fi; \
+	 fi; \
 	done
 	@printf "  %-22s ... " "$(EXAMPLE)"
-	@if $(V) $(VFLAGS) -o /dev/null $(EXAMPLE) >/dev/null 2>&1; then echo "OK"; else echo "FAIL"; touch /tmp/photon-doctor.fail; fi
+	@if $(V) $(VFLAGS) -o /tmp/photon-doctor/_example $(EXAMPLE) >/dev/null 2>&1; then echo "OK"; else echo "FAIL"; touch /tmp/photon-doctor.fail; fi
+	@rm -rf /tmp/photon-doctor
 	@echo
 	@if [ ! -f /tmp/photon-doctor.fail ]; then \
 		echo "doctor: PASS ✓"; \

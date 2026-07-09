@@ -48,6 +48,12 @@ mut:
 	delete_by_id(id string) !
 	clear() !
 	count() int
+	// get_retry_stats returns retry statistics
+	// get_retry_stats 返回重试统计
+	get_retry_stats() RetryStats
+	// increment_retry_stats increments the retry counters
+	// increment_retry_stats 增加重试计数器
+	increment_retry_stats()
 }
 
 // MemoryFailedJobRepository stores failed jobs in memory (thread-safe)
@@ -127,6 +133,23 @@ pub fn (mut r MemoryFailedJobRepository) count() int {
 	r.mu.@lock()
 	defer { r.mu.unlock() }
 	return r.jobs.len
+}
+
+// get_retry_stats returns retry statistics
+// get_retry_stats 返回重试统计
+pub fn (mut r MemoryFailedJobRepository) get_retry_stats() RetryStats {
+	r.mu.@lock()
+	defer { r.mu.unlock() }
+	return r.retry_stats
+}
+
+// increment_retry_stats increments the retry counters
+// increment_retry_stats 增加重试计数器
+pub fn (mut r MemoryFailedJobRepository) increment_retry_stats() {
+	r.mu.@lock()
+	r.retry_stats.total_retried++
+	r.retry_stats.pending_retries++
+	r.mu.unlock()
 }
 
 // FailedJobHandler processes failed jobs during queue worker execution
@@ -219,26 +242,13 @@ pub fn (mut h FailedJobHandler) retry_with_backoff(id int) ! {
 
 	// Update retry stats
 	// 更新重试统计
-	mut repo := h.repository
-	if mut repo is &MemoryFailedJobRepository {
-		repo.mu.@lock()
-		repo.retry_stats.total_retried++
-		repo.retry_stats.pending_retries++
-		repo.mu.unlock()
-	}
+	h.repository.increment_retry_stats()
 }
 
 // get_retry_stats returns statistics about retry operations
 // get_retry_stats 返回重试操作统计
 pub fn (mut h FailedJobHandler) get_retry_stats() RetryStats {
-	mut repo := h.repository
-	if mut repo is &MemoryFailedJobRepository {
-		repo.mu.@lock()
-		stats := repo.retry_stats
-		repo.mu.unlock()
-		return stats
-	}
-	return RetryStats{}
+	return h.repository.get_retry_stats()
 }
 
 // prune removes failed jobs older than the specified age in hours
