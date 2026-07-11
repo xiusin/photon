@@ -80,6 +80,14 @@ pub fn (b &BaseController) bad_request(mut ctx veb.Context, msg string) veb.Resu
 	return ctx.text('{"error":${json.encode(msg)},"code":400}')
 }
 
+// unprocessable_entity 返回 422 错误（用于请求体格式正确但语义无效的校验错误）
+// msg 会被 JSON 编码以防止注入 / msg is JSON-encoded to prevent injection.
+pub fn (b &BaseController) unprocessable_entity(mut ctx veb.Context, msg string) veb.Result {
+	ctx.res.set_status(unsafe { http.Status(422) })
+	ctx.set_content_type('application/json')
+	return ctx.text('{"error":${json.encode(msg)},"code":422}')
+}
+
 // not_found 返回 404 错误
 // msg 会被 JSON 编码以防止注入 / msg is JSON-encoded to prevent injection.
 pub fn (b &BaseController) not_found(mut ctx veb.Context, msg string) veb.Result {
@@ -191,4 +199,15 @@ pub fn get_header_val(ctx &veb.Context, key string) string {
 // set_status 设置响应状态码（便捷封装）。
 pub fn set_status(mut ctx veb.Context, code int) {
 	ctx.res.set_status(unsafe { http.Status(code) })
+}
+
+// validate_id 从路径参数中提取并校验正整数 ID，返回 !int
+// label 示例: 'post id / 无效的文章 ID' — 错误消息会拼为 'invalid ${label}'
+pub fn (b &BaseController) validate_id(params map[string]string, key string, label string) !int {
+	id_str := params[key] or { return error('invalid ${label}') }
+	id := id_str.int()
+	if id <= 0 {
+		return error('invalid ${label}')
+	}
+	return id
 }
