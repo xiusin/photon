@@ -30,23 +30,26 @@ pub fn new() &Config {
 	}
 }
 
-// add_source adds a configuration source
-pub fn (mut c Config) add_source(source ConfigSource) {
+// add_source adds a configuration source. Returns &Config for chaining.
+pub fn (mut c Config) add_source(source ConfigSource) &Config {
 	c.sources << source
+	return c
 }
 
-// set_profile sets active profile(s)
-pub fn (mut c Config) set_profile(profiles []string) {
+// set_profile sets active profile(s). Returns &Config for chaining.
+pub fn (mut c Config) set_profile(profiles []string) &Config {
 	c.profiles = profiles
+	return c
 }
 
-// add_profile adds a profile
-pub fn (mut c Config) add_profile(profile string) {
+// add_profile adds a profile. Returns &Config for chaining.
+pub fn (mut c Config) add_profile(profile string) &Config {
 	c.profiles << profile
+	return c
 }
 
-// load loads all configuration sources and merges properties
-pub fn (mut c Config) load() ! {
+// load loads all configuration sources and merges properties. Returns &Config for chaining.
+pub fn (mut c Config) load() !&Config {
 	for mut source in c.sources {
 		props := source.load()!
 		for key, value in props {
@@ -54,6 +57,7 @@ pub fn (mut c Config) load() ! {
 		}
 	}
 	c.loaded = true
+	return c
 }
 
 // get returns a configuration value by key

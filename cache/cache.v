@@ -110,6 +110,19 @@ pub fn (mut cm CacheRegistry) clear() ! {
 	cm.default_cache.clear()!
 }
 
+// ── Fluent Cache API (Laravel-inspired chainable operations) ──
+
+// chain returns a CacheOperation builder for fluent caching.
+// All operations are executed against this registry.
+//
+// Usage:
+//   reg.chain().remember("users:1", 600, loader)!
+//   reg.chain().put("user:1", json).ttl(3600).save()!
+//   reg.chain().with_tags(["users", "posts"]).forget("user:1").delete()!
+pub fn (mut cm CacheRegistry) chain() &CacheOperation {
+	return new_cache_operation(cm)
+}
+
 // get_or_load retrieves a value from cache, or loads it via the loader function
 // if it's not present. Uses singleflight to deduplicate concurrent loads for the
 // same key — this is the peak-shaving (削峰) mechanism that prevents cache stampede.

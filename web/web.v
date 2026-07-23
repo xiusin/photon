@@ -273,34 +273,40 @@ fn veb_mime_type(ext string) string {
 // 手动注册路由（无需控制器结构体）
 // ============================================================
 
-// get 注册 GET 路由
-pub fn (mut wm WebModule) get(path string, handler RouteHandler) {
+// get 注册 GET 路由。返回 &WebModule 支持链式调用。
+pub fn (mut wm WebModule) get(path string, handler RouteHandler) &WebModule {
 	wm.router.get(path, handler)
+	return wm
 }
 
 // post 注册 POST 路由
-pub fn (mut wm WebModule) post(path string, handler RouteHandler) {
+pub fn (mut wm WebModule) post(path string, handler RouteHandler) &WebModule {
 	wm.router.post(path, handler)
+	return wm
 }
 
 // put 注册 PUT 路由
-pub fn (mut wm WebModule) put(path string, handler RouteHandler) {
+pub fn (mut wm WebModule) put(path string, handler RouteHandler) &WebModule {
 	wm.router.put(path, handler)
+	return wm
 }
 
 // delete 注册 DELETE 路由
-pub fn (mut wm WebModule) delete(path string, handler RouteHandler) {
+pub fn (mut wm WebModule) delete(path string, handler RouteHandler) &WebModule {
 	wm.router.delete(path, handler)
+	return wm
 }
 
 // patch 注册 PATCH 路由
-pub fn (mut wm WebModule) patch(path string, handler RouteHandler) {
+pub fn (mut wm WebModule) patch(path string, handler RouteHandler) &WebModule {
 	wm.router.patch(path, handler)
+	return wm
 }
 
-// group 创建路由组
-pub fn (mut wm WebModule) group(prefix string, cb fn (mut sub RouteRegistry)) {
+// group 创建路由组。返回 &WebModule 支持链式调用。
+pub fn (mut wm WebModule) group(prefix string, cb fn (mut sub RouteRegistry)) &WebModule {
 	wm.router.group(prefix, cb)
+	return wm
 }
 
 // ============================================================

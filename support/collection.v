@@ -332,9 +332,11 @@ pub fn (c &Collection[T]) concat(items []T) Collection[T] {
 	}
 }
 
-// push adds an item to the end
-pub fn (mut c Collection[T]) push(item T) {
+// push adds an item to the end. Returns self for chaining.
+// Laravel equivalent: collect([...])->push('new')->all()
+pub fn (mut c Collection[T]) push(item T) &Collection[T] {
 	c.items << item
+	return c
 }
 
 // pop removes and returns the last item

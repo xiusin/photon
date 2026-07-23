@@ -132,13 +132,14 @@ pub fn new_route_registry() &RouteRegistry {
 }
 
 // register 注册一条路由（带闭包处理器）
-pub fn (mut rr RouteRegistry) register(method string, path string, handler RouteHandler) {
+pub fn (mut rr RouteRegistry) register(method string, path string, handler RouteHandler) &RouteRegistry {
 	rr.routes << &RouteDef{
 		method:   method
 		path:     path
 		handler:  handler
 		segments: parse_path(path)
 	}
+	return rr
 }
 
 // register_with_host 注册一条带 host 限制的路由。
@@ -149,7 +150,7 @@ pub fn (mut rr RouteRegistry) register(method string, path string, handler Route
 //
 // 用法：
 //   rr.register_with_host('GET', '/api/admin', handler, 'admin.example.com')
-pub fn (mut rr RouteRegistry) register_with_host(method string, path string, handler RouteHandler, host string) {
+pub fn (mut rr RouteRegistry) register_with_host(method string, path string, handler RouteHandler, host string) &RouteRegistry {
 	rr.routes << &RouteDef{
 		method:   method
 		path:     path
@@ -157,6 +158,7 @@ pub fn (mut rr RouteRegistry) register_with_host(method string, path string, han
 		segments: parse_path(path)
 		host:     host.to_lower()
 	}
+	return rr
 }
 
 // register_with_middleware 注册一条路由，附带路由级中间件和可选 host 限制。
@@ -168,7 +170,7 @@ pub fn (mut rr RouteRegistry) register_with_host(method string, path string, han
 //   rr.register_with_middleware('GET', '/api/admin', handler, [auth_middleware, role_middleware], [audit_middleware])
 //   // 带 host 限制：
 //   rr.register_with_middleware('GET', '/api/admin', handler, [auth_middleware], [], 'admin.example.com')
-pub fn (mut rr RouteRegistry) register_with_middleware(method string, path string, handler RouteHandler, middlewares []MiddlewareFunc, after_middlewares []MiddlewareFunc, host string) {
+pub fn (mut rr RouteRegistry) register_with_middleware(method string, path string, handler RouteHandler, middlewares []MiddlewareFunc, after_middlewares []MiddlewareFunc, host string) &RouteRegistry {
 	rr.routes << &RouteDef{
 		method:            method
 		path:              path
@@ -178,48 +180,55 @@ pub fn (mut rr RouteRegistry) register_with_middleware(method string, path strin
 		after_middlewares: after_middlewares
 		host:              host.to_lower()
 	}
+	return rr
 }
 
 // ============================================================
-// 便捷方法（手动注册）
+// 便捷方法（手动注册）— 返回 &RouteRegistry 支持链式��用
 // ============================================================
 
 // get 注册 GET 路由
-pub fn (mut rr RouteRegistry) get(path string, handler RouteHandler) {
+pub fn (mut rr RouteRegistry) get(path string, handler RouteHandler) &RouteRegistry {
 	rr.register('GET', path, handler)
+	return rr
 }
 
 // post 注册 POST 路由
-pub fn (mut rr RouteRegistry) post(path string, handler RouteHandler) {
+pub fn (mut rr RouteRegistry) post(path string, handler RouteHandler) &RouteRegistry {
 	rr.register('POST', path, handler)
+	return rr
 }
 
 // put 注册 PUT 路由
-pub fn (mut rr RouteRegistry) put(path string, handler RouteHandler) {
+pub fn (mut rr RouteRegistry) put(path string, handler RouteHandler) &RouteRegistry {
 	rr.register('PUT', path, handler)
+	return rr
 }
 
 // delete 注册 DELETE 路由
-pub fn (mut rr RouteRegistry) delete(path string, handler RouteHandler) {
+pub fn (mut rr RouteRegistry) delete(path string, handler RouteHandler) &RouteRegistry {
 	rr.register('DELETE', path, handler)
+	return rr
 }
 
 // patch 注册 PATCH 路由
-pub fn (mut rr RouteRegistry) patch(path string, handler RouteHandler) {
+pub fn (mut rr RouteRegistry) patch(path string, handler RouteHandler) &RouteRegistry {
 	rr.register('PATCH', path, handler)
+	return rr
 }
 
 // ============================================================
 // 路由组
 // ============================================================
 
-// group 创建共享前缀的路由组
-pub fn (mut rr RouteRegistry) group(prefix string, cb fn (mut sub RouteRegistry)) {
+// group 创建共享前缀的路由组。返回 &RouteRegistry 支持链式调用。
+pub fn (mut rr RouteRegistry) group(prefix string, cb fn (mut sub RouteRegistry)) &RouteRegistry {
 	mut sub := new_route_registry()
 	cb(mut sub)
 	for route in sub.routes {
 		rr.register(route.method, prefix + route.path, route.handler)
 	}
+	return rr
 }
 
 // ============================================================
