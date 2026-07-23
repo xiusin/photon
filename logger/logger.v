@@ -119,16 +119,20 @@ pub interface Encoder {
 // Logger
 // ============================================================
 
-// Logger provides structured, leveled logging with pluggable encoders.
-// The encoder field defaults to a ConsoleEncoder sentinel so it is never nil;
-// all constructors (new, new_with_encoder, new_with_level) and with_fields
-// propagate a concrete encoder, guaranteeing log() can always call encode().
+// Logger provides structured, leveled logging with pluggable encoders and
+// optional output sinks (channels). The encoder field defaults to a
+// ConsoleEncoder sentinel so it is never nil; all constructors (new,
+// new_with_encoder, new_with_level) and with_fields propagate a concrete
+// encoder, guaranteeing log() can always call encode().
+//
+// Output flow: Encoder.encode() → eprintln + optional Channel sinks
 @[heap]
 pub struct Logger {
 pub mut:
 	level        Level    = .info
 	output_label string   = 'photon'
 	encoder      &Encoder = &ConsoleEncoder{} // sentinel — never nil (ConsoleEncoder implements Encoder)
+	channels     []&Channel // optional output sinks (file, syslog, etc.)
 mut:
 	context &map[string]string = unsafe { nil } // MDC context (heap-allocated, shared by reference with LogEntries)
 }
@@ -242,6 +246,7 @@ pub fn (l &Logger) with_fields(fields map[string]string) &Logger {
 		level:        l.level
 		output_label: l.output_label
 		encoder:      l.encoder
+		channels:     l.channels
 		context:      &new_ctx
 	}
 }
@@ -275,6 +280,32 @@ pub fn (l &Logger) log(level Level, msg string) {
 
 	output := l.encoder.encode(entry)
 	eprintln(output)
+
+	// Write to optional output sinks (file, syslog, etc.)
+	// Channels use their own formatting (format_log_line) and include
+	// sensitive data masking, complementing the encoder output.
+	ctx := unsafe { l.context }
+	for ch in l.channels {
+		ch.write(level, msg, ctx)
+	}
+}
+
+// ── Output sink management ──
+
+// add_sink registers an output sink (file channel, syslog channel, etc.).
+// Sinks receive log entries after the encoder has written to stderr.
+pub fn (mut l Logger) add_sink(ch &Channel) {
+	l.channels << ch
+}
+
+// remove_sinks clears all registered output sinks.
+pub fn (mut l Logger) remove_sinks() {
+	l.channels.clear()
+}
+
+// sinks returns the current output sinks (read-only).
+pub fn (l &Logger) sinks() []&Channel {
+	return l.channels
 }
 
 // Convenience methods

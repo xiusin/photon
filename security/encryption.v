@@ -1,9 +1,15 @@
 module security
 
 // encryption.v - Encryption (Laravel Crypt inspired)
-
-// Encrypter provides symmetric encryption and decryption
-@[deprecated: 'use security.AesCipher instead']
+//
+// ⚠️  DEPRECATION NOTICE:
+// The Encrypter struct uses XOR cipher and is DEPRECATED.
+// It will be REMOVED in a future major version.
+// Use security.AesCipher for AES-256-CBC authenticated encryption instead.
+//
+// Encrypter provides symmetric encryption and decryption (XOR-based, DEPRECATED)
+@[deprecated: 'use security.AesCipher for AES-256-CBC authenticated encryption']
+@[deprecated]
 pub struct Encrypter {
 pub mut:
 	key    string
@@ -18,10 +24,13 @@ pub fn new_encrypter(key string) &Encrypter {
 	}
 }
 
-// encrypt encrypts a value using XOR cipher with hex encoding
-@[deprecated: 'use security.AesCipher instead']
+// encrypt encrypts a value using XOR cipher with hex encoding (DEPRECATED).
+// This uses a trivial XOR cipher (0xAA) — NOT cryptographically secure.
+// Will be REMOVED in a future version. Migrate to security.AesCipher.
+@[deprecated: 'use security.AesCipher.encrypt() instead']
+@[deprecated]
 pub fn (e &Encrypter) encrypt(value string) !string {
-	eprintln('[deprecated] Encrypter uses XOR cipher, use security.AesCipher instead')
+	eprintln('[DEPRECATED] security.Encrypter uses XOR cipher (key=0xAA). Migrate to security.AesCipher for AES-256-CBC authenticated encryption.')
 	if value.len == 0 {
 		return ''
 	}
@@ -33,10 +42,12 @@ pub fn (e &Encrypter) encrypt(value string) !string {
 	return result
 }
 
-// decrypt decrypts an encrypted payload
-@[deprecated: 'use security.AesCipher instead']
+// decrypt decrypts an encrypted payload (DEPRECATED).
+// Will be REMOVED in a future version. Migrate to security.AesCipher.
+@[deprecated: 'use security.AesCipher.decrypt() instead']
+@[deprecated]
 pub fn (e &Encrypter) decrypt(payload string) !string {
-	eprintln('[deprecated] Encrypter uses XOR cipher, use security.AesCipher instead')
+	eprintln('[DEPRECATED] security.Encrypter uses XOR cipher (key=0xAA). Migrate to security.AesCipher for AES-256-CBC authenticated encryption.')
 	if payload.len == 0 {
 		return ''
 	}

@@ -75,7 +75,12 @@ pub fn (c &SyslogChannel) write(level Level, msg string, context map[string]stri
 	eprintln(line)
 }
 
-// ChannelLogger sends log entries to multiple channels
+// ChannelLogger sends log entries to multiple channels.
+// @deprecated: Use Logger with add_sink() instead.
+// ChannelLogger will be removed in a future version.
+// Migration: replace `cl := new_channel_logger()` with `l := logger.new()`,
+// then use `l.add_sink(FileChannel{...})` for file output.
+@[deprecated: 'use Logger with add_sink() instead']
 pub struct ChannelLogger {
 pub mut:
 	channels []&Channel

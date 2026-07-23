@@ -342,14 +342,7 @@ pub fn (mut wm WebModule) enable_static_compression(config StaticCompressionConf
 // 用法：
 //   app.WebModule.enable_markdown_negotiation()
 pub fn (mut wm WebModule) enable_markdown_negotiation() {
-	old := wm.resources.compression
-	wm.resources.set_compression(StaticCompressionConfig{
-		enable: old.enable
-		enable_gzip_only: old.enable_gzip_only
-		enable_zstd_only: old.enable_zstd_only
-		max_size: old.max_size
-		enable_markdown_negotiation: true
-	})
+	wm.resources.compression.enable_markdown_negotiation = true
 }
 
 // serve_static_file 直接通过 veb.Context 提供静态文件服务。

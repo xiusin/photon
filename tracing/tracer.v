@@ -338,6 +338,8 @@ mut:
 	spans    []&InMemorySpan
 	stack    []&InMemorySpan
 	trace_id string
+pub mut:
+	exporters []SpanExporter // registered span exporters
 }
 
 // new_in_memory_tracer creates a tracer with a fresh trace id.

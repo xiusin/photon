@@ -15,7 +15,11 @@ mut:
 	get_all_with_prefix(prefix string) map[string]string
 }
 
-// Environment provides unified property access
+// Environment provides unified property access.
+// @deprecated: Use core.Environment instead.
+// config.Environment will be merged into core.Environment in a future version.
+// Migration: replace `config.new_environment()` with `core.new_environment()`.
+@[deprecated: 'use core.Environment instead — config.Environment will be merged into core.Environment']
 pub struct Environment {
 pub mut:
 	property_sources []&PropertySource

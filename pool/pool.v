@@ -306,6 +306,44 @@ pub fn (mut p Pool) acquire() !voidptr {
 	return error('pool "${p.name}" exhausted (max=${p.max_size}, active=${p.active_count})')
 }
 
+// acquire_with_timeout blocks until an object is available or the timeout expires.
+//
+// Unlike acquire() which returns immediately with an error when the pool is
+// exhausted, this method polls the pool periodically until an object becomes
+// available (e.g. another goroutine calls release()). If the timeout is
+// reached, it returns an error.
+//
+// timeout_seconds must be >= 1. The caller should always release the object.
+//
+// Usage:
+//   obj := pool.acquire_with_timeout(30)! // wait up to 30 seconds
+//   defer { pool.release(obj) }
+pub fn (mut p Pool) acquire_with_timeout(timeout_seconds int) !voidptr {
+	deadline := time.now().unix() + i64(timeout_seconds)
+	for {
+		obj := p.acquire() or {
+			if err.msg().contains('exhausted') {
+				if time.now().unix() >= deadline {
+					return error('pool "${p.name}" acquire timed out after ${timeout_seconds}s')
+				}
+				time.sleep(10 * time.millisecond)
+				continue
+			}
+			return err
+		}
+		return obj
+	}
+}
+
+// acquire_guard_with_timeout acquires a typed RAII guard, blocking up to
+// the specified timeout. See acquire_with_timeout for blocking semantics.
+pub fn (mut p Pool) acquire_guard_with_timeout[T](timeout_seconds int) !PooledGuard[T] {
+	obj := p.acquire_with_timeout(timeout_seconds) or {
+		return error('acquire_guard_with_timeout: ${err}')
+	}
+	return new_pooled_guard[T](p, obj)
+}
+
 // release returns an object to the pool.
 //
 // If the pool is closed, the object is destroyed directly via the factory

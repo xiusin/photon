@@ -25,6 +25,8 @@ pub const attr_scope = 'scope'
 pub const attr_lazy = 'lazy'
 pub const attr_qualifier = 'qualifier'
 pub const attr_value = 'value'
+// Lifecycle annotations follow V's snake_case convention (not Spring's @PostConstruct/@PreDestroy).
+// Spring equivalents: @[post_construct] = @PostConstruct, @[pre_destroy] = @PreDestroy
 pub const attr_post_construct = 'post_construct'
 pub const attr_pre_destroy = 'pre_destroy'
 // New annotations (Spring Boot / Laravel inspired)

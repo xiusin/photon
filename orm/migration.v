@@ -503,6 +503,15 @@ pub fn (mut t TableDef) rename_column(old_name string, new_name string) {
 	}
 }
 
+// modify_column marks a column for type/constraint change (ALTER TABLE ALTER/MODIFY COLUMN).
+// The col parameter should contain the new column definition (new type, new constraints).
+pub fn (mut t TableDef) modify_column(col ColumnDef) {
+	mut c := col
+	c.is_added = false // interpreted as a modification by alter_table
+	c.is_dropped = false
+	t.columns << c
+}
+
 // ── Index Definition ──
 
 // IndexDef represents a database index.
@@ -573,10 +582,19 @@ pub fn (mut s Schema) alter_table(table_name string, builder fn (mut t TableDef)
 			s.statements << s.build_rename_column(table_name, col.name, col.new_name)
 		} else if col.is_added {
 			s.statements << s.build_add_column(table_name, col)
+		} else {
+			// Modification (type/constraint change)
+			s.statements << s.build_modify_column(table_name, col)
 		}
 	}
 	for idx in t.indexes {
 		s.statements << s.build_create_index(table_name, idx)
+	}
+	// Drop indexes marked for removal
+	for col in t.columns {
+		if col.is_dropped && col.is_indexed {
+			s.statements << 'DROP INDEX IF EXISTS idx_${table_name}_${col.name}'
+		}
 	}
 }
 
@@ -588,6 +606,11 @@ pub fn (mut s Schema) add_column(table_name string, col ColumnDef) {
 // drop_column removes a column from an existing table.
 pub fn (mut s Schema) drop_column(table_name string, column_name string) {
 	s.statements << s.build_drop_column(table_name, column_name)
+}
+
+// modify_column changes a column's type or constraints on an existing table.
+pub fn (mut s Schema) modify_column(table_name string, col ColumnDef) {
+	s.statements << s.build_modify_column(table_name, col)
 }
 
 // create_index creates an index on one or more columns.
@@ -636,12 +659,23 @@ fn (s &Schema) build_add_column(table_name string, col ColumnDef) string {
 
 // build_drop_column generates an ALTER TABLE DROP COLUMN statement.
 fn (s &Schema) build_drop_column(table_name string, column_name string) string {
-	if s.driver == .sqlite {
-		// SQLite doesn't support DROP COLUMN before 3.35.0
-		// Use the recommended approach: recreate table
-		return '-- SQLite: manually recreate table without ${column_name}'
-	}
 	return 'ALTER TABLE ${table_name} DROP COLUMN ${column_name}'
+}
+
+// build_modify_column generates an ALTER TABLE ALTER/MODIFY COLUMN statement.
+fn (sc &Schema) build_modify_column(table_name string, col ColumnDef) string {
+	if sc.driver == .sqlite {
+		// SQLite does not support ALTER COLUMN directly.
+		// The recommended approach is to recreate the table,
+		// which is handled by the migration author via fresh() or raw SQL.
+		return '-- ALTER TABLE ${table_name} ALTER COLUMN ${col.name} TYPE ${col.type_.sql_type(sc.driver)}'
+			+ ' -- SQLite requires table recreation; use a raw SQL migration'
+	}
+	if sc.driver == .pg {
+		return 'ALTER TABLE ${table_name} ALTER COLUMN ${col.name} TYPE ${col.type_.sql_type(sc.driver)}'
+	}
+	// MySQL / others
+	return 'ALTER TABLE ${table_name} MODIFY COLUMN ${col.to_sql(sc.driver)}'
 }
 
 // build_rename_column generates an ALTER TABLE RENAME COLUMN statement.

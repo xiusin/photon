@@ -183,57 +183,6 @@ fn test_storage_manager_register() {
 }
 
 // ============================================================
-// S3Adapter Tests
-// ============================================================
-
-fn test_s3_adapter_new() {
-	adapter := new_s3_adapter('my-bucket', 'us-east-1')
-	assert adapter.adapter_name() == 's3'
-	assert adapter.bucket == 'my-bucket'
-	assert adapter.region == 'us-east-1'
-}
-
-fn test_s3_adapter_url() {
-	adapter := new_s3_adapter('my-bucket', 'us-east-1')
-	url := adapter.url('path/to/file.txt')
-	assert url.contains('my-bucket')
-	assert url.contains('path/to/file.txt')
-}
-
-fn test_s3_adapter_compatible() {
-	adapter := new_s3_compatible_adapter('my-bucket', 'us-east-1', 'https://minio.example.com',
-		'AKIAIOSFODNN7EXAMPLE', 'secret-key')
-	assert adapter.endpoint == 'https://minio.example.com'
-	assert adapter.use_path_style == true
-}
-
-fn test_s3_adapter_temporary_url() {
-	adapter := new_s3_adapter('my-bucket', 'us-east-1')
-	url := adapter.temporary_url('secret.txt', 3600)!
-	assert url.contains('secret.txt')
-	assert url.contains('Expires')
-	assert url.contains('Signature')
-}
-
-fn test_s3_operations_stubs() {
-	mut adapter := new_s3_adapter('test-bucket', 'us-east-1')
-
-	// Write succeeds (stub no-op)
-	adapter.write('file.txt', 'test', default_options())!
-
-	// Read returns stub placeholder
-	content := adapter.read('file.txt')!
-	assert content.contains('stub')
-
-	// Exists returns true for all paths (stub)
-	assert adapter.exists('file.txt') == true
-
-	// Create directory is no-op
-	adapter.create_directory('prefix/')!
-	assert true
-}
-
-// ============================================================
 // Visibility Tests
 // ============================================================
 

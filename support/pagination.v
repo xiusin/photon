@@ -1,8 +1,14 @@
 module support
 
 // pagination.v - Pagination (Laravel Paginator inspired)
+// @deprecated: Use Page[T] from page.v instead (Spring Data style).
+// LengthAwarePaginator and SimplePaginator will be removed in a future version.
+// Migration:
+//   LengthAwarePaginator[T] → Page[T]
+//   new_paginator(items, total, per_page, current) → new_page(items, total, current, per_page)
 
 // LengthAwarePaginator provides full pagination with total count
+@[deprecated: 'use Page[T] from page.v (Spring Data style) instead']
 pub struct LengthAwarePaginator[T] {
 pub:
 	items        []T
@@ -91,6 +97,7 @@ pub fn (p &LengthAwarePaginator[T]) to_json() string {
 }
 
 // SimplePaginator provides simple prev/next pagination without total
+@[deprecated: 'use Page[T] from page.v instead']
 pub struct SimplePaginator[T] {
 pub:
 	items        []T

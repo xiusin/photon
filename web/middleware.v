@@ -12,6 +12,7 @@ module web
 //   - 完整 CORS preflight 验证（桥接 veb.CorsOptions）
 import veb
 import time
+import rand
 import compress.gzip
 import compress.zstd
 
@@ -281,19 +282,35 @@ pub fn request_id_cleanup_middleware(mut ctx &MiddlewareContext) !bool {
 	return true
 }
 
-// generate_request_id creates a unique request identifier.
-// Uses time + random bytes to ensure uniqueness and unpredictability.
-// generate_request_id 创建唯一的请求标识符。
-// 使用时间 + 随机字节确保唯一性和不可预测性。
+// generate_request_id creates a UUID v4 request identifier.
+// Uses crypto/rand to generate a standard UUID v4 string.
+// generate_request_id 创建 UUID v4 格式的唯一请求标识符。
+// 使用加密随机数生成标准 UUID v4 字符串。
 fn generate_request_id() string {
-	now := time.now().unix_nano()
-	// Use hex of nanosecond timestamp + random suffix for collision resistance
-	// 使用纳秒时间戳的十六进制 + 随机后缀以防止冲突
-	mut random_suffix := u64(0)
-	// Simple LCG seeded from time for quick uniqueness (not crypto-grade)
-	// 简单 LCG 以时间为种子，用于快速唯一性（非加密级别）
-	random_suffix = u64(now) * u64(6364136223846793005) + u64(1442695040888963407)
-	return '${now.hex()}-${(random_suffix % 1000000).hex()}'
+	// Generate 16 random bytes for a standard UUID v4
+	mut buf := []u8{len: 16}
+	for i in 0 .. 16 {
+		buf[i] = u8(rand.intn(256) or { u8(i) })
+	}
+	// Set UUID version 4 (0100xxxx)
+	buf[6] = (buf[6] & 0x0F) | 0x40
+	// Set UUID variant (10xxxxxx)
+	buf[8] = (buf[8] & 0x3F) | 0x80
+
+	hex_chars := '0123456789abcdef'
+	mut id := []u8{len: 36}
+	mut pos := 0
+	for i in 0 .. 16 {
+		if i == 4 || i == 6 || i == 8 || i == 10 {
+			id[pos] = `-`
+			pos++
+		}
+		id[pos] = hex_chars[buf[i] >> 4]
+		pos++
+		id[pos] = hex_chars[buf[i] & 0x0F]
+		pos++
+	}
+	return id.bytestr()
 }
 
 // compression_middleware is a legacy before-middleware that only sets
@@ -556,7 +573,7 @@ pub fn timing_middleware(mut ctx &MiddlewareContext) !bool {
 // RequestIdConfig 可配置的 Request ID 中间件配置。
 // 桥接 veb.request_id.Config。
 //
-// 相比 request_id_middleware（固定 UUID v4），此配置提供：
+// 相比 request_id_middleware（标准 UUID v4），此配置提供：
 //   - 自定义生成器函数
 //   - 支持从请求头读取已有 ID
 //   - allow_empty / force 选项

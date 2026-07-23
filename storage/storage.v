@@ -9,7 +9,6 @@ module storage
 // Architecture:
 //   storage.v        - Storage interface, StorageManager, metadata types
 //   local_adapter.v  - Local filesystem implementation
-//   s3_adapter.v     - S3-compatible cloud storage stub
 //   mime.v           - MIME type detection helpers
 //
 // Usage:
@@ -17,7 +16,6 @@ module storage
 //
 //   mut manager := storage.new_manager()
 //   manager.register('local', storage.new_local_adapter('/var/uploads'))
-//   manager.register('s3', storage.new_s3_adapter('my-bucket', 'us-east-1'))
 //
 //   // Read
 //   content := manager.get('local').read('path/to/file.txt')!

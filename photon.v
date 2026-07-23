@@ -40,7 +40,6 @@ pub type ValueBinding = core.ValueBinding
 
 // Re-export logger types
 pub type Logger = logger.Logger
-pub type ChannelLogger = logger.ChannelLogger
 
 // Re-export cache types
 pub type CacheManager = cache.CacheManager
@@ -107,6 +106,8 @@ pub type AppliedMigration = orm.AppliedMigration
 // pub type OrmAdapter = orm.OrmAdapter
 
 // Re-export config environment types
+// @deprecated: config.Environment is deprecated, use core.Environment directly.
+// The photon.Environment alias will be redirected to core.Environment in a future version.
 pub type Environment = config.Environment
 
 // Re-export locking types
@@ -129,7 +130,6 @@ pub type CacheLock = cache.CacheLock
 // Re-export storage types
 pub type StorageManager = storage.StorageManager
 pub type LocalAdapter = storage.LocalAdapter
-pub type S3Adapter = storage.S3Adapter
 pub type FileMetadata = storage.FileMetadata
 
 // Re-export web testing helpers

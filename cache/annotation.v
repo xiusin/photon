@@ -461,3 +461,82 @@ pub fn (g SimpleKeyGenerator) generate(method_name string, args ...string) strin
 	}
 	return method_name + '::' + args.join(',')
 }
+
+// ── Comptime Cache Annotation Scanning ──
+//
+// These functions scan types at compile time for @[cacheable], @[cache_evict],
+// and @[cache_put] annotations. Zero runtime reflection overhead.
+// Used by code generators and DI containers to discover cache-enabled methods.
+
+// CacheMethodInfo describes a method annotated with a cache annotation.
+pub struct CacheMethodInfo {
+pub:
+	method_name string       // V method name
+	attr_type   string       // 'cacheable', 'cache_evict', or 'cache_put'
+	attr_value  string       // raw attribute value string
+	cache_name  string       // resolved cache name
+	key_pattern string       // resolved key pattern
+}
+
+// scan_cache_annotations scans type T at compile time for cache-annotated methods.
+// Returns one CacheMethodInfo per annotated method.
+//
+// Usage:
+//   methods := cache.scan_cache_annotations[UserService]()
+//   for m in methods { ... }
+pub fn scan_cache_annotations[T]() []CacheMethodInfo {
+	mut methods := []CacheMethodInfo{}
+	$for method in T.methods {
+		for attr in method.attrs {
+			mut info := CacheMethodInfo{
+				method_name: method.name
+			}
+			if attr == 'cacheable' {
+				info.attr_type = 'cacheable'
+				parsed := parse_cacheable_attr('')
+				info.cache_name = parsed.cache_name
+				info.key_pattern = parsed.key_pattern
+				methods << info
+			} else if attr.starts_with('cacheable:') {
+				info.attr_type = 'cacheable'
+				info.attr_value = attr['cacheable:'.len..]
+				parsed := parse_cacheable_attr(info.attr_value)
+				info.cache_name = parsed.cache_name
+				info.key_pattern = parsed.key_pattern
+				methods << info
+			} else if attr == 'cache_evict' {
+				info.attr_type = 'cache_evict'
+				parsed := parse_cache_evict_attr('')
+				info.cache_name = parsed.cache_name
+				info.key_pattern = parsed.key_pattern
+				methods << info
+			} else if attr.starts_with('cache_evict:') {
+				info.attr_type = 'cache_evict'
+				info.attr_value = attr['cache_evict:'.len..]
+				parsed := parse_cache_evict_attr(info.attr_value)
+				info.cache_name = parsed.cache_name
+				info.key_pattern = parsed.key_pattern
+				methods << info
+			} else if attr == 'cache_put' {
+				info.attr_type = 'cache_put'
+				parsed := parse_cache_put_attr('')
+				info.cache_name = parsed.cache_name
+				info.key_pattern = parsed.key_pattern
+				methods << info
+			} else if attr.starts_with('cache_put:') {
+				info.attr_type = 'cache_put'
+				info.attr_value = attr['cache_put:'.len..]
+				parsed := parse_cache_put_attr(info.attr_value)
+				info.cache_name = parsed.cache_name
+				info.key_pattern = parsed.key_pattern
+				methods << info
+			}
+		}
+	}
+	return methods
+}
+
+// has_cache_annotations returns true if type T has any cache-annotated methods.
+pub fn has_cache_annotations[T]() bool {
+	return scan_cache_annotations[T]().len > 0
+}
