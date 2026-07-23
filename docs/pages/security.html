@@ -133,36 +133,54 @@ valid := repo.<span class="fn">validate_token</span>(submitted_token)
 
       <!-- ═══ 4. veb.auth 认证桥接 ═══ -->
       <div class="doc-section" id="auth-bridge">
-        <div class="section-header"><div class="section-icon icon-security">🔐</div><div><div class="section-title">veb.auth 认证桥接</div><div class="section-subtitle">密码哈希 · Token 生成与验证 · 安全随机数</div></div></div>
+        <div class="section-header"><div class="section-icon icon-security">🔐</div><div><div class="section-title">veb.auth 认证桥接</div><div class="section-subtitle">密码哈希 · Token 生成��验证 · 安全随机数</div></div></div>
 
-        <p>桥接 <code>veb.auth</code> 的认证能力，提供 SHA256+salt 密码哈希、安全 Token 生成与验证、Token 管理器（存储/吊销/过期清理）等功能。与 Photon Security 模块无缝集成。</p>
+        <p>桥接 <code>veb.auth</code> 的认证能力，提供 bcrypt 密码哈希、安全 Token 生成与验证、Token 管理器（存储/吊销/过期清理）等功能。与 Photon Security 模块无缝集成。</p>
 
-        <h3>密码哈希与验证</h3>
+        <h3>Bcrypt 密码哈希 ⭐ 升级</h3>
+        <p>密码哈希已升级为 <code>crypto.bcrypt</code>（原为 PBKDF2-SHA256）。bcrypt 提供更强的抗 GPU/ASIC 暴力破解能力，<code>rounds</code> 参数可调（默认 12）。旧 PBKDF2 哈希在验证时自动检测并兼容。</p>
+
         <div class="code-block">
           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
           <div class="code-body"><span class="kw">import</span> photon.security
 
-<span class="cm">// 1. 创建密码编码器</span>
-encoder := security.<span class="fn">new_password_encoder</span>()
-
-<span class="cm">// 2. 哈希密码（自动生成随机 salt）</span>
-hashed := encoder.<span class="fn">hash_password</span>(<span class="st">'my-secret-password'</span>)!
-<span class="cm">// 返回格式: "sha256:salt_hex:hash_hex"</span>
-
-<span class="cm">// 3. 验证密码</span>
-ok := encoder.<span class="fn">verify_password</span>(<span class="st">'my-secret-password'</span>, hashed)!
-<span class="fn">println</span>(ok)  <span class="cm">// true</span>
-
-<span class="cm">// 4. 检查密码是否需要重哈希</span>
-<span class="cm">// （例如算法升级后，旧哈希需要更新）</span>
-<span class="kw">if</span> encoder.<span class="fn">needs_rehash</span>(hashed) {
-    new_hashed := encoder.<span class="fn">hash_password</span>(raw_password)!
-    <span class="cm">// 存储 new_hashed...</span>
+<span class="cm">// 1. 创建 Bcrypt 密码编码器（rounds 越高越安全，也越慢）</span>
+encoder := security.<span class="tp">BcryptHasher</span>{
+    rounds: <span class="nm">12</span>  <span class="cm">// 12 轮 = 约 250ms/次，推荐生产环境使用</span>
 }
 
-<span class="cm">// Spring 等价: PasswordEncoder (BCryptPasswordEncoder)</span>
-<span class="cm">// Laravel 等价: Hash::make() / Hash::check()</span></div>
+<span class="cm">// 2. 哈希密码（自动生成随机 salt）</span>
+hashed := encoder.<span class="fn">make</span>(<span class="st">'my-secret-password'</span>)!
+<span class="cm">// 返回格式: "$2b$12$..."（标准 bcrypt 格式）</span>
+
+<span class="cm">// 3. 验证密码</span>
+ok := encoder.<span class="fn">verify</span>(<span class="st">'my-secret-password'</span>, hashed)!
+<span class="fn">println</span>(ok)  <span class="cm">// true</span>
+
+<span class="cm">// 4. 迁移期：旧 PBKDF2 哈希自动检测并验证</span>
+<span class="cm">// 验证通过后自动升级为 bcrypt 哈希</span>
+<span class="kw">if</span> encoder.<span class="fn">needs_upgrade</span>(hashed) {
+    new_hashed := encoder.<span class="fn">make</span>(raw_password)!
+    <span class="cm">// 存储 new_hashed — 自动迁移完成</span>
+}
+
+<span class="cm">// Spring 等价: BCryptPasswordEncoder</span>
+<span class="cm">// Laravel 等价: Hash::make() / Hash::check() (bcrypt driver)</span></div>
         </div>
+
+        <h3>⚠️ 旧 PBKDF2-SHA256 已弃用</h3>
+        <div class="info-box info-warn">
+          ⚠️ <strong>PBKDF2-SHA256</strong> 密码编码器已弃用。新项目必须使用 <code>BcryptHasher</code>。已在存储中的 PBKDF2 哈希可通过 <code>verify()</code> 自动检测并兼容验证，验证通过后自动升级为 bcrypt 哈希。<code>new_password_encoder()</code> 函数标记为 deprecated，未来版本将移除。
+        </div>
+
+        <h3>PasswordEncoder 接口</h3>
+        <table class="doc-table">
+          <thead><tr><th>实现</th><th>算法</th><th>安全级别</th><th>状态</th></tr></thead>
+          <tbody>
+            <tr><td><code>BcryptHasher</code></td><td>bcrypt (Blowfish)</td><td>高（抗 GPU/ASIC）</td><td>✅ 推荐</td></tr>
+            <tr><td>旧 <code>PasswordEncoder</code></td><td>PBKDF2-SHA256</td><td>中</td><td>⚠️ 弃用（迁移中）</td></tr>
+          </tbody>
+        </table>
 
         <h3>安全 Token 生成</h3>
         <div class="code-block">
@@ -209,16 +227,16 @@ cleaned := tm.<span class="fn">cleanup_expired</span>()
         </div>
 
         <div class="info-box info-tip">
-          💡 <strong>密码哈希说明</strong>：当前实现使用 SHA256+salt 方案。生产环境如需更强的安全性（抗 GPU/ASIC 暴力破解），建议升级到 argon2id 或 bcrypt。V 语言的 <code>v.crypto.argon2</code> 模块提供了 argon2id 支持。
+          💡 <strong>Bcrypt rounds 建议</strong>：开发环境使用 <code>rounds: 4</code>（快速），测试环境 <code>rounds: 10</code>，生产环境 <code>rounds: 12</code>（推荐）。rounds 每增加 1，计算时间翻倍。生产环境建议在 250ms-500ms 之间。
         </div>
 
-        <h3>密码编码器 API</h3>
+        <h3>BcryptHasher API</h3>
         <table class="doc-table">
           <thead><tr><th>方法</th><th>签名</th><th>说明</th></tr></thead>
           <tbody>
-            <tr><td><code>hash_password</code></td><td><code>fn (raw string) !string</code></td><td>使用随机 salt 哈希密码，返回 <code>"sha256:salt:hash"</code></td></tr>
-            <tr><td><code>verify_password</code></td><td><code>fn (raw, hashed string) !bool</code></td><td>验证密码与哈希是否匹配</td></tr>
-            <tr><td><code>needs_rehash</code></td><td><code>fn (hashed string) bool</code></td><td>检查哈希是否需要更新（算法升级检测）</td></tr>
+            <tr><td><code>make</code></td><td><code>fn (raw string) !string</code></td><td>使用 bcrypt 哈希密码，返回 <code>"$2b$rounds$salt$hash"</code></td></tr>
+            <tr><td><code>verify</code></td><td><code>fn (raw, hashed string) !bool</code></td><td>验证密码，自动检测 bcrypt 和旧 PBKDF2 格式</td></tr>
+            <tr><td><code>needs_upgrade</code></td><td><code>fn (hashed string) bool</code></td><td>检查哈希是否需要升级（旧 PBKDF2 → bcrypt）</td></tr>
           </tbody>
         </table>
 
@@ -388,6 +406,21 @@ chain.<span class="fn">deny_all</span>()
 
 <span class="cm">// Spring 等价：SecurityFilterChain bean</span>
 <span class="cm">// Laravel 等价：Route::middleware('auth:api')</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 7. ❌ XOR 加密弃用 ═══ -->
+      <div class="doc-section" id="xor-deprecation">
+        <div class="section-header"><div class="section-icon icon-security">🚫</div><div><div class="section-title">❌ XOR 加密已移除</div><div class="section-subtitle">安全性升级 — XOR 从加密模块中移除</div></div></div>
+
+        <div class="info-box info-warn">
+          ⚠️ <strong>XOR 加密已从 security 模块中移除</strong>。XOR 加密算法仅具有混淆作用，不提供任何密码学安全保障。以下函数/结构已删除：
+          <ul>
+            <li><code>xor_encrypt()</code> — 已移除</li>
+            <li><code>xor_decrypt()</code> — 已移除</li>
+            <li><code>XorCipher</code> — 已移除</li>
+          </ul>
+          如需数据传输安全，请使用 <code>crypto.tls</code> (TLS 1.3) 或 <code>crypto.aes</code> (AES-256-GCM)。如需简单的数据掩码（非安全场景），可选择社区模块实现。
         </div>
       </div>
 

@@ -324,16 +324,135 @@ page_result := repo.<span class="fn">paginate</span>(<span class="nm">1</span>, 
         </div>
       </div>
 
+      <!-- ═══ QueryBuilder API ═══ -->
+      <div class="doc-section" id="query-builder">
+        <div class="section-header"><div class="section-icon icon-orm">🔨</div><div><div class="section-title">QueryBuilder 链式 API</div><div class="section-subtitle">new_query_builder · where_ · order_by · limit · get — 流式查询构建</div></div></div>
+
+        <p>QueryBuilder 提供链式 API 构建查询，支持条件、排序、分页等操作，最终通过 <code>.get()</code> 执行查询并返回结果：</p>
+
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>说明</th><th>Spring 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>new_query_builder(manager, conn, table)</code></td><td>创建 QueryBuilder 实例</td><td><code>JPAQueryFactory</code></td></tr>
+            <tr><td><code>.where_(condition, ...args)</code></td><td>添加 WHERE 条件（参数化查询）</td><td><code>.where(predicate)</code></td></tr>
+            <tr><td><code>.where_and(conditions)</code></td><td>批量 AND 条件</td><td><code>.and(predicate)</code></td></tr>
+            <tr><td><code>.where_or(conditions)</code></td><td>批量 OR 条件</td><td><code>.or(predicate)</code></td></tr>
+            <tr><td><code>.order_by(field, direction)</code></td><td>排序（.asc / .desc）</td><td><code>.orderBy()</code></td></tr>
+            <tr><td><code>.limit(n)</code></td><td>限制返回行数</td><td><code>.limit(n)</code></td></tr>
+            <tr><td><code>.offset(n)</code></td><td>偏移行数</td><td><code>.offset(n)</code></td></tr>
+            <tr><td><code>.get()</code></td><td>执行查询，返回结果集</td><td><code>.fetch()</code></td></tr>
+            <tr><td><code>.first()</code></td><td>返回第一条结果</td><td><code>.fetchFirst()</code></td></tr>
+            <tr><td><code>.count()</code></td><td>统计匹配行数</td><td><code>.fetchCount()</code></td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.orm
+
+<span class="kw">mut</span> manager := orm.<span class="fn">new_orm_manager</span>()
+manager.<span class="fn">register_connection</span>(<span class="st">'default'</span>, .sqlite, db)!
+
+<span class="cm">// 创建 QueryBuilder</span>
+<span class="kw">mut</span> qb := orm.<span class="fn">new_query_builder</span>(manager, <span class="st">'default'</span>, <span class="st">'users'</span>)
+
+<span class="cm">// 链式 API 构建查询</span>
+users := qb.<span class="fn">where_</span>(<span class="st">'age > ?'</span>, <span class="nm">18</span>)
+    .<span class="fn">where_</span>(<span class="st">'is_active = ?'</span>, <span class="kw">true</span>)
+    .<span class="fn">order_by</span>(<span class="st">'name'</span>, .asc)
+    .<span class="fn">limit</span>(<span class="nm">10</span>)
+    .<span class="fn">get</span>()!
+
+<span class="kw">for</span> user <span class="kw">in</span> users {
+    <span class="fn">println</span>(<span class="st">'${user.name} (${user.age})'</span>)
+}
+
+<span class="cm">// 条件分组：AND / OR 条件</span>
+users2 := orm.<span class="fn">new_query_builder</span>(manager, <span class="st">'default'</span>, <span class="st">'users'</span>)
+    .<span class="fn">where_</span>(<span class="st">'status = ?'</span>, <span class="st">'active'</span>)
+    .<span class="fn">where_and</span>([
+        <span class="st">'age >= ?'</span>, <span class="nm">18</span>,
+        <span class="st">'age <= ?'</span>, <span class="nm">65</span>,
+    ])
+    .<span class="fn">order_by</span>(<span class="st">'created_at'</span>, .desc)
+    .<span class="fn">offset</span>(<span class="nm">20</span>)
+    .<span class="fn">limit</span>(<span class="nm">10</span>)
+    .<span class="fn">get</span>()!
+
+<span class="cm">// 获取第一条（等价于 LIMIT 1）</span>
+first_user := orm.<span class="fn">new_query_builder</span>(manager, <span class="st">'default'</span>, <span class="st">'users'</span>)
+    .<span class="fn">where_</span>(<span class="st">'email = ?'</span>, <span class="st">'alice@example.com'</span>)
+    .<span class="fn">first</span>()!
+
+<span class="cm">// 统计匹配行数</span>
+total := orm.<span class="fn">new_query_builder</span>(manager, <span class="st">'default'</span>, <span class="st">'users'</span>)
+    .<span class="fn">where_</span>(<span class="st">'is_active = ?'</span>, <span class="kw">true</span>)
+    .<span class="fn">count</span>()!
+
+<span class="cm">// Spring 等价：queryFactory.selectFrom(user).where(...).orderBy(...).limit(10).fetch()</span>
+<span class="cm">// Laravel 等价：DB::table('users')->where('age', '>', 18)->orderBy('name')->take(10)->get()</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ ParamValue ═══ -->
+      <div class="doc-section" id="param-value">
+        <div class="section-header"><div class="section-icon icon-orm">🔒</div><div><div class="section-title">ParamValue 类型安全 SQL</div><div class="section-subtitle">set_typed_exec_fn · 类型安全参数化查询 · SQL 注入防护</div></div></div>
+
+        <p>ParamValue 提供类型安全的 SQL 参数绑定机制，在编译期确保参数类型与 SQL 类型匹配，有效防止 SQL 注入，同时支持自定义执行函数：</p>
+
+        <table class="doc-table">
+          <thead><tr><th>类型 / 方法</th><th>说明</th><th>Java 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>ParamValue</code></td><td>类型安全参数值（int / string / bool / f64 / null）</td><td><code>TypedQuery.setParameter()</code></td></tr>
+            <tr><td><code>set_typed_exec_fn(fn)</code></td><td>注入自定义执行函数，用于类型安全查询</td><td><code>JdbcTemplate</code></td></tr>
+            <tr><td><code>TypedExecFn</code></td><td>类型安全执行函数签名</td><td><code>RowCallbackHandler</code></td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.orm
+
+<span class="kw">mut</span> repo := orm.<span class="fn">new_base_repository</span>[<span class="tp">User</span>](om, <span class="st">'default'</span>)!
+
+<span class="cm">// 注入类型安全的 SQL 执行函数</span>
+<span class="cm">// 编译期验证参数类型，运行时防止 SQL 注入</span>
+repo.<span class="fn">set_typed_exec_fn</span>(<span class="kw">fn</span> (db <span class="tp">voidptr</span>, query <span class="tp">string</span>, args []orm.<span class="tp">ParamValue</span>) ! {
+    <span class="cm">// 自定义 SQL 执行逻辑</span>
+    <span class="cm">// args 是类型安全的 ParamValue 数组，编译期保证类型正确</span>
+    <span class="kw">for</span> arg <span class="kw">in</span> args {
+        <span class="kw">match</span> arg {
+            orm.<span class="tp">ParamValue</span> { <span class="kw">int</span> <span class="st">'int:'</span> { val }     { <span class="cm">/* 处理 int 参数 */</span> } }
+            orm.<span class="tp">ParamValue</span> { <span class="kw">int</span> <span class="st">'string:'</span> { val }  { <span class="cm">/* 处理 string 参数 */</span> } }
+            orm.<span class="tp">ParamValue</span> { <span class="kw">int</span> <span class="st">'bool:'</span> { val }    { <span class="cm">/* 处理 bool 参数 */</span> } }
+            orm.<span class="tp">ParamValue</span> { <span class="kw">int</span> <span class="st">'f64:'</span> { val }     { <span class="cm">/* 处理 f64 参数 */</span> } }
+            orm.<span class="tp">ParamValue</span> { <span class="kw">int</span> <span class="st">'null'</span> {}          { <span class="cm">/* 处理 null */</span> } }
+        }
+    }
+})
+
+<span class="cm">// 使用类型安全的参数执行查询</span>
+<span class="cm">// SQL-like 语法 + 参数占位符，编译期保证安全</span>
+result := sql db {
+    <span class="kw">select</span> <span class="kw">from</span> <span class="tp">User</span> <span class="kw">where</span> age > <span class="nm">18</span> && is_active == <span class="kw">true</span> limit <span class="nm">10</span>
+}!
+
+<span class="cm">// Spring 等价：jdbcTemplate.query(sql, params, rowMapper)</span>
+<span class="cm">// Laravel 等价：DB::select('SELECT * FROM users WHERE age > ?', [18])</span></div>
+        </div>
+      </div>
+
       <div class="production-box">
         <div class="production-title">🚀 生产实践</div>
         <ul>
           <li>始终嵌入 <code>Touchable</code> 让 Photon 自动管理 <code>created_at</code> / <code>updated_at</code></li>
           <li>使用 <code>before_insert</code> 做数据校验，而非在 Controller 层做</li>
           <li>多库场景下用 <code>OrmManager</code> 路由：写操作走 master，读操作走 replica</li>
-          <li>派生查询适合简单查询，复杂查询使用 <code>OrmAdapter</code> + 手写 SQL</li>
+          <li>派生查询适合简单查询，复杂查询使用 <code>OrmAdapter</code> + 手写 SQL 或 <code>QueryBuilder</code> 链式 API</li>
           <li>使用 <code>@[entity]</code> + <code>@[table]</code> + <code>@[column]</code> 注解实现编译期实体映射，避免手写 SQL</li>
           <li>使用 <code>validate[T]()</code> 在 Service 层做数据校验，而非在 Controller 层</li>
           <li>使用 <code>paginate()</code> 实现标准分页，返回 <code>PageResult[T]</code> 包含完整分页元数据</li>
+          <li>使用 <code>ParamValue</code> + <code>set_typed_exec_fn</code> 实现类型安全的参数化查询，防止 SQL 注入</li>
         </ul>
       </div>
 

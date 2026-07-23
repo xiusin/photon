@@ -419,3 +419,50 @@ val := env.<span class="fn">get_property</span>(<span class="st">'database.host'
         <a href="#core">← Core 核心容器</a>
         <a href="#web" class="nav-next">Web 框架 →</a>
       </div>
+
+      <!-- ═══ 11. Chainable Config 链式 API ⭐ 新增 ═══ -->
+      <div class="doc-section" id="chainable-config">
+        <div class="section-header"><div class="section-icon icon-config">⛓️</div><div><div class="section-title">Chainable Config 链式 API</div><div class="section-subtitle">config.add_source(...).set_profile([...]).load()! — 流式配置构建</div></div></div>
+
+        <p>Config 新增链式调用支持：<code>add_source()</code>、<code>set_profile()</code>、<code>add_profile()</code> 均返回 <code>&Config</code>（mut self），支持在一次调用链中完成配置构建。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.config
+
+<span class="cm">// 链式构建：添加源 → 设置 Profile → 加载</span>
+<span class="kw">mut</span> cfg := config.<span class="fn">new</span>()
+    .<span class="fn">add_source</span>(config.<span class="fn">new_file_source</span>(<span class="st">'config/app.json'</span>))
+    .<span class="fn">set_profile</span>([<span class="st">'dev'</span>])
+    .<span class="fn">load</span>()!
+
+<span class="cm">// 或分步链式调用</span>
+cfg
+    .<span class="fn">add_source</span>(config.<span class="fn">new_env_source</span>())
+    .<span class="fn">add_source</span>(config.<span class="fn">new_map_source</span>({<span class="st">'app.name'</span>: <span class="st">'MyApp'</span>}))
+    .<span class="fn">add_profile</span>(<span class="st">'local'</span>)
+
+<span class="cm">// 读取配置</span>
+db_host := cfg.<span class="fn">get_or</span>(<span class="st">'database.host'</span>, <span class="st">'localhost'</span>)</div>
+        </div>
+
+        <div class="info-box info-tip">
+          💡 <strong>链式调用原理</strong>：<code>add_source()</code>、<code>set_profile()</code>、<code>add_profile()</code> 返回 <code>&Config</code>（mut self），<code>load()</code> 返回 <code>!</code> 终止链。链式写法与 Java Builder 模式风格一致。
+        </div>
+      </div>
+
+      <!-- ═══ 12. ⚠️ Environment 弃用 ═══ -->
+      <div class="doc-section" id="environment-deprecation">
+        <div class="section-header"><div class="section-icon icon-config">⚠️</div><div><div class="section-title">⚠️ Environment 已弃用</div><div class="section-subtitle">迁移至 Config 链式 API</div></div></div>
+
+        <div class="info-box info-warn">
+          ⚠️ <strong><code>config.Environment</code> 已被标记为弃用</strong>，推荐迁移至 <code>Config</code> 的链式 API。迁移对照：
+          <ul>
+            <li><code>env.add_source(source)</code> → <code>cfg.add_source(source)</code></li>
+            <li><code>env.get_property(key)</code> → <code>cfg.get(key)</code> 或 <code>cfg.get_or(key, default)</code></li>
+            <li><code>env.resolve_placeholders(expr)</code> → <code>cfg.resolve_placeholders(expr)</code></li>
+            <li><code>env.set_property(key, val)</code> → <code>cfg.add_source(MapSource)</code></li>
+          </ul>
+          Environment 将��未来大版本中移除。迁移路径简单：将 <code>Environment</code> 替换为 <code>Config</code>，API 语义等价。
+        </div>
+      </div>

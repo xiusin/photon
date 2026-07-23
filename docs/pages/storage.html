@@ -2,7 +2,7 @@
 <!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Storage · 存储 -->
 <div class="hero">
         <h1>Storage · 存储</h1>
-        <p>Flysystem 风格文件系统抽象、本地/S3 可插拔适配器、可见性控制 — Laravel Filesystem 的 V 语言实现。</p>
+        <p>Flysystem 风格文件系统抽象、本地适配器、可见性控制 — Laravel Filesystem 的 V 语言实现。<br>S3Adapter 已移除（所有方法均为桩实现），请使用 LocalAdapter 或实现自定义 Storage 接口。</p>
         <div class="hero-tags"><span class="hero-tag">🇻‍🇦 Beta</span><span class="hero-tag">import photon.storage</span><span class="hero-tag">对标 Laravel Filesystem</span></div>
       </div>
 
@@ -19,7 +19,7 @@
 
 <span class="cm">// 2. 注册存储适配器</span>
 manager.<span class="fn">register</span>(<span class="st">'local'</span>, storage.<span class="fn">new_local_adapter</span>(<span class="st">'/var/uploads'</span>))
-manager.<span class="fn">register</span>(<span class="st">'s3'</span>,    storage.<span class="fn">new_s3_adapter</span>(<span class="st">'my-bucket'</span>, <span class="st">'us-east-1'</span>))
+<span class="cm">// 如需云存储，请实现 Storage 接口或使用社区适配器</span>
 
 <span class="cm">// 3. 读写文件</span>
 <span class="kw">mut</span> disk := manager.<span class="fn">get</span>(<span class="st">'local'</span>)
@@ -78,24 +78,47 @@ meta := disk.<span class="fn">metadata</span>(<span class="st">'avatars/alice.pn
         </div>
       </div>
 
-      <!-- ═══ 3. S3 Adapter ═══ -->
-      <div class="doc-section" id="s3">
-        <div class="section-header"><div class="section-icon icon-storage">☁️</div><div><div class="section-title">S3 适配器</div><div class="section-subtitle">AWS / MinIO / 兼容存储</div></div></div>
+      <!-- ═══ 3. ❌ S3Adapter 已移除 ═══ -->
+      <div class="doc-section" id="s3-removed">
+        <div class="section-header"><div class="section-icon icon-storage">🚫</div><div><div class="section-title">❌ S3Adapter 已移除</div><div class="section-subtitle">所有方法均为桩实现 — 需自行实现云存储适配器</div></div></div>
 
+        <div class="info-box info-warn">
+          ⚠️ <strong>S3Adapter 已从 <code>photon.storage</code> 模块中完全移除</strong>。移除原因：
+          <ul>
+            <li><code>S3Adapter</code> 的所有操作（<code>write</code>、<code>read</code>、<code>delete</code> 等）均为桩实现（stub），不执行实际云存储操作</li>
+            <li>维护空桩适配器会误导用户，造成生产环境数据丢失风险</li>
+          </ul>
+          <strong>替代方案：</strong>
+          <ul>
+            <li><strong>本地存储</strong>：使用 <code>LocalAdapter</code> — 功能完整，开箱即用</li>
+            <li><strong>云存储</strong>：自行实现 <code>Storage</code> 接口接入 S3 / OSS / COS 等</li>
+          </ul>
+        </div>
+
+        <h3>自定义云存储适配器示例</h3>
         <div class="code-block">
           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
-          <div class="code-body"><span class="cm">// 创建 S3 适配器</span>
-<span class="kw">mut</span> s3 := storage.<span class="fn">new_s3_adapter</span>(<span class="st">'my-bucket'</span>, <span class="st">'us-east-1'</span>)
-s3.<span class="fn">set_endpoint</span>(<span class="st">'https://s3.amazonaws.com'</span>)  <span class="cm">// 或 MinIO: http://localhost:9000</span>
-s3.<span class="fn">set_credentials</span>(access_key, secret_key)
+          <div class="code-body"><span class="cm">// 实现 Storage 接口接入 S3 / OSS / COS 等云存储</span>
+<span class="kw">struct</span> <span class="tp">S3Storage</span> {
+    <span class="kw">pub mut</span>:
+    bucket  <span class="tp">string</span>
+    region  <span class="tp">string</span>
+    client  &<span class="tp">http.Client</span>
+}
 
-manager.<span class="fn">register</span>(<span class="st">'s3'</span>, s3)
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">s</span> <span class="tp">S3Storage</span>) <span class="fn">write</span>(path <span class="tp">string</span>, content []<span class="tp">u8</span>, visibility storage.<span class="tp">Visibility</span>) ! {
+    <span class="cm">// 调用 S3 PutObject API</span>
+}
 
-<span class="cm">// 上传文件到 S3</span>
-manager.<span class="fn">get</span>(<span class="st">'s3'</span>).<span class="fn">write</span>(<span class="st">'uploads/report.pdf'</span>, pdf_bytes, .private)!
+<span class="kw">pub fn</span> (<span class="at">s</span> &<span class="tp">S3Storage</span>) <span class="fn">read</span>(path <span class="tp">string</span>) ![]<span class="tp">u8</span> {
+    <span class="cm">// 调用 S3 GetObject API</span>
+    <span class="kw">return</span> []<span class="tp">u8</span>{}
+}
+<span class="cm">// ... 实现其余 Storage 接口方法</span>
 
-<span class="cm">// 生成签名 URL（临时访问私有文件）</span>
-url := s3.<span class="fn">signed_url</span>(<span class="st">'uploads/report.pdf'</span>, ttl_minutes: <span class="nm">15</span>)!</div>
+<span class="cm">// 使用自定义适配器</span>
+<span class="kw">mut</span> s3 := &<span class="tp">S3Storage</span>{bucket: <span class="st">'my-bucket'</span>, region: <span class="st">'us-east-1'</span>}
+manager.<span class="fn">register</span>(<span class="st">'s3'</span>, s3)</div>
         </div>
       </div>
 

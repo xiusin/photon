@@ -559,7 +559,79 @@ veb.<span class="fn">run_at</span>[<span class="tp">App</span>, <span class="tp"
         </table>
       </div>
 
-      <!-- ═══ 6. Controller Mounting ═══ -->
+      <!-- ═══ 6. Router 链式 API ═══ -->
+      <div class="doc-section" id="router-chain-api">
+        <div class="section-header"><div class="section-icon icon-web">⛓️</div><div><div class="section-title">Router 链式 API</div><div class="section-subtitle">WebModule.get().post().put().delete() — 流式路由注册</div></div></div>
+
+        <p>WebModule 新增链式路由注册 API，支持在一次调用链中注册同一组路由，语法更加简洁流畅。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.web
+
+<span class="kw">mut</span> wm := web.<span class="fn">init_web_module</span>()
+
+<span class="cm">// 链式注册路由（每次调用返回 *WebModule，可继续链式调用）</span>
+wm
+    .<span class="fn">get</span>(<span class="st">'/users'</span>, list_users)
+    .<span class="fn">post</span>(<span class="st">'/users'</span>, create_user)
+    .<span class="fn">put</span>(<span class="st">'/users/:id'</span>, update_user)
+    .<span class="fn">delete</span>(<span class="st">'/users/:id'</span>, delete_user)
+
+<span class="cm">// 带前缀的链式注册</span>
+wm
+    .<span class="fn">get</span>(<span class="st">'/users'</span>, list_users)
+    .<span class="fn">post</span>(<span class="st">'/users'</span>, create_user)
+    .<span class="fn">get</span>(<span class="st">'/users/:id/posts'</span>, list_user_posts)
+
+<span class="cm">// 也可链式注册中间件</span>
+wm
+    .<span class="fn">use</span>(web.<span class="fn">request_id_middleware</span>())
+    .<span class="fn">use</span>(web.<span class="fn">logging_middleware</span>())
+    .<span class="fn">get</span>(<span class="st">'/health'</span>, health_check)
+    .<span class="fn">post</span>(<span class="st">'/data'</span>, ingest_data)</div>
+        </div>
+
+        <div class="info-box info-tip">
+          💡 <strong>链式调用原理</strong>：<code>get()</code>、<code>post()</code>、<code>put()</code>、<code>delete()</code> 等链式方法均返回 <code>&WebModule</code>（mut self），允许连续调用。这与 Spring 的 <code>RouterFunctions.route()</code> 函数式路由风格类似。
+        </div>
+      </div>
+
+      <!-- ═══ 7. UUID v4 Request ID ═══ -->
+      <div class="doc-section" id="uuid-request-id">
+        <div class="section-header"><div class="section-icon icon-web">🆔</div><div><div class="section-title">UUID v4 Request ID</div><div class="section-subtitle">generate_request_id() 使用 crypto/rand UUID v4</div></div></div>
+
+        <p><code>generate_request_id()</code> 已升级为 UUID v4（RFC 9562），基于 <code>crypto.rand</code> 安全随机源生成。相比之前的实现，UUID v4 具有以下优势：</p>
+
+        <table class="doc-table">
+          <thead><tr><th>特性</th><th>旧实现</th><th>UUID v4</th></tr></thead>
+          <tbody>
+            <tr><td>随机源</td><td><code>rand</code>（伪随机）</td><td><code>crypto.rand</code>（密码学安全）</td></tr>
+            <tr><td>格式</td><td>自定义 hex 串</td><td>标准 UUID v4（8-4-4-4-12）</td></tr>
+            <tr><td>唯一性保证</td><td>依赖种子质量</td><td>122 位随机熵，碰撞概率极低</td></tr>
+            <tr><td>兼容性</td><td>内部格式</td><td>RFC 9562 标准，广泛兼容</td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// UUID v4 Request ID 自动生成</span>
+<span class="cm">// request_id_middleware 内部调用 generate_request_id()，</span>
+<span class="cm">// 现使用 crypto.rand 生成 UUID v4 格式</span>
+
+<span class="cm">// 生成的 Request ID 示例：</span>
+<span class="cm">// 550e8400-e29b-41d4-a716-446655440000</span>
+<span class="cm">// 7c9e6679-7425-40de-944b-e07fc1f90ae7</span>
+
+<span class="kw">mut</span> chain := web.<span class="fn">new_chain</span>()
+chain.<span class="fn">use</span>(web.<span class="fn">request_id_middleware</span>())  <span class="cm">// 自动注入 UUID v4</span>
+
+<span class="cm">// 请求日志输出：</span>
+<span class="cm">// {"request_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","method":"GET","path":"/users"}</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 8. Controller Mounting ═══ -->
       <div class="doc-section" id="controller-mounting">
         <div class="section-header"><div class="section-icon icon-web">🔌</div><div><div class="section-title">控制器挂载</div><div class="section-subtitle">mount_controller · mount_controller_auto — 编译期 comptime 路由扫描</div></div></div>
 

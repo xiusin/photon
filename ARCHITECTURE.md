@@ -72,7 +72,7 @@ Module {
 
 ## 2. 模块拓扑
 
-### 2.1 完整模块列表（16 个模块，140+ 个 .v 文件）
+### 2.1 完整模块列表（18 个模块，160+ 个 .v 文件）
 
 ```
 photon/
@@ -132,6 +132,7 @@ photon/
 │   ├── orm.v             # OrmManager（多连接管理）、DriverType、OrmConnection
 │   ├── entity.v          # Entity/Identifiable/Touchable 接口 + BaseEntity + SoftDeletableEntity
 │   ├── adapter.v         # OrmAdapter[T]（生命周期钩子包装器）
+│   ├── query_builder.v   # QueryBuilder（链式查询构建 + ParamValue 类型安全 SQL）
 │   ├── repository.v      # Repository[T] 接口 + BaseRepository + DerivedRepository
 │   ├── derive.v          # Spring Data 风格方法名解析（findByNameAndAge → WHERE）
 │   ├── transaction.v     # TransactionManager（7 种传播行为 + 真实 DB 连接回调）
@@ -158,6 +159,7 @@ photon/
 │
 ├── cache/                # [Beta] 缓存模块
 │   ├── cache.v           # Cache 接口 + CacheRegistry（原 CacheManager 重命名）
+│   ├── cache_chain.v     # CacheOperation（链式缓存操作 builder：remember/put/chain）
 │   ├── manager.v         # CacheManager/NamedCache 接口 + ValueWrapper + RedisCache 抽象（Spring 对齐）
 │   ├── memory.v          # MemoryCache（RwMutex 并发安全 + LRU 淘汰 + TTL）
 │   ├── annotation.v      # CacheableInterceptor + CacheConfigAttribute + KeyGenerator（Spring 对齐）
@@ -169,6 +171,7 @@ photon/
 │   ├── queue.v           # JobPayload + Job 接口
 │   ├── driver.v          # QueueDriver 接口 + serialize/deserialize
 │   ├── memory_driver.v   # MemoryDriver（内存驱动）
+│   ├── redis_driver.v    # RedisDriver（Redis 队列驱动：LPUSH/RPOP）
 │   ├── dispatcher.v      # QueueDispatcher（全局单例 + dispatch/batch/chain/later）
 │   ├── worker.v          # QueueWorker（轮询执行器）
 │   ├── failed_jobs.v     # FailedJob + FailedJobRepository + MemoryFailedJobRepository + FailedJobHandler
@@ -176,6 +179,7 @@ photon/
 │
 ├── locking/              # [Beta] 锁模块
 │   ├── lock.v            # LockManager + LocalMutex + DistributedLock 接口 + LockGuard（RAII）
+│   ├── redis_lock.v      # RedisDistributedLock（Redis 分布式锁 + Lua 脚本原子操作）
 │   └── lock_test.v
 │
 ├── pool/                 # [Beta] 连接池
@@ -212,6 +216,12 @@ photon/
 │   ├── http.v            # 入口
 │   ├── client.v          # RestTemplate（fluent API + SSLConfig/ProxyConfig + NoopInterceptor）
 │   └── *._test.v         # 测试文件（含 ssl_proxy_test）
+│
+├── tracing/              # [Alpha] 链路追踪
+│   ├── tracing.v         # 入口
+│   ├── exporter.v        # SpanExporter 接口 + ConsoleExporter
+│   ├── span.v            # Span 数据结构（TraceID/SpanID/Attributes）
+│   └── *._test.v         # 测试文件
 │
 ├── cli/                  # [Beta] CLI 框架
 │   ├── cli.v             # 入口
@@ -486,6 +496,33 @@ MigrationManager → add() + migrate() + rollback() + status() + reset()
 ```
 > 注意：目前为 stub 状态，需要真实数据库驱动。
 
+**QueryBuilder（query_builder.v）**：
+
+链式查询构建器，支持 ParamValue 类型安全 SQL 参数：
+
+```
+QueryBuilder — 链式查询构建
+  ├── new_query_builder(mgr, db_name, table) → &QueryBuilder
+  ├── select_(columns) / where_(cond, param) / or_where(cond, param)
+  ├── order_by(col, dir) / group_by(cols) / having(cond, param)
+  ├── limit(n) / offset(n)
+  ├── join(table, on_cond) / left_join / right_join
+  ├── get() → []map / first() → map / count() → int
+  └── to_sql() → (string, []ParamValue) — 调试用 SQL 输出
+
+ParamValue — 类型安全参数包装
+  ├── string_param(s) / int_param(n) / f64_param(f) / bool_param(b)
+  └── nil_param() — NULL 值
+
+使用示例：
+users := orm.new_query_builder(mgr, 'default', 'users')
+    .select_(['id', 'name', 'email'])
+    .where_('age > ?', 18)
+    .order_by('name', .asc)
+    .limit(10)
+    .get()!
+```
+
 ### 3.4 Security 模块（security/）
 
 **完整安全栈**（Spring Security 风格）：
@@ -608,6 +645,22 @@ CacheLock — 基于缓存的分布式锁
   remember_forever(mut cm, key, callback)     — 永久缓存
   sear(mut cm, key, callback)                 — 取/永久存
   put_many / get_many / delete_many / flush_all
+
+CacheOperation（cache_chain.v）— 链式 Builder：
+
+```
+CacheOperation — 链式缓存操作构建器
+  ├── chain() → &CacheOperation — 开始链式操作
+  ├── put(key, val, ttl) / remember(key, ttl, loader)
+  ├── forget(key) / has(key)
+  └── get() !string — 终端方法，执行链并返回最终结果
+
+使用示例：
+result := cm.chain()
+    .put('key1', 'val1', 3600)
+    .remember('key2', 600, loader)
+    .get()!
+```
 ```
 
 ### 3.6 Queue 模块（queue/）
@@ -623,7 +676,14 @@ Job (interface) — 任务契约
 
 QueueDriver (interface) — 后端
   ├── push / pop / count / clear
-  └── MemoryDriver (默认内存实现)
+  ├── MemoryDriver (默认内存实现)
+  └── RedisDriver (Redis 队列驱动：LPUSH/RPOP + 连接池)
+
+RedisDriver — Redis 队列驱动
+  ├── push(queue, payload) — LPUSH 入队
+  ├── pop(queue) — RPOP 出队（阻塞可选 BRPOP）
+  ├── count(queue) — LLEN 队列长度
+  └── clear(queue) — DEL 清空队列
 
 QueueDispatcher — 调度器（全局单例）
   ├── dispatch(job) — 立即分发
@@ -689,6 +749,26 @@ LockGuard — RAII 守卫
   └── unlock() — 析构时 unlock
 
 guarded_lock[T](mut manager, key, fn) — defer 确保释放
+
+RedisDistributedLock（redis_lock.v）— Redis 分布式锁：
+
+```
+RedisDistributedLock — 实现 DistributedLock 接口
+  ├── acquire(key, ttl_ms) → bool
+  │     └── SET key value NX PX ttl_ms（Lua 脚本原子操作）
+  ├── release(key) → bool
+  │     └── Lua 脚本：GET + DEL（仅 owner 可释放，防误删）
+  ├── renew(key, ttl_ms) → bool
+  │     └── Lua 脚本：检查 owner + PEXPIRE 续期
+  └── is_locked(key) → bool
+       └── EXISTS key
+
+使用方式：
+  redis_lock := locking.new_redis_lock(redis_client)
+  lm.with_distributed_lock(redis_lock)
+  lm.dist_lock('resource', 30_000)!
+  defer { lm.dist_unlock('resource')! }
+```
 ```
 
 ### 3.9 Storage 模块（storage/）
@@ -898,6 +978,37 @@ CLI 输出系统:
   choice(prompt, options, default) → string
 ```
 
+### 3.14 Tracing 模块（tracing/）
+
+**OpenTelemetry 风格的链路追踪**。
+
+```
+Span — 跨度数据结构
+  ├── trace_id / span_id / parent_span_id
+  ├── name / kind（client/server/internal/producer/consumer）
+  ├── start_time / end_time
+  ├── attributes — map[string]string
+  ├── events — []SpanEvent（带时间戳的日志事件）
+  └── status — SpanStatus（ok / error）
+
+SpanExporter (interface) — 导出器抽象
+  ├── export(spans []&Span) !
+  └── shutdown() !
+
+ConsoleExporter — 控制台导出器
+  ├── export(spans) — 格式化输出 Span 到 stdout/stderr
+  ├── 支持彩色/JSON 两种输出格式
+  └── 适合开发调试
+
+使用示例：
+mut exporter := tracing.new_console_exporter()
+span := tracing.new_span('db.query')
+span.set_attribute('db.system', 'postgresql')
+span.set_attribute('db.statement', 'SELECT * FROM users')
+span.end()
+exporter.export([span])!
+```
+
 ---
 
 ## 4. 模块间依赖关系
@@ -909,7 +1020,7 @@ CLI 输出系统:
         │
     ┌───┼───┬───────┬───────┬──────┬──────┬──────┬──────┬──────┐
     │   │   │       │       │      │      │      │      │      │
-  core config log  cache  orm    web   cli   queue storage http
+  core config log  cache  orm    web   cli   queue storage http tracing
                     │      │      │      │      │
                     │      │      ├──core│      ├──core
                     │      │      │(plan)│      │(plan)
@@ -944,6 +1055,7 @@ ticker:  零依赖（纯 V channel/goroutine）
 | queue | 无 | 无外部依赖 |
 | storage | 无 | 标准库 os |
 | http | 无 | stub 状态 |
+| tracing | 无 | 零外部依赖 |
 | security | 无 | web/filter 可选集成 |
 | orm | 无 | V 标准 orm 不可用（同名冲突） |
 | web | 无 | veb 外部依赖 |
@@ -1379,6 +1491,7 @@ docker   — Docker 镜像构建
 | support | Beta | 高 | 高 | 是 |
 | cli | Beta | 高 | 低 | 是 |
 | http | Alpha | 低 | 低 | 否（stub）|
+| tracing | Alpha | 中 | 低 | 否（新模块）|
 | core | Beta | ApplicationContext + Container + Environment + EventBus + Lifecycle + BeanPostProcessor + FactoryBean + ServiceLocator + AutoConfiguration | 37 | 是 |
 
 ### 成熟度定义

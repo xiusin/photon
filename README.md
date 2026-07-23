@@ -22,17 +22,19 @@
 ```
 photon/
 ├── core/       # 核心容器：DI、AOP、生命周期、事件总线、条件装配、调度器、重试
-├── config/     # 多源配置管理、属性绑定、Profile 支持
+├── config/     # 多源配置管理、属性绑定、Profile 支持、链式 API
 ├── cli/        # Laravel / Symfony 风格 CLI 框架
-├── web/        # veb 增强：注解路由、中间件链、Pipeline、过滤器、表单构建
-├── orm/        # ORM：实体映射、仓库模式、多驱动、迁移
-├── cache/      # 缓存抽象：内存/Redis 多后端，Singleflight 削峰
-├── security/   # 安全：JWT、RBAC、CSRF、BCrypt / Argon2 哈希
-├── queue/      # 消息队列：任务调度、Worker、失败重试
-├── locking/    # 锁：LocalMutex、分布式锁、RAII LockGuard
-├── pool/       # 对象/连接池：健康检查、闲置超时
+├── web/        # veb 增强：注解路由、中间件链、Pipeline、过滤器、表单构建、Router 链式注册
+├── orm/        # ORM：实体映射、仓库模式、多驱动、迁移、QueryBuilder 链式 API、ParamValue 类型安全 SQL
+├── cache/      # 缓存抽象：内存/Redis 多后端，Singleflight 削峰、CacheOperation 链式 API
+├── security/   # 安全：JWT、RBAC、CSRF、bcrypt / argon2 真实密码哈希
+├── log/        # 日���：分级输出、MDC 上下文追踪、结构化 JSON、Channel 多通道输出
+├── queue/      # 消息队列：任务调度、Worker、失败重试、RedisDriver
+├── locking/    # 锁：LocalMutex、分布式锁、RAII LockGuard、RedisDistributedLock
+├── pool/       # 对象/连接池：健康检查、闲置超时、acquire_with_timeout()
 ├── storage/    # 文件系统抽象：本地/S3 适配器
 ├── ticker/     # 高性能定时器：4-ary 堆、64 桶分片
+├── tracing/    # 链路追踪：SpanExporter 接口、ConsoleExporter
 ├── http/       # HTTP 客户端
 ├── support/    # 工具：Collection、Str、Arr、分页、排序
 └── example/    # 示例应用
@@ -490,10 +492,15 @@ valid := csrf.validate_token(session_id, header_token)!
 ### 加密与哈希
 
 ```v
-// BCrypt 哈希（基于 PBKDF2-SHA256 真实 KDF）
+// BCrypt 哈希（真实 bcrypt / argon2，非 PBKDF2 模拟）
 hasher := security.new_bcrypt_hasher()
 hash := hasher.hash('my_password')!
 valid := hasher.verify('my_password', hash)! // true
+
+// Argon2id 哈希
+argon2 := security.new_argon2_hasher()
+argon2_hash := argon2.hash('my_password')!
+argon2.verify('my_password', argon2_hash)! // true
 
 // 对称加密（推荐使用 AesCipher）
 cipher := security.new_aes_cipher('aes-256-cbc-key-32chars')!
@@ -885,6 +892,90 @@ total_pages := lp.total_pages()
 ```v
 s := support.new_sort('name', .asc, 'created_at', .desc)
 println(s.order_by()) // 'name ASC, created_at DESC'
+```
+
+---
+
+## 🔗 链式调用 (Fluent API)
+
+Photon 核心模块均支持链式调用，参照 Spring Boot Builder 模式和 Laravel Fluent API。
+
+### ORM QueryBuilder
+
+```v
+// 链式构建查询
+users := orm.new_query_builder(mgr, 'default', 'users')
+    .where_('age > ?', 18)
+    .order_by('name', .asc)
+    .limit(10)
+    .get()!
+
+// 带参数化类型安全 SQL
+users := orm.new_query_builder(mgr, 'default', 'users')
+    .select_(['id', 'name', 'email'])
+    .where_('status = ?', 'active')
+    .or_where('role = ?', 'admin')
+    .order_by('created_at', .desc)
+    .offset(0)
+    .limit(20)
+    .get()!
+```
+
+### Cache 链式操作
+
+```v
+// CacheOperation builder 模式
+result := cache.chain()
+    .remember('user:profile', 600, fn () !string {
+        return fetch_user_profile()
+    })
+    .get()!
+
+// 批量链式操作
+cache.chain()
+    .put('key1', 'val1', 3600)
+    .put('key2', 'val2', 3600)
+    .remember('key3', 600, loader)
+    .get()!
+```
+
+### Router 链式注册
+
+```v
+// 链式定义路由组
+app.WebModule
+    .get('/users', list_handler)
+    .post('/users', create_handler)
+    .put('/users/:id', update_handler)
+    .delete('/users/:id', delete_handler)
+```
+
+### Config 链式配置
+
+```v
+// 链式组装配置源并加载
+config.add_source(file_source)
+    .add_source(env_source)
+    .set_profile(['dev', 'local'])
+    .load()!
+```
+
+### Logger Channel 多通道输出
+
+```v
+// 链式添加输出通道
+logger.add_sink(&log.FileChannel{filepath: '/var/log/app.log'})
+    .add_sink(&log.StderrChannel{})
+    .with_context('env', 'production')
+    .info('多通道日志输出')
+```
+
+### Pool 超时获取
+
+```v
+// 带超时的连接获取
+conn := pool.acquire_with_timeout(5000)!  // 5 秒超时
+defer { pool.release(conn) }
 ```
 
 ---

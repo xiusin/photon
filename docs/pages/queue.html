@@ -264,6 +264,50 @@ worker.<span class="fn">drain</span>()</div>
         </div>
       </div>
 
+      <!-- ═══ 7. RedisDriver ═══ -->
+      <div class="doc-section" id="redis-driver">
+        <div class="section-header"><div class="section-icon icon-queue">🔴</div><div><div class="section-title">RedisDriver</div><div class="section-subtitle">new_redis_driver · Redis 队列后端 · set_driver</div></div></div>
+
+        <p>RedisDriver 将 Redis 作为队列后端，利用 Redis 的 List 数据结构实现可靠的任务队列，支持高性能生产和消费：</p>
+
+        <table class="doc-table">
+          <thead><tr><th>类型 / 方法</th><th>说明</th><th>Laravel 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>new_redis_driver(client)</code></td><td>创建 Redis 队列驱动</td><td><code>RedisQueue</code></td></tr>
+            <tr><td><code>dispatcher.set_driver(driver)</code></td><td>为分发器设置队列驱动</td><td><code>Queue::setDefaultDriver('redis')</code></td></tr>
+            <tr><td><code>new_worker(driver)</code></td><td>创建基于 Redis 的 Worker</td><td><code>queue:work redis</code></td></tr>
+            <tr><td><code>dispatcher.clear(queue_name)</code></td><td>清空指定队列</td><td><code>Queue::clean()</code></td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.queue
+<span class="kw">import</span> redis  <span class="cm">// Redis 客户端库</span>
+
+<span class="cm">// 1. 创建 Redis 客户端</span>
+<span class="kw">mut</span> redis_client := redis.<span class="fn">new_client_conn</span>(<span class="st">'localhost:6379'</span>, .default, <span class="st">''</span>)!
+
+<span class="cm">// 2. 创建 Redis 队列驱动</span>
+driver := queue.<span class="fn">new_redis_driver</span>(redis_client)
+
+<span class="cm">// 3. 创建分发器并设置驱动</span>
+<span class="kw">mut</span> dispatcher := queue.<span class="fn">new_dispatcher</span>()
+dispatcher.<span class="fn">set_driver</span>(driver)
+
+<span class="cm">// 4. 分发任务到 Redis 队列</span>
+dispatcher.<span class="fn">dispatch</span>(<span class="tp">SendWelcomeEmail</span>{user_id: <span class="nm">42</span>, email: <span class="st">'alice@example.com'</span>})!
+
+<span class="cm">// 5. 创建 Worker 消费 Redis 队列</span>
+<span class="kw">mut</span> worker := queue.<span class="fn">new_worker</span>(driver)
+worker.<span class="fn">register</span>(<span class="st">'send_welcome_email'</span>, <span class="tp">SendWelcomeEmail</span>{})
+worker.<span class="fn">run</span>()  <span class="cm">// 启动消费循环</span>
+
+<span class="cm">// Laravel 等价：QUEUE_CONNECTION=redis php artisan queue:work</span>
+<span class="cm">// Spring 等价：RedisTemplate<String, Object> + @JmsListener</span></div>
+        </div>
+      </div>
+
       <div class="page-nav">
         <a href="#logger">← Logger 日志</a>
         <a href="#security" class="nav-next">Security 安全 →</a>

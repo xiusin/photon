@@ -34,6 +34,26 @@ photon/
 3. **可选依赖**：用户按需引入模块，不强制全部加载
 4. **向后兼容**：公开 API 的变更必须经过弃用周期
 
+### 2.4 链式调用规范
+- **配置/构建类方法应返回 `&T` 自身**以支持链式调用，例如 `Config`、`QueryBuilder`、`CacheOperation`、`Logger` 等
+- **终端方法不返回 self**：执行操作并返回结果（如 `.get()`、`.count()`、`.first()`）不返回 `&T`
+- **参照 Spring Boot Builder 模式和 Laravel Fluent API**：所有构建器应遵循 `.method1().method2().terminal()` 模式
+- **不可变链 vs 可变链**：默认使用可变链（修改原实例并返回 `&T`），需要不可变链时使用 `.with_*` 前缀方法创建新实例
+
+```v
+// 正确示例：配置链式调用
+cfg.add_source(file_source)
+    .set_profile(['dev'])
+    .load()!          // 终端方法，不返回 &Config
+
+// 正确示例：QueryBuilder 链式查询
+users := orm.new_query_builder(mgr, 'default', 'users')
+    .where_('age > ?', 18)
+    .order_by('name', .asc)
+    .limit(10)
+    .get()!           // 终端方法，返回查询结果
+```
+
 ---
 
 ## 三、注解（Attribute）规范

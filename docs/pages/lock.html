@@ -40,34 +40,62 @@ m.<span class="fn">unlock</span>()
 
       <!-- ═══ 2. DistributedLock ═══ -->
       <div class="doc-section" id="distributed">
-        <div class="section-header"><div class="section-icon icon-lock">🌐</div><div><div class="section-title">分布式锁接口</div><div class="section-subtitle">DistributedLock · Redis / etcd 可插拔后端</div></div></div>
+        <div class="section-header"><div class="section-icon icon-lock">🌐</div><div><div class="section-title">分布式锁接口与实现</div><div class="section-subtitle">DistributedLock · RedisDistributedLock · 可插拔后端</div></div></div>
+
+        <h3>DistributedLock 接口</h3>
 
         <div class="code-block">
           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
-          <div class="code-body"><span class="cm">// DistributedLock 接口</span>
+          <div class="code-body"><span class="cm">// DistributedLock 接口 — 可插拔后端</span>
 <span class="kw">pub interface</span> <span class="tp">DistributedLock</span> {
     <span class="fn">acquire</span>(key <span class="tp">string</span>, ttl_ms <span class="tp">int</span>) !<span class="tp">bool</span>
     <span class="fn">release</span>(key <span class="tp">string</span>) !<span class="tp">bool</span>
     <span class="fn">renew</span>(key <span class="tp">string</span>, ttl_ms <span class="tp">int</span>) !<span class="tp">bool</span>   <span class="cm">// 自动续期（看门狗）</span>
     <span class="fn">is_locked</span>(key <span class="tp">string</span>) <span class="tp">bool</span>
-}
+}</div>
+        </div>
 
-<span class="cm">// 使用 Redis 分布式锁</span>
-<span class="kw">mut</span> dlock := <span class="fn">new_redis_distributed_lock</span>(redis_client)
+        <h3>RedisDistributedLock 完整实现 ⭐ 新增</h3>
+        <p><code>RedisDistributedLock</code> 是 <code>DistributedLock</code> 接口的完整 Redis 实现（原仅有接口定义）。支持 Lua 脚本原子操作、自动续期看门狗、锁持有者校验。</p>
 
-<span class="cm">// 获取锁（TTL 10 秒）</span>
-locked := dlock.<span class="fn">acquire</span>(<span class="st">'order:123'</span>, <span class="nm">10000</span>)!
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.locking
+
+<span class="cm">// 1. 创建 Redis 分布式锁（需要 Redis 客户端）</span>
+<span class="kw">mut</span> redis_lock := locking.<span class="fn">new_redis_lock</span>(redis_client)
+
+<span class="cm">// 2. 获取锁（带 TTL 与持有者 ID）</span>
+locked := redis_lock.<span class="fn">acquire</span>(<span class="st">'resource-key'</span>, <span class="nm">30000</span>)!  <span class="cm">// 30 秒 TTL</span>
 <span class="kw">if</span> locked {
-    <span class="cm">// ... 处理业务</span>
-    dlock.<span class="fn">release</span>(<span class="st">'order:123'</span>)!
+    <span class="kw">defer</span> { redis_lock.<span class="fn">release</span>(<span class="st">'resource-key'</span>) <span class="kw">or</span> {} }
+
+    <span class="cm">// 执行业务逻辑</span>
+    <span class="fn">process_order</span>()!
 }
 
-<span class="cm">// 自动续期（防止业务执行时间超过 TTL）</span>
-dlock.<span class="fn">renew</span>(<span class="st">'order:123'</span>, <span class="nm">10000</span>)!
+<span class="cm">// 3. 自动续期（防止业务执行时间超过 TTL）</span>
+redis_lock.<span class="fn">renew</span>(<span class="st">'resource-key'</span>, <span class="nm">30000</span>)!
+
+<span class="cm">// 4. 检查锁状态</span>
+<span class="kw">if</span> redis_lock.<span class="fn">is_locked</span>(<span class="st">'resource-key'</span>) {
+    <span class="fn">println</span>(<span class="st">'Resource is locked'</span>)
+}
 
 <span class="cm">// Java 等价：Redisson RLock</span>
 <span class="cm">// Go 等价：go-redsync</span></div>
         </div>
+
+        <h3>Redis 锁实现原理</h3>
+        <table class="doc-table">
+          <thead><tr><th>特性</th><th>实现方式</th></tr></thead>
+          <tbody>
+            <tr><td>加锁</td><td><code>SET key value NX PX ttl</code>（原子操作）</td></tr>
+            <tr><td>解锁</td><td>Lua 脚本校验持有者 + 删除（防止误解锁）</td></tr>
+            <tr><td>续期</td><td>Lua 脚本校验持有者 + 更新 TTL</td></tr>
+            <tr><td>持有者标识</td><td>UUID v4，确保只有锁持有者能释放</td></tr>
+          </tbody>
+        </table>
       </div>
 
       <!-- ═══ 3. LockManager ═══ -->

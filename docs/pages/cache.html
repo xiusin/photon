@@ -120,6 +120,100 @@ result := cm.<span class="fn">singleflight_execute</span>(<span class="st">'user
         </div>
       </div>
 
+      <!-- ═══ 5. CacheOperation ═══ -->
+      <div class="doc-section" id="cache-operation">
+        <div class="section-header"><div class="section-icon icon-cache">⛓️</div><div><div class="section-title">CacheOperation 链式 API</div><div class="section-subtitle">chain() · remember() · put() · get() · save() — 流式缓存操作</div></div></div>
+
+        <p>CacheOperation 提供链式 API 风格进行缓存操作，支持条件获取、写入、TTL 设置等，所有操作通过链式调用串联：</p>
+
+        <table class="doc-table">
+          <thead><tr><th>方法</th><th>说明</th><th>Spring 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>cache.chain()</code></td><td>创建 CacheOperation 链式操作起点</td><td><code>CacheOperation.new()</code></td></tr>
+            <tr><td><code>.remember(key, ttl, loader)</code></td><td>读取缓存，未命中时调用 loader 加载</td><td><code>@Cacheable</code> + cache-through</td></tr>
+            <tr><td><code>.put(key, value)</code></td><td>设置缓存写入操作</td><td><code>@CachePut</code></td></tr>
+            <tr><td><code>.ttl(seconds)</code></td><td>设置过期时间（秒）</td><td><code>@Cacheable.ttl</code></td></tr>
+            <tr><td><code>.save()</code></td><td>执行写入操作（put 链式终点）</td><td><code>cache.put()</code></td></tr>
+            <tr><td><code>.get()</code></td><td>执行读取操作并返回结果</td><td><code>cache.get()</code></td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.cache
+
+<span class="kw">mut</span> cm := cache.<span class="fn">new_cache_manager</span>()
+cm.<span class="fn">register</span>(<span class="st">'default'</span>, cache.<span class="fn">new_memory_cache</span>(<span class="st">'default'</span>))
+
+<span class="cm">// CacheOperation 链式 API：remember 模式（读缓存 + 自动加载）</span>
+value := cache.<span class="fn">chain</span>()
+    .<span class="fn">remember</span>(<span class="st">'users:1'</span>, <span class="nm">600</span>, <span class="kw">fn</span> () !<span class="tp">string</span> {
+        <span class="cm">// 缓存未命中时调用此 loader 加载数据</span>
+        user := db.<span class="fn">find_user</span>(<span class="nm">1</span>)!
+        <span class="kw">return</span> user.<span class="fn">json</span>()
+    })
+    .<span class="fn">get</span>()!
+
+<span class="fn">println</span>(value)  <span class="cm">// 首次走 db，后续 600s 内走缓存</span>
+
+<span class="cm">// 链式 API：put 模式（写入 + TTL）</span>
+cache.<span class="fn">chain</span>()
+    .<span class="fn">put</span>(<span class="st">'settings:theme'</span>, <span class="st">'dark'</span>)
+    .<span class="fn">ttl</span>(<span class="nm">3600</span>)
+    .<span class="fn">save</span>()!
+
+<span class="cm">// 链式写入示例</span>
+cache.<span class="fn">chain</span>()
+    .<span class="fn">put</span>(<span class="st">'user:42:prefs'</span>, <span class="st">'{"lang":"en","notify":true}'</span>)
+    .<span class="fn">ttl</span>(<span class="nm">7200</span>)
+    .<span class="fn">save</span>()!
+
+<span class="cm">// Spring 等价：@Cacheable(value = "users", key = "#id")</span>
+<span class="cm">// Laravel 等价：Cache::remember("users:1", 600, fn() => User::find(1))</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 6. scan_cache_annotations ═══ -->
+      <div class="doc-section" id="scan-cache-annotations">
+        <div class="section-header"><div class="section-icon icon-cache">🔬</div><div><div class="section-title">scan_cache_annotations</div><div class="section-subtitle">编译期注解扫描 · 自动注册缓存 · 声明式发现</div></div></div>
+
+        <p>scan_cache_annotations 在编译期扫描所有带 <code>@[cacheable]</code> 注解的 struct 和方法，自动提取缓存元数据，避免手动注册：</p>
+
+        <table class="doc-table">
+          <thead><tr><th>方法 / 类型</th><th>说明</th><th>Spring 等价</th></tr></thead>
+          <tbody>
+            <tr><td><code>scan_cache_annotations</code></td><td>编译期扫描所有 @[cacheable] 注解</td><td><code>@EnableCaching</code> + proxy scan</td></tr>
+            <tr><td><code>CacheAnnotation</code></td><td>扫描结果（缓存名 / TTL / key 规则）</td><td><code>CacheOperation</code></td></tr>
+            <tr><td><code>register_cache_annotations()</code></td><td>自动注册扫描到的缓存配置</td><td><code>CachingConfigurer</code></td></tr>
+          </tbody>
+        </table>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.cache
+
+<span class="kw">mut</span> cm := cache.<span class="fn">new_cache_manager</span>()
+cm.<span class="fn">register</span>(<span class="st">'default'</span>, cache.<span class="fn">new_memory_cache</span>(<span class="st">'default'</span>))
+
+<span class="cm">// 编译期扫描所有带 @[cacheable] 的 struct 和方法</span>
+<span class="cm">// 自动发现缓存注解，生成缓存操作元数据</span>
+annotations := cache.<span class="fn">scan_cache_annotations</span>()!
+
+<span class="kw">for</span> ann <span class="kw">in</span> annotations {
+    <span class="fn">println</span>(<span class="st">'Cache: ${ann.cache_name}, Key: ${ann.key}, TTL: ${ann.ttl}s'</span>)
+}
+
+<span class="cm">// 自动注册到 CacheManager</span>
+cache.<span class="fn">register_cache_annotations</span>(<span class="kw">mut</span> cm)!
+
+<span class="cm">// 之后所有 @[cacheable] 方法自动生效</span>
+service.<span class="fn">get_user</span>(<span class="nm">42</span>)!  <span class="cm">// 自动命中缓存</span>
+
+<span class="cm">// Spring 等价：@EnableCaching + @Cacheable auto-discover</span>
+<span class="cm">// Laravel 等价：Cache facade auto-discovery</span></div>
+        </div>
+      </div>
+
       <div class="production-box">
         <div class="production-title">🚀 生产实践</div>
         <ul>
@@ -128,6 +222,8 @@ result := cm.<span class="fn">singleflight_execute</span>(<span class="st">'user
           <li>生产环境使用 Redis 后端，开发环境使用 Memory 后端</li>
           <li>缓存键使用 <code>namespace:key</code> 格式，避免冲突</li>
           <li>对序列化数据使用 JSON 格式，便于调试和跨语言读取</li>
+          <li>使用 <code>CacheOperation</code> 链式 API 简化缓存写入逻辑，避免重复的 set/get 模式</li>
+          <li>使用 <code>scan_cache_annotations</code> 在编译期发现缓存注解，实现声明式缓存自动注册</li>
         </ul>
       </div>
 

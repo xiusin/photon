@@ -56,6 +56,36 @@ p.<span class="fn">close</span>()!</div>
         </div>
       </div>
 
+      <!-- ═══ 1b. acquire_with_timeout ═══ -->
+      <div class="doc-section" id="acquire-timeout">
+        <div class="section-header"><div class="section-icon icon-pool">⏱️</div><div><div class="section-title">acquire_with_timeout() 带超时获取</div><div class="section-subtitle">阻塞等待池化对象，超时后返回错误</div></div></div>
+
+        <p><code>acquire_with_timeout()</code> 在池中无空闲对象时阻塞等待指定秒数，超时后返回错误而非无限期阻塞或立即失败。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 带超时的对象获取 — 最多等待 30 秒</span>
+obj := p.<span class="fn">acquire_with_timeout</span>(<span class="nm">30</span>)!
+conn := <span class="kw">unsafe</span> { &<span class="tp">DbConnection</span>(obj) }
+<span class="kw">defer</span> { p.<span class="fn">release</span>(obj) }
+
+<span class="cm">// 超时处理</span>
+obj := p.<span class="fn">acquire_with_timeout</span>(<span class="nm">5</span>) <span class="kw">or</span> {
+    <span class="fn">println</span>(<span class="st">'Pool acquire timed out after 5s'</span>)
+    <span class="kw">return</span>
+}
+
+<span class="cm">// 适用于：
+<span class="cm">//   - 高负载下等待连接池有空闲连接</span>
+<span class="cm">//   - 避免无限阻塞导致请求超时</span>
+<span class="cm">//   - 优雅降级：超时后返回 503 Service Unavailable</span></div>
+        </div>
+
+        <div class="info-box info-tip">
+          💡 <strong>对比</strong>：<code>acquire()</code> 池满时立即返回错误；<code>acquire_with_timeout(30)</code> 池满时最多等待 30 秒，期间有空闲对象返回则立即返回。
+        </div>
+      </div>
+
       <!-- ═══ 2. Configuration ═══ -->
       <div class="doc-section" id="config">
         <div class="section-header"><div class="section-icon icon-pool">⚙️</div><div><div class="section-title">配置参数</div><div class="section-subtitle">min_size / max_size / idle_timeout</div></div></div>

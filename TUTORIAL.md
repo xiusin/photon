@@ -21,7 +21,8 @@
 - [13. CLI 工具](#13-cli-工具)
 - [14. 定时器](#14-定时器)
 - [15. 工具库](#15-工具库)
-- [16. 注解速查](#16-注解速查)
+- [16. 链式调用 (Fluent API)](#16-链式调用-fluent-api)
+- [17. 注解速查](#17-注解速查)
 
 ---
 
@@ -1659,7 +1660,153 @@ support.skip([1,2,3,4,5], 2)                          // [3,4,5]
 
 ---
 
-## 16. 注解速查
+## 16. 链式调用 (Fluent API)
+
+Photon 核心模块参考 Spring Boot Builder 模式和 Laravel Fluent API，提供链式调用接口。
+
+### 16.1 ORM QueryBuilder
+
+链式构建类型安全的 SQL 查询：
+
+```v
+import photon.orm
+
+// 基础查询
+users := orm.new_query_builder(mgr, 'default', 'users')
+    .where_('age > ?', 18)
+    .order_by('name', .asc)
+    .limit(10)
+    .get()!
+
+// 复杂查询
+result := orm.new_query_builder(mgr, 'default', 'orders')
+    .select_(['o.id', 'o.total', 'u.name'])
+    .join('users u', 'o.user_id = u.id')
+    .where_('o.status = ?', 'paid')
+    .or_where('o.status = ?', 'shipped')
+    .order_by('o.created_at', .desc)
+    .group_by('u.name')
+    .having('COUNT(*) > ?', 5)
+    .offset(0)
+    .limit(20)
+    .get()!
+
+// 获取单条
+user := orm.new_query_builder(mgr, 'default', 'users')
+    .where_('email = ?', 'alice@test.com')
+    .first()!
+
+// 计数
+total := orm.new_query_builder(mgr, 'default', 'users')
+    .where_('status = ?', 'active')
+    .count()
+
+// 调试 SQL（返回原始 SQL + 参数）
+sql, params := orm.new_query_builder(mgr, 'default', 'users')
+    .select_(['id', 'name'])
+    .where_('age > ?', 18)
+    .to_sql()
+```
+
+### 16.2 Cache 链式操作
+
+```v
+import photon.cache
+
+mut cm := cache.new_cache_manager()
+
+// 链式缓存操作
+result := cm.chain()
+    .put('user:1', '{"name":"Alice"}', 3600)
+    .put('user:2', '{"name":"Bob"}', 3600)
+    .remember('config:site', 600, fn () !string {
+        return load_site_config()
+    })
+    .get()!
+
+// 独立链式调用
+val := cm.chain()
+    .remember('expensive_key', 300, heavy_loader)
+    .get()!
+```
+
+### 16.3 Router 链式注册
+
+```v
+import photon.web
+
+// 链式定义路由
+app.WebModule
+    .get('/users', list_users)
+    .post('/users', create_user)
+    .put('/users/:id', update_user)
+    .delete('/users/:id', delete_user)
+
+// 带中间件的路由组
+app.WebModule
+    .prefix('/api/v1')
+    .middleware('auth')
+    .get('/profile', get_profile)
+    .put('/profile', update_profile)
+```
+
+### 16.4 Config 链式配置
+
+```v
+import photon.config
+
+// 链式组装并加载
+mut cfg := config.new()
+cfg.add_source(file_source)
+    .add_source(env_source)
+    .set_profile(['dev', 'local'])
+    .load()!
+
+// 所有配置方法返回 &Config 自身
+cfg.set('app.name', 'MyApp')
+    .set('server.port', '8080')
+    .add_profile('debug')
+```
+
+### 16.5 Logger Channel 多通道输出
+
+```v
+import photon.log
+
+mut logger := log.new()
+// 链式添加输出通道
+logger.add_sink(&log.FileChannel{filepath: '/var/log/app.log'})
+    .add_sink(&log.StderrChannel{})
+    .with_context('env', 'production')
+    .with_context('service', 'api')
+    .info('多通道日志记录')
+
+// 通道日志器
+mut cl := log.new_channel_logger()
+cl.add_sink(&log.StderrChannel{})
+    .add_sink(&log.FileChannel{filepath: '/var/log/app.log'})
+cl.info('同时输出到多个通道')
+```
+
+### 16.6 Pool 超时获取
+
+```v
+import photon.pool
+
+mut p := pool.new_pool_with_config('db', factory_fn, 2, 10)
+p.initialize()!
+
+// 带超时的连接获取（5 秒超时）
+conn := p.acquire_with_timeout(5000)!
+defer { p.release(conn) }
+
+// 无超时的阻塞获取
+conn2 := p.acquire()!
+```
+
+---
+
+## 17. 注解速查
 
 | 注解 | 作用域 | 说明 |
 |------|--------|------|
