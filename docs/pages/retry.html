@@ -1,0 +1,83 @@
+<!-- title: Retry · 重试策略 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Retry · 重试策略 -->
+<div class="hero">
+        <h1>Retry · 重试策略</h1>
+        <p>可配置重试次数、退避策略、指数退避 + 抖动，以及 @[retryable] 编译期注解支持 — Spring Retry 的 V 语言实现。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 Alpha</span><span class="hero-tag">import photon.retry</span><span class="hero-tag">对标 Spring Retry</span></div>
+      </div>
+
+      <!-- ═══ 1. Quick Start ═══ -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header"><div class="section-icon icon-core">🔄</div><div><div class="section-title">快速上手</div><div class="section-subtitle">Retryable · 执行策略 · 退避</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.retry
+
+<span class="cm">// 1. 基础重试 — 最多重试 3 次</span>
+result := retry.<span class="fn">run</span>(max_attempts: <span class="nm">3</span>, fn <span class="tp">()</span> <span class="tp">string</span> {
+    <span class="kw">return</span> risky_operation()
+}) <span class="kw">or</span> { <span class="cm">// 全部失败后返回 error</span>
+    <span class="fn">println</span>(<span class="st">'所有重试均失败: </span>${err}<span class="st">'</span>)
+}
+
+<span class="cm">// 2. 固定退避 — 每次等待 100ms</span>
+result2 := retry.<span class="fn">run</span>(
+    max_attempts:  <span class="nm">5</span>
+    delay:         <span class="nm">100</span> * time.millisecond
+    fn <span class="tp">()</span> <span class="tp">int</span> { <span class="kw">return</span> call_remote_api() }
+) <span class="kw">or</span> { <span class="nm">0</span> }
+
+<span class="cm">// 3. 指数退避 + 抖动</span>
+result3 := retry.<span class="fn">run</span>(
+    max_attempts:    <span class="nm">5</span>
+    initial_delay:   <span class="nm">100</span> * time.millisecond
+    multiplier:      <span class="nm">2.0</span>   <span class="cm">// 100 → 200 → 400 → 800</span>
+    jitter:          <span class="nm">0.5</span>   <span class="cm">// ±50% 随机抖动</span>
+    fn <span class="tp">()</span> <span class="tp">string</span> { <span class="kw">return</span> call_flaky_service() }
+) <span class="kw">or</span> { <span class="st">''</span> }</div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. @[retryable] Annotation ═══ -->
+      <div class="doc-section" id="annotation">
+        <div class="section-header"><div class="section-icon icon-core">✨</div><div><div class="section-title">@[retryable] 注解</div><div class="section-subtitle">编译期扫描 · 声明式重试</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 编译期通过 $for 扫描 @[retryable] 注解</span>
+<span class="at">@[retryable: 3; delay=100ms]</span>
+<span class="kw">pub fn</span> <span class="fn">call_payment_gateway</span>(order <span class="tp">string</span>) <span class="tp">PaymentResult</span> {
+    <span class="cm">// 首次失败将自动重试，最多 3 次</span>
+    <span class="kw">return</span> http_client.<span class="fn">post</span>(<span class="st">'/pay'</span>, order) <span class="kw">or</span> {
+        <span class="kw">return</span> <span class="tp">PaymentResult</span>{ <span class="st">'failed'</span> }
+    }
+}
+
+<span class="cm">// 指数退避注解</span>
+<span class="at">@[retryable: 5; exponential; initial_delay=200ms; multiplier=2.0; jitter=0.3]</span>
+<span class="kw">pub fn</span> <span class="fn">sync_inventory</span>() <span class="tp">SyncResult</span> {
+    <span class="kw">return</span> inventory_api.<span class="fn">fetch</span>()
+}</div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. Strategy Comparison ═══ -->
+      <div class="doc-section" id="comparison">
+        <div class="section-header"><div class="section-icon icon-core">📋</div><div><div class="section-title">退避策略对比</div><div class="section-subtitle">Fixed · Exponential · Exponential with Jitter</div></div></div>
+
+        <div class="comparison-grid-3">
+          <div class="comparison-header ch-photon">策略</div>
+          <div class="comparison-header ch-spring">适用场景</div>
+          <div class="comparison-header ch-v">延迟序列 (初始100ms)</div>
+          <div class="comparison-cell">Fixed</div>
+          <div class="comparison-cell">简单网络抖动</div>
+          <div class="comparison-cell">100, 100, 100, 100, …</div>
+          <div class="comparison-cell">Exponential</div>
+          <div class="comparison-cell">远端限流恢复</div>
+          <div class="comparison-cell">100, 200, 400, 800, …</div>
+          <div class="comparison-cell">Exp + Jitter</div>
+          <div class="comparison-cell">分布式高并发 (推荐)</div>
+          <div class="comparison-cell">85, 234, 372, 756, …</div>
+        </div>
+      </div>

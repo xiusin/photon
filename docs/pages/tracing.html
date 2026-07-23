@@ -1,0 +1,80 @@
+<!-- title: Tracing · 分布式追踪 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Tracing · 分布式追踪 -->
+<div class="hero">
+        <h1>Tracing · 分布式追踪</h1>
+        <p>TraceContext 跨边界传播 + Span 工作单元 + @[trace] 编译期注解 + InMemoryTracer 线程安全 — OpenTelemetry / Spring Cloud Sleuth 的 V 语言实现。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 Alpha</span><span class="hero-tag">import photon.tracing</span><span class="hero-tag">对标 OpenTelemetry</span></div>
+      </div>
+
+      <!-- ═══ 1. Quick Start ═══ -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header"><div class="section-icon icon-core">🔍</div><div><div class="section-title">快速上手</div><div class="section-subtitle">Tracer · Span · TraceContext</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.tracing
+
+<span class="cm">// 1. 创建 Tracer</span>
+<span class="kw">mut</span> tracer := tracing.<span class="fn">new_in_memory_tracer</span>()
+
+<span class="cm">// 2. 开启根 Span</span>
+<span class="kw">mut</span> span := tracer.<span class="fn">start_span</span>(<span class="st">'http.request'</span>)
+span.<span class="fn">set_attribute</span>(<span class="st">'http.method'</span>, <span class="st">'GET'</span>)
+span.<span class="fn">set_attribute</span>(<span class="st">'http.url'</span>, <span class="st">'/api/users'</span>)
+
+<span class="cm">// 3. 创建子 Span（自动关联父 Span）</span>
+<span class="kw">mut</span> child := tracer.<span class="fn">start_child_span</span>(span, <span class="st">'db.query'</span>)
+child.<span class="fn">set_attribute</span>(<span class="st">'db.statement'</span>, <span class="st">'SELECT * FROM users'</span>)
+child.<span class="fn">finish</span>()  <span class="cm">// 标记完成</span>
+
+<span class="cm">// 4. 结束根 Span</span>
+span.<span class="fn">finish</span>()
+
+<span class="cm">// 5. 查询所有 Span</span>
+spans := tracer.<span class="fn">list_spans</span>()
+<span class="fn">println</span>(spans.<span class="fn">len</span>)  <span class="cm">// 2</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. @[trace] Annotation ═══ -->
+      <div class="doc-section" id="annotation">
+        <div class="section-header"><div class="section-icon icon-core">✨</div><div><div class="section-title">@[trace] 注解</div><div class="section-subtitle">编译期扫描 · 自动开闭 Span</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 编译期通过 $for 扫描 @[trace] 注解</span>
+<span class="cm">// extract_trace_methods[T]() 发现所有标注方法</span>
+<span class="cm">// trace_operation[T]() 自动包装：开 Span → 执行 → 记录状态 → 关 Span</span>
+
+<span class="at">@[trace]</span>
+<span class="kw">pub fn</span> <span class="fn">process_order</span>(order <span class="tp">Order</span>) <span class="tp">Result</span> {
+    <span class="cm">// 此函数自动被包装在 Span 中</span>
+    <span class="cm">// Span 名 = "process_order"</span>
+    <span class="cm">// 成功 → status=ok, 失败 → status=error</span>
+    <span class="kw">return</span> order_service.<span class="fn">handle</span>(order)
+}
+
+<span class="at">@[trace]</span>
+<span class="kw">pub fn</span> <span class="fn">fetch_inventory</span>(sku <span class="tp">string</span>) <span class="tp">int</span> {
+    <span class="kw">return</span> inventory_client.<span class="fn">get</span>(sku)
+}</div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. Thread Safety ═══ -->
+      <div class="doc-section" id="safety">
+        <div class="section-header"><div class="section-icon icon-core">🔒</div><div><div class="section-title">线程安全设计</div><div class="section-subtitle">RwMutex + 独立 Span Mutex + arc4random</div></div></div>
+
+        <div class="comparison-grid-2">
+          <div class="comparison-header ch-photon">组件</div>
+          <div class="comparison-header ch-spring">线程安全策略</div>
+          <div class="comparison-cell">InMemoryTracer</div>
+          <div class="comparison-cell">RwMutex：start/finish 用写锁，list_spans 用读锁</div>
+          <div class="comparison-cell">Span</div>
+          <div class="comparison-cell">每个 Span 独立 Mutex，不同 Span 并发无竞争</div>
+          <div class="comparison-cell">ID 生成</div>
+          <div class="comparison-cell">C.arc4random()（线程安全 CSPRNG），非 V 的 rand</div>
+          <div class="comparison-cell">时间戳</div>
+          <div class="comparison-cell">time.ticks() + C.time(0)，惰性转 time.Time</div>
+        </div>
+      </div>

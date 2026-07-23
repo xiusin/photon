@@ -1,0 +1,89 @@
+<!-- title: Health · 健康检查 — Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Health · 健康检查 -->
+<div class="hero">
+        <h1>Health · 健康检查</h1>
+        <p>健康指示器聚合、UP/DOWN 状态判定、K8s Liveness/Readiness 探针 — Spring Boot Actuator 的 V 语言实现。</p>
+        <div class="hero-tags"><span class="hero-tag">🇻‍🇦 Alpha</span><span class="hero-tag">import photon.health</span><span class="hero-tag">对标 Spring Actuator</span></div>
+      </div>
+
+      <!-- ═══ 1. Quick Start ═══ -->
+      <div class="doc-section" id="quick-start">
+        <div class="section-header"><div class="section-icon icon-core">💊</div><div><div class="section-title">快速上手</div><div class="section-subtitle">HealthRegistry · 注册指示器 · 聚合检查</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.health
+
+<span class="cm">// 1. 创建注册中心</span>
+<span class="kw">mut</span> registry := health.<span class="fn">new_health_registry</span>()
+
+<span class="cm">// 2. 注册内置指示器</span>
+registry.<span class="fn">register</span>(&health.<span class="tp">DbHealthIndicator</span>{
+    ping_fn: fn () !<span class="tp">void</span> { db.<span class="fn">ping</span>()! }
+})
+registry.<span class="fn">register</span>(&health.<span class="tp">DiskHealthIndicator</span>{ path: <span class="st">'/var/data'</span> })
+registry.<span class="fn">register</span>(&health.<span class="tp">CacheHealthIndicator</span>{
+    ping_fn: fn () !<span class="tp">void</span> { cache.<span class="fn">ping</span>()! }
+})
+registry.<span class="fn">register</span>(&health.<span class="tp">MemoryHealthIndicator</span>{})
+
+<span class="cm">// 3. 聚合检查（任一 DOWN 则整体 DOWN）</span>
+agg := registry.<span class="fn">check_all</span>()
+<span class="kw">if</span> agg.status == .up {
+    <span class="cm">// 200 OK</span>
+} <span class="kw">else</span> {
+    <span class="cm">// 503 Service Unavailable</span>
+}
+
+<span class="cm">// Spring 等价：HealthAggregator + HealthIndicator</span></div>
+        </div>
+      </div>
+
+      <!-- ═══ 2. Custom Indicator ═══ -->
+      <div class="doc-section" id="custom">
+        <div class="section-header"><div class="section-icon icon-core">🔧</div><div><div class="section-title">自定义指示器</div><div class="section-subtitle">实现 HealthIndicator 接口</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 实现 HealthIndicator 接口</span>
+<span class="kw">pub struct</span> <span class="tp">RedisHealthIndicator</span> {
+    client &<span class="tp">RedisClient</span>
+}
+
+<span class="kw">pub fn</span> (<span class="at">h</span> &<span class="tp">RedisHealthIndicator</span>) <span class="fn">name</span>() <span class="tp">string</span> {
+    <span class="kw">return</span> <span class="st">'redis'</span>
+}
+
+<span class="kw">pub fn</span> (<span class="at">h</span> &<span class="tp">RedisHealthIndicator</span>) <span class="fn">check</span>() health.<span class="tp">Health</span> {
+    <span class="kw">match</span> h.client.<span class="fn">ping</span>() {
+        <span class="tp">ok</span>   { <span class="kw">return</span> health.<span class="fn">new_health</span>(.up).<span class="fn">with_detail</span>(<span class="st">'version'</span>, h.client.<span class="fn">info</span>()) }
+        <span class="tp">err</span>(e) { <span class="kw">return</span> health.<span class="fn">new_health</span>(.down).<span class="fn">with_detail</span>(<span class="st">'error'</span>, e.<span class="fn">str</span>()) }
+    }
+}
+
+<span class="cm">// 注册</span>
+registry.<span class="fn">register</span>(&<span class="tp">RedisHealthIndicator</span>{client: redis})</div>
+        </div>
+      </div>
+
+      <!-- ═══ 3. K8s Integration ═══ -->
+      <div class="doc-section" id="k8s">
+        <div class="section-header"><div class="section-icon icon-core">☸️</div><div><div class="section-title">Kubernetes 集成</div><div class="section-subtitle">Liveness · Readiness 探针</div></div></div>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 配合 Web 模块暴露健康端点</span>
+<span class="at">@['/health'; get]</span>
+<span class="kw">pub fn</span> (<span class="at">mut</span> <span class="at">app</span> <span class="tp">App</span>) <span class="fn">health</span>() veb.<span class="tp">Result</span> {
+    agg := app.registry.<span class="fn">check_all</span>()
+    <span class="kw">if</span> agg.status == .up {
+        <span class="kw">return</span> app.<span class="fn">json</span>({<span class="st">'status'</span>: <span class="st">'UP'</span>})
+    }
+    <span class="kw">return</span> app.<span class="fn">status</span>(<span class="nm">503</span>).<span class="fn">json</span>({<span class="st">'status'</span>: <span class="st">'DOWN'</span>})
+}
+
+<span class="cm">// K8s 探针配置：</span>
+<span class="cm">// livenessProbe:  httpGet: path: /health  port: 8080</span>
+<span class="cm">// readinessProbe: httpGet: path: /health  port: 8080</span></div>
+        </div>
+      </div>
