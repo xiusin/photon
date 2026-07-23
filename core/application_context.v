@@ -70,19 +70,19 @@ pub fn (as_ ApplicationState) str() string {
 @[heap]
 pub struct ApplicationContext {
 pub mut:
-	container               &Container             = unsafe { nil }
-	event_bus               &EventBus              = unsafe { nil }
-	lifecycle               &LifecycleManager      = unsafe { nil }
-	smart_lifecycle         &SmartLifecycleManager = unsafe { nil }
-	environment             &Environment           = unsafe { nil }
+	container               &Container             = unsafe { nil } // see safe_cast.v
+	event_bus               &EventBus              = unsafe { nil } // see safe_cast.v
+	lifecycle               &LifecycleManager      = unsafe { nil } // see safe_cast.v
+	smart_lifecycle         &SmartLifecycleManager = unsafe { nil } // see safe_cast.v
+	environment             &Environment           = unsafe { nil } // see safe_cast.v
 	post_processors         []&BeanPostProcessor
 	factory_post_processors []&BeanFactoryPostProcessor
 	registry_post_processors []&BeanDefinitionRegistryPostProcessor
-	auto_config_manager     &AutoConfigurationManager = unsafe { nil }
-	provider_registry       &ProviderRegistry         = unsafe { nil } // ServiceProvider (Laravel)
+	auto_config_manager     &AutoConfigurationManager = unsafe { nil } // see safe_cast.v
+	provider_registry       &ProviderRegistry         = unsafe { nil } // ServiceProvider — see safe_cast.v
 	runners                 []&ApplicationRunner
-	shutdown_hooks          &ShutdownHookManager    = unsafe { nil }
-	ordered_shutdown        &OrderedShutdownManager = unsafe { nil } // Task 16: ordered module shutdown
+	shutdown_hooks          &ShutdownHookManager    = unsafe { nil } // see safe_cast.v
+	ordered_shutdown        &OrderedShutdownManager = unsafe { nil } // ordered shutdown — see safe_cast.v
 	lifecycle_beans         []&Lifecycle // Spring Lifecycle beans
 	resolve_cache           map[string]voidptr // resolve 结果缓存 / resolve result cache
 mut:
@@ -1685,7 +1685,7 @@ pub fn (mut ctx ApplicationContext) autowire_bean[T](mut bean T) ! {
 
 				// 1. Qualifier-based resolution
 				if field_qualifier.len > 0 {
-					instance := ctx.resolve(field_qualifier) or { unsafe { nil } }
+					instance := ctx.resolve(field_qualifier) or { nil_sentinel[voidptr]() }
 					if !isnil(instance) {
 						bean.$(field.name) = unsafe { instance }
 						resolved = true
@@ -1696,7 +1696,7 @@ pub fn (mut ctx ApplicationContext) autowire_bean[T](mut bean T) ! {
 				if !resolved {
 					instance_resolved := ctx.resolve(field.name) or {
 						ctx.resolve(capitalize_first(field.name)) or {
-							unsafe { nil }
+							nil_sentinel[voidptr]()
 						}
 					}
 					if !isnil(instance_resolved) {

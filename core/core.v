@@ -110,11 +110,11 @@ pub mut:
 	qualifiers        map[string]string         // qualifier → type_name
 	aliases           map[string]string         // alias → canonical type_name
 	profiles          []string                  // active profiles
-	factory_registry  &FactoryBeanRegistry = unsafe { nil } // FactoryBean support
-	parent            &Container           = unsafe { nil } // parent container (hierarchical context)
-	type_index        &BeanTypeIndex       = unsafe { nil } // type-based bean lookup index
-	event_bus         &EventBus            = unsafe { nil } // optional event bus for bean lifecycle events
-	environment       &Environment         = unsafe { nil } // optional environment for condition evaluation
+	factory_registry  &FactoryBeanRegistry = unsafe { nil } // FactoryBean support — see safe_cast.v
+	parent            &Container           = unsafe { nil } // parent container (hierarchical context) — see safe_cast.v
+	type_index        &BeanTypeIndex       = unsafe { nil } // type-based bean lookup index — see safe_cast.v
+	event_bus         &EventBus            = unsafe { nil } // optional event bus — see safe_cast.v
+	environment       &Environment         = unsafe { nil } // optional environment — see safe_cast.v
 	destroy_callbacks map[string]DestroyCallback // type_name → DisposableBean destroy callback
 	init_callbacks    map[string]InitCallback    // type_name → InitializingBean init callback
 mut:
@@ -465,7 +465,7 @@ fn (mut c Container) resolve_unlocked(type_name string) !voidptr {
 	if def.scope == .prototype {
 		mutable_def.state = .registered
 		c.definitions[type_name] = mutable_def
-		return unsafe { nil } // actual instantiation done by comptime-generated code
+		return nil_sentinel[voidptr]() // actual instantiation done by comptime-generated code
 	}
 
 	// Singleton: use per-bean lock for safe instantiation
@@ -497,7 +497,7 @@ fn (mut c Container) resolve_unlocked(type_name string) !voidptr {
 		c.bean_lock.unlock(type_name)
 	}
 
-	return unsafe { nil } // actual instantiation done by comptime-generated code
+	return nil_sentinel[voidptr]() // actual instantiation done by comptime-generated code
 }
 
 // resolve_by_qualifier retrieves a bean instance by its qualifier name.
@@ -886,7 +886,7 @@ pub fn (mut c Container) set_instance(type_name string, instance voidptr) {
 	defer { c.mu.unlock() }
 
 	c.instances[type_name] = &BeanInstance{
-		definition: unsafe { nil }
+		definition: unsafe { nil } // see safe_cast.v
 		instance:   instance
 		state:      .ready
 	}
