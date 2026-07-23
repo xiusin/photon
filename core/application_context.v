@@ -1663,41 +1663,46 @@ pub fn (mut ctx ApplicationContext) autowire_bean[T](mut bean T) ! {
 		field_qualifier = extract_qualifier(field.attrs)
 
 		if has_autowired {
-			// Resolution order (consistent with autowire_controller):
-			//   1. @[qualifier('name')] → resolve by qualifier
-			//   2. field name → resolve by field name (e.g., 'repo')
-			//   3. capitalized field name → resolve by PascalCase (e.g., 'Repo')
-			mut resolved := false
+			// Type guard: only inject pointer/reference fields.
+			// V comptime generates C code for all branches; without this guard,
+			// the C compiler sees voidptr→int assignments for @[value] fields
+			// (which are never executed at runtime but fail to compile).
+			$if field.typ is string {
+				// @[autowired] on string fields is not supported; skip
+			} $else $if field.typ is int {
+				// @[autowired] on int fields is not supported; skip
+			} $else $if field.typ is i64 {
+				// skip
+			} $else $if field.typ is bool {
+				// skip
+			} $else $if field.typ is f32 {
+				// skip
+			} $else $if field.typ is f64 {
+				// skip
+			} $else {
+				// Pointer/reference type — safe to assign voidptr via unsafe
+				mut resolved := false
 
-			// 1. Qualifier-based resolution
-			if field_qualifier.len > 0 {
-				instance := ctx.resolve(field_qualifier) or { unsafe { nil } }
-				if !isnil(instance) {
-					bean.$(field.name) = unsafe { instance }
-					resolved = true
-				}
-			}
-
-			// 2. Field-name-based resolution (same strategy as autowire_controller)
-			if !resolved {
-				instance_resolved := ctx.resolve(field.name) or {
-					// 3. Try capitalized field name
-					ctx.resolve(capitalize_first(field.name)) or {
-						unsafe { nil }
+				// 1. Qualifier-based resolution
+				if field_qualifier.len > 0 {
+					instance := ctx.resolve(field_qualifier) or { unsafe { nil } }
+					if !isnil(instance) {
+						bean.$(field.name) = unsafe { instance }
+						resolved = true
 					}
 				}
-				if !isnil(instance_resolved) {
-					bean.$(field.name) = unsafe { instance_resolved }
-					resolved = true
-				}
-			}
 
-			// 4. Type-based resolution fallback (best-effort for reference types)
-			if !resolved {
-				$if field.typ is string {
-					// String fields with @[autowired] are not typical; skip
-				} $else $if field.typ is int {
-					// Primitive autowired fields not supported; skip
+				// 2. Field-name-based resolution
+				if !resolved {
+					instance_resolved := ctx.resolve(field.name) or {
+						ctx.resolve(capitalize_first(field.name)) or {
+							unsafe { nil }
+						}
+					}
+					if !isnil(instance_resolved) {
+						bean.$(field.name) = unsafe { instance_resolved }
+						resolved = true
+					}
 				}
 			}
 		}
@@ -1783,6 +1788,37 @@ pub fn (mut ctx ApplicationContext) create_and_wire[T]() !T {
 	}
 
 	return bean
+}
+
+// create_and_register creates a new heap-allocated instance of T, performs
+// @[autowired] + @[value] injection, invokes any @[post_construct] method,
+// then registers the bean in the container with its type name and optional aliases.
+//
+// This is the one-step "Spring @Service + @Autowired + @PostConstruct" equivalent.
+// Eliminates the manual new + register boilerplate in bootstrap.
+//
+// Usage:
+//   ctx.create_and_register[services.UserService]()!
+//   ctx.create_and_register[services.AuthService]('AuthService')!
+pub fn (mut ctx ApplicationContext) create_and_register[T](aliases ...string) !&T {
+	mut bean := T{}
+
+	// @[autowired] + @[value] injection
+	ctx.autowire_bean[T](mut bean) or {}
+
+	// @[post_construct] lifecycle callback
+	$for method in T.methods {
+		for attr in method.attrs {
+			if attr == attr_post_construct {
+				bean.$method()
+			}
+		}
+	}
+
+	// Move to heap — V escape analysis heap-allocates when & escapes
+	bean_ptr := &bean
+	ctx.register_instance_with_aliases(T.name, voidptr(bean_ptr), aliases)!
+	return bean_ptr
 }
 
 // ── ServiceLocator Integration ──

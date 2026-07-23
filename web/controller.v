@@ -201,6 +201,22 @@ pub fn set_status(mut ctx veb.Context, code int) {
 	ctx.res.set_status(unsafe { http.Status(code) })
 }
 
+// guard_error converts a middleware guard failure into the appropriate HTTP error response.
+// If the error message contains 'permission denied', returns 403 Forbidden;
+// otherwise returns 401 Unauthorized.
+//
+// Usage:
+//   username := c.middleware_registry.guard_editor(mut ctx) or {
+//       return c.guard_error(mut ctx, err)
+//   }
+pub fn (b &BaseController) guard_error(mut ctx veb.Context, err IError) veb.Result {
+	msg := err.msg()
+	if msg.contains('permission denied') {
+		return b.forbidden(mut ctx, msg)
+	}
+	return b.unauthorized(mut ctx, msg)
+}
+
 // validate_id 从路径参数中提取并校验正整数 ID，返回 !int
 // label 示例: 'post id / 无效的文章 ID' — 错误消息会拼为 'invalid ${label}'
 pub fn (b &BaseController) validate_id(params map[string]string, key string, label string) !int {
