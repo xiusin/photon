@@ -18,20 +18,46 @@ pub:
 	local_key   string // the local column (default: 'id')
 }
 
-// EagerLoader preloads relations for entities
+// EagerLoader preloads relations for entities.
+//
+// SQL execution is delegated to user-supplied callbacks (SqlExecFn /
+// SqlQueryFn — the same types used by RelationLoader and JpaRepository),
+// because photon/orm cannot import db drivers (module-name collision
+// in V 0.5.1).  Use new_eager_loader_with_fns() to configure them.
 pub struct EagerLoader[T] {
 pub mut:
 	manager    &OrmManager
 	table_name string
 	db_name    string
 	withs      []EagerLoadSpec
+	exec_fn    SqlExecFn  = unsafe { nil }
+	query_fn   SqlQueryFn = unsafe { nil }
 }
 
-// new_eager_loader creates an EagerLoader
+// new_eager_loader creates an EagerLoader.  SQL callbacks are NOT set —
+// use new_eager_loader_with_fns() if you intend to call
+// load_has_many / load_belongs_to.
 pub fn new_eager_loader[T](manager &OrmManager, table_name string) &EagerLoader[T] {
 	return &EagerLoader[T]{
 		manager:    manager
 		table_name: table_name
+	}
+}
+
+// new_eager_loader_with_fns creates an EagerLoader with SQL execution
+// callbacks.  This is the preferred constructor for actually loading
+// relations.
+//
+// `exec_fn`  — executes INSERT/UPDATE/DELETE/DDL (unused by load_*
+//              methods today, accepted for symmetry with RelationLoader).
+// `query_fn` — executes SELECT, returns rows as [][]string.
+pub fn new_eager_loader_with_fns[T](manager &OrmManager, table_name string, db_name string, exec_fn SqlExecFn, query_fn SqlQueryFn) &EagerLoader[T] {
+	return &EagerLoader[T]{
+		manager:    manager
+		table_name: table_name
+		db_name:    db_name
+		exec_fn:    exec_fn
+		query_fn:   query_fn
 	}
 }
 
@@ -53,55 +79,6 @@ pub fn (mut el EagerLoader[T]) with_single(relation string) &EagerLoader[T] {
 	return el.with([relation])
 }
 
-// load_has_many eager-loads a HasMany relation for multiple parent entities
-pub fn (el &EagerLoader[T]) load_has_many[R](parents []T, mut relations map[int]HasMany[R], fk string) ! {
-	if parents.len == 0 {
-		return
-	}
-
-	// Collect parent IDs
-	mut ids := []string{cap: parents.len}
-	for parent in parents {
-		ids << '${parent.id()}'
-	}
-
-	target_table := get_table_name[R]()
-	query := 'SELECT * FROM ${target_table} WHERE ${fk} IN (${ids.join(', ')})'
-
-	db_conn := el.manager.get_conn(el.db_name)!
-	_ = query
-	_ = db_conn
-
-	// Stub: actual DB execution requires real driver
-	for parent in parents {
-		relations[parent.id()] = new_has_many[R]()
-	}
-}
-
-// load_belongs_to eager-loads BelongsTo for multiple parent entities
-pub fn (el &EagerLoader[T]) load_belongs_to[R](parents []T, mut relations map[int]BelongsTo[R], fk string) ! {
-	if parents.len == 0 {
-		return
-	}
-
-	// Collect foreign key values
-	mut fk_values := []string{cap: parents.len}
-	for parent in parents {
-		fk_values << get_field_value(parent, fk)
-	}
-
-	target_table := get_table_name[R]()
-	query := 'SELECT * FROM ${target_table} WHERE id IN (${fk_values.join(', ')})'
-
-	db_conn := el.manager.get_conn(el.db_name)!
-	_ = query
-	_ = db_conn
-
-	for parent in parents {
-		relations[parent.id()] = new_belongs_to[R]()
-	}
-}
-
 // EagerRepository provides eager loading support.
 // Use with the adapter module for ORM-backed operations.
 pub struct EagerRepository[T] {
@@ -112,12 +89,27 @@ pub mut:
 	eager_loader &EagerLoader[T]
 }
 
-// new_eager_repository creates an EagerRepository
+// new_eager_repository creates an EagerRepository.  SQL callbacks are
+// NOT set on the underlying EagerLoader — use
+// new_eager_repository_with_fns() if you intend to call
+// load_has_many / load_belongs_to.
 pub fn new_eager_repository[T](manager &OrmManager, table_name string) &EagerRepository[T] {
 	return &EagerRepository[T]{
 		manager:      manager
 		table_name:   table_name
 		eager_loader: new_eager_loader[T](manager, table_name)
+	}
+}
+
+// new_eager_repository_with_fns creates an EagerRepository whose
+// EagerLoader is configured with SQL execution callbacks.
+pub fn new_eager_repository_with_fns[T](manager &OrmManager, table_name string, db_name string, exec_fn SqlExecFn, query_fn SqlQueryFn) &EagerRepository[T] {
+	return &EagerRepository[T]{
+		manager:      manager
+		table_name:   table_name
+		db_name:      db_name
+		eager_loader: new_eager_loader_with_fns[T](manager, table_name, db_name, exec_fn,
+			query_fn)
 	}
 }
 

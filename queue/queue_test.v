@@ -1,10 +1,11 @@
 module queue
 
 // queue_test.v - Tests for the Queue module
+import json
 
 @[heap]
 struct TestJob {
-pub:
+pub mut:
 	name string
 }
 
@@ -22,6 +23,15 @@ fn (j &TestJob) tries() int {
 
 fn (j &TestJob) backoff() []i64 {
 	return [i64(1), 5, 10]
+}
+
+fn (j &TestJob) data() string {
+	return json.encode(j)
+}
+
+fn (mut j TestJob) from_json(data string) ! {
+	decoded := json.decode(TestJob, data)!
+	j.name = decoded.name
 }
 
 // ============================================================

@@ -94,8 +94,53 @@ pub fn match_route(url_path string, route &RouteDef) ?map[string]string {
 	return params
 }
 
-// find_route 在路由列表中查找匹配的路由
-// 优先匹配静态路径，再匹配参数路径。
+// route_static_key 构造静态路由索引键：method:host:path
+// host 为空表示无 host 限制（匹配任意 Host）。
+fn route_static_key(method string, host string, path string) string {
+	// 空路径归一化为 '/'（与 segments 为空时的根路由语义一致）
+	key_path := if path.len == 0 { '/' } else { path }
+	return method + ':' + host + ':' + key_path
+}
+
+// count_url_segments 统计 URL 路径的有效段数（跳过空段）
+fn count_url_segments(url_path string) int {
+	mut count := 0
+	for part in url_path.split('/') {
+		if part.len > 0 {
+			count++
+		}
+	}
+	return count
+}
+
+// find_static_route 在静态路由哈希表中做 O(1) 精确匹配。
+// host 限定的路由优先于无限制路由；
+// 候选路径包含尾斜杠容错（与旧线性扫描的匹配语义一致）。
+fn find_static_route(rr &RouteRegistry, method string, url_path string, host string) ?&RouteDef {
+	mut candidates := [url_path]
+	if url_path.len > 1 && url_path.ends_with('/') {
+		candidates << url_path[..url_path.len - 1]
+	} else if !url_path.ends_with('/') {
+		candidates << url_path + '/'
+	}
+
+	for path in candidates {
+		if host.len > 0 {
+			key := route_static_key(method, host, path)
+			if route := rr.static_routes[key] or { continue } {
+				return route
+			}
+		}
+		key := route_static_key(method, '', path)
+		if route := rr.static_routes[key] or { continue } {
+			return route
+		}
+	}
+	return none
+}
+
+// find_route 在路由注册表中查找匹配的路由
+// 匹配顺序：静态哈希表 O(1) → 参数路由按段数分桶 → 全量线性回退。
 // host 参数用于 host 级路由隔离（空字符串 = 不限制 host）。
 // 返回 (路由定义, 路径参数字典) 或 none
 //
@@ -103,7 +148,35 @@ pub fn match_route(url_path string, route &RouteDef) ?map[string]string {
 //   - route.host 为空 → 匹配任意 host
 //   - route.host 非空 → 必须与请求 host 完全匹配（大小写不敏感）
 //   - host 限制的路由优先于无限制路由
-pub fn find_route(routes []&RouteDef, method string, url_path string, host string) ?(&RouteDef, map[string]string) {
+pub fn find_route(rr &RouteRegistry, method string, url_path string, host string) ?(&RouteDef, map[string]string) {
+	// 第一级：静态路由哈希表 O(1) 精确匹配
+	if route := find_static_route(rr, method, url_path, host) {
+		return route, map[string]string{}
+	}
+
+	// 第二级：参数路由按段数分桶匹配（仅比较段数相同的路由，桶内保持注册顺序）
+	seg_count := count_url_segments(url_path)
+	bucket := rr.param_routes[seg_count] or { []&RouteDef{} }
+	for route in bucket {
+		if route.method != method {
+			continue
+		}
+		// Host 检查：如果路由有 host 限制，必须匹配
+		if route.host.len > 0 && route.host != host {
+			continue
+		}
+		if params := match_route(url_path, route) {
+			return route, params
+		}
+	}
+
+	// 第三级：全量线性回退（兜底非规范 URL，如缺失前导斜杠、重复斜杠等）
+	return find_route_linear(rr.routes, method, url_path, host)
+}
+
+// find_route_linear 旧版线性扫描匹配逻辑，作为 find_route 的最终兜底，
+// 保证对任意非规范 URL 的行为与优化前完全一致。
+fn find_route_linear(routes []&RouteDef, method string, url_path string, host string) ?(&RouteDef, map[string]string) {
 	// 第一轮：精确静态匹配（host 限定的路由优先）
 	for route in routes {
 		if route.method != method {

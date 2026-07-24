@@ -1625,26 +1625,23 @@ pub fn (mut c Container) resolve_all_by_type(type_name string) ![]voidptr {
 
 	// 1. Try interface-based lookup (fast path via type_index)
 	iface_beans := c.beans_for_interface(type_name)
+	mut resolved_set := map[string]bool{}
 	for name in iface_beans {
 		instance := c.resolve(name) or { continue }
 		instances << instance
+		resolved_set[name] = true
 	}
 
 	// 2. Try tag-based lookup
 	tag_beans := c.beans_for_tag(type_name)
 	for name in tag_beans {
+		// Avoid duplicates from interface lookup (O(1) map lookup)
+		if resolved_set[name] {
+			continue
+		}
 		instance := c.resolve(name) or { continue }
-		// Avoid duplicates from interface lookup
-		mut already_resolved := false
-		for existing_name in iface_beans {
-			if existing_name == name {
-				already_resolved = true
-				break
-			}
-		}
-		if !already_resolved {
-			instances << instance
-		}
+		instances << instance
+		resolved_set[name] = true
 	}
 
 	// 3. Try exact type_name match (slow path — scan definitions)
@@ -1654,24 +1651,8 @@ pub fn (mut c Container) resolve_all_by_type(type_name string) ![]voidptr {
 	mut candidates := []string{}
 	c.mu.rlock()
 	for name, def in c.definitions {
-		// Skip if already resolved via interface or tag
-		mut already_found := false
-		for existing_name in iface_beans {
-			if existing_name == name {
-				already_found = true
-				break
-			}
-		}
-		if already_found {
-			continue
-		}
-		for existing_name in tag_beans {
-			if existing_name == name {
-				already_found = true
-				break
-			}
-		}
-		if already_found {
+		// Skip if already resolved via interface or tag (O(1) map lookup)
+		if resolved_set[name] {
 			continue
 		}
 

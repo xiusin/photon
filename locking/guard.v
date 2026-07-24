@@ -58,9 +58,11 @@ pub fn (mut g LockGuard) release() {
 		return
 	}
 	g.released = true
+	mut mgr := g.manager
+	lock_key := g.key
+	g.mu.unlock()
 	unsafe {
-		mut manager := g.manager
-		manager.unlock(g.key) or {
+		mgr.unlock(lock_key) or {
 			// Silently ignore unlock errors (lock may have been cleaned up)
 		}
 	}

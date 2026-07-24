@@ -77,7 +77,7 @@ pub fn (b &BaseController) no_content(mut ctx veb.Context) veb.Result {
 pub fn (b &BaseController) bad_request(mut ctx veb.Context, msg string) veb.Result {
 	ctx.res.set_status(unsafe { http.Status(400) })
 	ctx.set_content_type('application/json')
-	return ctx.text('{"error":${json.encode(msg)},"code":400}')
+	return ctx.text(error_response_json(400, msg))
 }
 
 // unprocessable_entity 返回 422 错误（用于请求体格式正确但语义无效的校验错误）
@@ -85,7 +85,7 @@ pub fn (b &BaseController) bad_request(mut ctx veb.Context, msg string) veb.Resu
 pub fn (b &BaseController) unprocessable_entity(mut ctx veb.Context, msg string) veb.Result {
 	ctx.res.set_status(unsafe { http.Status(422) })
 	ctx.set_content_type('application/json')
-	return ctx.text('{"error":${json.encode(msg)},"code":422}')
+	return ctx.text(error_response_json(422, msg))
 }
 
 // not_found 返回 404 错误
@@ -93,7 +93,7 @@ pub fn (b &BaseController) unprocessable_entity(mut ctx veb.Context, msg string)
 pub fn (b &BaseController) not_found(mut ctx veb.Context, msg string) veb.Result {
 	ctx.res.set_status(unsafe { http.Status(404) })
 	ctx.set_content_type('application/json')
-	return ctx.text('{"error":${json.encode(msg)},"code":404}')
+	return ctx.text(error_response_json(404, msg))
 }
 
 // unauthorized 返回 401 错误
@@ -101,7 +101,7 @@ pub fn (b &BaseController) not_found(mut ctx veb.Context, msg string) veb.Result
 pub fn (b &BaseController) unauthorized(mut ctx veb.Context, msg string) veb.Result {
 	ctx.res.set_status(unsafe { http.Status(401) })
 	ctx.set_content_type('application/json')
-	return ctx.text('{"error":${json.encode(msg)},"code":401}')
+	return ctx.text(error_response_json(401, msg))
 }
 
 // forbidden 返回 403 错误
@@ -109,7 +109,7 @@ pub fn (b &BaseController) unauthorized(mut ctx veb.Context, msg string) veb.Res
 pub fn (b &BaseController) forbidden(mut ctx veb.Context, msg string) veb.Result {
 	ctx.res.set_status(unsafe { http.Status(403) })
 	ctx.set_content_type('application/json')
-	return ctx.text('{"error":${json.encode(msg)},"code":403}')
+	return ctx.text(error_response_json(403, msg))
 }
 
 // server_error 返回 500 错误
@@ -117,7 +117,7 @@ pub fn (b &BaseController) forbidden(mut ctx veb.Context, msg string) veb.Result
 pub fn (b &BaseController) server_error(mut ctx veb.Context, msg string) veb.Result {
 	ctx.res.set_status(unsafe { http.Status(500) })
 	ctx.set_content_type('application/json')
-	return ctx.text('{"error":${json.encode(msg)},"code":500}')
+	return ctx.text(error_response_json(500, msg))
 }
 
 // text 返回纯文本响应
@@ -153,10 +153,15 @@ pub fn json_text(mut ctx veb.Context, data string) veb.Result {
 	return ctx.text(data)
 }
 
+// error_response_json builds a standard error JSON string.
+fn error_response_json(code int, msg string) string {
+	return '{"error":${json.encode(msg)},"code":${code}}'
+}
+
 // api_error 构造标准错误 JSON 字符串
 // msg 会被 JSON 编码以防止注入 / msg is JSON-encoded to prevent injection.
 pub fn api_error(code int, msg string) string {
-	return '{"error":${json.encode(msg)},"code":${code}}'
+	return error_response_json(code, msg)
 }
 
 // ============================================================

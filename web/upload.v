@@ -416,28 +416,7 @@ pub fn (h &UploadHandler) generate_path() string {
 // guess_mime_type guesses a MIME type from a file extension.
 pub fn guess_mime_type(filename string) string {
 	ext := os.file_ext(filename).to_lower()
-	return match ext {
-		'.jpg', '.jpeg' { 'image/jpeg' }
-		'.png' { 'image/png' }
-		'.gif' { 'image/gif' }
-		'.webp' { 'image/webp' }
-		'.svg' { 'image/svg+xml' }
-		'.pdf' { 'application/pdf' }
-		'.doc' { 'application/msword' }
-		'.docx' { 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }
-		'.xls' { 'application/vnd.ms-excel' }
-		'.xlsx' { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
-		'.zip' { 'application/zip' }
-		'.txt' { 'text/plain' }
-		'.csv' { 'text/csv' }
-		'.json' { 'application/json' }
-		'.xml' { 'application/xml' }
-		'.html' { 'text/html' }
-		'.mp4' { 'video/mp4' }
-		'.mp3' { 'audio/mpeg' }
-		'.wav' { 'audio/wav' }
-		else { 'application/octet-stream' }
-	}
+	return mime_types[ext] or { 'application/octet-stream' }
 }
 
 // ── Chunked Upload ──

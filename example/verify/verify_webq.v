@@ -30,6 +30,13 @@ fn (j &VEmailJob) backoff() []i64 {
 	return [i64(1), 5, 10]
 }
 
+fn (j &VEmailJob) data() string {
+	return '{}'
+}
+
+fn (mut j VEmailJob) from_json(data string) ! {
+}
+
 // verify_scheduling 验证任务调度器与 cron 解析
 fn verify_scheduling(mut v Verifier) {
 	v.section('调度 (ticker.Scheduler)')

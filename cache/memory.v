@@ -9,10 +9,18 @@ module cache
 //   - get() uses read-lock (concurrent reads allowed)
 //   - set()/delete() use write-lock (exclusive writes)
 //
+// LRU design:
+//   - A doubly-linked list (via key-indexed maps: lru_prev / lru_next)
+//     tracks recency. get() moves the key to front; eviction pops from tail.
+//   - The list is protected by lru_mu, decoupled from entries mu so that
+//     get() can touch the LRU order without holding the entries write-lock.
+//
 // Concurrency design:
 //   - entries map is protected by mu (RwMutex): reads use rlock, writes use @lock
 //   - hit_counts map is protected by hit_mu (Mutex), decoupled from the hot
 //     read path so get() never performs a write under read-lock
+//   - lru_* maps are protected by lru_mu (Mutex), decoupled from entries mu
+//     Lock ordering: mu → lru_mu → hit_mu
 //   - A background GC goroutine periodically evicts expired entries
 import time
 import sync
@@ -44,6 +52,12 @@ fn (e &MemCacheEntry) is_expired() bool {
 // hit_counts is tracked in a separate map under its own mutex so that get()
 // (the hot path) never writes under the entries read-lock — this was the
 // CRITICAL #4 data race (unsafe { entries[key].hit_count++ } under rlock).
+//
+// LRU list is maintained via key-indexed doubly-linked list:
+//   - lru_head points to the most recently used entry
+//   - lru_tail points to the least recently used entry
+//   - lru_prev[key] / lru_next[key] form the doubly-linked chain
+//   - evict_one_unsafe() pops lru_tail for O(1) eviction
 pub struct MemoryCache {
 pub:
 	name        string
@@ -56,6 +70,12 @@ mut:
 	hit_mu     sync.Mutex
 	hit_counts map[string]u64
 	stop_gc    chan bool = chan bool{cap: 1}
+	// LRU doubly-linked list (key-indexed via maps)
+	lru_mu   sync.Mutex
+	lru_head string // most recently used
+	lru_tail string // least recently used
+	lru_prev map[string]string
+	lru_next map[string]string
 }
 
 // new_memory_cache creates a new in-memory cache and starts the background GC.
@@ -64,6 +84,8 @@ pub fn new_memory_cache(name string) &MemoryCache {
 		name:       name
 		entries:    map[string]MemCacheEntry{}
 		hit_counts: map[string]u64{}
+		lru_prev:   map[string]string{}
+		lru_next:   map[string]string{}
 	}
 	mc.start_gc()
 	return mc
@@ -76,6 +98,8 @@ pub fn new_memory_cache_with_max(name string, max_size int) &MemoryCache {
 		max_size:   max_size
 		entries:    map[string]MemCacheEntry{}
 		hit_counts: map[string]u64{}
+		lru_prev:   map[string]string{}
+		lru_next:   map[string]string{}
 	}
 	mc.start_gc()
 	return mc
@@ -89,6 +113,8 @@ pub fn new_memory_cache_with_gc(name string, gc_interval int) &MemoryCache {
 		gc_interval: if gc_interval > 0 { gc_interval } else { 30 }
 		entries:     map[string]MemCacheEntry{}
 		hit_counts:  map[string]u64{}
+		lru_prev:    map[string]string{}
+		lru_next:    map[string]string{}
 	}
 	mc.start_gc()
 	return mc
@@ -132,12 +158,89 @@ pub fn (mut mc MemoryCache) close() {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// LRU doubly-linked list helpers (caller must hold lru_mu)
+// ---------------------------------------------------------------------------
+
+// lru_remove_unsafe removes a key from the LRU list.
+fn (mut mc MemoryCache) lru_remove_unsafe(key string) {
+	if key !in mc.lru_prev {
+		return
+	}
+
+	prev := mc.lru_prev[key] or { '' }
+	next := mc.lru_next[key] or { '' }
+
+	if prev.len > 0 {
+		mc.lru_next[prev] = next
+	} else {
+		mc.lru_head = next
+	}
+	if next.len > 0 {
+		mc.lru_prev[next] = prev
+	} else {
+		mc.lru_tail = prev
+	}
+
+	mc.lru_prev.delete(key)
+	mc.lru_next.delete(key)
+}
+
+// lru_push_front_unsafe adds a key to the front (most recently used).
+// If the key already exists in the list, it is first removed, then re-added.
+fn (mut mc MemoryCache) lru_push_front_unsafe(key string) {
+	mc.lru_remove_unsafe(key)
+
+	if mc.lru_head.len > 0 {
+		mc.lru_prev[mc.lru_head] = key
+	}
+	mc.lru_next[key] = mc.lru_head
+	mc.lru_prev[key] = ''
+	mc.lru_head = key
+
+	if mc.lru_tail.len == 0 {
+		mc.lru_tail = key
+	}
+}
+
+// lru_touch_unsafe moves an existing entry to the front of the LRU list.
+// No-op if the key is not currently in the list (e.g. concurrently deleted).
+fn (mut mc MemoryCache) lru_touch_unsafe(key string) {
+	if key !in mc.lru_prev {
+		return
+	}
+	mc.lru_push_front_unsafe(key)
+}
+
+// lru_pop_tail_unsafe removes and returns the tail (least recently used) key.
+// Returns '' if the list is empty.
+fn (mut mc MemoryCache) lru_pop_tail_unsafe() string {
+	tail := mc.lru_tail
+	if tail.len > 0 {
+		mc.lru_remove_unsafe(tail)
+	}
+	return tail
+}
+
+// lru_clear_unsafe clears all LRU state.
+fn (mut mc MemoryCache) lru_clear_unsafe() {
+	mc.lru_head = ''
+	mc.lru_tail = ''
+	mc.lru_prev.clear()
+	mc.lru_next.clear()
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 // get retrieves a value from cache.
 //
 // Concurrency contract:
 //   - Reads entry under read-lock (concurrent reads allowed).
 //   - Does NOT write under read-lock (CRITICAL #4 fix). hit_count is updated
 //     separately under hit_mu after the read-lock is released.
+//   - LRU order is updated under lru_mu after releasing entries lock.
 //   - TOCTOU fix (C5): when an expired entry is found under read-lock, we
 //     release, re-acquire write-lock, and RECHECK that the key still exists
 //     and is still expired before deleting (another goroutine may have
@@ -161,6 +264,9 @@ pub fn (mut mc MemoryCache) get(key string) !string {
 				mc.hit_mu.@lock()
 				mc.hit_counts.delete(key)
 				mc.hit_mu.unlock()
+				mc.lru_mu.@lock()
+				mc.lru_remove_unsafe(key)
+				mc.lru_mu.unlock()
 			}
 		}
 		mc.mu.unlock()
@@ -176,6 +282,13 @@ pub fn (mut mc MemoryCache) get(key string) !string {
 	mc.hit_counts[key] = current + 1
 	mc.hit_mu.unlock()
 
+	// Update LRU: move accessed entry to front (most recent).
+	// Done under a separate lock after releasing entries lock so that
+	// read concurrency is preserved.
+	mc.lru_mu.@lock()
+	mc.lru_touch_unsafe(key)
+	mc.lru_mu.unlock()
+
 	return value
 }
 
@@ -184,7 +297,7 @@ pub fn (mut mc MemoryCache) set(key string, value string, ttl_seconds int) ! {
 	mc.mu.@lock()
 	defer { mc.mu.unlock() }
 
-	// Check capacity and evict if needed
+	// Check capacity and evict if needed (O(1) via LRU)
 	if mc.max_size > 0 && mc.entries.len >= mc.max_size && key !in mc.entries {
 		mc.evict_one_unsafe()
 	}
@@ -201,6 +314,11 @@ pub fn (mut mc MemoryCache) set(key string, value string, ttl_seconds int) ! {
 		hit_count:   0
 	}
 
+	// Add to LRU front (most recently used)
+	mc.lru_mu.@lock()
+	mc.lru_push_front_unsafe(key)
+	mc.lru_mu.unlock()
+
 	// Reset hit counter for the (possibly overwritten) key.
 	mc.hit_mu.@lock()
 	mc.hit_counts[key] = 0
@@ -210,12 +328,17 @@ pub fn (mut mc MemoryCache) set(key string, value string, ttl_seconds int) ! {
 // delete removes a value from cache (write-locked)
 pub fn (mut mc MemoryCache) delete(key string) ! {
 	mc.mu.@lock()
-	defer { mc.mu.unlock() }
-
 	if key !in mc.entries {
+		mc.mu.unlock()
 		return error('cache key "${key}" not found')
 	}
 	mc.entries.delete(key)
+	mc.mu.unlock()
+
+	mc.lru_mu.@lock()
+	mc.lru_remove_unsafe(key)
+	mc.lru_mu.unlock()
+
 	mc.hit_mu.@lock()
 	mc.hit_counts.delete(key)
 	mc.hit_mu.unlock()
@@ -239,6 +362,10 @@ pub fn (mut mc MemoryCache) clear() ! {
 	mc.hit_mu.@lock()
 	mc.hit_counts.clear()
 	mc.hit_mu.unlock()
+
+	mc.lru_mu.@lock()
+	mc.lru_clear_unsafe()
+	mc.lru_mu.unlock()
 }
 
 // keys returns all non-expired cache keys (read-locked)
@@ -265,11 +392,29 @@ pub fn (mut mc MemoryCache) size() int {
 
 // evict_one_unsafe removes the least recently used entry.
 // Caller must hold write lock.
+//
+// Fast path (O(1)): removes the LRU tail if the key exists in entries.
+// Fallback (O(n)): scans entries for expired or oldest entry (only used
+// when LRU list is empty, e.g. on first use or after corruption).
 fn (mut mc MemoryCache) evict_one_unsafe() {
 	if mc.entries.len == 0 {
 		return
 	}
 
+	// Fast path: O(1) LRU eviction
+	mc.lru_mu.@lock()
+	evict_key := mc.lru_pop_tail_unsafe()
+	mc.lru_mu.unlock()
+
+	if evict_key.len > 0 && evict_key in mc.entries {
+		mc.entries.delete(evict_key)
+		mc.hit_mu.@lock()
+		mc.hit_counts.delete(evict_key)
+		mc.hit_mu.unlock()
+		return
+	}
+
+	// Fallback: LRU list empty or stale — scan all entries
 	mut oldest_key := ''
 	mut oldest_time := i64(9223372036854775807)
 
@@ -309,13 +454,16 @@ pub fn (mut mc MemoryCache) evict_expired() int {
 		}
 	}
 	if expired_keys.len > 0 {
+		mc.lru_mu.@lock()
 		mc.hit_mu.@lock()
 		for key in expired_keys {
 			mc.entries.delete(key)
 			mc.hit_counts.delete(key)
+			mc.lru_remove_unsafe(key)
 			count++
 		}
 		mc.hit_mu.unlock()
+		mc.lru_mu.unlock()
 	}
 	return count
 }

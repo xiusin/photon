@@ -1,5 +1,7 @@
 module orm
 
+import strings
+
 // query_builder.v — Fluent Query Builder (Laravel Eloquent / Spring JdbcTemplate inspired)
 //
 // Provides a chainable query-building API that composes SQL SELECT
@@ -306,40 +308,41 @@ pub fn (mut qb QueryBuilder) to_sql() (string, []string) {
 // build_select composes the full SELECT statement.
 fn (qb &QueryBuilder) build_select() (string, []string) {
 	cols := if qb.columns.len > 0 { qb.columns.join(', ') } else { '*' }
-	mut sql := 'SELECT ${cols} FROM ${qb.table_name}'
+	mut sb := strings.new_builder(256)
+	sb.write_string('SELECT ${cols} FROM ${qb.table_name}')
 
 	// JOINs
 	for join in qb.joins {
-		sql += ' ${join}'
+		sb.write_string(' ${join}')
 	}
 
 	// WHERE
 	if qb.wheres.len > 0 {
-		sql += ' WHERE ${qb.wheres.join(' AND ')}'
+		sb.write_string(' WHERE ${qb.wheres.join(' AND ')}')
 	}
 
 	// GROUP BY
 	if qb.groups.len > 0 {
-		sql += ' GROUP BY ${qb.groups.join(', ')}'
+		sb.write_string(' GROUP BY ${qb.groups.join(', ')}')
 	}
 
 	// HAVING
 	if qb.havings.len > 0 {
-		sql += ' HAVING ${qb.havings.join(' AND ')}'
+		sb.write_string(' HAVING ${qb.havings.join(' AND ')}')
 	}
 
 	// ORDER BY
 	if qb.orders.len > 0 {
-		sql += ' ORDER BY ${qb.orders.join(', ')}'
+		sb.write_string(' ORDER BY ${qb.orders.join(', ')}')
 	}
 
 	// LIMIT / OFFSET
 	if qb.limit_val > 0 {
-		sql += ' LIMIT ${qb.limit_val}'
+		sb.write_string(' LIMIT ${qb.limit_val}')
 	}
 	if qb.offset_val > 0 {
-		sql += ' OFFSET ${qb.offset_val}'
+		sb.write_string(' OFFSET ${qb.offset_val}')
 	}
 
-	return sql, qb.where_args.clone()
+	return sb.str(), qb.where_args.clone()
 }

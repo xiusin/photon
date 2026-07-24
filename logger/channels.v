@@ -9,6 +9,7 @@ module logger
 //   - Request ID auto-injection into log output
 import time
 import os
+import sync
 
 // Channel is a log output destination
 pub interface Channel {
@@ -33,12 +34,18 @@ pub fn (c &StderrChannel) write(level Level, msg string, context map[string]stri
 }
 
 // FileChannel writes log entries to a file.
-// For high-throughput scenarios, consider using a buffered writer
-// or an external log aggregation pipeline.
+// The file handle is opened lazily on the first write and kept open
+// for subsequent writes (no per-write open/close syscalls), so it is
+// suitable for high-throughput logging. Call close() on shutdown to
+// flush and release the handle; call reopen() after external log
+// rotation to re-acquire the file at the same path.
 pub struct FileChannel {
 pub:
 	name_str string = 'file'
 	filepath string
+mut:
+	file os.File   // cached handle, kept open between writes
+	mu   sync.Mutex // guards file open/write/close
 }
 
 pub fn (c &FileChannel) name() string {
@@ -49,12 +56,63 @@ pub fn (c &FileChannel) write(level Level, msg string, context map[string]string
 	mut line := format_log_line(level, msg, context)
 	line = mask_sensitive_data(line)
 
-	mut f := os.open_append(c.filepath) or {
-		eprintln('[LOG ERROR] Failed to open log file: ${c.filepath}')
-		return
+	// The Channel interface requires an immutable receiver; the cached
+	// handle is mutated through unsafe, guarded by the mutex.
+	mut ch := unsafe { c }
+	ch.mu.@lock()
+	defer {
+		ch.mu.unlock()
 	}
-	f.writeln(line) or { eprintln('[LOG ERROR] Failed to write to log file: ${c.filepath}') }
-	f.close()
+
+	if !ch.file.is_opened {
+		ch.file = os.open_append(c.filepath) or {
+			eprintln('[LOG ERROR] Failed to open log file: ${c.filepath}')
+			return
+		}
+	}
+	ch.file.writeln(line) or {
+		// Write failed (e.g., stale handle after rotation): close,
+		// reopen once, and retry.
+		ch.file.close()
+		ch.file = os.open_append(c.filepath) or {
+			eprintln('[LOG ERROR] Failed to reopen log file: ${c.filepath}')
+			return
+		}
+		ch.file.writeln(line) or {
+			eprintln('[LOG ERROR] Failed to write to log file: ${c.filepath}')
+		}
+	}
+	// Flush after every write so log lines are immediately durable and
+	// visible to external readers (same semantics as the old
+	// open/write/close-per-line implementation).
+	ch.file.flush()
+}
+
+// close flushes and closes the cached file handle. Call on shutdown.
+// The next write() lazily reopens the file, so logging can continue.
+pub fn (c &FileChannel) close() {
+	mut ch := unsafe { c }
+	ch.mu.@lock()
+	defer {
+		ch.mu.unlock()
+	}
+	if ch.file.is_opened {
+		ch.file.flush()
+		ch.file.close()
+	}
+}
+
+// reopen closes the cached file handle (if open) so the next write
+// reopens the file at the same path. Call after external log rotation.
+pub fn (c &FileChannel) reopen() {
+	mut ch := unsafe { c }
+	ch.mu.@lock()
+	defer {
+		ch.mu.unlock()
+	}
+	if ch.file.is_opened {
+		ch.file.close()
+	}
 }
 
 // SyslogChannel writes to syslog (stub for Linux)
@@ -199,9 +257,9 @@ const sensitive_patterns = [
 // mask_sensitive_data redacts passwords, tokens, and other sensitive info
 pub fn mask_sensitive_data(msg string) string {
 	mut result := msg
+	lower := msg.to_lower()
 
 	for pattern in sensitive_patterns {
-		lower := result.to_lower()
 		mut pos := 0
 		for {
 			idx := lower.index_after(pattern, pos) or { break }
@@ -226,7 +284,7 @@ pub fn mask_sensitive_data(msg string) string {
 		}
 	}
 
-	if result.to_lower().contains('bearer ') {
+	if lower.contains('bearer ') {
 		mut masked := ''
 		mut i := 0
 		for i < result.len {

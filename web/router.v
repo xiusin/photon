@@ -120,25 +120,62 @@ pub fn print_registered_routes[T]() {
 // ═══════════════════════════════════════════════════════════
 
 // RouteRegistry — 路由注册表（@[heap] 确保指针安全跨模块传递）
+//
+// 索引结构（注册时由 add_route 维护）：
+//   static_routes: 全静态路由哈希表，键为 method:host:path，O(1) 精确匹配
+//   param_routes:  含 :param 的路由按段数分桶，仅与同段数 URL 比较
 @[heap]
 pub struct RouteRegistry {
 pub mut:
-	routes []&RouteDef
+	routes        []&RouteDef
+	static_routes map[string]&RouteDef
+	param_routes  map[int][]&RouteDef
 }
 
 // new_route_registry 创建路由注册表
 pub fn new_route_registry() &RouteRegistry {
-	return &RouteRegistry{}
+	return &RouteRegistry{
+		static_routes: map[string]&RouteDef{}
+		param_routes: map[int][]&RouteDef{}
+	}
+}
+
+// add_route 将路由定义加入注册表，并维护静态/参数索引。
+// 全静态路由进入 static_routes 哈希表（O(1) 查找）；
+// 含 :param 的路由按段数进入 param_routes 分桶列表（桶内保持注册顺序）。
+fn (mut rr RouteRegistry) add_route(def &RouteDef) {
+	rr.routes << def
+
+	mut has_params := false
+	for seg in def.segments {
+		if seg.is_param {
+			has_params = true
+			break
+		}
+	}
+
+	if has_params {
+		n := def.segments.len
+		mut bucket := rr.param_routes[n] or { []&RouteDef{} }
+		bucket << def
+		rr.param_routes[n] = bucket
+	} else {
+		key := route_static_key(def.method, def.host, def.path)
+		// 先注册者优先（与旧线性扫描的首匹配语义一致）
+		if key !in rr.static_routes {
+			rr.static_routes[key] = def
+		}
+	}
 }
 
 // register 注册一条路由（带闭包处理器）
 pub fn (mut rr RouteRegistry) register(method string, path string, handler RouteHandler) &RouteRegistry {
-	rr.routes << &RouteDef{
+	rr.add_route(&RouteDef{
 		method:   method
 		path:     path
 		handler:  handler
 		segments: parse_path(path)
-	}
+	})
 	return rr
 }
 
@@ -151,13 +188,13 @@ pub fn (mut rr RouteRegistry) register(method string, path string, handler Route
 // 用法：
 //   rr.register_with_host('GET', '/api/admin', handler, 'admin.example.com')
 pub fn (mut rr RouteRegistry) register_with_host(method string, path string, handler RouteHandler, host string) &RouteRegistry {
-	rr.routes << &RouteDef{
+	rr.add_route(&RouteDef{
 		method:   method
 		path:     path
 		handler:  handler
 		segments: parse_path(path)
 		host:     host.to_lower()
-	}
+	})
 	return rr
 }
 
@@ -171,7 +208,7 @@ pub fn (mut rr RouteRegistry) register_with_host(method string, path string, han
 //   // 带 host 限制：
 //   rr.register_with_middleware('GET', '/api/admin', handler, [auth_middleware], [], 'admin.example.com')
 pub fn (mut rr RouteRegistry) register_with_middleware(method string, path string, handler RouteHandler, middlewares []MiddlewareFunc, after_middlewares []MiddlewareFunc, host string) &RouteRegistry {
-	rr.routes << &RouteDef{
+	rr.add_route(&RouteDef{
 		method:            method
 		path:              path
 		handler:           handler
@@ -179,7 +216,7 @@ pub fn (mut rr RouteRegistry) register_with_middleware(method string, path strin
 		middlewares:       middlewares
 		after_middlewares: after_middlewares
 		host:              host.to_lower()
-	}
+	})
 	return rr
 }
 
@@ -272,7 +309,7 @@ pub interface Controller {
 // 注意：此方法不执行中间件。如需中间件支持，请使用 dispatch_with_chain()。
 // host 参数用于 host 级路由隔离（空字符串 = 不限制）。
 pub fn (rr &RouteRegistry) dispatch(method string, url_path string, host string, ctx_ptr voidptr) bool {
-	route, params := find_route(rr.routes, method, url_path, host) or {
+	route, params := find_route(rr, method, url_path, host) or {
 		return false
 	}
 	route.handler(ctx_ptr, params)
@@ -297,7 +334,7 @@ pub fn (rr &RouteRegistry) dispatch(method string, url_path string, host string,
 // 用法：
 //   wm.router.dispatch_with_chain(method, path, host, ctx_ptr, wm.chain)
 pub fn (rr &RouteRegistry) dispatch_with_chain(method string, url_path string, host string, ctx_ptr voidptr, chain &MiddlewareChain) bool {
-	route, params := find_route(rr.routes, method, url_path, host) or {
+	route, params := find_route(rr, method, url_path, host) or {
 		return false
 	}
 

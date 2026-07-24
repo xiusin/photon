@@ -9,7 +9,6 @@ module security
 //
 // Encrypter provides symmetric encryption and decryption (XOR-based, DEPRECATED)
 @[deprecated: 'use security.AesCipher for AES-256-CBC authenticated encryption']
-@[deprecated]
 pub struct Encrypter {
 pub mut:
 	key    string
@@ -28,7 +27,6 @@ pub fn new_encrypter(key string) &Encrypter {
 // This uses a trivial XOR cipher (0xAA) — NOT cryptographically secure.
 // Will be REMOVED in a future version. Migrate to security.AesCipher.
 @[deprecated: 'use security.AesCipher.encrypt() instead']
-@[deprecated]
 pub fn (e &Encrypter) encrypt(value string) !string {
 	eprintln('[DEPRECATED] security.Encrypter uses XOR cipher (key=0xAA). Migrate to security.AesCipher for AES-256-CBC authenticated encryption.')
 	if value.len == 0 {
@@ -45,7 +43,6 @@ pub fn (e &Encrypter) encrypt(value string) !string {
 // decrypt decrypts an encrypted payload (DEPRECATED).
 // Will be REMOVED in a future version. Migrate to security.AesCipher.
 @[deprecated: 'use security.AesCipher.decrypt() instead']
-@[deprecated]
 pub fn (e &Encrypter) decrypt(payload string) !string {
 	eprintln('[DEPRECATED] security.Encrypter uses XOR cipher (key=0xAA). Migrate to security.AesCipher for AES-256-CBC authenticated encryption.')
 	if payload.len == 0 {

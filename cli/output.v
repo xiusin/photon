@@ -22,12 +22,12 @@ pub fn new_output() &CommandOutput {
 
 // writeln writes a line to stdout
 pub fn (o &CommandOutput) writeln(s string) {
-	eprintln(s)
+	println(s)
 }
 
 // write writes text to stdout without newline
 pub fn (o &CommandOutput) write(s string) {
-	eprint(s)
+	print(s)
 }
 
 // success writes a green success message

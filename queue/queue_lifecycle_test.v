@@ -1,6 +1,7 @@
 module queue
 
 // queue_lifecycle_test.v - Lifecycle tests for Queue Worker and FailedJobs
+import json
 //
 // Verifies fixes for:
 //   - H3:  Worker.running flag thread-safe (sync.Mutex protected)
@@ -14,7 +15,7 @@ module queue
 // interface returns can be unreliable in V's test compiler.
 @[heap]
 struct LifecycleJob {
-pub:
+pub mut:
 	name string
 }
 
@@ -31,6 +32,15 @@ fn (j &LifecycleJob) tries() int {
 
 fn (j &LifecycleJob) backoff() []i64 {
 	return [i64(1)]
+}
+
+fn (j &LifecycleJob) data() string {
+	return json.encode(j)
+}
+
+fn (mut j LifecycleJob) from_json(data string) ! {
+	decoded := json.decode(LifecycleJob, data)!
+	j.name = decoded.name
 }
 
 // Named factory functions — V's type inference cannot reliably infer

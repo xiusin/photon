@@ -515,7 +515,12 @@ fn (rt RestTemplate) execute_http(entity RequestEntity) !ResponseEntity {
 		// NOTE: net.http.FetchConfig (V 0.5.1) does not expose read/write
 		// timeout fields, so rt.read_timeout / rt.connect_timeout cannot be
 		// applied here. Retained in RequestTemplate for future API support.
-		max_retries: if rt.max_retries > 0 { rt.max_retries } else { 1 }
+		// Retry is owned by execute_with_retry below; vhttp's built-in
+		// retry is limited to a single attempt to avoid double retry.
+		// V 0.5.1 treats max_retries as the total attempt count inside
+		// Request.do() — 0 would skip its send loop entirely (empty
+		// `0..0` range) and break every request, so use 1.
+		max_retries: 1
 	}
 
 	vhttp_resp := execute_with_retry(config, rt.max_retries, rt.retry_base_delay) or {
@@ -596,13 +601,27 @@ fn header_from_map(m map[string]string) vhttp.Header {
 	return h
 }
 
+// is_retryable_method reports whether an HTTP method is idempotent and
+// therefore safe to retry automatically (RFC 9110 §9.2.2).
+// POST/PATCH are excluded: re-sending them may apply the operation twice.
+fn is_retryable_method(method vhttp.Method) bool {
+	return method in [.get, .head, .options, .put, .delete]
+}
+
 fn execute_with_retry(config vhttp.FetchConfig, max_retries int, base_delay int) !vhttp.Response {
 	// vfmt on
 	mut last_error := IError(none)
 	mut attempt := 0
+	retryable := is_retryable_method(config.method)
 
 	for attempt <= max_retries {
 		resp := vhttp.fetch(config) or {
+			// Transport-level failure (network error, timeout).
+			// Non-idempotent methods are not retried: the request may
+			// already have been processed by the server.
+			if !retryable {
+				return err
+			}
 			last_error = err
 			attempt++
 			if attempt <= max_retries {
@@ -611,6 +630,15 @@ fn execute_with_retry(config vhttp.FetchConfig, max_retries int, base_delay int)
 				continue
 			}
 			return err
+		}
+		// Response received: retry only on 5xx server errors.
+		// 4xx client errors (and everything else) are returned as-is.
+		if retryable && resp.status_code >= 500 && resp.status_code < 600
+			&& attempt < max_retries {
+			attempt++
+			delay := base_delay * (1 << u32(attempt - 1))
+			time.sleep(i64(delay) * time.millisecond)
+			continue
 		}
 		return resp
 	}

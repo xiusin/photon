@@ -237,36 +237,9 @@ fn (wm &WebModule) serve_static_with_compression(mut ctx veb.Context, file_path 
 }
 
 // veb_mime_type 根据文件扩展名返回 MIME 类型。
-// 桥接 veb.mime_types 常量。
+// 查找共享的 mime_types 常量。
 fn veb_mime_type(ext string) string {
-	match ext {
-		'.css' { return 'text/css' }
-		'.js' { return 'text/javascript' }
-		'.json' { return 'application/json' }
-		'.html', '.htm' { return 'text/html' }
-		'.xml' { return 'application/xml' }
-		'.txt' { return 'text/plain' }
-		'.md' { return 'text/markdown' }
-		'.png' { return 'image/png' }
-		'.jpg', '.jpeg' { return 'image/jpeg' }
-		'.gif' { return 'image/gif' }
-		'.svg' { return 'image/svg+xml' }
-		'.ico' { return 'image/vnd.microsoft.icon' }
-		'.webp' { return 'image/webp' }
-		'.woff' { return 'font/woff' }
-		'.woff2' { return 'font/woff2' }
-		'.ttf' { return 'font/ttf' }
-		'.otf' { return 'font/otf' }
-		'.pdf' { return 'application/pdf' }
-		'.zip' { return 'application/zip' }
-		'.gz' { return 'application/gzip' }
-		'.zst' { return 'application/zstd' }
-		'.mp4' { return 'video/mp4' }
-		'.webm' { return 'video/webm' }
-		'.mp3' { return 'audio/mpeg' }
-		'.wasm' { return 'application/wasm' }
-		else { return 'application/octet-stream' }
-	}
+	return mime_types[ext] or { 'application/octet-stream' }
 }
 
 // ============================================================

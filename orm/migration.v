@@ -1233,13 +1233,7 @@ fn (mm &MigrationManager) get_batch(version int) int {
 
 // sort_migrations sorts migrations by version number (ascending).
 fn (mut mm MigrationManager) sort_migrations() {
-	for i in 0 .. mm.migrations.len {
-		for j in 0 .. mm.migrations.len - i - 1 {
-			if mm.migrations[j].version() > mm.migrations[j + 1].version() {
-				mm.migrations[j], mm.migrations[j + 1] = mm.migrations[j + 1], mm.migrations[j]
-			}
-		}
-	}
+	mm.migrations.sort(a.version() < b.version())
 }
 
 // driver_or_default returns the driver type for the configured db_name.

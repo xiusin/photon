@@ -17,24 +17,32 @@ pub:
 // e.g., ADMIN > MODERATOR > USER (ADMIN inherits all MODERATOR and USER permissions)
 pub struct RoleHierarchy {
 pub mut:
-	hierarchy map[string][]string // role_name → [parent_role_names]
+	hierarchy       map[string][]string // role_name → [parent_role_names]
+	reachable_cache map[string][]string // role_name → [all reachable roles]
 }
 
 // new_role_hierarchy creates a new RoleHierarchy
 pub fn new_role_hierarchy() &RoleHierarchy {
 	return &RoleHierarchy{
-		hierarchy: map[string][]string{}
+		hierarchy:       map[string][]string{}
+		reachable_cache: map[string][]string{}
 	}
 }
 
 // add_role adds a role with optional parent roles
 pub fn (mut rh RoleHierarchy) add_role(role string, parents []string) {
 	rh.hierarchy[role] = parents
+	// Invalidate the reachable cache when the hierarchy changes
+	rh.reachable_cache = map[string][]string{}
 }
 
 // get_reachable_roles returns all roles reachable from the given role
-// (the role itself plus all parent roles transitively)
+// (the role itself plus all parent roles transitively).
+// Uses precomputed cache when available for O(1) lookup.
 pub fn (rh &RoleHierarchy) get_reachable_roles(role string) []string {
+	if rh.reachable_cache.len > 0 {
+		return rh.reachable_cache[role] or { [role] }
+	}
 	mut reachable := []string{}
 	rh.collect_roles(role, mut reachable)
 	return reachable
@@ -54,6 +62,18 @@ fn (rh &RoleHierarchy) collect_roles(role string, mut collected []string) {
 	for parent in parents {
 		rh.collect_roles(parent, mut collected)
 	}
+}
+
+// build_reachable_cache precomputes all reachable role sets.
+// Call this after all roles are added for O(1) get_reachable_roles lookups.
+pub fn (mut rh RoleHierarchy) build_reachable_cache() {
+	mut cache := map[string][]string{}
+	for role, _ in rh.hierarchy {
+		mut reachable := []string{}
+		rh.collect_roles(role, mut reachable)
+		cache[role] = reachable
+	}
+	rh.reachable_cache = cache.clone()
 }
 
 // has_role checks if a user has a specific role (or inherits it)
@@ -157,6 +177,7 @@ pub fn build_default_hierarchy() &RoleHierarchy {
 	hierarchy.add_role('MODERATOR', ['USER'])
 	hierarchy.add_role('USER', ['GUEST'])
 	hierarchy.add_role('GUEST', [])
+	hierarchy.build_reachable_cache()
 	return hierarchy
 }
 

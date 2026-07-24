@@ -242,7 +242,16 @@ pub fn (mut w QueueWorker) tick() {
 	}
 	w.registry_mu.runlock()
 
-	job := factory()
+	mut job := factory()
+
+	// Deserialize the payload data back into the job struct
+	// 将载荷数据反序列化回任务结构体
+	job.from_json(job_info.data) or {
+		w.record_failure(job_info.name, payload, 'failed to deserialize job data: ${err}',
+			0)
+		w.decrement_active_jobs()
+		return
+	}
 
 	// Fire lifecycle hook: on_job_start
 	// 触发生命周期钩子：on_job_start
@@ -261,9 +270,13 @@ pub fn (mut w QueueWorker) tick() {
 	// Execute with retry
 	// 带重试执行
 	mut job_succeeded := false
+	mut last_error := ''
 	for attempt := 0; attempt < max_tries; attempt++ {
 		mut has_error := false
-		job.handle() or { has_error = true }
+		job.handle() or {
+			has_error = true
+			last_error = err.msg()
+		}
 		if !has_error {
 			// Success — job completed
 			job_succeeded = true
@@ -295,13 +308,18 @@ pub fn (mut w QueueWorker) tick() {
 		d.increment_stat(w.queue_name, .completed, 1)
 		d.increment_stat(w.queue_name, .total, 1)
 	} else {
-		// All retries exhausted — record as failed
-		// 所有重试耗尽 — 记录为失败
-		w.record_failure(job_info.name, payload, 'max retries (${max_tries}) exhausted', max_tries)
+		// All retries exhausted — record as failed with the actual error
+		// 所有重试耗尽 — 携带真实错误信息记录为失败
+		fail_reason := if last_error.len > 0 {
+			last_error
+		} else {
+			'max retries (${max_tries}) exhausted'
+		}
+		w.record_failure(job_info.name, payload, fail_reason, max_tries)
 		// Fire lifecycle hook: on_job_fail
 		// 触发生命周期钩子：on_job_fail
 		if !isnil(w.lifecycle) {
-			w.lifecycle.on_job_fail(job_info.name, 'max retries (${max_tries}) exhausted')
+			w.lifecycle.on_job_fail(job_info.name, fail_reason)
 		}
 		// Update dispatcher stats
 		// 更新分发器统计

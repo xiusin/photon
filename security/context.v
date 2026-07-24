@@ -10,12 +10,14 @@ module security
 pub struct SecurityContext {
 pub mut:
 	authentication &Authentication
+	roles          []string // cached parsed claims for fast has_role checks
 }
 
 // new_security_context creates a new SecurityContext
 pub fn new_security_context() &SecurityContext {
 	return &SecurityContext{
 		authentication: unsafe { nil }
+		roles: []string{}
 	}
 }
 
@@ -29,11 +31,13 @@ pub fn (mut sc SecurityContext) set_authentication(auth &Authentication) {
 	unsafe {
 		sc.authentication = auth
 	}
+	sc.roles = auth.authorities.clone()
 }
 
 // clear removes the current authentication
 pub fn (mut sc SecurityContext) clear() {
 	sc.authentication = unsafe { nil }
+	sc.roles = []string{}
 }
 
 // is_authenticated checks if there is an authenticated user
@@ -49,12 +53,9 @@ pub fn (sc &SecurityContext) get_username() string {
 	return sc.authentication.principal
 }
 
-// get_roles returns the current user's roles
+// get_roles returns the current user's roles (cached after JWT parse)
 pub fn (sc &SecurityContext) get_roles() []string {
-	if sc.authentication == unsafe { nil } || !sc.authentication.is_authenticated() {
-		return []string{}
-	}
-	return sc.authentication.authorities
+	return sc.roles
 }
 
 // has_role checks if the current user has a specific role

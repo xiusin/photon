@@ -6,6 +6,7 @@ module config
 // (files, environment variables, command-line flags) with property binding
 // and profile-based configuration.
 import json
+import sync
 
 // Config manages application configuration from multiple sources
 pub struct Config {
@@ -14,6 +15,8 @@ pub mut:
 	properties map[string]string
 	profiles   []string
 	loaded     bool
+mut:
+	mu         sync.RwMutex
 }
 
 // ConfigSource is a trait for configuration sources
@@ -32,24 +35,32 @@ pub fn new() &Config {
 
 // add_source adds a configuration source. Returns &Config for chaining.
 pub fn (mut c Config) add_source(source ConfigSource) &Config {
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 	c.sources << source
 	return c
 }
 
 // set_profile sets active profile(s). Returns &Config for chaining.
 pub fn (mut c Config) set_profile(profiles []string) &Config {
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 	c.profiles = profiles
 	return c
 }
 
 // add_profile adds a profile. Returns &Config for chaining.
 pub fn (mut c Config) add_profile(profile string) &Config {
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 	c.profiles << profile
 	return c
 }
 
 // load loads all configuration sources and merges properties. Returns &Config for chaining.
 pub fn (mut c Config) load() !&Config {
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 	for mut source in c.sources {
 		props := source.load()!
 		for key, value in props {
@@ -62,60 +73,92 @@ pub fn (mut c Config) load() !&Config {
 
 // get returns a configuration value by key
 pub fn (c &Config) get(key string) string {
+	mut cm := unsafe { &Config(c) }
+	cm.mu.@rlock()
+	defer { cm.mu.runlock() }
 	return c.properties[key] or { '' }
 }
 
 // get_or returns a configuration value or default
 pub fn (c &Config) get_or(key string, default_val string) string {
+	mut cm := unsafe { &Config(c) }
+	cm.mu.@rlock()
+	defer { cm.mu.runlock() }
 	return c.properties[key] or { default_val }
 }
 
 // get_int returns a configuration value as int
 pub fn (c &Config) get_int(key string) !int {
+	mut cm := unsafe { &Config(c) }
+	cm.mu.@rlock()
+	defer { cm.mu.runlock() }
 	val := c.properties[key] or { return error('config key "${key}" not found') }
 	return val.int()
 }
 
 // get_int_or returns a configuration value as int or default
 pub fn (c &Config) get_int_or(key string, default_val int) int {
+	mut cm := unsafe { &Config(c) }
+	cm.mu.@rlock()
+	defer { cm.mu.runlock() }
 	val := c.properties[key] or { return default_val }
 	return val.int()
 }
 
 // get_bool returns a configuration value as bool
 pub fn (c &Config) get_bool(key string) !bool {
+	mut cm := unsafe { &Config(c) }
+	cm.mu.@rlock()
+	defer { cm.mu.runlock() }
 	val := c.properties[key] or { return error('config key "${key}" not found') }
 	return val.bool()
 }
 
 // get_bool_or returns a configuration value as bool or default
 pub fn (c &Config) get_bool_or(key string, default_val bool) bool {
+	mut cm := unsafe { &Config(c) }
+	cm.mu.@rlock()
+	defer { cm.mu.runlock() }
 	val := c.properties[key] or { return default_val }
 	return val.bool()
 }
 
 // get_f64 returns a configuration value as f64
 pub fn (c &Config) get_f64(key string) !f64 {
+	mut cm := unsafe { &Config(c) }
+	cm.mu.@rlock()
+	defer { cm.mu.runlock() }
 	val := c.properties[key] or { return error('config key "${key}" not found') }
 	return val.f64()
 }
 
 // set sets a configuration value
 pub fn (mut c Config) set(key string, value string) {
+	c.mu.@lock()
+	defer { c.mu.unlock() }
 	c.properties[key] = value
 }
 
 // keys returns all configuration keys
 pub fn (c &Config) keys() []string {
+	mut cm := unsafe { &Config(c) }
+	cm.mu.@rlock()
+	defer { cm.mu.runlock() }
 	return c.properties.keys()
 }
 
 // has checks if a key exists
 pub fn (c &Config) has(key string) bool {
+	mut cm := unsafe { &Config(c) }
+	cm.mu.@rlock()
+	defer { cm.mu.runlock() }
 	return key in c.properties
 }
 
 // to_json returns all properties as JSON string
 pub fn (c &Config) to_json() string {
+	mut cm := unsafe { &Config(c) }
+	cm.mu.@rlock()
+	defer { cm.mu.runlock() }
 	return json.encode(c.properties)
 }

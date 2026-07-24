@@ -103,7 +103,7 @@ pub fn (mut d QueueDispatcher) register_job_factory(meta JobMetadata, factory Jo
 // dispatch 将任务推入默认队列
 pub fn dispatch(job Job) ! {
 	mut d := get_dispatcher()
-	payload := serialize_job(job.job_type(), '{}')
+	payload := serialize_job(job.job_type(), job.data())
 	d.driver.push(d.default_queue, payload)!
 	d.increment_stat(d.default_queue, .pending, 1)
 }
@@ -119,7 +119,7 @@ pub fn dispatch_on(job Job, queue_name string) ! {
 	if is_paused {
 		return error('queue ${queue_name} is paused')
 	}
-	payload := serialize_job(job.job_type(), '{}')
+	payload := serialize_job(job.job_type(), job.data())
 	d.driver.push(queue_name, payload)!
 	d.increment_stat(queue_name, .pending, 1)
 }
@@ -129,7 +129,7 @@ pub fn dispatch_on(job Job, queue_name string) ! {
 pub fn dispatch_bulk(jobs []Job) ! {
 	mut d := get_dispatcher()
 	for job in jobs {
-		payload := serialize_job(job.job_type(), '{}')
+		payload := serialize_job(job.job_type(), job.data())
 		d.driver.push(d.default_queue, payload)!
 		d.increment_stat(d.default_queue, .pending, 1)
 	}
@@ -140,7 +140,7 @@ pub fn dispatch_bulk(jobs []Job) ! {
 pub fn dispatch_chain(jobs []Job) ! {
 	mut d := get_dispatcher()
 	for job in jobs {
-		payload := serialize_job(job.job_type(), '{}')
+		payload := serialize_job(job.job_type(), job.data())
 		d.driver.push(d.default_queue, payload)!
 		d.increment_stat(d.default_queue, .pending, 1)
 	}
@@ -161,7 +161,7 @@ pub fn dispatch_chain_with_delay(jobs []Job, delay_secs []int) ! {
 // push 将序列化的任务推入指定队列
 pub fn push(queue_name string, job Job, delay_secs i64) ! {
 	mut d := get_dispatcher()
-	mut payload := serialize_job(job.job_type(), '{}')
+	mut payload := serialize_job(job.job_type(), job.data())
 
 	// Delayed jobs include a timestamp prefix
 	// 延迟任务包含时间戳前缀
@@ -184,11 +184,27 @@ pub fn dispatch_batch(jobs []Job) !string {
 	batch_id := generate_batch_id()
 	mut d := get_dispatcher()
 	for job in jobs {
-		payload := serialize_job(job.job_type(), '{"batch_id":"${batch_id}"}')
+		payload := serialize_job(job.job_type(), inject_batch_id(job.data(), batch_id))
 		d.driver.push(d.default_queue, payload)!
 		d.increment_stat(d.default_queue, .pending, 1)
 	}
 	return batch_id
+}
+
+// inject_batch_id merges the batch_id field into a job's JSON data.
+// job.data() returns a JSON object produced by json.encode; when it is a
+// non-empty object the batch_id key is prepended, otherwise the batch_id
+// alone forms the data (preserving previous behavior).
+//
+// inject_batch_id 将 batch_id 字段合并进任务的 JSON 数据。
+// job.data() 返回 json.encode 产生的 JSON 对象；非空对象时前置 batch_id 键，
+// 否则仅使用 batch_id 作为数据（保持原有行为）。
+fn inject_batch_id(data string, batch_id string) string {
+	inner := data.trim_space()
+	if inner.len > 2 && inner.starts_with('{') && inner.ends_with('}') {
+		return '{"batch_id":"${batch_id}",${inner[1..]}'
+	}
+	return '{"batch_id":"${batch_id}"}'
 }
 
 // get_queue_stats returns statistics for a specific queue

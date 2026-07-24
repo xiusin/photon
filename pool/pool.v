@@ -72,6 +72,8 @@ pub:
 mut:
 	mu           sync.Mutex
 	objects      []PoolEntry
+	free_stack   []voidptr      // stack of free object pointers (O(1) pop/push)
+	obj_index    map[voidptr]int // reverse mapping: object ptr → index in objects
 	active_count int // in-use + reserved slots
 	wait_count   int
 	closed       bool
@@ -135,6 +137,7 @@ pub fn (mut p Pool) initialize() ! {
 	if p.closed {
 		return error('pool "${p.name}" is closed')
 	}
+	p.obj_index = map[voidptr]int{}
 	for _ in 0 .. p.min_size {
 		obj := p.factory.create()!
 		p.objects << PoolEntry{
@@ -142,6 +145,9 @@ pub fn (mut p Pool) initialize() ! {
 			created_at:   time.now().unix()
 			last_used_at: time.now().unix()
 		}
+		idx := p.objects.len - 1
+		p.obj_index[obj] = idx
+		p.free_stack << obj
 	}
 }
 
@@ -228,6 +234,14 @@ fn (mut p Pool) gc_sweep() {
 		}
 	}
 	p.objects = kept
+	p.rebuild_obj_index()
+	// Rebuild free_stack: collect all idle objects from the kept list.
+	p.free_stack = []
+	for entry in kept {
+		if !entry.in_use {
+			p.free_stack << entry.object
+		}
+	}
 	p.mu.unlock()
 
 	// Destroy evicted objects outside the lock to avoid blocking
@@ -237,11 +251,22 @@ fn (mut p Pool) gc_sweep() {
 	}
 }
 
+// rebuild_obj_index rebuilds the reverse-mapping from object pointer to
+// its current index in objects. Must be called after any deletion from
+// objects that shifts indices (e.g. in acquire(), gc_sweep(), close()).
+fn (mut p Pool) rebuild_obj_index() {
+	p.obj_index = map[voidptr]int{}
+	for i, entry in p.objects {
+		p.obj_index[entry.object] = i
+	}
+}
+
 // acquire gets an object from the pool.
 //
-// It first looks for a valid idle object (validating via factory.is_valid).
-// Invalid idle objects are destroyed and removed. If no valid idle object
-// is available and the pool is under max_size, a new object is created.
+// It first looks for a valid idle object from the free stack (O(1) pop),
+// validating via factory.is_valid. Invalid idle objects are destroyed and
+// removed. If no valid idle object is available and the pool is under
+// max_size, a new object is created.
 // Returns an error if the pool is closed or exhausted.
 pub fn (mut p Pool) acquire() !voidptr {
 	p.mu.@lock()
@@ -251,31 +276,33 @@ pub fn (mut p Pool) acquire() !voidptr {
 		return error('pool "${p.name}" is closed')
 	}
 
-	// Find a valid idle object; destroy invalid ones as we go.
-	mut found_obj := unsafe { nil }
-	mut i := 0
-	for i < p.objects.len {
-		entry := p.objects[i]
-		if entry.in_use {
-			i++
+	// Pop from free stack (O(1)) until we find a valid idle object.
+	for p.free_stack.len > 0 {
+		obj_ptr := p.free_stack[p.free_stack.len - 1]
+		p.free_stack.delete(p.free_stack.len - 1)
+
+		idx := p.obj_index[obj_ptr] or { continue }
+		if idx >= p.objects.len {
 			continue
 		}
-		if p.factory.is_valid(entry.object) {
-			p.objects[i].in_use = true
-			p.objects[i].last_used_at = time.now().unix()
-			p.active_count++
-			found_obj = entry.object
-			break
+		entry := p.objects[idx]
+		if entry.in_use {
+			continue
 		}
-		// Invalid: destroy and remove it, then re-check the same index
-		// because the next element shifted into place.
-		p.factory.destroy(entry.object)
-		p.objects.delete(i)
-	}
 
-	if found_obj != unsafe { nil } {
-		p.mu.unlock()
-		return found_obj
+		if p.factory.is_valid(entry.object) {
+			p.objects[idx].in_use = true
+			p.objects[idx].last_used_at = time.now().unix()
+			p.active_count++
+			p.mu.unlock()
+			return entry.object
+		}
+
+		// Invalid: destroy, remove, and rebuild index mapping.
+		p.factory.destroy(entry.object)
+		p.objects.delete(idx)
+		p.obj_index.delete(entry.object)
+		p.rebuild_obj_index()
 	}
 
 	// No valid idle object; create a new one if under the cap.
@@ -298,6 +325,7 @@ pub fn (mut p Pool) acquire() !voidptr {
 			last_used_at: time.now().unix()
 			in_use:       true
 		}
+		p.obj_index[obj] = p.objects.len - 1
 		p.mu.unlock()
 		return obj
 	}
@@ -348,8 +376,8 @@ pub fn (mut p Pool) acquire_guard_with_timeout[T](timeout_seconds int) !PooledGu
 //
 // If the pool is closed, the object is destroyed directly via the factory
 // (it cannot be returned to a closed pool). Otherwise the object is marked
-// idle, active_count is decremented, and last_used_at is updated so the
-// GC can evict it after idle_timeout_seconds.
+// idle via O(1) reverse-mapping lookup, active_count is decremented, and
+// last_used_at is updated so the GC can evict it after idle_timeout_seconds.
 pub fn (mut p Pool) release(obj voidptr) {
 	p.mu.@lock()
 	defer { p.mu.unlock() }
@@ -358,15 +386,15 @@ pub fn (mut p Pool) release(obj voidptr) {
 		p.factory.destroy(obj)
 		return
 	}
-	for i, entry in p.objects {
-		if entry.object == obj && entry.in_use {
-			p.objects[i].in_use = false
-			p.objects[i].last_used_at = time.now().unix()
-			p.active_count--
-			return
-		}
+	idx := p.obj_index[obj] or { return }
+	entry := p.objects[idx]
+	if entry.in_use {
+		p.objects[idx].in_use = false
+		p.objects[idx].last_used_at = time.now().unix()
+		p.active_count--
+		p.free_stack << obj
 	}
-	// Object not found in the pool: silently ignore (backward compat).
+	// Object not found or not in use: silently ignore (backward compat).
 }
 
 // close drains and closes all idle pooled objects.
@@ -397,6 +425,8 @@ pub fn (mut p Pool) close() ! {
 	}
 	p.objects = kept
 	p.active_count = 0
+	p.free_stack = [] // all idle objects destroyed
+	p.rebuild_obj_index()
 	gc_was_started := p.gc_started
 	p.mu.unlock()
 

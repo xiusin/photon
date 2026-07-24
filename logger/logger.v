@@ -284,7 +284,7 @@ pub fn (l &Logger) log(level Level, msg string) {
 	// Write to optional output sinks (file, syslog, etc.)
 	// Channels use their own formatting (format_log_line) and include
 	// sensitive data masking, complementing the encoder output.
-	ctx := unsafe { l.context }
+	ctx := unsafe { *l.context }
 	for ch in l.channels {
 		ch.write(level, msg, ctx)
 	}

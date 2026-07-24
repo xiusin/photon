@@ -359,3 +359,155 @@ fn is_valid_identifier(s string) bool {
 	}
 	return true
 }
+
+// ── Eager batch loading (N+1 prevention) ──
+//
+// eager_load_has_many / eager_load_belongs_to are the batch counterparts
+// of RelationLoader's load_has_many / load_belongs_to: one IN (?, ...)
+// query loads the relation for MANY parents at once.
+//
+// They MUST live in this file (relation.v) rather than eager.v:
+// V 0.5.1 mis-binds explicit type arguments for a generic fn whose
+// signature embeds a generic struct (HasMany[R] / BelongsTo[R]) declared
+// in a DIFFERENT file — the second type parameter R gets substituted
+// with the first one.  They are also module-level functions (not methods
+// on EagerLoader[T]) because V 0.5.1 cannot resolve a method's own type
+// parameter on a generic-struct receiver at all.  Same workaround style
+// as the derived_* wrappers in repository.v.
+
+// eager_load_has_many eager-loads a HasMany relation for multiple parent
+// entities in a single batch query:
+//
+//   SELECT * FROM {child_table} WHERE {foreign_key} IN (?, ?, ...)
+//
+// Each parent's primary key (field with @[primary_key] or named 'id') is
+// used as the map key.  Children are grouped by their FK value; parents
+// with no children receive an empty (but loaded) HasMany.
+//
+// All identifiers (table name, foreign key) are validated against a
+// strict alphanumeric+underscore whitelist to prevent SQL injection.
+// The parent IDs are passed as positional ? parameters.
+pub fn eager_load_has_many[T, R](el &EagerLoader[T], parents []T, mut relations map[int]HasMany[R], fk string) ! {
+	if isnil(el.query_fn) {
+		return error('eager_load_has_many: query_fn not configured')
+	}
+	if parents.len == 0 {
+		return
+	}
+
+	// 1. Validate identifiers (prevent SQL injection via table/column names)
+	target_table := get_table_name[R]()
+	if !is_valid_identifier(target_table) {
+		return error('eager_load_has_many: invalid table name "${target_table}"')
+	}
+	if !is_valid_identifier(fk) {
+		return error('eager_load_has_many: invalid foreign key "${fk}"')
+	}
+
+	// 2. Collect parent IDs via comptime (string args + int map keys)
+	mut ids := []string{cap: parents.len}
+	mut parent_ids := []int{cap: parents.len}
+	for parent in parents {
+		pk_value := get_entity_pk_value(parent)!
+		ids << pk_value
+		parent_ids << pk_value.int()
+	}
+
+	// 3. Execute one batch query with positional ? placeholders
+	placeholders := []string{len: ids.len, init: '?'}.join(', ')
+	query := 'SELECT * FROM ${target_table} WHERE ${fk} IN (${placeholders})'
+	db := el.manager.get_conn(el.db_name)!
+	rows := el.query_fn(db, query, ids)!
+
+	// 4. Map rows to R structs, grouped by their FK value
+	mut grouped := map[int][]R{}
+	for row in rows {
+		mut item := R{}
+		jpa_map_row(mut item, row)
+		fk_value := get_entity_field_value(item, fk)!
+		grouped[fk_value.int()] << item
+	}
+
+	// 5. Backfill relations for every parent (empty when no children)
+	for pid in parent_ids {
+		mut items := []R{}
+		if pid in grouped {
+			items = grouped[pid]
+		}
+		relations[pid] = HasMany[R]{
+			items:  items
+			loaded: true
+		}
+	}
+}
+
+// eager_load_belongs_to eager-loads BelongsTo for multiple parent entities
+// in a single batch query:
+//
+//   SELECT * FROM {parent_table} WHERE id IN (?, ?, ...)
+//
+// Each parent's FK field ({fk}) supplies the referenced parent's primary
+// key.  Referenced parents are fetched in one query and matched back by
+// id.  Null FKs ('0' or empty) and missing rows leave the BelongsTo item
+// as the zero value (with loaded = true), matching RelationLoader.
+//
+// All identifiers are validated against a strict alphanumeric+underscore
+// whitelist.  FK values are passed as positional ? parameters.
+pub fn eager_load_belongs_to[T, R](el &EagerLoader[T], parents []T, mut relations map[int]BelongsTo[R], fk string) ! {
+	if isnil(el.query_fn) {
+		return error('eager_load_belongs_to: query_fn not configured')
+	}
+	if parents.len == 0 {
+		return
+	}
+
+	// 1. Validate identifiers
+	target_table := get_table_name[R]()
+	if !is_valid_identifier(target_table) {
+		return error('eager_load_belongs_to: invalid table name "${target_table}"')
+	}
+
+	// 2. Collect distinct, non-null FK values, remembering each parent's FK
+	mut fk_values := []string{cap: parents.len}
+	mut parent_fks := map[int]string{}
+	mut parent_ids := []int{cap: parents.len}
+	for parent in parents {
+		pk_value := get_entity_pk_value(parent)!
+		pid := pk_value.int()
+		fk_value := get_field_value(parent, fk)
+		parent_ids << pid
+		parent_fks[pid] = fk_value
+		if fk_value != '' && fk_value != '0' && fk_value !in fk_values {
+			fk_values << fk_value
+		}
+	}
+
+	// 3. Fetch all referenced parents in one query, indexed by their PK
+	mut by_id := map[string]R{}
+	if fk_values.len > 0 {
+		placeholders := []string{len: fk_values.len, init: '?'}.join(', ')
+		query := 'SELECT * FROM ${target_table} WHERE id IN (${placeholders})'
+		db := el.manager.get_conn(el.db_name)!
+		rows := el.query_fn(db, query, fk_values)!
+		for row in rows {
+			mut item := R{}
+			jpa_map_row(mut item, row)
+			id_value := get_entity_pk_value(item)!
+			by_id[id_value] = item
+		}
+	}
+
+	// 4. Backfill per-parent relations (null FK / missing row → zero value)
+	for pid in parent_ids {
+		mut item := R{}
+		if fk_value := parent_fks[pid] {
+			if found := by_id[fk_value] {
+				item = found
+			}
+		}
+		relations[pid] = BelongsTo[R]{
+			item:   item
+			loaded: true
+		}
+	}
+}

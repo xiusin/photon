@@ -19,9 +19,13 @@ mut:
 // TimerScheduler manages all timer buckets.
 // The background goroutine lifecycle is controlled via stop_signal and
 // tracked with wg so that stop() can guarantee the goroutine has fully exited.
+//
+// optimizer tracks each bucket's head deadline so scheduler_run only locks
+// buckets with expired timers instead of polling all 64 buckets every tick.
 struct TimerScheduler {
 mut:
 	buckets     [num_buckets]Bucket
+	optimizer   &BucketHeadHeap = new_bucket_head_heap(num_buckets)
 	running     bool
 	counter     u64
 	mu          sync.Mutex
@@ -120,13 +124,18 @@ fn scheduler_run(s &TimerScheduler, stop_signal chan bool) {
 			break
 		}
 
-		mut min_when := i64(0)
-		mut has_timer := false
-
 		now := time.now().unix_nano()
 
-		for i in 0 .. num_buckets {
-			mut bucket := &s.buckets[i]
+		// Only visit buckets whose head timer has expired, instead of
+		// locking all 64 buckets per tick. expired_buckets() checks each
+		// candidate out of the optimizer; it is checked back in via
+		// sync_bucket_head() after processing, while the bucket lock is
+		// still held, so concurrent add/remove updates stay serialized.
+		mut opt := s.optimizer
+		expired := opt.expired_buckets(now)
+
+		for idx in expired {
+			mut bucket := &s.buckets[idx]
 			bucket.heap.mu.@lock()
 			for !bucket.heap.is_empty() {
 				top := bucket.heap.peek()
@@ -150,27 +159,43 @@ fn scheduler_run(s &TimerScheduler, stop_signal chan bool) {
 						bucket.heap.push(new_entry)
 					}
 				} else {
-					if !has_timer || top.when < min_when {
-						min_when = top.when
-						has_timer = true
-					}
 					break
 				}
 			}
+			// Publish the bucket's new head (covers periodic re-insertion)
+			// before releasing the lock.
+			sync_bucket_head(s, idx)
 			bucket.heap.mu.unlock()
 		}
 
+		// Sleep until the soonest bucket head deadline across all buckets.
 		mut sleep_ms := 50
-		if has_timer {
-			diff := int((min_when - now) / 1_000_000)
+		next := opt.next_deadline(now)
+		if next <= now {
+			// A concurrently added timer is already due; re-poll quickly.
+			sleep_ms = 1
+		} else {
+			diff := int((next - now) / 1_000_000)
 			if diff < sleep_ms && diff > 0 {
 				sleep_ms = diff
 			}
 		}
-		if sleep_ms < 1 {
-			sleep_ms = 1
-		}
 		time.sleep(sleep_ms * time.millisecond)
+	}
+}
+
+// sync_bucket_head publishes a bucket's current head deadline to the
+// optimizer. It must be called while holding the bucket's heap lock, so
+// every optimizer update for a bucket stays serialized with that bucket's
+// heap mutations (lock order: bucket heap lock -> optimizer lock).
+fn sync_bucket_head(s &TimerScheduler, bucket_idx int) {
+	mut bucket := &s.buckets[bucket_idx]
+	mut opt := s.optimizer
+	if bucket.heap.is_empty() {
+		opt.update(bucket_idx, i64(9223372036854775807), false)
+	} else {
+		head := bucket.heap.peek()
+		opt.update(bucket_idx, head.when, true)
 	}
 }
 
@@ -182,6 +207,7 @@ fn (mut s TimerScheduler) add_entry(entry TimerEntry) int {
 	mut bucket := &s.buckets[idx]
 	bucket.heap.mu.@lock()
 	bucket.heap.push(entry)
+	sync_bucket_head(s, idx)
 	bucket.heap.mu.unlock()
 	return idx
 }
@@ -211,5 +237,6 @@ fn (mut s TimerScheduler) remove_entry(bucket_idx int, when i64, period i64) {
 			break
 		}
 	}
+	sync_bucket_head(s, bucket_idx)
 	bucket.heap.mu.unlock()
 }

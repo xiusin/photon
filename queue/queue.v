@@ -38,6 +38,13 @@ pub interface Job {
 	handle() !
 	tries() int
 	backoff() []i64
+	// data serializes the job's fields to JSON for transport
+	// data 将任务字段序列化为 JSON 用于传输
+	data() string
+mut:
+	// from_json populates the job's fields from JSON data
+	// from_json 从 JSON 数据填充任务字段
+	from_json(data string) !
 }
 
 // ============================================================

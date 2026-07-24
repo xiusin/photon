@@ -467,7 +467,21 @@ pub fn (mut env Environment) get_cli_args() map[string]string {
 //   'server.port'    → 'PHOTON_SERVER_PORT'
 //   'db.host'        → 'PHOTON_DB_HOST'
 pub fn env_var_name_for_key(key string) string {
-	return 'PHOTON_' + key.to_upper().replace('.', '_').replace('-', '_')
+	prefix := 'PHOTON_'
+	mut buf := []u8{cap: prefix.len + key.len}
+	for c in prefix {
+		buf << u8(c)
+	}
+	for c in key {
+		if c == `.` || c == `-` {
+			buf << `_`
+		} else if c >= `a` && c <= `z` {
+			buf << u8(c - 32)
+		} else {
+			buf << u8(c)
+		}
+	}
+	return buf.bytestr()
 }
 
 // lookup_env_var checks if a PHOTON_* environment variable exists for the

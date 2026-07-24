@@ -284,14 +284,26 @@ pub fn (mut b EmailBuilder) build() Email {
 
 // ── Template Rendering ──
 
+// html_escape escapes special HTML characters to prevent XSS attacks.
+// Escapes &, <, >, ", ' characters in that order (ampersand first).
+pub fn html_escape(s string) string {
+	mut result := s
+	result = result.replace('&', '&amp;')
+	result = result.replace('<', '&lt;')
+	result = result.replace('>', '&gt;')
+	result = result.replace('"', '&quot;')
+	result = result.replace("'", '&#39;')
+	return result
+}
+
 // render_template substitutes {{variable}} placeholders in a template string.
-// Variables are replaced with their values from the data map.
-// Unknown variables are left as-is (or replaced with empty string).
+// Variables are HTML-escaped to prevent XSS attacks.
+// Unknown variables are left as-is.
 pub fn render_template(template string, data map[string]string) string {
 	mut result := template
 	for key, val in data {
 		placeholder := '{{${key}}}'
-		result = result.replace(placeholder, val)
+		result = result.replace(placeholder, html_escape(val))
 	}
 	return result
 }

@@ -24,6 +24,9 @@ pub struct Environment {
 pub mut:
 	property_sources []&PropertySource
 	active_profiles  []string
+mut:
+	source_cache     map[string]string
+	cache_valid      bool
 }
 
 // new_environment creates an Environment
@@ -34,6 +37,22 @@ pub fn new_environment() &Environment {
 // add_source registers a property source
 pub fn (mut e Environment) add_source(source &PropertySource) {
 	e.property_sources << source
+	e.cache_valid = false
+}
+
+// build_cache builds the full merge cache by calling get_all_with_prefix('') on
+// all sources. Sources are iterated in forward order so that later sources
+// (higher priority) override earlier ones. This matches get_property's reverse
+// traversal semantics: the last source with a key wins.
+fn (mut e Environment) build_cache() {
+	e.source_cache = map[string]string{}
+	// Iterate forward: later sources override earlier (highest priority wins)
+	for mut source in e.property_sources {
+		for key, value in source.get_all_with_prefix('') {
+			e.source_cache[key] = value
+		}
+	}
+	e.cache_valid = true
 }
 
 // add_profile activates a profile
@@ -58,14 +77,20 @@ pub fn (e &Environment) accepts_profile(profile string) bool {
 
 // get_property retrieves a property from any source
 pub fn (mut e Environment) get_property(key string) ?string {
-	// Check sources in reverse order (last added = highest priority)
-	mut i := e.property_sources.len
-	for i > 0 {
-		i--
-		mut source := e.property_sources[i]
-		if val := source.get_property(key) {
+	// Fast path: O(1) cache lookup
+	if e.cache_valid {
+		if val := e.source_cache[key] {
 			return val
 		}
+		return none
+	}
+
+	// Build the full merge cache on first access (lazy)
+	e.build_cache()
+
+	// O(1) lookup from the now-built cache
+	if val := e.source_cache[key] {
+		return val
 	}
 	return none
 }

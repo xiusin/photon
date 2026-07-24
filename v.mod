@@ -4,5 +4,5 @@ Module {
 	version: '0.1.0'
 	license: 'MIT'
 	repo_url: 'https://github.com/photon-framework/photon'
-	dependencies: ['xiusin.vredis']
+	dependencies: ['xiusin.vredis >= 0.1.0']
 }

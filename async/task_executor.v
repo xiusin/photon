@@ -86,9 +86,18 @@ fn worker_loop(mut te TaskExecutor) {
 		if task == unsafe { nil } {
 			return
 		}
-		task()
+		// run_task wraps task() so panics are caught via the ! return type.
+		run_task(task) or {
+			eprintln('TaskExecutor: task panicked - ${err}')
+		}
 		te.task_wg.done()
 	}
+}
+
+// run_task executes a TaskFunc and returns ! so the caller can catch
+// panics with an or block, ensuring task_wg.done() is always called.
+fn run_task(task TaskFunc) ! {
+	task()
 }
 
 // submit enqueues a task for execution by a worker. Blocks if the queue

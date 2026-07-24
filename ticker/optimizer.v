@@ -19,16 +19,20 @@ mut:
 	has_timer  bool
 }
 
-// BucketHeadHeap is a min-heap of bucket heads for O(log n) polling
+// BucketHeadHeap is a min-heap of bucket heads for O(log n) polling.
+// Maintains a reverse index (pos_index) mapping bucket_idx → heap position,
+// so update() locates the bucket in O(1) instead of O(n) linear scan.
 struct BucketHeadHeap {
 mut:
-	heads []BucketHead
-	mu    sync.Mutex
+	heads     []BucketHead
+	pos_index map[int]int // bucket_idx → heap position
+	mu        sync.Mutex
 }
 
 fn new_bucket_head_heap(num_buckets int) &BucketHeadHeap {
 	mut h := &BucketHeadHeap{
-		heads: []BucketHead{len: num_buckets}
+		heads:     []BucketHead{len: num_buckets}
+		pos_index: map[int]int{}
 	}
 	for i in 0 .. num_buckets {
 		h.heads[i] = BucketHead{
@@ -36,29 +40,32 @@ fn new_bucket_head_heap(num_buckets int) &BucketHeadHeap {
 			min_when:   i64(9223372036854775807) // max i64
 			has_timer:  false
 		}
+		h.pos_index[i] = i
 	}
 	return h
 }
 
-// update sets the min_when for a bucket (called after push/pop)
+// update sets the min_when for a bucket (called after push/pop).
+// Uses pos_index for O(1) bucket lookup instead of linear scan.
 fn (mut h BucketHeadHeap) update(bucket_idx int, min_when i64, has_timer bool) {
-	if bucket_idx < 0 || bucket_idx >= h.heads.len {
+	h.mu.@lock()
+	pos := h.pos_index[bucket_idx] or {
+		h.mu.unlock()
 		return
 	}
 
-	h.mu.@lock()
-	old_when := h.heads[bucket_idx].min_when
-	h.heads[bucket_idx].min_when = min_when
-	h.heads[bucket_idx].has_timer = has_timer
+	old_when := h.heads[pos].min_when
+	h.heads[pos].min_when = min_when
+	h.heads[pos].has_timer = has_timer
 
 	// Sift to maintain heap property
 	if has_timer && min_when < old_when {
-		h.sift_up(bucket_idx)
+		h.sift_up(pos)
 	} else if !has_timer {
-		h.heads[bucket_idx].min_when = i64(9223372036854775807)
-		h.sift_down(bucket_idx)
+		h.heads[pos].min_when = i64(9223372036854775807)
+		h.sift_down(pos)
 	} else if min_when > old_when {
-		h.sift_down(bucket_idx)
+		h.sift_down(pos)
 	}
 	h.mu.unlock()
 }
@@ -91,7 +98,8 @@ fn (mut h BucketHeadHeap) next_deadline(now i64) i64 {
 	return h.heads[0].min_when
 }
 
-// 4-ary heap operations for bucket heads
+// 4-ary heap operations for bucket heads.
+// Both sift_up and sift_down update pos_index in sync with head swaps.
 fn (mut h BucketHeadHeap) sift_up(idx int) {
 	mut i := idx
 	for i > 0 {
@@ -99,7 +107,10 @@ fn (mut h BucketHeadHeap) sift_up(idx int) {
 		if h.heads[parent].min_when <= h.heads[i].min_when {
 			break
 		}
+		// Swap heads and update pos_index
 		h.heads[parent], h.heads[i] = h.heads[i], h.heads[parent]
+		h.pos_index[h.heads[parent].bucket_idx] = parent
+		h.pos_index[h.heads[i].bucket_idx] = i
 		i = parent
 	}
 }
@@ -119,7 +130,10 @@ fn (mut h BucketHeadHeap) sift_down(idx int) {
 		if smallest == i {
 			break
 		}
+		// Swap heads and update pos_index
 		h.heads[i], h.heads[smallest] = h.heads[smallest], h.heads[i]
+		h.pos_index[h.heads[i].bucket_idx] = i
+		h.pos_index[h.heads[smallest].bucket_idx] = smallest
 		i = smallest
 	}
 }

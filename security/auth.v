@@ -94,16 +94,14 @@ pub:
 	jwt_manager &JwtManager
 }
 
-// supports checks if the auth has a Bearer token or a JWT-like token.
-// Bearer-prefixed tokens are always accepted; raw tokens are accepted
-// if they have the JWT three-segment pattern or sufficient length.
+// supports checks if the auth has a Bearer token or a JWT token.
+// JWT tokens start with 'eyJ' (base64url encoding of '{"') and
+// have exactly three dot-separated segments (header.payload.signature).
 pub fn (jp &JwtAuthenticationProvider) supports(auth &Authentication) bool {
 	if auth.credentials.starts_with('Bearer ') {
 		return true
 	}
-	// JWT-like check: three base64 segments separated by dots, or
-	// long enough to be a raw JWT (min header+payload+sig)
-	return auth.credentials.count('.') == 2 || auth.credentials.len > 20
+	return auth.credentials.starts_with('eyJ') && auth.credentials.count('.') == 2
 }
 
 // authenticate validates the JWT token
@@ -132,10 +130,11 @@ pub:
 	password_encoder &PasswordEncoder
 }
 
-// supports checks if the auth has a username and password
+// supports checks if the auth has a username and password (not a JWT token)
 pub fn (up &UsernamePasswordAuthenticationProvider) supports(auth &Authentication) bool {
 	return auth.principal.len > 0 && auth.credentials.len > 0
 		&& !auth.credentials.starts_with('Bearer ')
+		&& !auth.credentials.starts_with('eyJ')
 }
 
 // authenticate validates username and password against UserDetailsService

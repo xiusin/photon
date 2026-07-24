@@ -144,43 +144,42 @@ pub fn has_attr(attrs []string, name string) bool {
 	return name in attrs
 }
 
-// extract_scope parses @[scope('singleton')] from attributes.
-pub fn extract_scope(attrs []string) Scope {
+// extract_attr_value is the common helper for parsing attribute values.
+// Searches attrs for one starting with `prefix:` or `prefix(`,
+// strips the prefix and any trailing `)`, then returns the trimmed value.
+// Returns empty string if no matching attribute is found.
+fn extract_attr_value(attrs []string, prefix string) string {
+	prefix_colon := prefix + ':'
+	prefix_paren := prefix + '('
 	for attr in attrs {
-		if attr.starts_with('scope:') || attr.starts_with('scope(') {
+		if attr.starts_with(prefix_colon) || attr.starts_with(prefix_paren) {
 			mut val := attr
-			if val.starts_with('scope:') {
-				val = val['scope:'.len..]
-			} else if val.starts_with('scope(') {
-				val = val['scope('.len..]
+			if val.starts_with(prefix_colon) {
+				val = val[prefix_colon.len..]
+			} else {
+				val = val[prefix_paren.len..]
 				if val.ends_with(')') {
 					val = val[..val.len - 1]
 				}
 			}
-			val = val.trim("'").trim('"').trim_space()
-			return scope_from_str(val)
+			return val.trim_space().trim("'").trim('"').trim_space()
 		}
+	}
+	return ''
+}
+
+// extract_scope parses @[scope('singleton')] from attributes.
+pub fn extract_scope(attrs []string) Scope {
+	val := extract_attr_value(attrs, 'scope')
+	if val.len > 0 {
+		return scope_from_str(val)
 	}
 	return .singleton
 }
 
 // extract_qualifier parses @[qualifier('name')] from attributes.
 pub fn extract_qualifier(attrs []string) string {
-	for attr in attrs {
-		if attr.starts_with('qualifier:') || attr.starts_with('qualifier(') {
-			mut val := attr
-			if val.starts_with('qualifier:') {
-				val = val['qualifier:'.len..]
-			} else if val.starts_with('qualifier(') {
-				val = val['qualifier('.len..]
-				if val.ends_with(')') {
-					val = val[..val.len - 1]
-				}
-			}
-			return val.trim("'").trim('"').trim_space()
-		}
-	}
-	return ''
+	return extract_attr_value(attrs, 'qualifier')
 }
 
 // extract_value_expr parses @[value('config.key')] from attributes.
@@ -188,23 +187,7 @@ pub fn extract_qualifier(attrs []string) string {
 //   @[value: 'app.name']  → attr = "value: 'app.name'"  → returns "app.name"
 //   @[value('app.name')]  → attr = "value('app.name')"  → returns "app.name"
 pub fn extract_value_expr(attrs []string) string {
-	for attr in attrs {
-		if attr.starts_with('value:') || attr.starts_with('value(') {
-			mut val := attr
-			if val.starts_with('value:') {
-				val = val['value:'.len..]
-			} else if val.starts_with('value(') {
-				val = val['value('.len..]
-				if val.ends_with(')') {
-					val = val[..val.len - 1]
-				}
-			}
-			// Trim space first so surrounding quotes are at the edges,
-			// then strip matching quotes, then trim any inner space.
-			return val.trim_space().trim("'").trim('"').trim_space()
-		}
-	}
-	return ''
+	return extract_attr_value(attrs, 'value')
 }
 
 // has_method_attr checks if a method has a specific attribute.
@@ -219,31 +202,19 @@ pub fn has_method_attr(method_attrs []string, target_attr string) bool {
 //
 // Returns a list of bean names that this bean depends on for creation order.
 pub fn extract_depends_on(attrs []string) []string {
-	for attr in attrs {
-		if attr.starts_with('depends_on:') || attr.starts_with('depends_on(') {
-			mut val := attr
-			if val.starts_with('depends_on:') {
-				val = val['depends_on:'.len..]
-			} else if val.starts_with('depends_on(') {
-				val = val['depends_on('.len..]
-				if val.ends_with(')') {
-					val = val[..val.len - 1]
-				}
-			}
-			val = val.trim("'").trim('"').trim_space()
-			// Support comma-separated list: 'BeanA','BeanB' or BeanA,BeanB
-			mut names := []string{}
-			parts := val.split(',')
-			for part in parts {
-				trimmed := part.trim_space().trim("'").trim('"')
-				if trimmed.len > 0 {
-					names << trimmed
-				}
-			}
-			return names
+	val := extract_attr_value(attrs, 'depends_on')
+	if val.len == 0 {
+		return []string{}
+	}
+	mut names := []string{}
+	parts := val.split(',')
+	for part in parts {
+		trimmed := part.trim_space().trim("'").trim('"')
+		if trimmed.len > 0 {
+			names << trimmed
 		}
 	}
-	return []string{}
+	return names
 }
 
 // has_primary_attr checks if @[primary] attribute is present.
@@ -255,21 +226,7 @@ pub fn has_primary_attr(attrs []string) bool {
 // extract_parent_name parses @[extends('ParentBean')] from attributes.
 // Used for BeanDefinition property inheritance.
 pub fn extract_parent_name(attrs []string) string {
-	for attr in attrs {
-		if attr.starts_with('extends:') || attr.starts_with('extends(') {
-			mut val := attr
-			if val.starts_with('extends:') {
-				val = val['extends:'.len..]
-			} else if val.starts_with('extends(') {
-				val = val['extends('.len..]
-				if val.ends_with(')') {
-					val = val[..val.len - 1]
-				}
-			}
-			return val.trim("'").trim('"').trim_space()
-		}
-	}
-	return ''
+	return extract_attr_value(attrs, 'extends')
 }
 
 // ── @[profile] Annotation Parsing ──
@@ -292,26 +249,15 @@ pub fn extract_parent_name(attrs []string) string {
 //   // → ['dev']
 pub fn extract_profiles(attrs []string) []string {
 	mut profiles := []string{}
-	for attr in attrs {
-		if attr.starts_with('profile:') || attr.starts_with('profile(') {
-			mut val := attr
-			if val.starts_with('profile:') {
-				val = val['profile:'.len..]
-			} else if val.starts_with('profile(') {
-				val = val['profile('.len..]
-				if val.ends_with(')') {
-					val = val[..val.len - 1]
-				}
-			}
-			val = val.trim_space()
-			// Support comma-separated list: 'dev','prod' or dev,prod
-			parts := val.split(',')
-			for part in parts {
-				trimmed := part.trim_space().trim("'").trim('"')
-				if trimmed.len > 0 {
-					profiles << trimmed
-				}
-			}
+	val := extract_attr_value(attrs, 'profile')
+	if val.len == 0 {
+		return profiles
+	}
+	parts := val.split(',')
+	for part in parts {
+		trimmed := part.trim_space().trim("'").trim('"')
+		if trimmed.len > 0 {
+			profiles << trimmed
 		}
 	}
 	return profiles
@@ -372,23 +318,7 @@ pub fn has_event_listener(attrs []string) bool {
 // extract_scheduled_expr parses @[scheduled('cron')] from attributes.
 // Spring equivalent: @Scheduled(cron = "0 0 * * *")
 pub fn extract_scheduled_expr(attrs []string) string {
-	for attr in attrs {
-		if attr.starts_with('scheduled:') || attr.starts_with('scheduled(') {
-			mut val := attr
-			if val.starts_with('scheduled:') {
-				val = val['scheduled:'.len..]
-			} else if val.starts_with('scheduled(') {
-				val = val['scheduled('.len..]
-				if val.ends_with(')') {
-					val = val[..val.len - 1]
-				}
-			}
-			// Trim spaces first so that surrounding quotes become the
-			// outermost characters and can be stripped in one pass.
-			return val.trim_space().trim("'\"")
-		}
-	}
-	return ''
+	return extract_attr_value(attrs, 'scheduled')
 }
 
 // ── @[scheduled] Comptime Scanning (Task C4) ──
@@ -468,21 +398,7 @@ pub fn dispatch_scheduled_method[T](bean_ptr voidptr, method_name string) ! {
 // extract_cacheable_key parses @[cacheable('key_pattern')] from attributes.
 // Spring equivalent: @Cacheable(key = "#id")
 pub fn extract_cacheable_key(attrs []string) string {
-	for attr in attrs {
-		if attr.starts_with('cacheable:') || attr.starts_with('cacheable(') {
-			mut val := attr
-			if val.starts_with('cacheable:') {
-				val = val['cacheable:'.len..]
-			} else if val.starts_with('cacheable(') {
-				val = val['cacheable('.len..]
-				if val.ends_with(')') {
-					val = val[..val.len - 1]
-				}
-			}
-			return val.trim("'").trim('"').trim_space()
-		}
-	}
-	return ''
+	return extract_attr_value(attrs, 'cacheable')
 }
 
 // ── @Configuration + @Bean Model ──

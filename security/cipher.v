@@ -21,20 +21,22 @@ module security
 //     "tag": ""
 //   }
 import crypto.aes
+import crypto.cipher
 import crypto.hmac
 import crypto.sha256
 import crypto.sha512
 import encoding.hex
 import encoding.base64
 import json
-import rand
+import crypto.rand
 
 // ── AES-256-CBC Cipher ──
 
 // AesCipher provides AES-256-CBC encryption with HMAC authentication.
 pub struct AesCipher {
 pub:
-	key []u8 // Must be 32 bytes for AES-256
+	key    []u8 // Must be 32 bytes for AES-256
+	cipher cipher.Block // Pre-computed AES key schedule
 }
 
 // new_aes_cipher creates an AesCipher with the given key.
@@ -43,8 +45,10 @@ pub fn new_aes_cipher(key string) !&AesCipher {
 	if key.len != 32 {
 		return error('AES-256 key must be exactly 32 bytes, got ${key.len}')
 	}
+	key_bytes := key.bytes().clone()
 	return &AesCipher{
-		key: key.bytes().clone()
+		key:    key_bytes
+		cipher: aes.new_cipher(key_bytes.clone())
 	}
 }
 
@@ -62,7 +66,7 @@ pub fn (c &AesCipher) encrypt(plaintext string) !string {
 	padded := pkcs7_pad(plaintext.bytes(), aes.block_size)
 
 	// AES-256-CBC encryption
-	encrypted := aes_cbc_encrypt(padded, c.key, iv)
+	encrypted := c.aes_cbc_encrypt(padded, iv)
 
 	// Compute HMAC-SHA256 over IV + ciphertext
 	mac_value := compute_hmac(iv, encrypted, c.key)
@@ -106,7 +110,7 @@ pub fn (c &AesCipher) decrypt(payload_str string) !string {
 	}
 
 	// AES-256-CBC decryption
-	decrypted_padded := aes_cbc_decrypt(encrypted, c.key, iv)
+	decrypted_padded := c.aes_cbc_decrypt(encrypted, iv)
 
 	// Remove PKCS7 padding
 	decrypted := pkcs7_unpad(decrypted_padded) or { return error('invalid PKCS7 padding') }
@@ -180,11 +184,9 @@ fn pkcs7_unpad(data []u8) ![]u8 {
 // ── AES-CBC Implementation ──
 
 // aes_cbc_encrypt encrypts data using AES-256-CBC.
-fn aes_cbc_encrypt(data []u8, key []u8, iv []u8) []u8 {
+fn (c &AesCipher) aes_cbc_encrypt(data []u8, iv []u8) []u8 {
 	mut result := []u8{len: data.len, init: 0}
 	mut prev := iv.clone()
-
-	mut c := aes.new_cipher(key.clone())
 
 	for i := 0; i < data.len; i += aes.block_size {
 		// XOR with previous ciphertext block (CBC mode)
@@ -195,7 +197,7 @@ fn aes_cbc_encrypt(data []u8, key []u8, iv []u8) []u8 {
 
 		// Encrypt block with AES-256
 		mut encrypted_block := []u8{len: aes.block_size, init: 0}
-		c.encrypt(mut encrypted_block, block)
+		c.cipher.encrypt(mut encrypted_block, block)
 
 		for j in 0 .. aes.block_size {
 			result[i + j] = encrypted_block[j]
@@ -207,11 +209,9 @@ fn aes_cbc_encrypt(data []u8, key []u8, iv []u8) []u8 {
 }
 
 // aes_cbc_decrypt decrypts data using AES-256-CBC.
-fn aes_cbc_decrypt(data []u8, key []u8, iv []u8) []u8 {
+fn (c &AesCipher) aes_cbc_decrypt(data []u8, iv []u8) []u8 {
 	mut result := []u8{len: data.len, init: 0}
 	mut prev := iv.clone()
-
-	mut c := aes.new_cipher(key.clone())
 
 	for i := 0; i < data.len; i += aes.block_size {
 		// Save current ciphertext block for next iteration
@@ -219,7 +219,7 @@ fn aes_cbc_decrypt(data []u8, key []u8, iv []u8) []u8 {
 
 		// Decrypt block with AES-256
 		mut decrypted_block := []u8{len: aes.block_size, init: 0}
-		c.decrypt(mut decrypted_block, cipher_block)
+		c.cipher.decrypt(mut decrypted_block, cipher_block)
 
 		// XOR with previous ciphertext block
 		for j in 0 .. aes.block_size {
@@ -235,11 +235,11 @@ fn aes_cbc_decrypt(data []u8, key []u8, iv []u8) []u8 {
 
 // generate_random_bytes generates cryptographically secure random bytes.
 fn generate_random_bytes(n int) []u8 {
-	mut bytes := []u8{len: n}
-	for i in 0 .. n {
-		bytes[i] = u8(rand.intn(256) or { 0 })
+	return rand.read(n) or {
+		// crypto/rand failure is fatal — do NOT fall back to weak randomness.
+		// A predictable IV/salt would undermine the security of the cipher.
+		panic('crypto/rand failed: cannot generate secure random bytes')
 	}
-	return bytes
 }
 
 // ── SHA-512 Hashing ──

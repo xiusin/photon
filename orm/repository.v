@@ -1257,6 +1257,30 @@ fn jpa_map_row[T](mut entity T, row []string) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// KeysetPageRequest — Cursor-Based (Seek Method) Pagination
+// ═══════════════════════════════════════════════════════════════════
+//
+// Also known as "keyset pagination" or "cursor-based pagination".
+// Instead of LIMIT/OFFSET (which requires SELECT COUNT(*)), keyset
+// pagination uses WHERE id > ? ORDER BY id LIMIT ? to jump directly
+// to the next page. This:
+//
+//   - Avoids COUNT(*) entirely (O(log n) with index, not O(n) scan)
+//   - Is stable even when rows are inserted/deleted between requests
+//   - Works with infinite scroll / "load more" patterns
+//
+// Cannot jump to arbitrary pages — only next/previous navigation.
+
+// KeysetPageRequest represents a cursor-based pagination request.
+pub struct KeysetPageRequest {
+pub:
+	after_value string       // cursor value (empty for first page)
+	sort_field  string = 'id' // field name used for ordering
+	sort_dir    string = 'asc' // 'asc' or 'desc'
+	limit       int    = 20   // number of items to return per page
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // PageResult[T] — Lightweight Pagination Result (Task 3)
 // ═══════════════════════════════════════════════════════════════════
 //
@@ -1435,4 +1459,100 @@ pub fn (mut repo JpaRepository[T]) paginate(page int, page_size int) !PageResult
 	}
 
 	return new_page_result[T](entities, total, page_num, page_size)
+}
+
+// find_keyset returns items using keyset (cursor-based) pagination
+// and the next cursor value. Unlike offset-based pagination, this
+// does NOT execute SELECT COUNT(*), making it O(log n) with an index
+// on the sort column instead of O(n) full scan.
+//
+// The returned `next_cursor` is the sort-field value of the last
+// item in the current page. Pass it as `after_value` in the next
+// request. An empty `next_cursor` means there are no more pages.
+//
+// Example:
+//   // First page
+//   req := KeysetPageRequest{limit: 10}
+//   items, cursor := repo.find_keyset(req)!
+//   // Next page
+//   if cursor != '' {
+//       req.after_value = cursor
+//       items2, cursor2 := repo.find_keyset(req)!
+//   }
+//
+// For descending order, set sort_dir to 'desc'. The comparison
+// operator is automatically flipped (< instead of >).
+pub fn (mut repo JpaRepository[T]) find_keyset(req KeysetPageRequest) !([]T, string) {
+	if isnil(repo.query_fn) {
+		return error('find_keyset: query_fn not configured / 未配置 query_fn')
+	}
+	if req.limit <= 0 {
+		return error('find_keyset: limit must be positive, got ${req.limit} / limit 必须为正数, 实际为 ${req.limit}')
+	}
+
+	// Resolve sort field to DB column name
+	sort_col := repo.resolve_column_name(req.sort_field)
+
+	// Find sort column index in result set (for cursor extraction)
+	mut sort_col_idx := -1
+	for i, cn in repo.column_names {
+		if cn == sort_col {
+			sort_col_idx = i
+			break
+		}
+	}
+
+	// Determine comparison operator and SQL sort direction.
+	// Default to ascending; only 'desc' (case-insensitive) flips the order.
+	is_desc := req.sort_dir.to_lower() == 'desc'
+	cmp_op := if is_desc { '<' } else { '>' }
+	sort_dir_sql := if is_desc { 'DESC' } else { 'ASC' }
+
+	db := repo.orm_manager.get_conn(repo.db_name)!
+
+	// Fetch limit + 1 rows to detect if there are more pages
+	fetch_limit := (req.limit + 1).str()
+
+	mut query := 'SELECT ${repo.columns_clause()} FROM ${repo.table_name}'
+	mut args := []string{}
+
+	// WHERE clause: skip if after_value is empty (first page)
+	if req.after_value != '' {
+		query += ' WHERE ${sort_col} ${cmp_op} ?'
+		args << req.after_value
+	}
+
+	query += ' ORDER BY ${sort_col} ${sort_dir_sql} LIMIT ?'
+	args << fetch_limit
+
+	rows := repo.query_fn(db, query, args)!
+
+	// Determine if there are more items (we fetched limit + 1)
+	has_more := rows.len > req.limit
+
+	// Trim the extra row if we have more than requested
+	effective_rows := if has_more {
+		rows[..req.limit]
+	} else {
+		rows
+	}
+
+	// Map rows to entities
+	mut entities := []T{cap: effective_rows.len}
+	for row in effective_rows {
+		mut entity := T{}
+		jpa_map_row(mut entity, row)
+		entities << entity
+	}
+
+	// Compute next cursor from the last returned item's sort-field value
+	mut next_cursor := ''
+	if has_more && entities.len > 0 && sort_col_idx >= 0 {
+		last_row := effective_rows[effective_rows.len - 1]
+		if sort_col_idx < last_row.len {
+			next_cursor = last_row[sort_col_idx]
+		}
+	}
+
+	return entities, next_cursor
 }

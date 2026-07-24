@@ -203,7 +203,7 @@ fn is_old_argon2_hash(hash string) bool {
 	}
 	// If salt is hex-only and has no base64 special chars, it's likely old format
 	return salt.len >= 16 && salt.len <= 64
-		&& salt.bytes().all(it in `0123456789abcdefABCDEF`)
+		&& salt.bytes().all(it in '0123456789abcdefABCDEF'.bytes())
 }
 
 // ── Old format verification (for backward-compatible migration) ──

@@ -38,13 +38,57 @@ pub fn (la &LocalAdapter) adapter_name() string {
 	return 'local'
 }
 
-// resolve_path joins the root with the given path
-fn (la &LocalAdapter) resolve_path(path string) string {
+// resolve_path joins the root with the given path, resolves .. and . segments,
+// and verifies the result stays within the configured root directory.
+fn (la &LocalAdapter) resolve_path(path string) !string {
 	clean := path.trim_left('/')
-	if la.root.ends_with('/') {
-		return la.root + clean
+
+	// Join root and clean path
+	full := if la.root.ends_with('/') {
+		la.root + clean
+	} else {
+		'${la.root}/${clean}'
 	}
-	return '${la.root}/${clean}'
+
+	// Resolve . and .. segments manually
+	resolved := normalize_path(full)
+
+	// Normalize root for comparison
+	root_resolved := normalize_path(la.root)
+
+	// Verify path containment: resolved must equal root or be a subdirectory
+	if resolved != root_resolved && !resolved.starts_with(root_resolved + '/') {
+		return error('path traversal denied: "${path}" escapes root directory')
+	}
+
+	return resolved
+}
+
+// normalize_path resolves . and .. path segments to produce a canonical path
+fn normalize_path(path string) string {
+	mut segments := []string{}
+	for seg in path.split('/') {
+		if seg == '' || seg == '.' {
+			continue
+		}
+		if seg == '..' {
+			if segments.len > 0 {
+				segments.delete(segments.len - 1)
+			}
+			continue
+		}
+		segments << seg
+	}
+
+	mut result := '/'
+	for i, seg in segments {
+		if i > 0 {
+			result += '/'
+		}
+		result += seg
+	}
+
+	return result
 }
 
 // ============================================================
@@ -53,13 +97,13 @@ fn (la &LocalAdapter) resolve_path(path string) string {
 
 // read reads a file's contents
 pub fn (la &LocalAdapter) read(path string) !string {
-	full := la.resolve_path(path)
+	full := la.resolve_path(path)!
 	return os.read_file(full)
 }
 
 // write creates or overwrites a file
 pub fn (mut la LocalAdapter) write(path string, contents string, options StorageWriteOptions) ! {
-	full := la.resolve_path(path)
+	full := la.resolve_path(path)!
 
 	// Ensure parent directory exists — non-fatal if it already exists
 	parent := dirname(full)
@@ -78,13 +122,13 @@ pub fn (mut la LocalAdapter) write(path string, contents string, options Storage
 
 // delete removes a file
 pub fn (la &LocalAdapter) delete(path string) ! {
-	full := la.resolve_path(path)
+	full := la.resolve_path(path)!
 	os.rm(full)!
 }
 
 // exists checks if a file exists
 pub fn (la &LocalAdapter) exists(path string) bool {
-	full := la.resolve_path(path)
+	full := la.resolve_path(path)!
 	return os.exists(full)
 }
 
@@ -94,8 +138,8 @@ pub fn (la &LocalAdapter) exists(path string) bool {
 
 // copy duplicates a file
 pub fn (la &LocalAdapter) copy(source string, dest string) ! {
-	src := la.resolve_path(source)
-	dst := la.resolve_path(dest)
+	src := la.resolve_path(source)!
+	dst := la.resolve_path(dest)!
 
 	// Ensure destination directory exists
 	parent := dirname(dst)
@@ -112,8 +156,8 @@ pub fn (la &LocalAdapter) copy(source string, dest string) ! {
 
 // move renames or moves a file
 pub fn (la &LocalAdapter) move(source string, dest string) ! {
-	src := la.resolve_path(source)
-	dst := la.resolve_path(dest)
+	src := la.resolve_path(source)!
+	dst := la.resolve_path(dest)!
 
 	// Ensure destination directory exists
 	parent := dirname(dst)
@@ -128,7 +172,7 @@ pub fn (la &LocalAdapter) move(source string, dest string) ! {
 
 // size returns the file size in bytes
 pub fn (la &LocalAdapter) size(path string) !i64 {
-	full := la.resolve_path(path)
+	full := la.resolve_path(path)!
 	return os.file_size(full)
 }
 
@@ -142,13 +186,13 @@ pub fn (la &LocalAdapter) mime_type(path string) !string {
 
 // last_modified returns the file's last modification time
 pub fn (la &LocalAdapter) last_modified(path string) !i64 {
-	full := la.resolve_path(path)
+	full := la.resolve_path(path)!
 	return os.file_last_mod_unix(full)
 }
 
 // metadata returns comprehensive file metadata
 pub fn (mut la LocalAdapter) metadata(path string) !&FileMetadata {
-	full := la.resolve_path(path)
+	full := la.resolve_path(path)!
 	if !os.exists(full) {
 		return error('file not found: ${path}')
 	}
@@ -168,7 +212,7 @@ pub fn (mut la LocalAdapter) metadata(path string) !&FileMetadata {
 // This is best-effort — full permission control requires platform-specific code.
 // The permissions cache is bounded to max_permissions entries (FIFO eviction).
 pub fn (mut la LocalAdapter) set_visibility(path string, visibility Visibility) ! {
-	full := la.resolve_path(path)
+	full := la.resolve_path(path)!
 	if !os.exists(full) {
 		return error('file not found: ${path}')
 	}
@@ -227,7 +271,7 @@ pub fn (mut la LocalAdapter) visibility(path string) !Visibility {
 
 // list_contents returns metadata for all files in a directory
 pub fn (la &LocalAdapter) list_contents(directory string) ![]&FileMetadata {
-	full := la.resolve_path(directory)
+	full := la.resolve_path(directory)!
 	if !os.exists(full) {
 		return error('directory not found: ${directory}')
 	}
@@ -241,7 +285,7 @@ pub fn (la &LocalAdapter) list_contents(directory string) ![]&FileMetadata {
 		} else {
 			'${directory}/${entry}'
 		}
-		full_entry := la.resolve_path(entry_path)
+		full_entry := la.resolve_path(entry_path)!
 
 		if os.is_dir(full_entry) {
 			// Directories are listed as files with size 0
@@ -270,13 +314,13 @@ pub fn (la &LocalAdapter) list_contents(directory string) ![]&FileMetadata {
 
 // create_directory makes a new directory
 pub fn (la &LocalAdapter) create_directory(path string) ! {
-	full := la.resolve_path(path)
+	full := la.resolve_path(path)!
 	os.mkdir_all(full)!
 }
 
 // delete_directory removes a directory and all contents
 pub fn (la &LocalAdapter) delete_directory(path string) ! {
-	full := la.resolve_path(path)
+	full := la.resolve_path(path)!
 	os.rmdir_all(full)!
 }
 
@@ -326,8 +370,8 @@ pub fn (mut la LocalAdapter) put_file(source_path string, dest_path string, opti
 // ============================================================
 
 // full_path returns the absolute filesystem path (for debugging)
-pub fn (la &LocalAdapter) full_path(path string) string {
-	return la.resolve_path(path)
+pub fn (la &LocalAdapter) full_path(path string) !string {
+	return la.resolve_path(path)!
 }
 
 // dirname extracts the directory portion of a path

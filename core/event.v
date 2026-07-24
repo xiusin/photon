@@ -165,21 +165,24 @@ pub fn (mut bus EventBus) on_with_priority(event_name string, listener EventList
 	bus.sharded_mu.@lock(event_name)
 	defer { bus.sharded_mu.unlock(event_name) }
 	mut listeners := bus.listeners[event_name] or { []RegisteredListener{} }
-	listeners << RegisteredListener{
+	new_listener := RegisteredListener{
 		id:         id
 		listener:   listener
 		priority:   priority
 		event_name: event_name
 	}
-	// Sort by priority (ascending — lower fires first)
-	listeners.sort_with_compare(fn (a &RegisteredListener, b &RegisteredListener) int {
-		if a.priority < b.priority {
-			return -1
-		} else if a.priority > b.priority {
-			return 1
+	// Binary search for insertion point (listeners are sorted by priority ascending)
+	mut left := 0
+	mut right := listeners.len
+	for left < right {
+		mid := (left + right) / 2
+		if listeners[mid].priority <= priority {
+			left = mid + 1
+		} else {
+			right = mid
 		}
-		return 0
-	})
+	}
+	listeners.insert(left, new_listener)
 	bus.listeners[event_name] = listeners
 	return id
 }

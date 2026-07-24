@@ -5,6 +5,13 @@ module cache
 // Provides call deduplication: multiple concurrent requests for the same key
 // are coalesced into a single execution. Equivalent to Go's singleflight.
 // Prevents cache stampede / thundering herd under high concurrency.
+//
+// Notification mechanism:
+//   - Each Call has a buffered done_ch channel (cap:1).
+//   - The leader sends on done_ch when the call completes.
+//   - Followers select on done_ch with a fallback sleep to avoid busy-waiting.
+//   - This replaces the previous 1ms polling loop with immediate wakeup
+//     when the leader finishes.
 import sync
 import time
 
@@ -12,9 +19,10 @@ import time
 struct Call {
 	key string
 mut:
-	val  string
-	err  string
-	done bool
+	val     string
+	err     string
+	done    bool
+	done_ch chan bool // closed/sent when leader completes
 }
 
 // Singleflight deduplicates concurrent function calls for the same key.
@@ -47,7 +55,8 @@ pub fn (mut sf Singleflight) do(key string, f fn () !string) !string {
 	if isnil(existing) {
 		// Leader — create in-flight Call and execute fn
 		mut c := &Call{
-			key: key
+			key:     key
+			done_ch: chan bool{cap: 1}
 		}
 		sf.calls[key] = c
 		sf.mu.unlock()
@@ -57,6 +66,11 @@ pub fn (mut sf Singleflight) do(key string, f fn () !string) !string {
 			sf.mu.@lock()
 			c.err = err.msg()
 			c.done = true
+			// Notify followers via channel (non-blocking send)
+			select {
+				c.done_ch <- true {}
+				else {}
+			}
 			sf.calls.delete(key)
 			sf.mu.unlock()
 			return err
@@ -66,6 +80,11 @@ pub fn (mut sf Singleflight) do(key string, f fn () !string) !string {
 		sf.mu.@lock()
 		c.val = result
 		c.done = true
+		// Notify followers via channel (non-blocking send)
+		select {
+			c.done_ch <- true {}
+			else {}
+		}
 		sf.calls.delete(key)
 		sf.mu.unlock()
 
@@ -75,16 +94,22 @@ pub fn (mut sf Singleflight) do(key string, f fn () !string) !string {
 	// Follower — leader is already executing for this key
 	sf.mu.unlock()
 
-	// Wait for leader with lock-protected polling to ensure
-	// memory ordering on all architectures
+	// Wait for leader with channel notification + fallback polling
 	for {
 		sf.mu.@lock()
-		done := existing.done
-		sf.mu.unlock()
-		if done {
+		if existing.done {
+			sf.mu.unlock()
 			break
 		}
-		time.sleep(1 * time.millisecond)
+		sf.mu.unlock()
+
+		// Select on done_ch for immediate wakeup; else fallback to 1ms sleep
+		select {
+			_ := <-existing.done_ch {}
+			else {
+				time.sleep(1 * time.millisecond)
+			}
+		}
 	}
 
 	// Read final result under lock for memory ordering
