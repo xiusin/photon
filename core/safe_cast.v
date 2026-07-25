@@ -72,8 +72,8 @@ pub fn as_bean_definition_registry(c &Container) &BeanDefinitionRegistry {
 }
 
 // as_environment upcasts an Environment to the common interface used by ApplicationContext.
-pub fn as_environment(env &Environment) &core_environment {
-	return unsafe { &core_environment(env) }
+pub fn as_environment(env &Environment) &CoreEnvironment {
+	return unsafe { &CoreEnvironment(env) }
 }
 
 // ── Generic Type Cast ──
@@ -93,7 +93,8 @@ pub fn as_interface[T, I]() fn (&T) &I {
 // ── Core Environment Interface ──
 // Lightweight interface for Environment operations used by ApplicationContext.
 
-pub interface core_environment {
+pub interface CoreEnvironment {
+mut:
 	get_active_profiles() []string
 	accepts_profile(profile string) bool
 }

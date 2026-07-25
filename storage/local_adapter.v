@@ -128,7 +128,7 @@ pub fn (la &LocalAdapter) delete(path string) ! {
 
 // exists checks if a file exists
 pub fn (la &LocalAdapter) exists(path string) bool {
-	full := la.resolve_path(path)!
+	full := la.resolve_path(path) or { return false }
 	return os.exists(full)
 }
 

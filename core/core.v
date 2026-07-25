@@ -826,6 +826,26 @@ pub fn (mut c Container) singleton_count() int {
 	return c.instances.len
 }
 
+// snapshot_singletons returns a map of all instantiated singleton names → instance
+// pointers, including alias mappings. Used by ApplicationContext.freeze_bean_definitions()
+// to pre-warm the resolve cache for lock-free resolution after freezing.
+//
+// Thread-safety: acquires the container read lock to produce a consistent view.
+pub fn (mut c Container) snapshot_singletons() map[string]voidptr {
+	c.mu.rlock()
+	defer { c.mu.runlock() }
+	mut result := map[string]voidptr{}
+	for name, bean_inst in c.instances {
+		result[name] = bean_inst.instance
+	}
+	for alias, canonical in c.aliases {
+		if bean_inst := c.instances[canonical] {
+			result[alias] = bean_inst.instance
+		}
+	}
+	return result
+}
+
 // dependencies_of returns the dependencies for a given bean.
 pub fn (mut c Container) dependencies_of(type_name string) []Dependency {
 	c.mu.rlock()

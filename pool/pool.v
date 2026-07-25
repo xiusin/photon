@@ -361,6 +361,7 @@ pub fn (mut p Pool) acquire_with_timeout(timeout_seconds int) !voidptr {
 		}
 		return obj
 	}
+	return error('unreachable')
 }
 
 // acquire_guard_with_timeout acquires a typed RAII guard, blocking up to

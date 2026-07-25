@@ -767,7 +767,7 @@ pub:
 pub struct MigrationManager {
 pub mut:
 	manager         &OrmManager
-	migrations      []&Migration
+	migrations      []Migration
 	sql_migrations  []SqlMigration
 	db_name         string = 'default'
 	migration_table string = 'schema_migrations'
@@ -831,7 +831,7 @@ pub fn (mut mm MigrationManager) set_auto_schema(enabled bool) {
 }
 
 // add adds a migration to the list.
-pub fn (mut mm MigrationManager) add(migration &Migration) {
+pub fn (mut mm MigrationManager) add(migration Migration) {
 	mm.migrations << migration
 }
 
@@ -1085,7 +1085,7 @@ pub fn (mut mm MigrationManager) rollback() ! {
 	last_batch := mm.applied_records[mm.applied_records.len - 1].batch
 
 	// Find migrations in the last batch (in reverse order)
-	mut to_rollback := []&Migration{}
+	mut to_rollback := []Migration{}
 	for migration in mm.migrations {
 		for record in mm.applied_records {
 			if record.version == migration.version() && record.batch == last_batch {

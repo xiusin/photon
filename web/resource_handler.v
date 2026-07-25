@@ -31,7 +31,7 @@ pub:
 //   })
 @[params]
 pub struct StaticCompressionConfig {
-pub:
+pub mut:
 	// 是否启用自动压缩（zstd 优先，gzip 回退）
 	enable bool
 	// 仅 gzip 压缩（不含 zstd）

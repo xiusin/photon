@@ -879,6 +879,19 @@ pub fn (mut ctx ApplicationContext) freeze_bean_definitions() {
 		}
 	}
 	ctx.frozen_bean_defs = snapshot.clone()
+
+	// 预热 resolve_cache：将所有已实例化的 singleton 及其 alias 写入缓存。
+	// refresh() 步骤 5 直接调用 ctx.container.resolve(name) 绕过了
+	// ApplicationContext.resolve()，导致 resolve_cache 未被填充。
+	// 若不预热，冻结后 resolve() 的无锁快速路径永远不命中，每次都走
+	// Container.resolve（加锁慢速路径），严重影响性能。
+	//
+	// Pre-warm resolve_cache with all instantiated singletons and their aliases.
+	// Without this, the lock-free fast path in resolve() never hits after freezing.
+	for name, instance in ctx.container.snapshot_singletons() {
+		ctx.resolve_cache[name] = instance
+	}
+
 	ctx.is_frozen = true
 }
 
