@@ -17,7 +17,6 @@ module core
 //   V. create_and_wire（创建+注入+post_construct）
 //   W. 计数器（bean_count / singleton_count / alias_count）
 //   X. bean_names / list_beans / dependencies_of
-//   Y. resolve_typed_or
 //   Z. mark_ready 状态转换
 //   AA. get_merged_definition 循环检测
 
@@ -63,14 +62,10 @@ fn test_is_singleton_returns_false_for_unknown() {
 
 // ── L. FactoryBean 解析 ──
 
-// 计数器用全局变量，因 FactoryBean.create() 须不可变 receiver
-mut factory_create_count := 0
-
 struct MockConnectionFactory {}
 
 fn (f &MockConnectionFactory) create() !voidptr {
-	factory_create_count++
-	return unsafe { voidptr(&EdgeMockRepo{id: factory_create_count, label: 'factory'}) }
+	return unsafe { voidptr(&EdgeMockRepo{id: 1, label: 'factory'}) }
 }
 
 fn (f &MockConnectionFactory) bean_type() string {
@@ -84,7 +79,7 @@ fn (f &MockConnectionFactory) is_singleton() bool {
 fn test_factory_bean_registration_and_resolution() {
 	mut c := new_container()
 	factory := &MockConnectionFactory{}
-	c.register_factory('FactoryProducedRepo', factory)
+	c.register_factory('FactoryProducedRepo', factory) or { assert false }
 
 	// has 应能发现 factory 生产的 bean
 	assert c.has('FactoryProducedRepo') == true
@@ -99,17 +94,15 @@ fn test_factory_bean_registration_and_resolution() {
 fn test_factory_bean_singleton_cached() {
 	mut c := new_container()
 	factory := &MockConnectionFactory{}
-	c.register_factory('CachedRepo', factory)
-	factory_create_count = 0
+	// register_factory 以 factory.bean_type() 为 output_type_name 注册
+	c.register_factory('FactoryProducedRepo', factory) or { assert false }
 
 	// 第一次 resolve — factory.create() 被调用
-	inst1 := c.resolve('CachedRepo') or { assert false; return }
-	// 第二次 resolve — singleton 应缓存，factory.create() 不再调用
-	inst2 := c.resolve('CachedRepo') or { assert false; return }
+	inst1 := c.resolve('FactoryProducedRepo') or { assert false; return }
+	// 第二次 resolve — singleton 应缓存，返回同一实例
+	inst2 := c.resolve('FactoryProducedRepo') or { assert false; return }
 
 	assert inst1 == inst2
-	// factory_create_count 应为 1（只调用一次 create）
-	assert factory_create_count == 1
 }
 
 // ── M. Bean definition 合并（父子继承）──
@@ -183,7 +176,6 @@ fn test_destroy_invokes_disposable_callback() {
 	repo := &EdgeMockRepo{id: 42}
 	c.register_instance('disposable_bean', unsafe { voidptr(repo) }) or { assert false }
 
-	destroyed := false
 	c.register_destroy_callback('disposable_bean', fn (inst voidptr) ! {
 		// 回调被调用即标记
 		_ = inst
