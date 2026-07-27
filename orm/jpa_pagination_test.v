@@ -2,7 +2,7 @@ module orm
 
 import support
 
-// jpa_pagination_test.v - Tests for JpaRepository[T].find_all_paged() (Task B1)
+// jpa_pagination_test.v - Tests for Repository[T].find_all_paged() (Task B1)
 //
 // Verifies Spring Data-style pagination:
 //   - First / middle / last page content and metadata
@@ -70,11 +70,11 @@ fn page_mock_reset() {
 	}
 }
 
-fn page_mock_setup[T]() !JpaRepository[T] {
+fn page_mock_setup[T]() !Repository[T] {
 	page_mock_reset()
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
-	return new_jpa_repository[T](om, 'default', 'page_test_table', page_mock_exec, page_mock_query)!
+	return new_repository[T](om, 'default', 'page_test_table', page_mock_exec, page_mock_query)!
 }
 
 // page_mock_exec handles INSERT / CREATE TABLE statements.
@@ -241,7 +241,7 @@ fn page_mock_sort(mut rows []PageMockRow, col string, dir string) {
 // Inserts `count` test users with names 'User1', 'User2', ..., 'UserN'.
 // Returns the populated repository.
 
-fn page_setup_with_users(count int) !JpaRepository[PageTestUser] {
+fn page_setup_with_users(count int) !Repository[PageTestUser] {
 	mut repo := page_mock_setup[PageTestUser]()!
 	repo.create_table()!
 	for i in 1 .. count + 1 {

@@ -3,7 +3,7 @@ module support
 // page.v - Page[T] result container for pagination
 //
 // Pairs with PageRequest (defined in sort.v) to provide a Spring
-// Data-style pagination result.  JpaRepository[T].find_all_paged()
+// Data-style pagination result.  Repository[T].find_all_paged()
 // returns a Page[T] containing the page items plus total count and
 // navigation metadata.
 //

@@ -21,7 +21,7 @@ pub:
 // EagerLoader preloads relations for entities.
 //
 // SQL execution is delegated to user-supplied callbacks (SqlExecFn /
-// SqlQueryFn — the same types used by RelationLoader and JpaRepository),
+// SqlQueryFn — the same types used by RelationLoader and Repository),
 // because photon/orm cannot import db drivers (module-name collision
 // in V 0.5.1).  Use new_eager_loader_with_fns() to configure them.
 pub struct EagerLoader[T] {

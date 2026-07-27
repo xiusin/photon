@@ -800,7 +800,7 @@ pub fn new_migration_manager(manager &OrmManager) &MigrationManager {
 // database identified by `db_name` and track applied versions in the
 // `_photon_migrations` table.
 //
-// The callbacks share the same signature as JpaRepository's
+// The callbacks share the same signature as Repository's
 // SqlExecFn / SqlQueryFn (db voidptr, query string, args []string) so
 // the same sqlite/pg/mysql adapter works for both.
 pub fn new_migration_manager_with_fns(manager &OrmManager, db_name string, exec_fn SqlExecFn, query_fn SqlQueryFn) &MigrationManager {

@@ -36,7 +36,7 @@ import support
 //   user2 := repo.find_by_id(1)!  // ORM query + AfterFind hook
 
 // Repository is the generic repository trait.
-pub interface Repository[T] {
+pub interface RepositoryInterface[T] {
 	find_by_id(id int) !T
 	find_all() ![]T
 	save(mut entity T) !T
@@ -90,13 +90,13 @@ pub type OrmExecExists = fn (conn voidptr, id int) bool
 // isnil() guards in each method are retained as defense-in-depth.
 // BaseRepository[T] wraps OrmAdapter[T] with user-supplied ORM callbacks.
 //
-// @note: For most use cases, prefer JpaRepository[T] which reduces the
+// @note: For most use cases, prefer Repository[T] which reduces the
 // required callbacks from 7 to 2 (exec_fn + query_fn) via comptime SQL
 // generation. BaseRepository exists for cases where you need full control
 // over the SQL execution path.
 //
-// Migration: replace 7 individual callbacks with JpaRepository:
-//   JpaRepository only needs exec_fn (INSERT/UPDATE/DELETE) and
+// Migration: replace 7 individual callbacks with Repository:
+//   Repository only needs exec_fn (INSERT/UPDATE/DELETE) and
 //   query_fn (SELECT → [][]string). CRUD SQL is generated at compile time.
 pub struct BaseRepository[T] {
 pub mut:
@@ -543,10 +543,10 @@ pub fn derived_delete_by[T](dr &DerivedRepository[T], method string, params ...v
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// JpaRepository[T] — Comptime-Derived Repository (P0 8.3)
+// Repository[T] — Comptime-Derived Repository (P0 8.3)
 // ═══════════════════════════════════════════════════════════════════
 //
-// Inspired by Spring Data's JpaRepository.  Uses V's comptime to
+// Inspired by Spring Data's Repository.  Uses V's comptime to
 // derive SQL from the entity struct T, eliminating the need for the
 // 7 CRUD-specific callbacks that BaseRepository requires.
 //
@@ -556,7 +556,7 @@ pub fn derived_delete_by[T](dr &DerivedRepository[T], method string, params ...v
 //   exec_find_all, exec_insert, exec_update, exec_delete, exec_count,
 //   exec_exists) — each containing hand-written ORM logic.
 //
-//   JpaRepository replaces them with 2 GENERIC callbacks:
+//   Repository replaces them with 2 GENERIC callbacks:
 //     • exec_fn  — execute non-query SQL (INSERT/UPDATE/DELETE/DDL)
 //     • query_fn — execute SELECT, return rows as [][]string
 //
@@ -587,7 +587,7 @@ pub fn derived_delete_by[T](dr &DerivedRepository[T], method string, params ...v
 //           return rows.map(it.vals)
 //       }
 //
-//       mut repo := orm.new_jpa_repository[User](om, 'default', 'users', exec_fn, query_fn)!
+//       mut repo := orm.new_repository[User](om, 'default', 'users', exec_fn, query_fn)!
 //       repo.create_table()!                       // CREATE TABLE IF NOT EXISTS
 //       repo.save(&User{name: 'Alice', ...})!      // INSERT (comptime-derived)
 //       user := repo.find_by_id(1)!                // SELECT ... WHERE id = ?
@@ -597,10 +597,10 @@ pub fn derived_delete_by[T](dr &DerivedRepository[T], method string, params ...v
 //
 // ── @[autowired] / DI Integration (SubTask 13.4) ──
 //
-//   JpaRepository itself is not a Photon bean (it is generic, and V's
+//   Repository itself is not a Photon bean (it is generic, and V's
 //   comptime DI cannot instantiate arbitrary T at container startup).
 //   Instead, autowire the &OrmManager into a @[component] factory and
-//   call new_jpa_repository[T]() from there:
+//   call new_repository[T]() from there:
 //
 //       @[component]
 //       pub struct UserService {
@@ -608,8 +608,8 @@ pub fn derived_delete_by[T](dr &DerivedRepository[T], method string, params ...v
 //           om &OrmManager
 //       }
 //
-//       fn (s &UserService) repo() !JpaRepository[User] {
-//           return new_jpa_repository[User](s.om, 'default', 'users',
+//       fn (s &UserService) repo() !Repository[User] {
+//           return new_repository[User](s.om, 'default', 'users',
 //               my_exec_fn, my_query_fn)!
 //       }
 //
@@ -647,7 +647,7 @@ pub type SqlQueryFn = fn (db voidptr, query string, args []string) ![][]string
 // SqlAffectedRowsFn returns the number of rows affected by the most
 // recent UPDATE/DELETE/INSERT executed on `db` (e.g. sqlite's
 // `db.changes()`).  Required for optimistic-lock conflict detection
-// in JpaRepository.update() when the entity has a `@[version]` field.
+// in Repository.update() when the entity has a `@[version]` field.
 pub type SqlAffectedRowsFn = fn (db voidptr) !int
 
 // ── Optimistic Locking (Task B8) ──
@@ -678,9 +678,9 @@ pub fn (e OptimisticLockException) code() int {
 	return e.code
 }
 
-// JpaRepository[T] is a comptime-derived repository backed by two
+// Repository[T] is a comptime-derived repository backed by two
 // generic SQL execution callbacks.  See the module-level docs above.
-pub struct JpaRepository[T] {
+pub struct Repository[T] {
 pub:
 	entity_type string
 	table_name  string
@@ -700,7 +700,7 @@ mut:
 	affected_rows_fn   SqlAffectedRowsFn = unsafe { nil }
 }
 
-// new_jpa_repository creates a JpaRepository[T] with comptime-derived
+// new_repository creates a Repository[T] with comptime-derived
 // field metadata and two generic SQL execution callbacks.
 //
 // The entity struct T must have either a field with the @[id] /
@@ -714,13 +714,13 @@ mut:
 //
 // `exec_fn`  — executes INSERT/UPDATE/DELETE/DDL statements.
 // `query_fn` — executes SELECT, returns rows as [][]string.
-pub fn new_jpa_repository[T](orm_manager &OrmManager, db_name string, table_name string, exec_fn SqlExecFn, query_fn SqlQueryFn) !JpaRepository[T] {
+pub fn new_entity_repository[T](orm_manager &OrmManager, db_name string, table_name string, exec_fn SqlExecFn, query_fn SqlQueryFn) !Repository[T] {
 	// Extract JPA entity metadata at compile time (Task B7).
 	// @[table('name')] overrides the passed table_name; @[column('name')]
 	// and @[id]/@[primary_key] drive column and PK resolution.
 	meta := extract_entity_metadata[T]()
 	effective_table := if meta.has_table_annotation { meta.table_name } else { table_name }
-	mut repo := JpaRepository[T]{
+	mut repo := Repository[T]{
 		entity_type: typeof[T]().name
 		table_name:  effective_table
 		orm_manager: orm_manager
@@ -765,7 +765,7 @@ pub fn new_jpa_repository[T](orm_manager &OrmManager, db_name string, table_name
 
 // find_by_id retrieves a single entity by primary key.
 // Returns an error ('entity not found') if no entity is found.
-pub fn (mut repo JpaRepository[T]) find_by_id(id i64) !T {
+pub fn (mut repo Repository[T]) find_by_id(id i64) !T {
 	if isnil(repo.query_fn) {
 		return error('find_by_id: query_fn not configured')
 	}
@@ -789,7 +789,7 @@ pub fn (mut repo JpaRepository[T]) find_by_id(id i64) !T {
 // (Spring Data JPA's `@Version`-based isNew() semantics).  A version
 // of 0 means the entity has never been persisted, so save() does an
 // INSERT regardless of the primary key value (Task B8.2).
-pub fn (mut repo JpaRepository[T]) save(entity &T) ! {
+pub fn (mut repo Repository[T]) save(entity &T) ! {
 	if isnil(repo.exec_fn) && isnil(repo.exec_typed_fn) {
 		return error('save: exec_fn or exec_typed_fn must be configured')
 	}
@@ -869,7 +869,7 @@ pub fn (mut repo JpaRepository[T]) save(entity &T) ! {
 //
 // All user values are bound via positional `?` placeholders — no
 // string interpolation — preventing SQL injection.
-pub fn (mut repo JpaRepository[T]) update(entity &T) !T {
+pub fn (mut repo Repository[T]) update(entity &T) !T {
 	if isnil(repo.exec_fn) && isnil(repo.exec_typed_fn) {
 		return error('update: exec_fn or exec_typed_fn must be configured')
 	}
@@ -996,19 +996,19 @@ pub fn (mut repo JpaRepository[T]) update(entity &T) !T {
 //   repo.set_affected_rows_fn(fn (db voidptr) !int {
 //       return unsafe { &sqlite.DB(db) }.changes()
 //   })
-pub fn (mut repo JpaRepository[T]) set_affected_rows_fn(callback SqlAffectedRowsFn) {
+pub fn (mut repo Repository[T]) set_affected_rows_fn(callback SqlAffectedRowsFn) {
 	repo.affected_rows_fn = callback
 }
 
 // set_typed_exec_fn configures the type-safe SQL execution callback.
 // When set, save()/update()/delete() prefer exec_typed_fn over exec_fn,
 // passing ParamValue typed parameters that preserve original types.
-pub fn (mut repo JpaRepository[T]) set_typed_exec_fn(callback TypedSqlExecFn) {
+pub fn (mut repo Repository[T]) set_typed_exec_fn(callback TypedSqlExecFn) {
 	repo.exec_typed_fn = callback
 }
 
 // delete removes an entity by primary key.
-pub fn (mut repo JpaRepository[T]) delete(id i64) ! {
+pub fn (mut repo Repository[T]) delete(id i64) ! {
 	if isnil(repo.exec_fn) && isnil(repo.exec_typed_fn) {
 		return error('delete: exec_fn or exec_typed_fn must be configured')
 	}
@@ -1023,7 +1023,7 @@ pub fn (mut repo JpaRepository[T]) delete(id i64) ! {
 }
 
 // find_all retrieves all entities.
-pub fn (mut repo JpaRepository[T]) find_all() ![]T {
+pub fn (mut repo Repository[T]) find_all() ![]T {
 	if isnil(repo.query_fn) {
 		return error('find_all: query_fn not configured')
 	}
@@ -1060,7 +1060,7 @@ pub fn (mut repo JpaRepository[T]) find_all() ![]T {
 //   assert page.items.len == 10
 //   assert page.total == 25
 //   assert page.total_pages == 3
-pub fn (mut repo JpaRepository[T]) find_all_paged(page_request support.PageRequest) !support.Page[T] {
+pub fn (mut repo Repository[T]) find_all_paged(page_request support.PageRequest) !support.Page[T] {
 	if isnil(repo.query_fn) {
 		return error('find_all_paged: query_fn not configured')
 	}
@@ -1117,7 +1117,7 @@ pub fn (mut repo JpaRepository[T]) find_all_paged(page_request support.PageReque
 }
 
 // count returns the total number of entities.
-pub fn (mut repo JpaRepository[T]) count() !i64 {
+pub fn (mut repo Repository[T]) count() !i64 {
 	if isnil(repo.query_fn) {
 		return error('count: query_fn not configured')
 	}
@@ -1149,7 +1149,7 @@ pub fn (mut repo JpaRepository[T]) count() !i64 {
 //       'SELECT * FROM users WHERE age > ? ORDER BY age DESC',
 //       ['18']
 //   )!
-pub fn (mut repo JpaRepository[T]) execute_query(query_str string, params []string) ![]T {
+pub fn (mut repo Repository[T]) execute_query(query_str string, params []string) ![]T {
 	if isnil(repo.query_fn) {
 		return error('execute_query: query_fn not configured / 未配置 query_fn')
 	}
@@ -1177,7 +1177,7 @@ pub fn (mut repo JpaRepository[T]) execute_query(query_str string, params []stri
 //       'SELECT * FROM users WHERE age > :age AND name LIKE :name',
 //       {'age': '18', 'name': 'J%'}
 //   )!
-pub fn (mut repo JpaRepository[T]) execute_named_query(query_str string, named_params map[string]string) ![]T {
+pub fn (mut repo Repository[T]) execute_named_query(query_str string, named_params map[string]string) ![]T {
 	positional_sql, param_names := convert_named_to_positional(query_str)
 	mut params := []string{cap: param_names.len}
 	for name in param_names {
@@ -1194,7 +1194,7 @@ pub fn (mut repo JpaRepository[T]) execute_named_query(query_str string, named_p
 // create_table creates the table if it does not exist, using
 // comptime-derived column definitions from T's fields.  The primary
 // key column gets a `PRIMARY KEY` constraint.
-pub fn (mut repo JpaRepository[T]) create_table() ! {
+pub fn (mut repo Repository[T]) create_table() ! {
 	if isnil(repo.exec_fn) {
 		return error('create_table: exec_fn not configured')
 	}
@@ -1229,7 +1229,7 @@ pub fn (mut repo JpaRepository[T]) create_table() ! {
 // columns_clause returns a comma-separated list of DB column names
 // derived from the entity's @[column] annotations (or snake_case field
 // names by default). Uses the comptime-extracted column_names slice.
-fn (repo JpaRepository[T]) columns_clause() string {
+fn (repo Repository[T]) columns_clause() string {
 	return repo.column_names.join(', ')
 }
 
@@ -1284,7 +1284,7 @@ pub:
 // PageResult[T] — Lightweight Pagination Result (Task 3)
 // ═══════════════════════════════════════════════════════════════════
 //
-// A simpler alternative to support.Page[T] for JpaRepository's
+// A simpler alternative to support.Page[T] for Repository's
 // paginate() method.  Provides page items plus navigation metadata
 // without depending on support.Sort.
 
@@ -1329,14 +1329,14 @@ pub fn (p PageResult[T]) is_empty() bool {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// JpaRepository[T] — Enhanced Query Methods (Task 3)
+// Repository[T] — Enhanced Query Methods (Task 3)
 // ═══════════════════════════════════════════════════════════════════
 
 // resolve_column_name maps a field name to its DB column name using
 // the comptime-extracted column_names slice.  If the field_name is
 // not found in field_names, it is returned as-is (allowing callers
 // to pass column names directly).
-fn (repo JpaRepository[T]) resolve_column_name(field_name string) string {
+fn (repo Repository[T]) resolve_column_name(field_name string) string {
 	for i, fn_name in repo.field_names {
 		if fn_name == field_name {
 			if i < repo.column_names.len {
@@ -1356,7 +1356,7 @@ fn (repo JpaRepository[T]) resolve_column_name(field_name string) string {
 // Example:
 //   users := repo.find_by_field('email', 'alice@example.com')!
 //   users := repo.find_by_field('status', 'active')!
-pub fn (mut repo JpaRepository[T]) find_by_field(field_name string, value string) ![]T {
+pub fn (mut repo Repository[T]) find_by_field(field_name string, value string) ![]T {
 	if isnil(repo.query_fn) {
 		return error('find_by_field: query_fn not configured / 未配置 query_fn')
 	}
@@ -1378,7 +1378,7 @@ pub fn (mut repo JpaRepository[T]) find_by_field(field_name string, value string
 //
 // Example:
 //   has_alice := repo.exists_by_field('email', 'alice@example.com')
-pub fn (mut repo JpaRepository[T]) exists_by_field(field_name string, value string) bool {
+pub fn (mut repo Repository[T]) exists_by_field(field_name string, value string) bool {
 	if isnil(repo.query_fn) {
 		return false
 	}
@@ -1397,7 +1397,7 @@ pub fn (mut repo JpaRepository[T]) exists_by_field(field_name string, value stri
 //
 // Example:
 //   n := repo.count_by_field('status', 'active')!
-pub fn (mut repo JpaRepository[T]) count_by_field(field_name string, value string) !int {
+pub fn (mut repo Repository[T]) count_by_field(field_name string, value string) !int {
 	if isnil(repo.query_fn) {
 		return error('count_by_field: query_fn not configured / 未配置 query_fn')
 	}
@@ -1423,7 +1423,7 @@ pub fn (mut repo JpaRepository[T]) count_by_field(field_name string, value strin
 //       println(user.name)
 //   }
 //   println('total: ${result.total}, pages: ${result.total_pages}')
-pub fn (mut repo JpaRepository[T]) paginate(page int, page_size int) !PageResult[T] {
+pub fn (mut repo Repository[T]) paginate(page int, page_size int) !PageResult[T] {
 	if isnil(repo.query_fn) {
 		return error('paginate: query_fn not configured / 未配置 query_fn')
 	}
@@ -1482,7 +1482,7 @@ pub fn (mut repo JpaRepository[T]) paginate(page int, page_size int) !PageResult
 //
 // For descending order, set sort_dir to 'desc'. The comparison
 // operator is automatically flipped (< instead of >).
-pub fn (mut repo JpaRepository[T]) find_keyset(req KeysetPageRequest) !([]T, string) {
+pub fn (mut repo Repository[T]) find_keyset(req KeysetPageRequest) !([]T, string) {
 	if isnil(repo.query_fn) {
 		return error('find_keyset: query_fn not configured / 未配置 query_fn')
 	}

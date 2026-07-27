@@ -15,7 +15,7 @@ import support
 // photon/orm cannot import db.sqlite or V's standard `orm` module
 // (module-name collision in V 0.5.1), SQL execution is delegated to
 // user-supplied callbacks (SqlExecFn / SqlQueryFn — the same types
-// used by JpaRepository).
+// used by Repository).
 //
 //   import db.sqlite
 //   import photon.orm
@@ -135,7 +135,7 @@ pub fn new_relation_loader(manager &OrmManager) &RelationLoader {
 //
 // `exec_fn`  — executes INSERT/UPDATE/DELETE/DDL (unused by load_*
 //              methods today, but accepted for symmetry with
-//              JpaRepository and future write-side relation ops).
+//              Repository and future write-side relation ops).
 // `query_fn` — executes SELECT, returns rows as [][]string.
 pub fn new_relation_loader_with_fns(manager &OrmManager, db_name string, exec_fn SqlExecFn, query_fn SqlQueryFn) &RelationLoader {
 	return &RelationLoader{
@@ -180,7 +180,7 @@ pub fn (rl &RelationLoader) load_has_many[T, R](entity T, mut relation HasMany[R
 	db := rl.manager.get_conn(rl.db_name)!
 	rows := rl.query_fn(db, query, [pk_value])!
 
-	// 4. Map rows to R structs (positional, same as JpaRepository)
+	// 4. Map rows to R structs (positional, same as Repository)
 	mut items := []R{cap: rows.len}
 	for row in rows {
 		mut item := R{}

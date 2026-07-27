@@ -1,6 +1,6 @@
 module orm
 
-// jpa_repository_test.v - Tests for JpaRepository[T] (P0 8.3)
+// jpa_repository_test.v - Tests for Repository[T] (P0 8.3)
 //
 // Verifies the comptime-derived zero-callback repository:
 //   - Primary key detection (field named 'id' and @[primary_key] attribute)
@@ -81,11 +81,11 @@ fn mock_reset() {
 	}
 }
 
-fn mock_setup[T]() !JpaRepository[T] {
+fn mock_setup[T]() !Repository[T] {
 	mock_reset()
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
-	repo := new_jpa_repository[T](om, 'default', 'jpa_test_table', mock_exec, mock_query)!
+	repo := new_repository[T](om, 'default', 'jpa_test_table', mock_exec, mock_query)!
 	unsafe {
 		g_mock_pk_col = repo.primary_key_field
 	}
@@ -223,7 +223,7 @@ fn test_jpa_construct_no_primary_key_error() {
 	mock_reset()
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
-	if _ := new_jpa_repository[JpaNoPk](om, 'default', 'jpa_test_table', mock_exec, mock_query) {
+	if _ := new_repository[JpaNoPk](om, 'default', 'jpa_test_table', mock_exec, mock_query) {
 		assert false, 'expected error: no primary key field'
 	} else {
 		assert true
@@ -422,9 +422,9 @@ fn test_jpa_article_crud() {
 // ════════════════════════════════════════════════════════════════
 // @[autowired] pattern (SubTask 13.4)
 //
-// JpaRepository itself is generic and cannot be a Photon bean, but
+// Repository itself is generic and cannot be a Photon bean, but
 // the documented pattern is to autowire &OrmManager into a @[component]
-// and call new_jpa_repository[T]() from there.  This test verifies
+// and call new_repository[T]() from there.  This test verifies
 // that pattern compiles and works.
 // ════════════════════════════════════════════════════════════════
 
@@ -432,8 +432,8 @@ struct JpaUserService {
 	om &OrmManager
 }
 
-fn (s &JpaUserService) repo() !JpaRepository[JpaTestUser] {
-	return new_jpa_repository[JpaTestUser](s.om, 'default', 'users', mock_exec, mock_query)!
+fn (s &JpaUserService) repo() !Repository[JpaTestUser] {
+	return new_repository[JpaTestUser](s.om, 'default', 'users', mock_exec, mock_query)!
 }
 
 fn test_jpa_autowired_pattern() {

@@ -3,7 +3,7 @@ module orm
 // entity_annotation_test.v - Tests for JPA entity annotations (Task B7)
 //
 // Verifies comptime extraction of @[entity]/@[table('name')]/@[column('name')]/@[id]
-// and integration with JpaRepository[T] SQL generation.
+// and integration with Repository[T] SQL generation.
 //
 // The mock DB is self-contained (does not share state with other test
 // files' mocks), matching the convention used by jpa_pagination_test.v.
@@ -106,11 +106,11 @@ fn annot_mock_reset() {
 	}
 }
 
-fn annot_mock_setup[T]() !JpaRepository[T] {
+fn annot_mock_setup[T]() !Repository[T] {
 	annot_mock_reset()
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
-	repo := new_jpa_repository[T](om, 'default', 'fallback_table', annot_mock_exec,
+	repo := new_repository[T](om, 'default', 'fallback_table', annot_mock_exec,
 		annot_mock_query)!
 	unsafe {
 		g_annot_pk_col = repo.primary_key_column
@@ -327,7 +327,7 @@ fn test_is_entity_marker() {
 }
 
 // ════════════════════════════════════════════════════════════════
-// JpaRepository[T] integration (SubTask B7.3)
+// Repository[T] integration (SubTask B7.3)
 // ════════════════════════════════════════════════════════════════
 
 fn test_jpa_annot_table_name_override() {
@@ -468,7 +468,7 @@ fn test_jpa_annot_backward_compat_plain_struct() {
 	annot_mock_reset()
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
-	mut repo := new_jpa_repository[AnnotPlainUser](om, 'default', 'plain_users', annot_mock_exec,
+	mut repo := new_repository[AnnotPlainUser](om, 'default', 'plain_users', annot_mock_exec,
 		annot_mock_query)!
 	unsafe {
 		g_annot_pk_col = repo.primary_key_column
@@ -493,7 +493,7 @@ fn test_jpa_annot_backward_compat_primary_key_attr() {
 	annot_mock_reset()
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
-	mut repo := new_jpa_repository[AnnotAltPk](om, 'default', 'alt_pk', annot_mock_exec,
+	mut repo := new_repository[AnnotAltPk](om, 'default', 'alt_pk', annot_mock_exec,
 		annot_mock_query)!
 	unsafe {
 		g_annot_pk_col = repo.primary_key_column

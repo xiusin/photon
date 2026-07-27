@@ -5,7 +5,7 @@ import strings
 // query.v - @[query('SELECT ...')] Annotation Handling (Task B6)
 //
 // Provides native SQL query support with named parameters for
-// JpaRepository[T].  Inspired by Spring Data's @Query annotation.
+// Repository[T].  Inspired by Spring Data's @Query annotation.
 //
 // ── Annotation Format ──
 //
@@ -194,7 +194,7 @@ pub fn extract_query_annotation[T](method_name string) ?QueryAnnotation {
 	return none
 }
 
-// ── JpaRepository[T] query execution methods ──
+// ── Repository[T] query execution methods ──
 //
 // execute_query and execute_named_query are defined in repository.v
 // (not here) because V 0.5.1 requires generic methods on a generic

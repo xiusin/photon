@@ -7,7 +7,7 @@ module orm
 //     @[created_at], @[updated_at], @[soft_delete], @[size], @[nullable], @[unique])
 //   - scan_entity[T]() validation
 //   - DTO validation: @[required], @[email], @[min], @[max], @[pattern], @[length]
-//   - PageResult[T] and JpaRepository enhanced methods
+//   - PageResult[T] and Repository enhanced methods
 //   - parse_transactional_attrs() for comptime field.attrs
 
 // ════════════════════════════════════════════════════════════════

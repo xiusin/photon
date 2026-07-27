@@ -1,6 +1,6 @@
 module orm
 
-// jpa_enhanced_test.v - Tests for JpaRepository enhanced methods (Task 3)
+// jpa_enhanced_test.v - Tests for Repository enhanced methods (Task 3)
 //
 // Verifies find_by_field, exists_by_field, count_by_field, paginate,
 // and PageResult[T] using a self-contained mock in-memory database.
@@ -63,11 +63,11 @@ fn enh_mock_reset() {
 	}
 }
 
-fn enh_mock_setup[T]() !JpaRepository[T] {
+fn enh_mock_setup[T]() !Repository[T] {
 	enh_mock_reset()
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
-	repo := new_jpa_repository[T](om, 'default', 'enh_test_users', enh_mock_exec, enh_mock_query)!
+	repo := new_repository[T](om, 'default', 'enh_test_users', enh_mock_exec, enh_mock_query)!
 	unsafe {
 		g_enh_pk_col = repo.primary_key_column
 	}

@@ -152,7 +152,7 @@ pub fn (mut e SoftDeletableEntity) restore() {
 //
 // Defaults are backward compatible: plain structs without annotations
 // behave exactly as before (snake_case column names, 'id' field PK
-// fallback in JpaRepository).
+// fallback in Repository).
 //
 // V 0.5.1 comptime notes:
 //   - Struct-level attributes use `$for attr in T.attributes`, where
