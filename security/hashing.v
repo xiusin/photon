@@ -12,9 +12,17 @@ import crypto.sha256
 import rand
 
 // ── C interop for libargon2 ──
+//
+// The symbol definitions live in argon2_bridge.c, which V compiles and
+// links into every build of this module.  Declaring them as plain `fn C.`
+// externs made the linker look for an implementation that was never
+// pulled in (undefined reference to `photon_argon2id_verify`), so the
+// bridge and libargon2 are attached with #flag instead.
 #flag -largon2
 #flag -I/opt/homebrew/include
 #flag -L/opt/homebrew/lib
+#flag -I@VMODROOT/security
+#flag @VMODROOT/security/argon2_bridge.c
 
 fn C.photon_argon2id_hash(password &char, salt &char, t_cost u32, m_cost u32, parallelism u32, encoded &char, encoded_len usize) int
 

@@ -157,7 +157,9 @@ fn test_jwt_provider_supports_long_token() {
 	jp := JwtAuthenticationProvider{
 		jwt_manager: jm
 	}
-	auth := new_authentication('', 'this-is-a-very-long-token-string-that-exceeds-twenty-chars')
+	// A raw JWT has three dot-separated segments and starts with 'eyJ'.
+	long_jwt := 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signaturepart'
+	auth := new_authentication('', long_jwt)
 	assert jp.supports(auth) == true
 }
 

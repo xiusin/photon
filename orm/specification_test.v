@@ -175,7 +175,9 @@ fn test_specification_executor_find() {
 	)
 
 	spec := where_eq('status', 'active')
-	users := executor.find(spec)!
+	// Specification-typed entry point (free function — see the V codegen
+	// note in specification.v for why it is not a method).
+	users := find_with_specification[User](executor, spec)!
 	assert users.len == 1
 	assert users[0].name == 'Alice'
 }
@@ -191,8 +193,26 @@ fn test_specification_executor_count() {
 	)
 
 	spec := where_eq('status', 'active')
-	count := executor.count(spec)!
+	count := count_with_specification[User](executor, spec)!
 	assert count == 42
+}
+
+fn test_specification_executor_raw_conditions() {
+	mut executor := new_specification_executor[User](
+		fn (criteria Criteria) ![]User {
+			assert criteria.conditions.len == 1
+			return []
+		},
+		fn (criteria Criteria) !int {
+			return 7
+		}
+	)
+
+	// The generic methods accept plain conditions, sidestepping the
+	// &Specification codegen issue documented in specification.v.
+	rows := executor.find([Condition{ column: 'status', operator: '=', value: 'active' }])!
+	assert rows.len == 0
+	assert executor.count([Condition{ column: 'status', operator: '=', value: 'active' }])! == 7
 }
 
 fn test_specification_executor_exists() {
@@ -206,7 +226,7 @@ fn test_specification_executor_exists() {
 	)
 
 	spec := where_eq('status', 'active')
-	exists := executor.exists(spec)!
+	exists := exists_with_specification[User](mut executor, spec)!
 	assert exists == true
 }
 

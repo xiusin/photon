@@ -11,7 +11,7 @@
 3. [实体定义与注解系统](#3-实体定义与注解系统)
 4. [OrmAdapter — 生命周期钩子层](#4-ormadapter--生命周期钩子层)
 5. [BaseRepository — 完整 CRUD 仓储](#5-baserepository--完整-crud-仓储)
-6. [JpaRepository — 编译时推导仓储（推荐）](#6-jparepository--编译时推导仓储推荐)
+6. [Repository — 编译时推导仓储（推荐）](#6-repository--编译时推导仓储推荐)
 7. [DerivedRepository — Spring Data 派生查询](#7-derivedrepository--spring-data-派生查询)
 8. [QueryBuilder — 链式查询构建器](#8-querybuilder--链式查询构建器)
 9. [派生查询方法名解析](#9-派生查询方法名解析)
@@ -61,7 +61,7 @@ photon 的 ORM 体系采用**双层架构**，包装在 V 官方 ORM 之上：
 | 生命周期钩子 | photon `OrmAdapter` | `before_insert` / `after_find` 等 |
 | 多数据库路由 | photon `OrmManager` | 按名称注册与获取连接 |
 | Spring Data 派生查询 | photon `derive.v` | 方法名解析为 SQL |
-| Repository 模式 | photon `BaseRepository` / `JpaRepository` | 泛型 CRUD |
+| Repository 模式 | photon `BaseRepository` / `Repository[T]` | 泛型 CRUD |
 | 链式查询构建 | photon `QueryBuilder` | WHERE/ORDER/LIMIT/JOIN |
 | 事务管理 | photon `TransactionManager` | 传播行为 + 隔离级别 |
 | 数据库迁移 | photon `MigrationManager` | 版本化 Schema 迁移 |
@@ -528,8 +528,10 @@ exists := repo.exists_by_id(1)
 
 ### 5.3 Repository[T] 接口
 
+接口名保留为 `RepositoryInterface[T]`，实现结构体是 `BaseRepository[T]`：
+
 ```v
-pub interface Repository[T] {
+pub interface RepositoryInterface[T] {
     find_by_id(id int) !T
     find_all() ![]T
     save(mut entity T) !T
@@ -543,11 +545,11 @@ pub interface Repository[T] {
 
 ---
 
-## 6. JpaRepository — 编译时推导仓储（推荐）
+## 6. Repository — 编译时推导仓储（推荐）
 
-`JpaRepository[T]` 是**最高级**的仓储，利用 V 的 comptime 在编译时从实体结构体推导 SQL，将 7 个回调简化为 **2 个通用回调**。
+`Repository[T]` 是**最高级**的仓储，利用 V 的 comptime 在编译时从实体结构体推导 SQL，将 7 个回调简化为 **2 个通用回调**。
 
-### 6.1 创建 JpaRepository
+### 6.1 创建 Repository
 
 ```v
 import db.sqlite
@@ -575,7 +577,7 @@ query_fn := fn (db voidptr, query string, args []string) ![][]string {
 }
 
 // 3. 创建仓储（comptime 推导字段/列名/主键/版本）
-mut repo := phorm.new_jpa_repository[User](om, 'default', 'users', exec_fn, query_fn)!
+mut repo := phorm.new_entity_repository[User](om, 'default', 'users', exec_fn, query_fn)!
 ```
 
 **主键检测优先级：**
@@ -660,7 +662,7 @@ users := repo.execute_named_query(
 
 ### 6.6 DI 集成模式
 
-`JpaRepository` 是泛型，不能直接作为 Photon Bean。通过 `@[component]` 工厂注入 `&OrmManager`：
+`Repository` 是泛型，不能直接作为 Photon Bean。通过 `@[component]` 工厂注入 `&OrmManager`：
 
 ```v
 @[component]
@@ -669,8 +671,8 @@ pub struct UserService {
     om &phorm.OrmManager
 }
 
-fn (s &UserService) repo() !phorm.JpaRepository[User] {
-    return phorm.new_jpa_repository[User](s.om, 'default', 'users', my_exec_fn, my_query_fn)!
+fn (s &UserService) repo() !phorm.Repository[User] {
+    return phorm.new_entity_repository[User](s.om, 'default', 'users', my_exec_fn, my_query_fn)!
 }
 ```
 
@@ -970,7 +972,7 @@ photon 支持 Spring Data `@Query` 风格的方法注解，在编译时提取 SQ
 
 ```v
 struct UserRepo {
-    repo phorm.JpaRepository[User]
+    repo phorm.Repository[User]
 }
 
 // 方法上的 @[query] 注解
@@ -1001,7 +1003,7 @@ params := phorm.extract_named_params('SELECT * FROM users WHERE age > :age')
 // params == ['age']
 ```
 
-### 10.3 JpaRepository 原生查询
+### 10.3 Repository 原生查询
 
 ```v
 // 位置参数（? 占位符）
@@ -1577,7 +1579,7 @@ phorm.ColumnType.vuuid.sql_type(.sqlite)   // 'TEXT'
 
 ## 15. 乐观锁
 
-实体标记 `@[version]` 字段后，`JpaRepository.update()` 自动启用乐观锁。
+实体标记 `@[version]` 字段后，`Repository.update()` 自动启用乐观锁。
 
 ### 15.1 定义版本字段
 
@@ -1598,7 +1600,7 @@ pub struct Product {
 ### 15.2 配置影响行数回调
 
 ```v
-mut repo := phorm.new_jpa_repository[Product](om, 'default', 'products', exec_fn, query_fn)!
+mut repo := phorm.new_entity_repository[Product](om, 'default', 'products', exec_fn, query_fn)!
 
 // 乐观锁必需：配置影响行数回调
 repo.set_affected_rows_fn(fn (db voidptr) !int {
@@ -1905,10 +1907,10 @@ pub fn (repo &UserRepository) save(user models.User) ! {
 }
 ```
 
-### 18.4 使用 JpaRepository
+### 18.4 使用 Repository
 
 ```v
-// 定义实体（int 主键，适合 JpaRepository）
+// 定义实体（int 主键，适合 Repository）
 @[entity]
 @[table('articles')]
 pub struct Article {
@@ -1934,8 +1936,8 @@ pub struct ArticleService {
     om &phorm.OrmManager
 }
 
-fn (s &ArticleService) repo() !phorm.JpaRepository[Article] {
-    return phorm.new_jpa_repository[Article](
+fn (s &ArticleService) repo() !phorm.Repository[Article] {
+    return phorm.new_entity_repository[Article](
         s.om, 'default', 'articles',
         database.pg_exec_fn, database.pg_query_fn
     )!
@@ -2003,11 +2005,11 @@ fn (s &ArticleService) create_article(title string, body string) !Article {
 | `count()` | `→ int !` |
 | `exists_by_id(id)` | `→ bool` |
 
-### JpaRepository[T]
+### Repository[T]
 
 | API | 签名 |
 |-----|------|
-| `new_jpa_repository[T](manager, db_name, table, exec_fn, query_fn)` | `→ JpaRepository[T] !` |
+| `new_entity_repository[T](manager, db_name, table, exec_fn, query_fn)` | `→ Repository[T] !` |
 | `create_table()` | `!` |
 | `save(entity)` | `!` |
 | `update(entity)` | `→ T !` |
@@ -2100,14 +2102,14 @@ fn (s &ArticleService) create_article(title string, body string) !Article {
 |------|----------|
 | 单库，无钩子 | V 官方 `orm.new_query[T](db)` |
 | 单库，需自动时间戳 | `OrmAdapter` + 手动 QueryBuilder |
-| 单库，需完整 CRUD + 钩子 | `JpaRepository`（2 个回调，编译时推导） |
-| 多库路由 | `OrmManager` + `JpaRepository` |
+| 单库，需完整 CRUD + 钩子 | `Repository[T]`（2 个回调，编译时推导） |
+| 多库路由 | `OrmManager` + `Repository[T]` |
 | 仅自定义钩子逻辑 | `OrmAdapter` 直接使用 |
 | Spring Data 派生查询 | `derive.v` + `DerivedRepository` |
 | 动态组合查询 | `Specification` 模式 |
 | 关系加载 | `RelationLoader`（懒加载）/ `EagerLoader`（批量） |
-| 需要乐观锁 | `JpaRepository` + `@[version]` 字段 |
-| 高性能分页 | `JpaRepository.find_keyset()`（游标分页） |
+| 需要乐观锁 | `Repository[T]` + `@[version]` 字段 |
+| 高性能分页 | `Repository[T].find_keyset()`（游标分页） |
 
 ---
 

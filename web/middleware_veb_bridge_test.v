@@ -17,9 +17,24 @@ import veb
 // After-middleware chain tests
 // ============================================================
 
+// write/read let middleware closures mutate the shared data map.
+// MiddlewareFunc takes `ctx &MiddlewareContext` (a shared reference), so the
+// `ctx` binding itself is immutable; the struct is still reachable here
+// because the map is a heap handle owned by the caller.
+fn write(ctx &MiddlewareContext, key string, val string) {
+	unsafe {
+		mut m := ctx
+		m.data[key] = val
+	}
+}
+
+fn read(ctx &MiddlewareContext, key string) string {
+	return ctx.data[key] or { '' }
+}
+
 fn test_chain_use_after_adds_middleware() {
 	mut chain := new_chain()
-	chain.use_after(fn (mut ctx MiddlewareContext) !bool {
+	chain.use_after(fn (ctx &MiddlewareContext) !bool {
 		return true
 	})
 	assert chain.after_len() == 1
@@ -32,13 +47,13 @@ fn test_chain_after_len_empty() {
 
 fn test_chain_after_len_multiple() {
 	mut chain := new_chain()
-	chain.use_after(fn (mut ctx MiddlewareContext) !bool {
+	chain.use_after(fn (ctx &MiddlewareContext) !bool {
 		return true
 	})
-	chain.use_after(fn (mut ctx MiddlewareContext) !bool {
+	chain.use_after(fn (ctx &MiddlewareContext) !bool {
 		return true
 	})
-	chain.use_after(fn (mut ctx MiddlewareContext) !bool {
+	chain.use_after(fn (ctx &MiddlewareContext) !bool {
 		return true
 	})
 	assert chain.after_len() == 3
@@ -46,12 +61,12 @@ fn test_chain_after_len_multiple() {
 
 fn test_chain_execute_after_all_pass() {
 	mut chain := new_chain()
-	chain.use_after(fn (mut ctx MiddlewareContext) !bool {
-		ctx.data['after1'] = 'done'
+	chain.use_after(fn (ctx &MiddlewareContext) !bool {
+		write(ctx, 'after1', 'done')
 		return true
 	})
-	chain.use_after(fn (mut ctx MiddlewareContext) !bool {
-		ctx.data['after2'] = 'done'
+	chain.use_after(fn (ctx &MiddlewareContext) !bool {
+		write(ctx, 'after2', 'done')
 		return true
 	})
 
@@ -67,12 +82,12 @@ fn test_chain_execute_after_all_pass() {
 
 fn test_chain_execute_after_continues_on_error() {
 	mut chain := new_chain()
-	chain.use_after(fn (mut ctx MiddlewareContext) !bool {
-		ctx.data['after1'] = 'done'
+	chain.use_after(fn (ctx &MiddlewareContext) !bool {
+		write(ctx, 'after1', 'done')
 		return error('intentional error')
 	})
-	chain.use_after(fn (mut ctx MiddlewareContext) !bool {
-		ctx.data['after2'] = 'done'
+	chain.use_after(fn (ctx &MiddlewareContext) !bool {
+		write(ctx, 'after2', 'done')
 		return true
 	})
 
@@ -103,14 +118,14 @@ fn test_chain_before_and_after_coexist() {
 	mut chain := new_chain()
 
 	// Before-middleware
-	chain.use(fn (mut ctx MiddlewareContext) !bool {
-		ctx.data['before'] = 'done'
+	chain.use(fn (ctx &MiddlewareContext) !bool {
+		write(ctx, 'before', 'done')
 		return true
 	})
 
 	// After-middleware
-	chain.use_after(fn (mut ctx MiddlewareContext) !bool {
-		ctx.data['after'] = 'done'
+	chain.use_after(fn (ctx &MiddlewareContext) !bool {
+		write(ctx, 'after', 'done')
 		return true
 	})
 
@@ -139,19 +154,16 @@ fn test_chain_before_and_after_coexist() {
 
 fn test_chain_after_execution_order() {
 	mut chain := new_chain()
-	chain.use_after(fn (mut ctx MiddlewareContext) !bool {
-		val := ctx.data['order'] or { '' }
-		ctx.data['order'] = '${val}A'
+	chain.use_after(fn (ctx &MiddlewareContext) !bool {
+		write(ctx, 'order', (read(ctx, 'order') + 'A'))
 		return true
 	})
-	chain.use_after(fn (mut ctx MiddlewareContext) !bool {
-		val := ctx.data['order'] or { '' }
-		ctx.data['order'] = '${val}B'
+	chain.use_after(fn (ctx &MiddlewareContext) !bool {
+		write(ctx, 'order', (read(ctx, 'order') + 'B'))
 		return true
 	})
-	chain.use_after(fn (mut ctx MiddlewareContext) !bool {
-		val := ctx.data['order'] or { '' }
-		ctx.data['order'] = '${val}C'
+	chain.use_after(fn (ctx &MiddlewareContext) !bool {
+		write(ctx, 'order', (read(ctx, 'order') + 'C'))
 		return true
 	})
 
@@ -171,9 +183,8 @@ fn test_dispatch_with_chain_route_level_before_middleware() {
 	mut rr := new_route_registry()
 
 	// Register a route with route-level before-middleware
-	mw := fn (mut ctx MiddlewareContext) !bool {
-		mut c := ctx
-		c.data['mw_called'] = 'true'
+	mw := fn (ctx &MiddlewareContext) !bool {
+		write(ctx, 'mw_called', 'true')
 		return true
 	}
 
@@ -194,7 +205,7 @@ fn test_dispatch_with_chain_route_level_before_middleware() {
 fn test_dispatch_with_chain_route_level_after_middleware() {
 	mut rr := new_route_registry()
 
-	after_mw := fn (mut ctx MiddlewareContext) !bool {
+	after_mw := fn (ctx &MiddlewareContext) !bool {
 		return true
 	}
 
@@ -210,10 +221,10 @@ fn test_dispatch_with_chain_route_level_after_middleware() {
 fn test_dispatch_with_chain_both_before_and_after() {
 	mut rr := new_route_registry()
 
-	before_mw := fn (mut ctx MiddlewareContext) !bool {
+	before_mw := fn (ctx &MiddlewareContext) !bool {
 		return true
 	}
-	after_mw := fn (mut ctx MiddlewareContext) !bool {
+	after_mw := fn (ctx &MiddlewareContext) !bool {
 		return true
 	}
 
@@ -246,7 +257,7 @@ fn test_route_def_has_middleware_fields() {
 
 fn test_web_module_use_registers_before_middleware() {
 	mut wm := init_web_module()
-	wm.use(fn (mut ctx MiddlewareContext) !bool {
+	wm.use(fn (ctx &MiddlewareContext) !bool {
 		return true
 	})
 	assert wm.chain.len() == 1
@@ -255,7 +266,7 @@ fn test_web_module_use_registers_before_middleware() {
 
 fn test_web_module_use_after_registers_after_middleware() {
 	mut wm := init_web_module()
-	wm.use_after(fn (mut ctx MiddlewareContext) !bool {
+	wm.use_after(fn (ctx &MiddlewareContext) !bool {
 		return true
 	})
 	assert wm.chain.len() == 0
@@ -264,19 +275,19 @@ fn test_web_module_use_after_registers_after_middleware() {
 
 fn test_web_module_use_and_use_after_coexist() {
 	mut wm := init_web_module()
-	wm.use(fn (mut ctx MiddlewareContext) !bool {
+	wm.use(fn (ctx &MiddlewareContext) !bool {
 		return true
 	})
-	wm.use(fn (mut ctx MiddlewareContext) !bool {
+	wm.use(fn (ctx &MiddlewareContext) !bool {
 		return true
 	})
-	wm.use_after(fn (mut ctx MiddlewareContext) !bool {
+	wm.use_after(fn (ctx &MiddlewareContext) !bool {
 		return true
 	})
-	wm.use_after(fn (mut ctx MiddlewareContext) !bool {
+	wm.use_after(fn (ctx &MiddlewareContext) !bool {
 		return true
 	})
-	wm.use_after(fn (mut ctx MiddlewareContext) !bool {
+	wm.use_after(fn (ctx &MiddlewareContext) !bool {
 		return true
 	})
 	assert wm.chain.len() == 2

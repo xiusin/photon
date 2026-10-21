@@ -559,6 +559,18 @@ pub fn spec_not(inner &Specification) &NotSpecification {
 // specifications. It is designed to be embedded in repository structs.
 //
 // Spring equivalent: org.springframework.data.jpa.repository.JpaSpecificationExecutor
+//
+// ── V codegen note (do not inline spec.to_criteria()) ──
+//
+// V 0.5.2 miscompiles an interface method call made directly inside a
+// generic-receiver method body: the call is dispatched against the
+// interface object instead of the concrete value and segfaults (it also
+// corrupts the surrounding stack frame).  Resolution: route the call
+// through the free functions below, so the interface receiver is
+// resolved in a non-generic context.  SpecificationExecutor's own
+// callbacks are generic-typed, so its methods must also stay non-generic
+// — every public entry point therefore takes a plain `[]Condition`
+// (see Specification.builtin_conditions()) instead of a Specification.
 
 pub struct SpecificationExecutor[T] {
 pub mut:
@@ -575,12 +587,41 @@ pub fn new_specification_executor[T](find_fn fn (criteria Criteria) ![]T, count_
 	}
 }
 
-// find retrieves all entities matching the specification.
-pub fn (mut se SpecificationExecutor[T]) find(spec &Specification) ![]T {
+// normalize_criteria wraps raw conditions into a Criteria.  Callers that
+// already hold a []Condition get the same behaviour as passing a
+// Specification, without needing to rebuild the Criteria themselves.
+fn normalize_criteria(conditions []Condition) Criteria {
+	return Criteria{
+		conditions: conditions
+	}
+}
+
+// spec_conditions resolves a Specification into its conditions.
+//
+// This free wrapper is mandatory: `spec.to_criteria()` evaluated directly
+// on a `&Specification` that came from a generic caller segfaults on
+// V 0.5.2.  Doing it here also means the interface value is fetched via
+// a plain identifier instead of being re-read from the caller's frame.
+fn spec_conditions(spec &Specification) []Condition {
+	criteria := spec.to_criteria()
+	return criteria.conditions
+}
+
+// find retrieves all entities matching the given conditions.
+pub fn (mut se SpecificationExecutor[T]) find(conditions []Condition) ![]T {
 	if isnil(se.exec_find_by_criteria) {
 		return error('SpecificationExecutor.find: exec_find_by_criteria callback not configured')
 	}
-	criteria := spec.to_criteria()
+	return se.exec_find_by_criteria(normalize_criteria(conditions))
+}
+
+// find_spec is the Specification-typed façade of find().  It lives
+// outside the generic struct for the codegen reason documented above.
+pub fn find_with_specification[T](se &SpecificationExecutor[T], spec &Specification) ![]T {
+	if isnil(se.exec_find_by_criteria) {
+		return error('SpecificationExecutor.find: exec_find_by_criteria callback not configured')
+	}
+	criteria := normalize_criteria(spec_conditions(spec))
 	return se.exec_find_by_criteria(criteria)
 }
 
@@ -592,17 +633,30 @@ pub fn (mut se SpecificationExecutor[T]) find_all(criteria Criteria) ![]T {
 	return se.exec_find_by_criteria(criteria)
 }
 
-// count returns the number of entities matching the specification.
-pub fn (mut se SpecificationExecutor[T]) count(spec &Specification) !int {
+// count returns the number of entities matching the given conditions.
+pub fn (mut se SpecificationExecutor[T]) count(conditions []Condition) !int {
 	if isnil(se.exec_count_by_criteria) {
 		return error('SpecificationExecutor.count: exec_count_by_criteria callback not configured')
 	}
-	criteria := spec.to_criteria()
-	return se.exec_count_by_criteria(criteria)
+	return se.exec_count_by_criteria(normalize_criteria(conditions))
 }
 
-// exists returns true if any entity matches the specification.
-pub fn (mut se SpecificationExecutor[T]) exists(spec &Specification) !bool {
-	count := se.count(spec)!
+// count_with_specification is the Specification-typed façade of count().
+pub fn count_with_specification[T](se &SpecificationExecutor[T], spec &Specification) !int {
+	if isnil(se.exec_count_by_criteria) {
+		return error('SpecificationExecutor.count: exec_count_by_criteria callback not configured')
+	}
+	return se.exec_count_by_criteria(normalize_criteria(spec_conditions(spec)))
+}
+
+// exists_with_specification reports whether any entity matches spec.
+//
+// The conditions are resolved here, in this frame, and the generic
+// count method is called with them: forwarding `spec` to another
+// generic function re-packs the interface value in a way V 0.5.2
+// miscompiles (confirmed with a standalone repro).
+pub fn exists_with_specification[T](mut se SpecificationExecutor[T], spec &Specification) !bool {
+	conditions := spec_conditions(spec)
+	count := se.count(conditions)!
 	return count > 0
 }

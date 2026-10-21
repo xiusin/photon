@@ -210,12 +210,16 @@ pub fn set_status(mut ctx veb.Context, code int) {
 // If the error message contains 'permission denied', returns 403 Forbidden;
 // otherwise returns 401 Unauthorized.
 //
+// The parameter is a plain `string`, not `IError`: veb treats every
+// method on an app/controller receiver as a route handler and rejects
+// handler parameters that cannot be built from path/query segments
+// (`... has unsupported type IError`).  Callers pass `err.msg()`.
+//
 // Usage:
 //   username := c.middleware_registry.guard_editor(mut ctx) or {
-//       return c.guard_error(mut ctx, err)
+//       return c.guard_error(mut ctx, err.msg())
 //   }
-pub fn (b &BaseController) guard_error(mut ctx veb.Context, err IError) veb.Result {
-	msg := err.msg()
+pub fn (b &BaseController) guard_error(mut ctx veb.Context, msg string) veb.Result {
 	if msg.contains('permission denied') {
 		return b.forbidden(mut ctx, msg)
 	}

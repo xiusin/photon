@@ -81,13 +81,18 @@ fn test_pool_acquire_from_initialized() {
 }
 
 fn test_pool_acquire_all_idle() {
-	mut p := new_pool_with_config('test', obj_factory, 2, 10)
+	// NOTE: `obj_factory` returns the same dummy pointer for every object, so
+	// two entries share one obj_index key and the free-stack lookup cannot
+	// tell them apart.  Use distinct objects here, otherwise the pool
+	// legitimately creates a third one.
+	mut p := new_pool_with_config('test', distinct_obj_factory, 2, 10)
 	p.initialize()!
 
 	p.acquire()!
 	p.acquire()!
 
 	stats := p.stats()
+	assert stats.total == 2
 	assert stats.active == 2
 	assert stats.idle == 0
 }
@@ -163,7 +168,8 @@ fn test_pool_acquire_after_close() {
 // ============================================================
 
 fn test_pool_stats_after_operations() {
-	mut p := new_pool_with_config('test', obj_factory, 2, 10)
+	// Distinct objects keep obj_index unambiguous (see test_pool_acquire_all_idle).
+	mut p := new_pool_with_config('test', distinct_obj_factory, 2, 10)
 	p.initialize()!
 
 	assert p.stats().total == 2
@@ -173,15 +179,16 @@ fn test_pool_stats_after_operations() {
 
 	stats := p.stats()
 	assert stats.total == 2
-	// NOTE: V's for mut entry iterates by copy, so entry.in_use may not persist.
-	// This test verifies basic acquire/release and stats shape.
-	assert stats.total >= 0
+	assert stats.active == 2
+	assert stats.idle == 0
 
 	p.release(obj1)
 	p.release(obj2)
 
 	stats2 := p.stats()
 	assert stats2.total == 2
+	assert stats2.active == 0
+	assert stats2.idle == 2
 }
 
 // ============================================================
@@ -224,4 +231,10 @@ fn test_pool_factory_respects_count() {
 
 fn obj_factory() !voidptr {
 	return voidptr(42)
+}
+
+// distinct_obj_factory hands out a fresh pointer per call, so pool entries
+// stay distinguishable in the obj_index reverse map.
+fn distinct_obj_factory() !voidptr {
+	return unsafe { malloc(16) }
 }

@@ -117,7 +117,8 @@ fn test_storage_lifecycle_concurrent_read_visibility() {
 	// Concurrent reads — should all return the same value without racing
 	for _ in 0 .. 20 {
 		spawn fn (ga &LocalAdapter, d chan bool) {
-			vis := ga.visibility('shared.txt') or { Visibility.private_ }
+			mut a := unsafe { ga }
+			vis := a.visibility('shared.txt') or { Visibility.private_ }
 			assert vis == .public_
 			d <- true
 		}(adapter, done)

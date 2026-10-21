@@ -67,7 +67,7 @@ fn enh_mock_setup[T]() !Repository[T] {
 	enh_mock_reset()
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
-	repo := new_repository[T](om, 'default', 'enh_test_users', enh_mock_exec, enh_mock_query)!
+	repo := new_entity_repository[T](om, 'default', 'enh_test_users', enh_mock_exec, enh_mock_query)!
 	unsafe {
 		g_enh_pk_col = repo.primary_key_column
 	}

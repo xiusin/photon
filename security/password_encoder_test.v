@@ -8,7 +8,9 @@ module security
 fn test_bcrypt_password_encoder_encode_format() {
 	e := new_bcrypt_password_encoder()
 	encoded := e.encode('password')!
-	assert encoded.starts_with('{bcrypt}$2y$')
+	// crypto.bcrypt emits $2a$; $2y$/$2b$ are previews of the same hash.
+	assert encoded.starts_with('{bcrypt}$2')
+	assert encoded.len > 50
 }
 
 fn test_bcrypt_password_encoder_matches_valid() {

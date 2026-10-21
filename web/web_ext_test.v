@@ -231,11 +231,12 @@ struct MockHandlerResolver {
 	success bool
 }
 
-fn (r MockHandlerResolver) resolve(ctx voidptr) !HandlerFn {
+fn (r MockHandlerResolver) resolve(ctx voidptr) !fn (voidptr) !voidptr {
 	if r.success {
-		return fn (ctx voidptr) !voidptr {
+		handler := HandlerFn(fn (ctx voidptr) !voidptr {
 			return unsafe { nil }
-		}
+		})
+		return handler
 	}
 	return error('handler not found')
 }

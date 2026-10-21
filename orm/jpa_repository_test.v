@@ -85,7 +85,7 @@ fn mock_setup[T]() !Repository[T] {
 	mock_reset()
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
-	repo := new_repository[T](om, 'default', 'jpa_test_table', mock_exec, mock_query)!
+	repo := new_entity_repository[T](om, 'default', 'jpa_test_table', mock_exec, mock_query)!
 	unsafe {
 		g_mock_pk_col = repo.primary_key_field
 	}
@@ -223,7 +223,7 @@ fn test_jpa_construct_no_primary_key_error() {
 	mock_reset()
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
-	if _ := new_repository[JpaNoPk](om, 'default', 'jpa_test_table', mock_exec, mock_query) {
+	if _ := new_entity_repository[JpaNoPk](om, 'default', 'jpa_test_table', mock_exec, mock_query) {
 		assert false, 'expected error: no primary key field'
 	} else {
 		assert true
@@ -424,7 +424,7 @@ fn test_jpa_article_crud() {
 //
 // Repository itself is generic and cannot be a Photon bean, but
 // the documented pattern is to autowire &OrmManager into a @[component]
-// and call new_repository[T]() from there.  This test verifies
+// and call new_entity_repository[T]() from there.  This test verifies
 // that pattern compiles and works.
 // ════════════════════════════════════════════════════════════════
 
@@ -433,7 +433,7 @@ struct JpaUserService {
 }
 
 fn (s &JpaUserService) repo() !Repository[JpaTestUser] {
-	return new_repository[JpaTestUser](s.om, 'default', 'users', mock_exec, mock_query)!
+	return new_entity_repository[JpaTestUser](s.om, 'default', 'users', mock_exec, mock_query)!
 }
 
 fn test_jpa_autowired_pattern() {

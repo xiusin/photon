@@ -60,9 +60,9 @@ fn test_local_adapter_new() {
 
 fn test_local_adapter_resolve_path() {
 	adapter := new_local_adapter('/var/uploads')
-	assert adapter.resolve_path('file.txt') == '/var/uploads/file.txt'
-	assert adapter.resolve_path('/file.txt') == '/var/uploads/file.txt'
-	assert adapter.resolve_path('dir/file.txt') == '/var/uploads/dir/file.txt'
+	assert adapter.resolve_path('file.txt')! == '/var/uploads/file.txt'
+	assert adapter.resolve_path('/file.txt')! == '/var/uploads/file.txt'
+	assert adapter.resolve_path('dir/file.txt')! == '/var/uploads/dir/file.txt'
 }
 
 fn test_local_adapter_write_and_read() {

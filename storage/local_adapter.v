@@ -190,8 +190,12 @@ pub fn (la &LocalAdapter) last_modified(path string) !i64 {
 	return os.file_last_mod_unix(full)
 }
 
-// metadata returns comprehensive file metadata
-pub fn (mut la LocalAdapter) metadata(path string) !&FileMetadata {
+// metadata returns comprehensive file metadata.
+//
+// Read-only, so the receiver is `&LocalAdapter` — storage.Storage declares
+// metadata() in its immutable section and a `mut` receiver breaks the
+// interface implementation (and the cheap `&adapter` registrations).
+pub fn (la &LocalAdapter) metadata(path string) !&FileMetadata {
 	full := la.resolve_path(path)!
 	if !os.exists(full) {
 		return error('file not found: ${path}')
@@ -253,8 +257,11 @@ pub fn (mut la LocalAdapter) set_visibility(path string, visibility Visibility) 
 	}
 }
 
-// visibility returns a file's visibility
-pub fn (mut la LocalAdapter) visibility(path string) !Visibility {
+// visibility returns a file's visibility.
+//
+// Read-only: the RWMutex is shared state, so a `&LocalAdapter` receiver is
+// enough and keeps storage.Storage's immutable section satisfied.
+pub fn (la &LocalAdapter) visibility(path string) !Visibility {
 	la.mu.rlock()
 	defer { la.mu.runlock() }
 	if vis_str := la.permissions[path] {

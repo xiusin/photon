@@ -587,7 +587,7 @@ pub fn derived_delete_by[T](dr &DerivedRepository[T], method string, params ...v
 //           return rows.map(it.vals)
 //       }
 //
-//       mut repo := orm.new_repository[User](om, 'default', 'users', exec_fn, query_fn)!
+//       mut repo := orm.new_entity_repository[User](om, 'default', 'users', exec_fn, query_fn)!
 //       repo.create_table()!                       // CREATE TABLE IF NOT EXISTS
 //       repo.save(&User{name: 'Alice', ...})!      // INSERT (comptime-derived)
 //       user := repo.find_by_id(1)!                // SELECT ... WHERE id = ?
@@ -600,7 +600,7 @@ pub fn derived_delete_by[T](dr &DerivedRepository[T], method string, params ...v
 //   Repository itself is not a Photon bean (it is generic, and V's
 //   comptime DI cannot instantiate arbitrary T at container startup).
 //   Instead, autowire the &OrmManager into a @[component] factory and
-//   call new_repository[T]() from there:
+//   call new_entity_repository[T]() from there:
 //
 //       @[component]
 //       pub struct UserService {
@@ -609,7 +609,7 @@ pub fn derived_delete_by[T](dr &DerivedRepository[T], method string, params ...v
 //       }
 //
 //       fn (s &UserService) repo() !Repository[User] {
-//           return new_repository[User](s.om, 'default', 'users',
+//           return new_entity_repository[User](s.om, 'default', 'users',
 //               my_exec_fn, my_query_fn)!
 //       }
 //
@@ -714,6 +714,10 @@ mut:
 //
 // `exec_fn`  — executes INSERT/UPDATE/DELETE/DDL statements.
 // `query_fn` — executes SELECT, returns rows as [][]string.
+// Name note: this factory used to be called new_repository[T], which
+// collided with the 9-arg BaseRepository constructor below.  The
+// BaseRepository constructor keeps the historical name, so the
+// comptime-derived factory is exported as new_entity_repository[T].
 pub fn new_entity_repository[T](orm_manager &OrmManager, db_name string, table_name string, exec_fn SqlExecFn, query_fn SqlQueryFn) !Repository[T] {
 	// Extract JPA entity metadata at compile time (Task B7).
 	// @[table('name')] overrides the passed table_name; @[column('name')]

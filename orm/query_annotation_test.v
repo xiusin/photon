@@ -272,7 +272,7 @@ fn qa_setup() !Repository[QaUser] {
 	qa_reset()
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
-	repo := new_repository[QaUser](om, 'default', 'users', qa_exec, qa_query)!
+	repo := new_entity_repository[QaUser](om, 'default', 'users', qa_exec, qa_query)!
 	qa_insert_user('Alice', 30, 'alice@example.com')
 	qa_insert_user('Bob', 25, 'bob@example.com')
 	qa_insert_user('Charlie', 35, 'charlie@example.com')

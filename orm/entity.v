@@ -430,7 +430,7 @@ pub fn extract_int_attr(attrs []string, name string) int {
 		}
 		if attr.starts_with('${name}:') {
 			rest := attr['${name}:'.len..].trim_space()
-			return rest.int()
+			return strip_attr_quotes(rest).int()
 		}
 	}
 	return 0
@@ -474,13 +474,13 @@ pub fn extract_two_int_attr(attrs []string, name string) (int, int) {
 			}
 		}
 		if attr.starts_with('${name}:') {
-			rest := attr['${name}:'.len..].trim_space()
+			rest := strip_attr_quotes(attr['${name}:'.len..].trim_space())
 			parts := rest.split(',')
 			if parts.len >= 2 {
-				return parts[0].trim_space().int(), parts[1].trim_space().int()
+				return strip_attr_quotes(parts[0].trim_space()).int(), strip_attr_quotes(parts[1].trim_space()).int()
 			}
 			if parts.len == 1 {
-				return parts[0].trim_space().int(), 0
+				return strip_attr_quotes(parts[0].trim_space()).int(), 0
 			}
 		}
 	}

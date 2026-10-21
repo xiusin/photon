@@ -104,7 +104,7 @@ fn ol_mock_setup[T]() !Repository[T] {
 	ol_mock_reset()
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
-	mut repo := new_repository[T](om, 'default', 'ol_test_table', ol_mock_exec, ol_mock_query)!
+	mut repo := new_entity_repository[T](om, 'default', 'ol_test_table', ol_mock_exec, ol_mock_query)!
 	repo.set_affected_rows_fn(ol_mock_affected_rows)
 	unsafe {
 		g_ol_pk_col = repo.primary_key_field
@@ -760,7 +760,7 @@ fn test_ol_update_versioned_requires_affected_rows_fn() {
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
 	// Create repo WITHOUT setting affected_rows_fn
-	mut repo := new_repository[OlVersionedUser](om, 'default', 'ol_test_table', ol_mock_exec, ol_mock_query)!
+	mut repo := new_entity_repository[OlVersionedUser](om, 'default', 'ol_test_table', ol_mock_exec, ol_mock_query)!
 	unsafe {
 		g_ol_pk_col = 'id'
 	}

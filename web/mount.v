@@ -15,7 +15,7 @@ module web
 //   - very 框架的 mount[T]() comptime 挂载模式
 //
 // 控制器方法签名约定：
-//   pub fn (mut c MyController) handler(mut ctx veb.Context, params map[string]string) veb.Result
+//   pub fn (mut c MyController) handler(mut ctx veb.Context) veb.Result
 //
 // 路由注解格式（支持两种写法）：
 //   方式一（分离式，veb 风格）：
@@ -171,7 +171,7 @@ pub fn extract_controller_prefix[T]() string {
 // V comptime 注意：
 //   $if method.return_type is veb.Result 确保只对返回 veb.Result 的方法
 //   生成 ctrl.$method(mut ctx, params) 调用。所有路由处理方法必须具有
-//   签名 fn (mut ctx veb.Context, params map[string]string) veb.Result。
+//   签名 fn (mut ctx veb.Context, [标量参数...]) veb.Result。
 //   非路由方法（构造器等）返回 &T 或 void，不会被匹配。
 pub fn dispatch_controller_method[T, X](controller_ptr voidptr, method_name string, ctx_ptr voidptr, params map[string]string) veb.Result {
 	mut ctrl := unsafe { &T(controller_ptr) }
@@ -206,7 +206,7 @@ pub fn dispatch_controller_method[T, X](controller_ptr voidptr, method_name stri
 //   prefix:     路由前缀（如 '/api/v1'），会自动拼接到每条路由路径前
 //
 // 控制器方法签名约定：
-//   pub fn (mut c MyController) handler(mut ctx veb.Context, params map[string]string) veb.Result
+//   pub fn (mut c MyController) handler(mut ctx veb.Context) veb.Result
 //
 // 路由注解支持两种格式：
 //   @[get: '/users']           — Spring 风格（合并式）

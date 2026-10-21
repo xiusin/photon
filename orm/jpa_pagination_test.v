@@ -74,7 +74,7 @@ fn page_mock_setup[T]() !Repository[T] {
 	page_mock_reset()
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
-	return new_repository[T](om, 'default', 'page_test_table', page_mock_exec, page_mock_query)!
+	return new_entity_repository[T](om, 'default', 'page_test_table', page_mock_exec, page_mock_query)!
 }
 
 // page_mock_exec handles INSERT / CREATE TABLE statements.
