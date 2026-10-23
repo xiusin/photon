@@ -93,18 +93,8 @@ pub fn parse_query_annotation(attr string) ?QueryAnnotation {
 	}
 }
 
-// strip_quotes removes a single layer of surrounding single or
-// double quotes from `s`.  If `s` is not quoted, it is returned
-// unchanged.
-fn strip_quotes(s string) string {
-	if s.len >= 2 && s[0] == `'` && s[s.len - 1] == `'` {
-		return s[1..s.len - 1]
-	}
-	if s.len >= 2 && s[0] == `"` && s[s.len - 1] == `"` {
-		return s[1..s.len - 1]
-	}
-	return s
-}
+// strip_quotes is defined in entity.v (pub) and shared by query.v and
+// table.v, so identifiers and annotation arguments normalise identically.
 
 // extract_named_params scans `sql_str` for `:name` tokens and returns
 // the list of parameter names in order of appearance.

@@ -909,26 +909,62 @@ println(s.order_by()) // 'name ASC, created_at DESC'
 
 Photon 核心模块均支持链式调用，参照 Spring Boot Builder 模式和 Laravel Fluent API。
 
-### ORM QueryBuilder
+### ORM 链式查询
+
+推荐入口是 `orm.table()`：参数带类型、不写 `?`、不用记 `where_` 后缀。
 
 ```v
-// 链式构建查询
-users := orm.new_query_builder(mgr, 'default', 'users')
-    .where_('age > ?', 18)
-    .order_by('name', .asc)
+// 链式构建查询（参数按类型绑定，绝不拼字符串）
+rows := orm.table('users', mgr)
+    .where('age', '>', 18)
+    .where_eq('status', 'active')
+    .order_by_asc('name')
     .limit(10)
     .get()!
 
-// 带参数化类型安全 SQL
-users := orm.new_query_builder(mgr, 'default', 'users')
-    .select_(['id', 'name', 'email'])
-    .where_('status = ?', 'active')
-    .or_where('role = ?', 'admin')
-    .order_by('created_at', .desc)
-    .offset(0)
-    .limit(20)
-    .get()!
+// 终端方法：first / count / exists / pluck / value
+total := orm.table('users', mgr).where_eq('status', 'active').count()!
+
+// 写入：update / delete 强制要求 WHERE，绝不静默做全表操作
+mut patch := map[string]orm.ParamValue{}
+patch['name'] = orm.ParamValue('Alice')
+orm.table('users', mgr).where_eq('id', 1).update(patch)!
+orm.table('users', mgr).where_eq('status', 'stale').delete()!
 ```
+
+查询是**不可变值**：每个子句方法都返回新查询，旧查询不受影响，因此可以安全地
+在多个分支或协程间共享。
+
+```v
+base := orm.table('users', mgr).where_eq('tenant_id', 7)
+active := base.where_eq('status', 'active').get()!
+all := base.get()!              // 仍然只按 tenant 过滤
+
+// 调试：直接看 SQL 与参数（注意 `sql` 是 V 保留字，变量别这么命名）
+qsql, args := base.to_sql()!
+```
+
+分组规则只有一条要记：`.where*()` 延长当前 AND 组，`.or_where*()` 另起 OR 组。
+
+```v
+// WHERE (status = ?) AND (role = ? OR role = ?)
+grouped := orm.table('users', mgr)
+    .where_eq('status', 'active')
+    .where_group(fn (q &orm.TableQuery) &orm.TableQuery {
+        return q.where_eq('role', 'admin').or_where_eq('role', 'owner')
+    })
+```
+
+实体仓储也能接链式查询：
+
+```v
+mut repo := orm.new_entity_repository[User](mgr, 'default', 'users', exec_fn, query_fn)!
+mut r := &repo
+users := orm.repo_query(r).where_ge('age', 18).order_by_desc('id').to_entities[User]()!
+```
+
+`orm.new_query_builder()` / `where_()` 仍然保留（SQL 片段风格），新代码建议用
+`orm.table()`。
 
 ### Cache 链式操作
 

@@ -324,27 +324,29 @@ page_result := repo.<span class="fn">paginate</span>(<span class="nm">1</span>, 
         </div>
       </div>
 
-      <!-- ═══ QueryBuilder API ═══ -->
+      <!-- ═══ 链式查询 API ═══ -->
       <div class="doc-section" id="query-builder">
-        <div class="section-header"><div class="section-icon icon-orm">🔨</div><div><div class="section-title">QueryBuilder 链式 API</div><div class="section-subtitle">new_query_builder · where_ · order_by · limit · get — 流式查询构建</div></div></div>
+        <div class="section-header"><div class="section-icon icon-orm">🔨</div><div><div class="section-title">链式查询 API（orm.table）</div><div class="section-subtitle">table · where · order_by · limit · get — 类型化参数、不可变链、默认安全</div></div></div>
 
-        <p>QueryBuilder 提供链式 API 构建查询，支持条件、排序、分页等操作，最终通过 <code>.get()</code> 执行查询并返回结果：</p>
+        <p><code>orm.table()</code> 是推荐的链式入口：参数按 <code>ParamValue</code> 类型绑定，不写 <code>?</code>，不用记 <code>where_</code> 后缀。每个子句方法返回<b>新查询</b>，原查询保持不变，因此天然可复用、可跨协程共享。</p>
 
         <table class="doc-table">
           <thead><tr><th>方法</th><th>说明</th><th>Spring 等价</th></tr></thead>
           <tbody>
-            <tr><td><code>new_query_builder(manager, conn, table)</code></td><td>创建 QueryBuilder 实例</td><td><code>JPAQueryFactory</code></td></tr>
-            <tr><td><code>.where_(condition, ...args)</code></td><td>添加 WHERE 条件（参数化查询）</td><td><code>.where(predicate)</code></td></tr>
-            <tr><td><code>.where_and(conditions)</code></td><td>批量 AND 条件</td><td><code>.and(predicate)</code></td></tr>
-            <tr><td><code>.where_or(conditions)</code></td><td>批量 OR 条件</td><td><code>.or(predicate)</code></td></tr>
-            <tr><td><code>.order_by(field, direction)</code></td><td>排序（.asc / .desc）</td><td><code>.orderBy()</code></td></tr>
-            <tr><td><code>.limit(n)</code></td><td>限制返回行数</td><td><code>.limit(n)</code></td></tr>
-            <tr><td><code>.offset(n)</code></td><td>偏移行数</td><td><code>.offset(n)</code></td></tr>
-            <tr><td><code>.get()</code></td><td>执行查询，返回结果集</td><td><code>.fetch()</code></td></tr>
-            <tr><td><code>.first()</code></td><td>返回第一条结果</td><td><code>.fetchFirst()</code></td></tr>
-            <tr><td><code>.count()</code></td><td>统计匹配行数</td><td><code>.fetchCount()</code></td></tr>
+            <tr><td><code>table(name, manager)</code></td><td>创建链式查询</td><td><code>JPAQueryFactory</code></td></tr>
+            <tr><td><code>.where(col, op, value)</code></td><td>条件（op 白名单：= != &gt; &gt;= &lt; &lt;= like）</td><td><code>.where(predicate)</code></td></tr>
+            <tr><td><code>.where_eq / where_gt / where_in / where_null …</code></td><td>语义化条件（延长当前 AND 组）</td><td><code>.and(predicate)</code></td></tr>
+            <tr><td><code>.or_where / or_where_eq</code></td><td>另起一个 OR 组（渲染时加括号）</td><td><code>.or(predicate)</code></td></tr>
+            <tr><td><code>.where_group(cb)</code></td><td>一个带括号的 AND 组</td><td><code>.and(nested)</code></td></tr>
+            <tr><td><code>.order_by(col, desc) / order_by_asc / order_by_desc</code></td><td>排序</td><td><code>.orderBy()</code></td></tr>
+            <tr><td><code>.limit(n) / .offset(n) / .page(num, size)</code></td><td>分页（OFFSET 必须搭配 LIMIT）</td><td><code>.limit()</code></td></tr>
+            <tr><td><code>.get() / .first() / .count() / .exists()</code></td><td>读：结果集 / 首行 / 计数 / 是否存在</td><td><code>.fetch()</code></td></tr>
+            <tr><td><code>.update(pairs) / .delete()</code></td><td>写：强制要求 WHERE，否则直接报错</td><td><code>@Modifying</code></td></tr>
+            <tr><td><code>.to_entities[T]()</code></td><td>映射为实体列表</td><td><code>.getResultList()</code></td></tr>
           </tbody>
         </table>
+
+        <p>条件分组只有一条规则：<code>.where*()</code> 延长当前 AND 组，<code>.or_where*()</code> 另起 OR 组。值永不拼进 SQL，全部走 <code>?</code> 占位符；表名/列名/操作符按白名单校验，不合法直接报错。</p>
 
         <div class="code-block">
           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
@@ -353,45 +355,46 @@ page_result := repo.<span class="fn">paginate</span>(<span class="nm">1</span>, 
 <span class="kw">mut</span> manager := orm.<span class="fn">new_orm_manager</span>()
 manager.<span class="fn">register_connection</span>(<span class="st">'default'</span>, .sqlite, db)!
 
-<span class="cm">// 创建 QueryBuilder</span>
-<span class="kw">mut</span> qb := orm.<span class="fn">new_query_builder</span>(manager, <span class="st">'default'</span>, <span class="st">'users'</span>)
-
-<span class="cm">// 链式 API 构建查询</span>
-users := qb.<span class="fn">where_</span>(<span class="st">'age > ?'</span>, <span class="nm">18</span>)
-    .<span class="fn">where_</span>(<span class="st">'is_active = ?'</span>, <span class="kw">true</span>)
-    .<span class="fn">order_by</span>(<span class="st">'name'</span>, .asc)
+<span class="cm">// 基础查询：值按类型绑定，不写 ?，无 _ 后缀</span>
+rows := orm.<span class="fn">table</span>(<span class="st">'users'</span>, manager)
+    .<span class="fn">where</span>(<span class="st">'age'</span>, <span class="st">'&gt;'</span>, <span class="nm">18</span>)
+    .<span class="fn">where_eq</span>(<span class="st">'is_active'</span>, <span class="kw">true</span>)
+    .<span class="fn">order_by_asc</span>(<span class="st">'name'</span>)
     .<span class="fn">limit</span>(<span class="nm">10</span>)
     .<span class="fn">get</span>()!
 
-<span class="kw">for</span> user <span class="kw">in</span> users {
-    <span class="fn">println</span>(<span class="st">'${user.name} (${user.age})'</span>)
-}
+<span class="cm">// 分组：.where*() 延长当前 AND 组，.or_where*() 另起 OR 组</span>
+<span class="cm">// WHERE (status = ?) AND (role = ? OR role = ?)</span>
+grouped := orm.<span class="fn">table</span>(<span class="st">'users'</span>, manager)
+    .<span class="fn">where_eq</span>(<span class="st">'status'</span>, <span class="st">'active'</span>)
+    .<span class="fn">where_group</span>(<span class="kw">fn</span> (q &amp;orm.<span class="tp">TableQuery</span>) &amp;orm.<span class="tp">TableQuery</span> {
+        <span class="kw">return</span> q.<span class="fn">where_eq</span>(<span class="st">'role'</span>, <span class="st">'admin'</span>).<span class="fn">or_where_eq</span>(<span class="st">'role'</span>, <span class="st">'owner'</span>)
+    })
 
-<span class="cm">// 条件分组：AND / OR 条件</span>
-users2 := orm.<span class="fn">new_query_builder</span>(manager, <span class="st">'default'</span>, <span class="st">'users'</span>)
-    .<span class="fn">where_</span>(<span class="st">'status = ?'</span>, <span class="st">'active'</span>)
-    .<span class="fn">where_and</span>([
-        <span class="st">'age >= ?'</span>, <span class="nm">18</span>,
-        <span class="st">'age <= ?'</span>, <span class="nm">65</span>,
-    ])
-    .<span class="fn">order_by</span>(<span class="st">'created_at'</span>, .desc)
-    .<span class="fn">offset</span>(<span class="nm">20</span>)
-    .<span class="fn">limit</span>(<span class="nm">10</span>)
-    .<span class="fn">get</span>()!
+<span class="cm">// 不可变：base 不会被下面的分支改动</span>
+base := orm.<span class="fn">table</span>(<span class="st">'users'</span>, manager).<span class="fn">where_eq</span>(<span class="st">'tenant_id'</span>, <span class="nm">7</span>)
+active := base.<span class="fn">where_eq</span>(<span class="st">'status'</span>, <span class="st">'active'</span>).<span class="fn">get</span>()!
+all := base.<span class="fn">get</span>()!
 
-<span class="cm">// 获取第一条（等价于 LIMIT 1）</span>
-first_user := orm.<span class="fn">new_query_builder</span>(manager, <span class="st">'default'</span>, <span class="st">'users'</span>)
-    .<span class="fn">where_</span>(<span class="st">'email = ?'</span>, <span class="st">'alice@example.com'</span>)
-    .<span class="fn">first</span>()!
+<span class="cm">// 单条 / 计数 / 调试（sql 是 V 关键字，用 qsql）</span>
+first_row := orm.<span class="fn">table</span>(<span class="st">'users'</span>, manager).<span class="fn">where_eq</span>(<span class="st">'email'</span>, <span class="st">'a@b.com'</span>).<span class="fn">first</span>()!
+total := orm.<span class="fn">table</span>(<span class="st">'users'</span>, manager).<span class="fn">where_eq</span>(<span class="st">'is_active'</span>, <span class="kw">true</span>).<span class="fn">count</span>()!
+qsql, args := orm.<span class="fn">table</span>(<span class="st">'users'</span>, manager).<span class="fn">where_eq</span>(<span class="st">'id'</span>, <span class="nm">1</span>).<span class="fn">to_sql</span>()!
 
-<span class="cm">// 统计匹配行数</span>
-total := orm.<span class="fn">new_query_builder</span>(manager, <span class="st">'default'</span>, <span class="st">'users'</span>)
-    .<span class="fn">where_</span>(<span class="st">'is_active = ?'</span>, <span class="kw">true</span>)
-    .<span class="fn">count</span>()!
+<span class="cm">// 写入：update / delete 没有 WHERE 会直接报错，避免误清表</span>
+<span class="kw">mut</span> patch := map[<span class="tp">string</span>]orm.<span class="tp">ParamValue</span>{}
+patch[<span class="st">'name'</span>] = orm.<span class="tp">ParamValue</span>(<span class="st">'Alice'</span>)
+orm.<span class="fn">table</span>(<span class="st">'users'</span>, manager).<span class="fn">where_eq</span>(<span class="st">'id'</span>, <span class="nm">1</span>).<span class="fn">update</span>(patch)!
+
+<span class="cm">// 实体仓储接入链式查询</span>
+users := orm.<span class="fn">repo_query</span>(r).<span class="fn">where_ge</span>(<span class="st">'age'</span>, <span class="nm">18</span>).<span class="fn">to_entities</span>[<span class="tp">User</span>]()!
 
 <span class="cm">// Spring 等价：queryFactory.selectFrom(user).where(...).orderBy(...).limit(10).fetch()</span>
-<span class="cm">// Laravel 等价：DB::table('users')->where('age', '>', 18)->orderBy('name')->take(10)->get()</span></div>
+<span class="cm">// Laravel 等价：DB::table('users')-&gt;where('age', '&gt;', 18)-&gt;orderBy('name')-&gt;take(10)-&gt;get()</span></div>
         </div>
+
+        <p>底层 SQL 片段风格的 <code>orm.new_query_builder(...).where_(...)</code> 仍然保留兼容；
+        它同样具备 OR 括号化，且 <code>first()</code> / <code>count()</code> / <code>pluck()</code> 不会修改原 builder。</p>
       </div>
 
       <!-- ═══ ParamValue ═══ -->

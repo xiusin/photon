@@ -374,6 +374,12 @@ pub fn is_primary_key_field(attrs []string) bool {
 // strip_attr_quotes removes surrounding single or double quotes from a
 // string, normalizing attribute arguments like `'t_user'` → `t_user`.
 fn strip_attr_quotes(s string) string {
+	return strip_quotes(s)
+}
+
+// strip_quotes removes one layer of surrounding single or double quotes.
+// Shared with table.v (identifier/value normalisation) and query.v.
+pub fn strip_quotes(s string) string {
 	mut val := s.trim_space()
 	if val.len >= 2 {
 		if (val[0] == `'` && val[val.len - 1] == `'`) || (val[0] == `"` && val[val.len - 1] == `"`) {
