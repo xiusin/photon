@@ -8,7 +8,7 @@
 set -e
 
 VFLAGS="-enable-globals"
-MODULES="config log security cli web orm http queue support ticker cache pool locking async"
+MODULES="core config logger security cli web orm http queue support ticker cache pool locking async i18n health metrics mailer retry storage tracing apidoc"
 
 echo ""
 echo "=============================================="
@@ -31,11 +31,11 @@ echo "→ Step 3: Module Tests"
 PASS=0
 FAIL=0
 for mod in $MODULES; do
-    if v $VFLAGS test "src/$mod/" >/dev/null 2>&1; then
-        echo "  [OK]   src/$mod/"
+    if v $VFLAGS test "$mod/" >/dev/null 2>&1; then
+        echo "  [OK]   $mod/"
         PASS=$((PASS + 1))
     else
-        echo "  [FAIL] src/$mod/"
+        echo "  [FAIL] $mod/"
         FAIL=$((FAIL + 1))
     fi
 done
@@ -50,7 +50,7 @@ fi
 
 # Step 4: Build example
 echo "→ Step 4: Build Example"
-v $VFLAGS -prod -o bin/photon-app example/main.v
+v $VFLAGS -prod -o bin/photon-app example/
 echo "  Binary: bin/photon-app ($(ls -lh bin/photon-app | awk '{print $5}'))"
 echo ""
 

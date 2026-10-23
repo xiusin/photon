@@ -273,8 +273,14 @@ fn test_background_gc_evicts_expired() {
 	c.set('ephemeral-2', 'v2', 1)!
 	assert c.size() == 2
 
-	// Wait for TTL expiry + GC sweep (GC runs every 1s).
-	time.sleep(3 * time.second)
+	// Wait for TTL expiry + a GC sweep. The sweep wakes on a fixed 1s tick,
+	// measured from construction — not from the set() calls — so the sweep that
+	// matters can land as late as 2s after the TTL lapses. Poll instead of
+	// asserting on a fixed sleep; break as soon as the sweep has run.
+	deadline := time.now().unix() + 10
+	for c.size() != 0 && time.now().unix() < deadline {
+		time.sleep(100 * time.millisecond)
+	}
 
 	// The background GC should have evicted the expired entries.
 	assert c.size() == 0

@@ -7,7 +7,7 @@ FROM ubuntu:22.04 AS builder
 ARG V_BRANCH=weekly.2025.06
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git make gcc libc6-dev ca-certificates curl && \
+    git make gcc libc6-dev ca-certificates curl libargon2-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Install V compiler
@@ -17,8 +17,12 @@ RUN git clone --depth 1 --branch ${V_BRANCH} https://github.com/vlang/v.git /tmp
 # Build Photon application
 COPY . /app
 WORKDIR /app/photon
-RUN mkdir -p bin && \
-    v -enable-globals -prod -o bin/photon example/main.v && \
+# example/ is a single `main` module spread over several files, so the whole
+# directory must be compiled — pointing v at example/main.v alone loses every
+# type declared in its siblings.
+RUN v install xiusin.vredis && \
+    mkdir -p bin && \
+    v -enable-globals -prod -o bin/photon example/ && \
     ls -lh bin/
 
 # ── Stage 2: Runtime ──

@@ -58,9 +58,8 @@ pub fn (mut c UserController) index(mut ctx Context) veb.Result {
 }
 
 // show GET /api/v1/users/:id — 用户详情
-pub fn (c &UserController) show(mut ctx Context) veb.Result {
+pub fn (c &UserController) show(id_str string, mut ctx Context) veb.Result {
 	c.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
-	id_str := ctx.query['id'] or { '' }
 	if id_str.len == 0 {
 		return ctx.json_error(400, 'missing user ID')
 	}
@@ -107,9 +106,8 @@ pub fn (mut c UserController) create(mut ctx Context) veb.Result {
 }
 
 // update PUT /api/v1/users/:id — 更新用户
-pub fn (mut c UserController) update(mut ctx Context) veb.Result {
+pub fn (mut c UserController) update(id_str string, mut ctx Context) veb.Result {
 	c.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
-	id_str := ctx.query['id'] or { '' }
 	if id_str.len == 0 {
 		return ctx.json_error(400, 'missing user ID')
 	}
@@ -135,9 +133,8 @@ pub fn (mut c UserController) update(mut ctx Context) veb.Result {
 }
 
 // destroy DELETE /api/v1/users/:id — 删除用户
-pub fn (mut c UserController) destroy(mut ctx Context) veb.Result {
+pub fn (mut c UserController) destroy(id_str string, mut ctx Context) veb.Result {
 	c.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
-	id_str := ctx.query['id'] or { '' }
 	if id_str.len == 0 {
 		return ctx.json_error(400, 'missing user ID')
 	}

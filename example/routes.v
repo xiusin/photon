@@ -71,9 +71,13 @@ pub fn (mut app App) get_users(mut ctx Context) veb.Result {
 	return app.user_controller.index(mut ctx)
 }
 
+// :id is a path parameter, so it must be a real method parameter — veb checks
+// the `:name` count against the signature and V 0.5.2 promotes the mismatch to
+// a compile error under -prod. veb also injects `ctx` first, then the path
+// params, so the context has to stay the leading argument.
 @['/api/v1/users/:id'; get]
-pub fn (mut app App) get_user(mut ctx Context) veb.Result {
-	return app.user_controller.show(mut ctx)
+pub fn (mut app App) get_user(mut ctx Context, id string) veb.Result {
+	return app.user_controller.show(id, mut ctx)
 }
 
 @['/api/v1/users'; post]
@@ -82,13 +86,13 @@ pub fn (mut app App) post_user(mut ctx Context) veb.Result {
 }
 
 @['/api/v1/users/:id'; put]
-pub fn (mut app App) put_user(mut ctx Context) veb.Result {
-	return app.user_controller.update(mut ctx)
+pub fn (mut app App) put_user(mut ctx Context, id string) veb.Result {
+	return app.user_controller.update(id, mut ctx)
 }
 
 @['/api/v1/users/:id'; delete]
-pub fn (mut app App) delete_user(mut ctx Context) veb.Result {
-	return app.user_controller.destroy(mut ctx)
+pub fn (mut app App) delete_user(mut ctx Context, id string) veb.Result {
+	return app.user_controller.destroy(id, mut ctx)
 }
 
 // ═══════════════════════════════════════════════════════════

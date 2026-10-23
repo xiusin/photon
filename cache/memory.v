@@ -53,6 +53,11 @@ fn (e &MemCacheEntry) is_expired() bool {
 // (the hot path) never writes under the entries read-lock — this was the
 // CRITICAL #4 data race (unsafe { entries[key].hit_count++ } under rlock).
 //
+// Lock ordering (mandatory, to avoid ABBA deadlocks): mu → lru_mu → hit_mu.
+// Every site that needs more than one of them takes them in this order; the
+// expiry path in get() used to take hit_mu before lru_mu, which deadlocked
+// against evict_expired() exactly when an expired key was read mid-sweep.
+//
 // LRU list is maintained via key-indexed doubly-linked list:
 //   - lru_head points to the most recently used entry
 //   - lru_tail points to the least recently used entry
@@ -261,12 +266,12 @@ pub fn (mut mc MemoryCache) get(key string) !string {
 			e := mc.entries[key]
 			if e.is_expired() {
 				mc.entries.delete(key)
-				mc.hit_mu.@lock()
-				mc.hit_counts.delete(key)
-				mc.hit_mu.unlock()
 				mc.lru_mu.@lock()
 				mc.lru_remove_unsafe(key)
 				mc.lru_mu.unlock()
+				mc.hit_mu.@lock()
+				mc.hit_counts.delete(key)
+				mc.hit_mu.unlock()
 			}
 		}
 		mc.mu.unlock()

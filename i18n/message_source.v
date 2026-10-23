@@ -70,7 +70,11 @@ pub:
 pub mut:
 	fallback_locale Locale = .en // locale used when the requested locale has no bundle
 mut:
-	mu      sync.RwMutex
+	// mu guards bundles and the load path. Plain text keys and values: cloning a
+	// map of strings under a lock is cheap, and nesting a second mutex here is
+	// a deadlock waiting to happen (ensure_loaded holds mu, then load_locale
+	// wants it again).
+	mu      sync.Mutex
 	bundles map[string]map[string]string // locale_code → (code → message)
 }
 
@@ -90,6 +94,13 @@ pub fn new_resource_bundle_message_source(basename string, base_dir string) &Res
 // attempts to load the fallback locale's bundle instead.
 // Returns an error if neither the requested nor fallback bundle can be loaded.
 pub fn (mut rb ResourceBundleMessageSource) load_locale(locale Locale) ! {
+	rb.mu.@lock()
+	defer { rb.mu.unlock() }
+	rb.load_locale_locked(locale)!
+}
+
+// load_locale_locked is the load path proper. Caller must hold rb.mu.
+fn (mut rb ResourceBundleMessageSource) load_locale_locked(locale Locale) ! {
 	lang := locale.code()
 	file_path := os.join_path(rb.base_dir, '${rb.basename}_${lang}.toml')
 
@@ -98,18 +109,13 @@ pub fn (mut rb ResourceBundleMessageSource) load_locale(locale Locale) ! {
 			return error('message bundle not found: ${file_path}')
 		}
 		// Try fallback locale
-		rb.load_locale(rb.fallback_locale) or {
+		rb.load_locale_locked(rb.fallback_locale) or {
 			return error('neither ${lang} nor fallback bundle found')
 		}
 		return
 	}
 
-	// Parse simple TOML key=value pairs (lightweight parser)
-	mut bundle := parse_simple_toml(content)
-
-	rb.mu.@lock()
-	defer { rb.mu.unlock() }
-	rb.bundles[lang] = bundle.move()
+	rb.bundles[lang] = parse_simple_toml(content)
 }
 
 // parse_simple_toml parses simple TOML content with key = "value" pairs.
@@ -156,7 +162,7 @@ fn strip_toml_comment_simple(value string) string {
 	mut quote_char := u8(0)
 
 	for i, ch in value {
-		if !in_quote && (ch == `"` || ch == `'` ) {
+		if !in_quote && (ch == `"` || ch == `'`) {
 			in_quote = true
 			quote_char = ch
 		} else if in_quote && ch == quote_char {
@@ -174,15 +180,15 @@ fn strip_toml_comment_simple(value string) string {
 fn (mut rb ResourceBundleMessageSource) ensure_loaded(locale Locale) {
 	lang := locale.code()
 
-	// Fast path: check if already loaded (read lock)
-	rb.mu.rlock()
-	loaded := lang in rb.bundles
-	rb.mu.runlock()
+	rb.mu.@lock()
+	defer { rb.mu.unlock() }
 
-	if !loaded {
-		// Slow path: load the bundle (write lock acquired inside load_locale)
-		rb.load_locale(locale) or {}
+	// Double-checked: two goroutines may both decide to load, the second one
+	// sees the bundle already present and skips the disk read + map write.
+	if lang in rb.bundles {
+		return
 	}
+	rb.load_locale_locked(locale) or {}
 }
 
 // resolve looks up a message by code and locale, replacing `{0}`, `{1}`, ...
@@ -198,11 +204,13 @@ pub fn (mut rb ResourceBundleMessageSource) resolve(code string, locale Locale, 
 pub fn (mut rb ResourceBundleMessageSource) resolve_or(code string, locale Locale, fallback string, args ...string) string {
 	rb.ensure_loaded(locale)
 
-	rb.mu.rlock()
-	defer { rb.mu.runlock() }
+	// Read under the same lock that guards writes, then release it before doing
+	// placeholder substitution.
+	rb.mu.@lock()
+	msg_template := rb.lookup(code, locale, fallback)
+	rb.mu.unlock()
 
-	mut msg := rb.lookup(code, locale, fallback)
-
+	mut msg := msg_template
 	// Replace {0}, {1}, ... placeholders with provided args
 	for i, arg in args {
 		msg = msg.replace('{${i}}', arg)
@@ -211,20 +219,18 @@ pub fn (mut rb ResourceBundleMessageSource) resolve_or(code string, locale Local
 }
 
 // lookup finds a message by code, falling back to the fallback locale, then
-// to the fallback string. Caller must hold the read lock.
+// to the fallback string. Caller must hold rb.mu.
 fn (rb &ResourceBundleMessageSource) lookup(code string, locale Locale, fallback string) string {
-	locale_bundle := (rb.bundles[locale.code()] or {
-		map[string]string{}
-	}).clone()
-	if msg := locale_bundle[code] {
-		return msg
+	if bundle := rb.bundles[locale.code()] {
+		if msg := bundle[code] {
+			return msg
+		}
 	}
 	if locale != rb.fallback_locale {
-		fb_bundle := (rb.bundles[rb.fallback_locale.code()] or {
-			map[string]string{}
-		}).clone()
-		if msg := fb_bundle[code] {
-			return msg
+		if fb_bundle := rb.bundles[rb.fallback_locale.code()] {
+			if msg := fb_bundle[code] {
+				return msg
+			}
 		}
 	}
 	return fallback

@@ -28,8 +28,9 @@ jobs:
       fail-fast: false
       matrix:
         module:
+          - core
           - config
-          - log
+          - logger
           - security
           - cli
           - web
@@ -41,6 +42,15 @@ jobs:
           - cache
           - pool
           - locking
+          - async
+          - i18n
+          - health
+          - metrics
+          - mailer
+          - retry
+          - storage
+          - tracing
+          - apidoc
     steps:
       - uses: actions/checkout@v4
 
@@ -48,6 +58,18 @@ jobs:
         uses: alexesprit/setup-v@v1
         with:
           v-version: 'weekly.2025.06'
+
+      - name: Install native deps
+        run: |
+          # libargon2-dev: security/hashing.v links argon2_bridge.c
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libargon2-dev
+
+      - name: Install v dependencies
+        run: |
+          # v.mod declares xiusin.vredis; cache/redis_cache.v imports it.
+          # `v install` is a no-op when the module is already present.
+          v install xiusin.vredis || true
 
       - name: Verify V
         run: |
@@ -70,7 +92,7 @@ jobs:
     steps:
       - name: Check status
         run: |
-          echo "All 13 module tests completed"
+          echo "All module tests completed"
           if [[ "${{ needs.test.result }}" == "success" ]]; then
             echo "::notice::✅ All tests passed"
           elif [[ "${{ needs.test.result }}" == "failure" ]]; then
@@ -96,10 +118,18 @@ jobs:
         with:
           v-version: 'weekly.2025.06'
 
+      - name: Install native deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libargon2-dev
+
+      - name: Install v dependencies
+        run: v install xiusin.vredis || true
+
       - name: Build example
         run: |
           cd photon
-          v -enable-globals -prod -o bin/${{ env.APP_NAME }} example/main.v
+          v -enable-globals -prod -o bin/${{ env.APP_NAME }} example/
           echo "Binary: photon/bin/${{ env.APP_NAME }}"
           ls -lh photon/bin/
 
