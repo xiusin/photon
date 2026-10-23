@@ -41,7 +41,7 @@ fn test_bcrypt_password_encoder_upgrade_encoding() {
 fn test_argon2_password_encoder_encode_format() {
 	e := new_argon2_password_encoder()
 	encoded := e.encode('password')!
-	assert encoded.starts_with('{argon2id}$argon2id$')
+	assert encoded.starts_with('{argon2id}\$argon2id\$')
 }
 
 fn test_argon2_password_encoder_matches_valid() {

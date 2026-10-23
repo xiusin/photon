@@ -262,8 +262,10 @@ pub fn (mut la LocalAdapter) set_visibility(path string, visibility Visibility) 
 // Read-only: the RWMutex is shared state, so a `&LocalAdapter` receiver is
 // enough and keeps storage.Storage's immutable section satisfied.
 pub fn (la &LocalAdapter) visibility(path string) !Visibility {
-	la.mu.rlock()
-	defer { la.mu.runlock() }
+	// `&LocalAdapter` keeps Storage's read-only section satisfied, so the
+	// RwMutex is reached through unsafe — the lock itself is not mutated.
+	unsafe { la.mu.rlock() }
+	defer { unsafe { la.mu.runlock() } }
 	if vis_str := la.permissions[path] {
 		if vis_str == 'public' {
 			return Visibility.public_

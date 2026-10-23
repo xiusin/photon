@@ -12,7 +12,7 @@ module web
 // Security considerations:
 //   - Double-extension attacks are blocked (e.g., "shell.php.jpg")
 //   - Path traversal in filenames is sanitized
-//   - Binary data is written via os.write_bytes (not os.write_file)
+//   - Binary data is written via os.write_file_array (not os.write_file)
 //   - Crypto-secure random IDs for chunked uploads
 //
 // Usage:
@@ -266,7 +266,7 @@ pub fn (mut h UploadHandler) handle(ctx &veb.Context, field string, dest_dir str
 
 // handle_bytes processes raw bytes as a file upload.
 // Useful when file data is already in memory.
-// Uses os.write_bytes to safely write binary data (no truncation on 0x00 bytes).
+// Uses os.write_file_array to safely write binary data (no truncation on 0x00 bytes).
 pub fn (mut h UploadHandler) handle_bytes(original_name string, data []u8, dest_dir string) !UploadResult {
 	// Ensure destination directory exists
 	os.mkdir_all(dest_dir, os.MkdirParams{}) or {
@@ -290,7 +290,7 @@ pub fn (mut h UploadHandler) handle_bytes(original_name string, data []u8, dest_
 
 	// Write file using binary-safe method
 	full_path := os.join_path(full_dir, stored_name)
-	os.write_bytes(full_path, data) or { return error('failed to write uploaded file: ${err}') }
+	os.write_file_array(full_path, data) or { return error('failed to write uploaded file: ${err}') }
 
 	// Compute hash
 	hash := sha256_hex(data)
@@ -613,7 +613,7 @@ pub fn (mut cm UploadChunkManager) is_complete(upload_id string) bool {
 }
 
 // assemble combines all chunks into the final file.
-// Uses os.write_bytes for binary-safe assembly.
+// Uses os.write_file_array for binary-safe assembly.
 pub fn (mut cm UploadChunkManager) assemble(upload_id string, dest_path string) ! {
 	// Lock only to extract the ChunkInfo and remove the session entry,
 	// then release the lock before doing any file I/O.
@@ -634,7 +634,7 @@ pub fn (mut cm UploadChunkManager) assemble(upload_id string, dest_path string) 
 	}
 
 	// Write the assembled file using binary-safe method
-	os.write_bytes(dest_path, content) or { return error('failed to write assembled file: ${err}') }
+	os.write_file_array(dest_path, content) or { return error('failed to write assembled file: ${err}') }
 
 	// Clean up chunks
 	os.rmdir_all(info.chunk_dir) or {}

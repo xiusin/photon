@@ -175,12 +175,17 @@ pub fn (mut te TaskExecutor) shutdown() {
 	te.stopped = true
 	te.mu.unlock()
 
-	// Wait for all submitted tasks to finish before closing the queue.
+	// Wait for all submitted tasks to finish before signalling the workers.
 	// This guarantees no submitted task is lost.
 	te.task_wg.wait()
 
-	// Close the queue: workers receive a nil TaskFunc and exit.
-	te.task_queue.close()
+	// Wake every worker with a nil TaskFunc so it exits its loop.
+	// NB: `task_queue.close()` is deliberately NOT used — V's `chan fn ()`
+	// returns a corrupted zero value after close, which segfaults the
+	// worker on the nil check. Pushing explicit nils avoids that path.
+	for _ in 0 .. te.worker_count {
+		te.task_queue <- unsafe { TaskFunc(nil) }
+	}
 
 	// Join all worker goroutines.
 	te.wg.wait()

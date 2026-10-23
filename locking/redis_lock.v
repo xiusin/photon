@@ -14,7 +14,6 @@ module locking
 // The token is a random string generated per acquire, preventing the
 // classic "lock released by wrong client" bug.
 import rand
-import time
 
 // ── Redis Client Interface ──
 

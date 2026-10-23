@@ -18,6 +18,7 @@ module web
 //   - Markdown 响应
 //
 import veb
+import time
 import net.http
 
 // ============================================================
@@ -146,12 +147,17 @@ pub fn user_agent(ctx &veb.Context) string {
 }
 
 // time_to_render 获取页面渲染耗时（毫秒）。
-// 桥接 veb.Context.time_to_render()。
+// 基于 veb.Context.page_gen_start（veb 在连接处理起始记录的 time.ticks()，
+// 而 time.ticks() 本身就是毫秒精度）。
 //
 // 用法：
 //   elapsed := web.time_to_render(ctx)
 pub fn time_to_render(ctx &veb.Context) i64 {
-	return ctx.time_to_render()
+	elapsed := time.ticks() - ctx.page_gen_start
+	if elapsed < 0 {
+		return 0
+	}
+	return elapsed
 }
 
 // ============================================================

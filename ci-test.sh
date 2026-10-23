@@ -50,6 +50,7 @@ fi
 
 # Step 4: Build example
 echo "→ Step 4: Build Example"
+mkdir -p bin
 v $VFLAGS -prod -o bin/photon-app example/
 echo "  Binary: bin/photon-app ($(ls -lh bin/photon-app | awk '{print $5}'))"
 echo ""

@@ -267,7 +267,7 @@ fn test_stress_1000_tasks() {
 // a signal on `done` to indicate completion. Uses a channel (not
 // sync.WaitGroup) because V's `spawn` does not allow mutable value-type
 // arguments.
-fn submit_batch(mut te TaskExecutor, mut c &Counter, done chan bool, n int) {
+fn submit_batch(mut te TaskExecutor, mut c Counter, done chan bool, n int) {
 	for _ in 0 .. n {
 		te.submit(fn [mut c] () {
 			c.increment()

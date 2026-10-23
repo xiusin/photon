@@ -268,17 +268,20 @@ fn stub_derived_exists(conn voidptr, parts QueryParts, params []voidptr) bool {
 fn stub_derived_delete(conn voidptr, parts QueryParts, params []voidptr) ! {
 }
 
-fn setup_derived_repo[T]() !(&OrmManager, &DerivedRepository[T]) {
+// Returns only the repository: a generic fn returning `&DerivedRepository[T]`
+// alongside another value trips a V cgen bug that emits an illegal C typedef
+// (`_result_multi_return_...DerivedRepository[T]`).
+fn setup_derived_repo[T]() !&DerivedRepository[T] {
 	mut om := new_orm_manager()
 	om.register_connection('default', .sqlite, voidptr(99))!
 	mut dr := new_derived_repository[T](om, 'default', stub_find[T], stub_find_all[T],
 		stub_insert[T], stub_update[T], stub_delete, stub_count, stub_exists, stub_derived_find,
 		stub_derived_count, stub_derived_exists, stub_derived_delete)!
-	return om, dr
+	return dr
 }
 
 fn test_derived_repository_new() {
-	_, _ := setup_derived_repo[RepoTestEntity]()!
+	_ := setup_derived_repo[RepoTestEntity]()!
 	assert true
 }
 
@@ -288,69 +291,69 @@ fn test_derived_repository_new() {
 // and work in production code, but the test compiler can't resolve them on generic types.
 
 fn test_derived_repo_find() {
-	_, mut dr := setup_derived_repo[RepoTestEntity]()!
+	mut dr := setup_derived_repo[RepoTestEntity]()!
 	results := derived_find[RepoTestEntity](mut dr, 'findByName', voidptr(c'Alice'))!
 	assert results.len == 1
 	assert results[0].name == 'found'
 }
 
 fn test_derived_repo_find_multi_params() {
-	_, mut dr := setup_derived_repo[RepoTestEntity]()!
+	mut dr := setup_derived_repo[RepoTestEntity]()!
 	results := derived_find[RepoTestEntity](mut dr, 'findByNameAndAge', voidptr(c'Alice'),
 		voidptr(30))!
 	assert results.len == 2
 }
 
 fn test_derived_repo_find_wrong_operation() {
-	_, mut dr := setup_derived_repo[RepoTestEntity]()!
+	mut dr := setup_derived_repo[RepoTestEntity]()!
 	mut failed := false
 	derived_find[RepoTestEntity](mut dr, 'countByStatus', voidptr(c'active')) or { failed = true }
 	assert failed
 }
 
 fn test_derived_repo_count() {
-	_, dr := setup_derived_repo[RepoTestEntity]()!
+	dr := setup_derived_repo[RepoTestEntity]()!
 	n := derived_count[RepoTestEntity](dr, 'countByStatus', voidptr(c'active'))!
 	assert n == 10
 }
 
 fn test_derived_repo_count_wrong_operation() {
-	_, dr := setup_derived_repo[RepoTestEntity]()!
+	dr := setup_derived_repo[RepoTestEntity]()!
 	mut failed := false
 	derived_count[RepoTestEntity](dr, 'findByName', voidptr(c'Alice')) or { failed = true }
 	assert failed
 }
 
 fn test_derived_repo_exists() {
-	_, dr := setup_derived_repo[RepoTestEntity]()!
+	dr := setup_derived_repo[RepoTestEntity]()!
 	assert derived_exists[RepoTestEntity](dr, 'existsByEmail', voidptr(c'a@b.com')) == true
 }
 
 fn test_derived_repo_exists_no_params() {
-	_, dr := setup_derived_repo[RepoTestEntity]()!
+	dr := setup_derived_repo[RepoTestEntity]()!
 	assert derived_exists[RepoTestEntity](dr, 'existsByEmail') == false
 }
 
 fn test_derived_repo_exists_invalid_method() {
-	_, dr := setup_derived_repo[RepoTestEntity]()!
+	dr := setup_derived_repo[RepoTestEntity]()!
 	assert derived_exists[RepoTestEntity](dr, 'invalidMethod') == false
 }
 
 fn test_derived_repo_delete_by() {
-	_, dr := setup_derived_repo[RepoTestEntity]()!
+	dr := setup_derived_repo[RepoTestEntity]()!
 	derived_delete_by[RepoTestEntity](dr, 'deleteByStatus', voidptr(c'expired'))!
 	assert true
 }
 
 fn test_derived_repo_delete_by_wrong_operation() {
-	_, dr := setup_derived_repo[RepoTestEntity]()!
+	dr := setup_derived_repo[RepoTestEntity]()!
 	mut failed := false
 	derived_delete_by[RepoTestEntity](dr, 'findByName', voidptr(c'Alice')) or { failed = true }
 	assert failed
 }
 
 fn test_derived_repo_find_param_count_mismatch() {
-	_, mut dr := setup_derived_repo[RepoTestEntity]()!
+	mut dr := setup_derived_repo[RepoTestEntity]()!
 	// findByNameAndAge expects 2 params, pass only 1
 	mut failed := false
 	derived_find[RepoTestEntity](mut dr, 'findByNameAndAge', voidptr(c'Alice')) or { failed = true }
@@ -358,7 +361,7 @@ fn test_derived_repo_find_param_count_mismatch() {
 }
 
 fn test_derived_repo_count_param_count_mismatch() {
-	_, dr := setup_derived_repo[RepoTestEntity]()!
+	dr := setup_derived_repo[RepoTestEntity]()!
 	// countByStatus expects 1 param, pass 0
 	mut failed := false
 	derived_count[RepoTestEntity](dr, 'countByStatus') or { failed = true }
@@ -367,6 +370,6 @@ fn test_derived_repo_count_param_count_mismatch() {
 
 fn test_derived_repo_wraps_base_repository() {
 	// Verifies that DerivedRepository can be created with a BaseRepository
-	_, _ := setup_derived_repo[RepoTestEntity]()!
+	_ := setup_derived_repo[RepoTestEntity]()!
 	assert true
 }

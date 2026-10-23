@@ -336,12 +336,13 @@ pub fn (mut bus EventBus) dispatch_async(event &Event) {
 		}
 		captured_event := event
 		captured_listener := rl.listener
-		// 使用 wg.go() 替代手动 add(1)+spawn+done()。
-		// wg.go() 内部正确处理了 mut WaitGroup 的传递，
-		// 避免了 unsafe 调用 done() 的潜在问题。
-		bus.wg.go(fn [captured_event, captured_listener] () {
+		bus.wg.add(1)
+		spawn fn [captured_event, captured_listener, mut bus] () {
+			defer {
+				bus.wg.done()
+			}
 			captured_listener(captured_event)
-		})
+		}()
 	}
 }
 
