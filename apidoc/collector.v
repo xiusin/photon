@@ -307,7 +307,7 @@ fn infer_type(val string) string {
 // parse_json_response extracts property schema from a JSON response body
 // Clears existing properties first to avoid duplication across multiple requests.
 fn parse_json_response(mut entry ApiDocEntry, body string) {
-	root := json2.decode[json2.Any](body, json2.DecoderOptions{}) or { return }
+	root := json2.decode[json2.Any](body) or { return }
 	// Clear existing properties to prevent duplication on subsequent requests
 	entry.response.properties.clear()
 	extract_json2_props(mut entry.response, '', root, 0)

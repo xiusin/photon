@@ -202,12 +202,14 @@ pub fn (mut gsm GracefulShutdownManager) start_signal_listener() {
 	gsm.mu.unlock()
 
 	gsm.wg.add(1)
+	// The `mut` rebind is hoisted out of the `unsafe` blocks so the defer and
+	// every early-return branch see the same manager pointer.
 	spawn fn (gg &GracefulShutdownManager) {
+		// `gg` is an immutable parameter; rebind it so the defer and the
+		// early-return branches below can call `&self` methods on it.
+		mut g := unsafe { gg }
 		defer {
-			unsafe {
-				mut g := gg
-				g.wg.done()
-			}
+			g.wg.done()
 		}
 		// V's os.signal_opt registers a callback (not a channel). We use a
 		// shared flag + channel to bridge the signal callback to the
@@ -220,42 +222,30 @@ pub fn (mut gsm GracefulShutdownManager) start_signal_listener() {
 			}
 		}
 		os.signal_opt(.term, handler) or {
-			unsafe {
-				mut g := gg
-				select {
-					g.signal_ready <- true {}
-					else {}
-				}
+			select {
+				g.signal_ready <- true {}
+				else {}
 			}
 			return
 		}
 		os.signal_opt(.int, handler) or {
-			unsafe {
-				mut g := gg
-				select {
-					g.signal_ready <- true {}
-					else {}
-				}
+			select {
+				g.signal_ready <- true {}
+				else {}
 			}
 			return
 		}
 
 		// Signal that handlers are registered and we're ready to receive.
-		unsafe {
-			mut g := gg
-			select {
-				g.signal_ready <- true {}
-				else {}
-			}
+		select {
+			g.signal_ready <- true {}
+			else {}
 		}
 
 		// Block until a signal is received.
 		_ := <-sig_ch
 
-		unsafe {
-			mut g := gg
-			g.shutdown()
-		}
+		g.shutdown()
 	}(gsm)
 }
 

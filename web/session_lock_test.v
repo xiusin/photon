@@ -59,15 +59,16 @@ fn test_session_lock_manager_release_method() {
 // ── RAII Guard 测试 / RAII Guard tests ──
 
 fn test_session_lock_guard_defer_release() {
-	// defer { guard.release() } 模式确保锁释放
-	// defer { guard.release() } pattern ensures lock release
+	// 显式 release（V 的 defer 是函数级而非块级，不能依赖块结束释放）
+	// Explicit release: V's `defer` is function-scoped, not block-scoped,
+	// so a `defer { guard.release() }` inside a bare block would only fire
+	// when the whole test function returns.
 	mut slm := new_session_lock_manager(SessionLockConfig{})
 	{
 		mut guard := slm.acquire('session-defer')!
-		defer { guard.release() }
 		assert guard.is_released() == false
-		// 作用域结束，defer 自动释放
-		// Scope ends, defer auto-releases
+		guard.release()
+		assert guard.is_released() == true
 	}
 	// 锁已释放，可以再次获取
 	// Lock released, can acquire again

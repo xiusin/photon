@@ -233,8 +233,15 @@ fn obj_factory() !voidptr {
 	return voidptr(42)
 }
 
-// distinct_obj_factory hands out a fresh pointer per call, so pool entries
-// stay distinguishable in the obj_index reverse map.
+// distinct_obj_factory hands out a fresh heap struct per call, so pool
+// entries stay distinguishable in the obj_index reverse map.
+// (unsafe malloc of the same size gets recycled between calls, which
+// collapses the reverse map — a heap struct does not.)
+struct PoolTestObject {
+mut:
+	id int
+}
+
 fn distinct_obj_factory() !voidptr {
-	return unsafe { malloc(16) }
+	return voidptr(&PoolTestObject{})
 }

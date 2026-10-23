@@ -81,7 +81,7 @@ pub type ValidationErrors = map[string][]ValidationError
 
 // new_validation_errors creates an empty ValidationErrors collection.
 pub fn new_validation_errors() ValidationErrors {
-	return map[string][]ValidationError{}
+	return ValidationErrors(map[string][]ValidationError{})
 }
 
 // has_errors returns true if there are any validation errors.
@@ -213,7 +213,7 @@ fn (vc &ValidationCondition) check(params map[string]string) bool {
 // Conditions can depend on other field values.
 pub fn validate_with_conditions[T](ctx &veb.Context, conditions []ValidationCondition) (T, ValidationErrors) {
 	mut result := T{}
-	mut errors := ValidationErrors{}
+	mut errors := ValidationErrors(map[string][]ValidationError{})
 	params := extract_validation_params(ctx)
 
 	$for field in T.fields {
@@ -342,7 +342,7 @@ pub fn (nve NestedValidationErrors) all_nested_messages() []string {
 
 // flatten merges nested errors into a flat ValidationErrors map with dot-notation keys.
 pub fn (nve NestedValidationErrors) flatten() ValidationErrors {
-	mut result := ValidationErrors{}
+	mut result := ValidationErrors(map[string][]ValidationError{})
 	for ne in nve {
 		for field, errors in ne.errors {
 			full_path := if ne.path.len > 0 { '${ne.path}.${field}' } else { field }
@@ -360,7 +360,7 @@ pub fn (nve NestedValidationErrors) flatten() ValidationErrors {
 //   if nested_errors.has_errors() { ... }
 pub fn validate_nested(nested_params map[string]string, prefix string, field_rules map[string]string) NestedValidationErrors {
 	mut result := NestedValidationErrors{}
-	mut errors := ValidationErrors{}
+	mut errors := ValidationErrors(map[string][]ValidationError{})
 
 	for field_name, validate_str in field_rules {
 		val := nested_params[field_name] or { '' }
@@ -981,7 +981,7 @@ pub fn default_error_message(field string, rule string, arg string) string {
 //   }
 pub fn validate[T](ctx &veb.Context) (T, ValidationErrors) {
 	mut result := T{}
-	mut errors := ValidationErrors{}
+	mut errors := ValidationErrors(map[string][]ValidationError{})
 	params := extract_validation_params(ctx)
 
 	$for field in T.fields {
@@ -1044,7 +1044,7 @@ pub fn validate[T](ctx &veb.Context) (T, ValidationErrors) {
 // validate_body validates a JSON request body against struct T.
 pub fn validate_body[T](ctx &veb.Context) (T, ValidationErrors) {
 	mut result := T{}
-	mut errors := ValidationErrors{}
+	mut errors := ValidationErrors(map[string][]ValidationError{})
 
 	// Parse JSON body into params
 	body := ctx.req.data

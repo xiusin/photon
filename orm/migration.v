@@ -1232,8 +1232,19 @@ fn (mm &MigrationManager) get_batch(version int) int {
 }
 
 // sort_migrations sorts migrations by version number (ascending).
+//
+// Insertion sort rather than `[]Migration.sort(...)`: V's cgen emits a broken
+// comparison function for sorting an interface slice (`orm__Migration_xxx`
+// undeclared), so the sort is done by hand.
 fn (mut mm MigrationManager) sort_migrations() {
-	mm.migrations.sort(a.version() < b.version())
+	n := mm.migrations.len
+	for i in 1 .. n {
+		mut j := i
+		for j > 0 && mm.migrations[j - 1].version() > mm.migrations[j].version() {
+			mm.migrations[j - 1], mm.migrations[j] = mm.migrations[j], mm.migrations[j - 1]
+			j--
+		}
+	}
 }
 
 // driver_or_default returns the driver type for the configured db_name.

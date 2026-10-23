@@ -384,7 +384,10 @@ pub fn (mut s Scheduler) tick() {
 			continue
 		}
 		task.is_running = true
-		task.task_fn() or { eprintln('[Scheduler] task "${task.name}" failed: ${err}') }
+		// Copy the fn out first: calling a `fn () !` field directly on a
+		// `mut` range variable trips a V cgen bug (`task->task_fn()`).
+		task_fn := task.task_fn
+		task_fn() or { eprintln('[Scheduler] task "${task.name}" failed: ${err}') }
 		task.last_run = now.unix_nano()
 		task.run_count++
 		task.is_running = false
