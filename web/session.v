@@ -216,6 +216,13 @@ fn (mut s MemorySessionStore) start_gc() {
 		}
 		mut elapsed := 0
 		mut idle_empty_sweeps := 0
+		// Fast idle probe: an empty store has nothing to sweep, so waiting a
+		// full gc_interval_sessions before deciding to retire is pure loss.
+		// Short-lived stores (per-request, per-test) pile up goroutines in the
+		// meantime — threads are the scarce resource, not one extra map scan.
+		// While empty we poll quickly; the first write flips this back to the
+		// slow cadence.
+		mut idle_poll_ms := session_gc_idle_poll_ms
 		for {
 			// Sleep in 100ms increments so close() can stop us promptly.
 			time.sleep(100 * time.millisecond)
@@ -233,24 +240,30 @@ fn (mut s MemorySessionStore) start_gc() {
 				break
 			}
 
-			// Sweep every 60 seconds (max_age = 1800s default session TTL)
-			if elapsed >= 60000 {
+			is_empty := unsafe { gs.is_empty() }
+			// Sweep on the normal cadence — or immediately when the store has
+			// gone empty, so retirement is decided without waiting a minute.
+			if elapsed >= session_gc_interval_ms || (is_empty && elapsed >= idle_poll_ms) {
 				elapsed = 0
-				unsafe {
-					mut m := gs
-					m.gc(1800) or {}
+				if !is_empty {
+					unsafe {
+						mut m := gs
+						m.gc(1800) or {}
+					}
 				}
 				// Retire once the store has been empty for a whole sweep:
 				// there is nothing left to expire and the owner has most
 				// likely dropped the store without calling close(). Without
 				// this the goroutine sleeps forever, one per store.
-				if unsafe { gs.is_empty() } {
+				if is_empty {
 					idle_empty_sweeps++
 					if idle_empty_sweeps >= gc_idle_exit_sweeps {
 						break
 					}
+					idle_poll_ms = session_gc_idle_poll_ms
 				} else {
 					idle_empty_sweeps = 0
+					idle_poll_ms = session_gc_interval_ms
 				}
 			}
 		}
@@ -260,6 +273,15 @@ fn (mut s MemorySessionStore) start_gc() {
 // gc_idle_exit_sweeps is how many consecutive empty sweeps the session
 // GC goroutine tolerates before retiring.
 const gc_idle_exit_sweeps = 2
+
+// session_gc_interval_ms is the sweep cadence while the store holds sessions
+// (max_age = 1800s default session TTL, so a minute is plenty).
+const session_gc_interval_ms = 60000
+
+// session_gc_idle_poll_ms is how long an EMPTY store waits before concluding
+// it is unused and retiring. Kept short on purpose: one abandoned store means
+// one leaked thread, and a burst of short-lived stores exhausts the process.
+const session_gc_idle_poll_ms = 500
 
 // is_empty reports whether the store currently holds no sessions.
 fn (s &MemorySessionStore) is_empty() bool {
@@ -525,6 +547,7 @@ fn (mut s ShardedMemorySessionStore) start_sharded_gc() {
 		}
 		mut elapsed := 0
 		mut idle_empty_sweeps := 0
+		mut idle_poll_ms := session_gc_idle_poll_ms
 		for {
 			// 以 100ms 递增睡眠，使 close() 能及时停止
 			// Sleep in 100ms increments so close() can stop us promptly
@@ -543,24 +566,30 @@ fn (mut s ShardedMemorySessionStore) start_sharded_gc() {
 				break
 			}
 
-			// 每 60 秒扫描一次（max_age = 1800s 默认 session TTL）
-			// Sweep every 60 seconds (max_age = 1800s default session TTL)
-			if elapsed >= 60000 {
+			// 空存储用快速探测，不必等满一个扫描周期才决定退休。
+			// An empty store has nothing to expire; probing it quickly is what
+			// keeps a burst of short-lived stores from leaking one thread each.
+			is_empty := unsafe { gs.is_empty() }
+			if elapsed >= session_gc_interval_ms || (is_empty && elapsed >= idle_poll_ms) {
 				elapsed = 0
-				unsafe {
-					mut m := gs
-					m.gc(1800) or {}
+				if !is_empty {
+					unsafe {
+						mut m := gs
+						m.gc(1800) or {}
+					}
 				}
 				// 空存储连续两轮后退出：没有可过期的数据，且持有者很可能
 				// 已丢弃该实例而未调用 close()。否则协程会永久睡眠，
 				// 每个实例泄漏一个线程。
-				if unsafe { gs.is_empty() } {
+				if is_empty {
 					idle_empty_sweeps++
 					if idle_empty_sweeps >= gc_idle_exit_sweeps {
 						break
 					}
+					idle_poll_ms = session_gc_idle_poll_ms
 				} else {
 					idle_empty_sweeps = 0
+					idle_poll_ms = session_gc_interval_ms
 				}
 			}
 		}
