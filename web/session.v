@@ -186,6 +186,7 @@ pub fn new_memory_session_store() &MemorySessionStore {
 	mut s := &MemorySessionStore{
 		sessions: map[string]&MemorySessionEntry{}
 	}
+	unsafe { s.mu.init() }
 	s.start_gc()
 	return s
 }
@@ -214,6 +215,7 @@ fn (mut s MemorySessionStore) start_gc() {
 			unsafe { gs.wg.done() }
 		}
 		mut elapsed := 0
+		mut idle_empty_sweeps := 0
 		for {
 			// Sleep in 100ms increments so close() can stop us promptly.
 			time.sleep(100 * time.millisecond)
@@ -238,9 +240,35 @@ fn (mut s MemorySessionStore) start_gc() {
 					mut m := gs
 					m.gc(1800) or {}
 				}
+				// Retire once the store has been empty for a whole sweep:
+				// there is nothing left to expire and the owner has most
+				// likely dropped the store without calling close(). Without
+				// this the goroutine sleeps forever, one per store.
+				if unsafe { gs.is_empty() } {
+					idle_empty_sweeps++
+					if idle_empty_sweeps >= gc_idle_exit_sweeps {
+						break
+					}
+				} else {
+					idle_empty_sweeps = 0
+				}
 			}
 		}
 	}(s, sig)
+}
+
+// gc_idle_exit_sweeps is how many consecutive empty sweeps the session
+// GC goroutine tolerates before retiring.
+const gc_idle_exit_sweeps = 2
+
+// is_empty reports whether the store currently holds no sessions.
+fn (s &MemorySessionStore) is_empty() bool {
+	unsafe {
+		mut ms := s
+		ms.mu.@rlock()
+		defer { ms.mu.runlock() }
+		return ms.sessions.len == 0
+	}
 }
 
 // close stops the background GC goroutine and waits for it to exit.
@@ -367,6 +395,12 @@ pub fn new_sharded_memory_session_store() &ShardedMemorySessionStore {
 	mut s := &ShardedMemorySessionStore{
 		shards: shards
 	}
+	unsafe {
+		s.mu.init()
+		for i in 0 .. s.shards.len {
+			s.shards[i].mu.init()
+		}
+	}
 	s.start_sharded_gc()
 	return s
 }
@@ -490,6 +524,7 @@ fn (mut s ShardedMemorySessionStore) start_sharded_gc() {
 			unsafe { gs.wg.done() }
 		}
 		mut elapsed := 0
+		mut idle_empty_sweeps := 0
 		for {
 			// 以 100ms 递增睡眠，使 close() 能及时停止
 			// Sleep in 100ms increments so close() can stop us promptly
@@ -516,9 +551,38 @@ fn (mut s ShardedMemorySessionStore) start_sharded_gc() {
 					mut m := gs
 					m.gc(1800) or {}
 				}
+				// 空存储连续两轮后退出：没有可过期的数据，且持有者很可能
+				// 已丢弃该实例而未调用 close()。否则协程会永久睡眠，
+				// 每个实例泄漏一个线程。
+				if unsafe { gs.is_empty() } {
+					idle_empty_sweeps++
+					if idle_empty_sweeps >= gc_idle_exit_sweeps {
+						break
+					}
+				} else {
+					idle_empty_sweeps = 0
+				}
 			}
 		}
 	}(s, sig)
+}
+
+// is_empty 报告分片存储当前是否没有任何 session。
+// is_empty reports whether the sharded store currently holds no sessions.
+fn (s &ShardedMemorySessionStore) is_empty() bool {
+	unsafe {
+		mut ms := s
+		for i in 0 .. ms.shards.len {
+			mut shard := &ms.shards[i]
+			shard.mu.@rlock()
+			n := shard.sessions.len
+			shard.mu.unlock()
+			if n > 0 {
+				return false
+			}
+		}
+		return true
+	}
 }
 
 // close 停止后台 GC 协程并等待其退出。

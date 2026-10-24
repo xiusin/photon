@@ -33,6 +33,11 @@ mut:
 // new_rate_limiter creates a new RateLimiter with sharded locks.
 pub fn new_rate_limiter() &RateLimiter {
 	mut shards := []sync.Mutex{len: shard_count}
+	unsafe {
+		for i in 0 .. shards.len {
+			shards[i].init()
+		}
+	}
 	return &RateLimiter{
 		attempts: map[string][]i64{}
 		shards:   shards
@@ -305,9 +310,15 @@ mut:
 
 // new_fixed_window_limiter creates a new FixedWindowLimiter.
 pub fn new_fixed_window_limiter() &FixedWindowLimiter {
+	mut shards := []sync.Mutex{len: shard_count}
+	unsafe {
+		for i in 0 .. shards.len {
+			shards[i].init()
+		}
+	}
 	return &FixedWindowLimiter{
 		windows: map[string]FixedWindowEntry{}
-		shards:  []sync.Mutex{len: shard_count}
+		shards:  shards
 	}
 }
 

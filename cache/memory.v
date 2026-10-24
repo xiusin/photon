@@ -75,12 +75,40 @@ mut:
 	hit_mu     sync.Mutex
 	hit_counts map[string]u64
 	stop_gc    chan bool = chan bool{cap: 1}
+	gc_lock    sync.Mutex
+	gc_running bool
+	// write_gen is bumped by every mutation. The sweeper uses it to tell
+	// "still idle since last sweep" apart from "written to again", so a
+	// cache that comes back to life is not retired prematurely.
+	write_gen u64
 	// LRU doubly-linked list (key-indexed via maps)
 	lru_mu   sync.Mutex
 	lru_head string // most recently used
 	lru_tail string // least recently used
 	lru_prev map[string]string
 	lru_next map[string]string
+}
+
+// init_locks initialises every sync primitive up front.
+//
+// Why this is mandatory: V's sync.RwMutex / sync.Mutex initialise themselves
+// lazily on first use (see lazy_init() in vlib/sync). That path is racy —
+// the goroutine that loses the CAS returns immediately and happily locks a
+// pthread_rwlock_t that may not be initialised yet. When two goroutines
+// touch a fresh MemoryCache for the first time at the same moment (the
+// constructor always spawns a GC goroutine, so this is the normal case),
+// both can end up blocked in pthread_rwlock_wrlock() forever with nobody
+// holding the lock.
+//
+// Initialising here means the first lock() never goes through lazy_init,
+// so the race window simply does not exist.
+fn (mut mc MemoryCache) init_locks() {
+	unsafe {
+		mc.mu.init()
+		mc.lru_mu.init()
+		mc.hit_mu.init()
+		mc.gc_lock.init()
+	}
 }
 
 // new_memory_cache creates a new in-memory cache and starts the background GC.
@@ -92,6 +120,7 @@ pub fn new_memory_cache(name string) &MemoryCache {
 		lru_prev:   map[string]string{}
 		lru_next:   map[string]string{}
 	}
+	mc.init_locks()
 	mc.start_gc()
 	return mc
 }
@@ -106,6 +135,7 @@ pub fn new_memory_cache_with_max(name string, max_size int) &MemoryCache {
 		lru_prev:   map[string]string{}
 		lru_next:   map[string]string{}
 	}
+	mc.init_locks()
 	mc.start_gc()
 	return mc
 }
@@ -121,16 +151,47 @@ pub fn new_memory_cache_with_gc(name string, gc_interval int) &MemoryCache {
 		lru_prev:    map[string]string{}
 		lru_next:    map[string]string{}
 	}
+	mc.init_locks()
 	mc.start_gc()
 	return mc
 }
 
 // start_gc launches the background GC goroutine that periodically evicts
 // expired entries. Called from constructors.
+//
+// Lifecycle — the goroutine exits on either:
+//   1. close() delivers the stop signal on stop_gc;
+//   2. the cache has stayed empty AND untouched for gc_idle_exit_rounds
+//      consecutive sweeps.
+//
+// Rule 2 is what stops one leaked thread per cache instance. Every
+// new_memory_cache() spawns a detached goroutine, and callers very often
+// just drop the pointer instead of calling close() (tests, request-scoped
+// caches, short-lived helpers). Each of those used to leave a thread
+// sleeping forever; a few hundred exhausted the thread limit and wedged
+// the whole process. An empty cache has nothing to sweep, so retiring is
+// safe — and a later set() revives the sweeper automatically.
 fn (mut mc MemoryCache) start_gc() {
+	mc.gc_lock.@lock()
+	if mc.gc_running {
+		mc.gc_lock.unlock()
+		return
+	}
+	mc.gc_running = true
+	mc.gc_lock.unlock()
+
 	spawn fn (mc &MemoryCache) {
+		defer {
+			unsafe {
+				mut m := mc
+				m.gc_lock.@lock()
+				m.gc_running = false
+				m.gc_lock.unlock()
+			}
+		}
+		mut idle_rounds := 0
+		mut last_gen := u64(0)
 		for {
-			// Non-blocking check for stop signal.
 			select {
 				_ := <-mc.stop_gc {
 					return
@@ -138,8 +199,25 @@ fn (mut mc MemoryCache) start_gc() {
 				else {}
 			}
 			unsafe { mc.evict_expired() }
+			// Retire once the cache has been empty AND untouched since the
+			// previous sweep. "Touched" matters: a write immediately after
+			// construction would otherwise count towards retirement before
+			// the sweeper ever looked at it.
+			if unsafe { mc.is_empty() } && unsafe { mc.write_gen } == last_gen {
+				idle_rounds++
+				if idle_rounds >= gc_idle_exit_rounds {
+					return
+				}
+			} else {
+				idle_rounds = 0
+			}
+			last_gen = unsafe { mc.write_gen }
 			// Sleep in 1-second increments so close() is responsive.
-			for _ in 0 .. mc.gc_interval {
+			// While the cache is empty we use the short idle interval so a
+			// dropped cache retires promptly instead of holding its thread
+			// for a full gc_interval.
+			sleep_secs := if idle_rounds > 0 { gc_idle_exit_rounds } else { mc.gc_interval }
+			for _ in 0 .. sleep_secs {
 				select {
 					_ := <-mc.stop_gc {
 						return
@@ -153,10 +231,24 @@ fn (mut mc MemoryCache) start_gc() {
 	}(mc)
 }
 
+// gc_idle_exit_rounds is how many consecutive empty sweeps the background
+// goroutine tolerates before retiring.
+const gc_idle_exit_rounds = 2
+
+// is_empty reports whether the cache currently holds no entries.
+fn (mut mc MemoryCache) is_empty() bool {
+	mc.mu.@rlock()
+	defer { mc.mu.runlock() }
+	return mc.entries.len == 0
+}
+
 // close stops the background GC goroutine. Safe to call multiple times.
 // After close(), the cache remains usable but expired entries are no longer
 // swept automatically.
 pub fn (mut mc MemoryCache) close() {
+	// Blocking send would deadlock if the goroutine already exited; the
+	// buffered (cap: 1) channel plus the non-blocking select keeps this
+	// idempotent while still delivering the signal on the common path.
 	select {
 		mc.stop_gc <- true {}
 		else {}
@@ -328,6 +420,15 @@ pub fn (mut mc MemoryCache) set(key string, value string, ttl_seconds int) ! {
 	mc.hit_mu.@lock()
 	mc.hit_counts[key] = 0
 	mc.hit_mu.unlock()
+
+	// Record the mutation (see write_gen) and make sure a sweeper is
+	// running: it retires itself once the cache stays empty, so a cache
+	// that is written to again has to bring it back. start_gc() is
+	// idempotent, so this is a cheap no-op on the hot path.
+	mc.gc_lock.@lock()
+	mc.write_gen++
+	mc.gc_lock.unlock()
+	mc.start_gc()
 }
 
 // delete removes a value from cache (write-locked)

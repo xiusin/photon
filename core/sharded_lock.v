@@ -40,6 +40,15 @@ pub fn new_sharded_rw_mutex() &ShardedRwMutex {
 	// accidental changes to a non-power-of-2 value at startup.
 	assert shard_count > 0 && (shard_count & (shard_count - 1)) == 0
 	mut shards := []sync.RwMutex{len: int(shard_count)}
+	// Initialise shard locks eagerly. V's RwMutex lazy-initialises on first
+	// use, and losing that CAS lets a goroutine lock a pthread_rwlock_t
+	// that is still being set up. The container is shared by all request
+	// goroutines from the moment it exists, so this race is not exotic.
+	unsafe {
+		for i in 0 .. shards.len {
+			shards[i].init()
+		}
+	}
 	return &ShardedRwMutex{
 		shards: shards
 	}
@@ -149,9 +158,11 @@ mut:
 
 // new_bean_lock creates an empty BeanLock.
 pub fn new_bean_lock() &BeanLock {
-	return &BeanLock{
+	mut bl := &BeanLock{
 		locks: map[string]&sync.Mutex{}
 	}
+	unsafe { bl.mu.init() }
+	return bl
 }
 
 // lock acquires the per-bean mutex, creating it if necessary.

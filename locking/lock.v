@@ -95,10 +95,15 @@ pub mut:
 
 // new_lock_manager creates a new LockManager
 pub fn new_lock_manager() &LockManager {
-	return &LockManager{
+	mut lm := &LockManager{
 		local_locks: map[string]&LocalMutex{}
 		ref_counts:  map[string]int{}
 	}
+	// Initialise eagerly: V's RwMutex initialises lazily on first use and
+	// that path is racy when several goroutines lock a fresh manager at
+	// once — which is the whole point of a lock manager.
+	unsafe { lm.map_mu.init() }
+	return lm
 }
 
 // with_distributed_lock sets a distributed lock backend
@@ -353,4 +358,3 @@ pub fn (mut lm LockManager) lock_count() int {
 	defer { lm.map_mu.runlock() }
 	return lm.local_locks.len
 }
-
