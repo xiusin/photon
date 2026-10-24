@@ -69,13 +69,14 @@ fn test_table_chained_predicates_use_and() {
 	assert args[1] == ParamValue('active')
 }
 
-fn test_table_or_groups_are_parenthesised() {
+fn test_table_or_alternative_is_and_ed_with_prior_filters() {
 	q := tbl_builder()
 		.where_eq('tenant_id', 7)
 		.or_where_eq('status', 'active')
 		.where_eq('deleted', false)
 	sql_stmt, args := q.to_sql()!
-	assert sql_stmt == 'SELECT * FROM users WHERE (tenant_id = ?) OR (status = ? AND deleted = ?)'
+	// 已经加上的过滤条件不能被一个 OR 分支放宽：租户隔离必须保持 AND。
+	assert sql_stmt == 'SELECT * FROM users WHERE tenant_id = ? AND (status = ? OR deleted = ?)'
 	assert args.len == 3
 	assert args[2] == ParamValue(false)
 }
@@ -87,7 +88,7 @@ fn test_table_where_group_nests() {
 			return g.where_eq('status', 'active').or_where_eq('status', 'trial')
 		})
 	sql_stmt, args := q.to_sql()!
-	assert sql_stmt == 'SELECT * FROM users WHERE (tenant_id = ?) OR (status = ?) OR (status = ?)'
+	assert sql_stmt == 'SELECT * FROM users WHERE tenant_id = ? AND (status = ? OR status = ?)'
 	assert args.len == 3
 	assert args[0] == ParamValue(int(7))
 }

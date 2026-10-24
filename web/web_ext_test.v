@@ -231,12 +231,13 @@ struct MockHandlerResolver {
 	success bool
 }
 
-fn (r MockHandlerResolver) resolve(ctx voidptr) !HandlerFn {
+// 接口实现必须逐字复现 resolve 的声明返回类型：V 按语法比对签名，
+// 用类型别名 HandlerFn 会被判成另一个类型，报 "incorrectly implements"。
+fn (r MockHandlerResolver) resolve(ctx voidptr) !fn (voidptr) !voidptr {
 	if r.success {
-		handler := HandlerFn(fn (ctx voidptr) !voidptr {
+		return fn (ctx voidptr) !voidptr {
 			return unsafe { nil }
-		})
-		return handler
+		}
 	}
 	return error('handler not found')
 }

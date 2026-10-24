@@ -5,51 +5,32 @@ module support
 // Provides dot-notation access to maps and common array manipulation utilities.
 import time
 
-// get retrieves a value from a nested map using dot notation
+// get retrieves a value from a flat map by key.
+//
+// V's generics cannot recurse into nested maps, so dotted keys are matched
+// literally against the map key (`m['user.name']`), they are NOT traversed.
 pub fn get[T](m map[string]T, key string, default_val T) T {
-	keys := key.split('.')
-	mut current := m
-	for i, k in keys {
-		if i == keys.len - 1 {
-			return current[k] or { default_val }
-		}
-		// Cannot recurse into nested maps with generics in V
-		// For simple use, return the value at the key
-		return current[k] or { default_val }
-	}
-	return default_val
-}
-
-// get_string retrieves a string value from a map of strings using dot notation
-pub fn get_string(m map[string]string, key string, default_val string) string {
-	keys := key.split('.')
-	if keys.len == 1 {
-		return m[key] or { default_val }
-	}
 	return m[key] or { default_val }
 }
 
-// set sets a value in a nested map using dot notation
+// get_string retrieves a string value by key (dotted keys are literal, see get).
+pub fn get_string(m map[string]string, key string, default_val string) string {
+	return m[key] or { default_val }
+}
+
+// set_string stores a value under a key (dotted keys are literal, see get).
 pub fn set_string(mut m map[string]string, key string, value string) {
-	keys := key.split('.')
-	if keys.len == 1 {
-		m[key] = value
-		return
-	}
-	// For nested, we need intermediate maps
-	// Simplified: set with dot key directly
 	m[key] = value
 }
 
-// forget removes a key from a map using dot notation
+// forget_string removes a key from the map.
 pub fn forget_string(mut m map[string]string, key string) {
 	m.delete(key)
 }
 
-// has checks if a key exists in a map using dot notation
+// has_string reports whether the key exists in the map.
 pub fn has_string(m map[string]string, key string) bool {
-	_ := m[key] or { return false }
-	return true
+	return key in m
 }
 
 // only returns a map with only the specified keys
@@ -132,8 +113,13 @@ pub fn collapse[T](arr [][]T) []T {
 	return flatten(arr)
 }
 
-// chunk splits a slice into chunks of the given size
+// chunk splits a slice into chunks of the given size.
+// A non-positive size returns no chunks: sized-to-zero chunks would make the
+// loop advance by 0 and hang the caller.
 pub fn chunk[T](items []T, size int) [][]T {
+	if size <= 0 {
+		return [][]T{}
+	}
 	mut result := [][]T{}
 	mut i := 0
 	for i < items.len {

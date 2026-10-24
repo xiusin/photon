@@ -318,26 +318,26 @@ pub fn repeat_str(s string, n int) string {
 	return s.repeat(n)
 }
 
-// pad_left pads on the left
+// pad_left_str pads on the left.
+// An empty pad cannot grow the string, so it is returned unchanged — looping
+// on it would never terminate.
 pub fn pad_left_str(s string, length int, pad string) string {
-	if s.len >= length {
+	if s.len >= length || pad.len == 0 {
 		return s
 	}
-	mut result := ''
-	for result.len + s.len < length {
-		result += pad
-	}
-	return result + s
+	// Repeat first, then slice: appending in a loop grows quadratically when
+	// `length` is large.
+	needed := length - s.len
+	repeats := (needed + pad.len - 1) / pad.len
+	return pad.repeat(repeats)[..needed] + s
 }
 
-// pad_right_str pads on the right
+// pad_right_str pads on the right (empty pad returns the input unchanged).
 pub fn pad_right_str(s string, length int, pad string) string {
-	if s.len >= length {
+	if s.len >= length || pad.len == 0 {
 		return s
 	}
-	mut result := s
-	for result.len < length {
-		result += pad
-	}
-	return result
+	needed := length - s.len
+	repeats := (needed + pad.len - 1) / pad.len
+	return s + pad.repeat(repeats)[..needed]
 }

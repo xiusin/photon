@@ -262,12 +262,18 @@ pub fn (mut b EmailBuilder) build() Email {
 	e.priority = b.priority
 	e.attachments = b.attachments
 
-	// If template is set, render it
+	// If template is set, render it.  Decide the body kind BEFORE rendering so
+	// the renderer matches the output: escaping in a text/plain body corrupts
+	// the message (`a & b` → `a &amp; b`).
 	if b.template.len > 0 {
-		rendered := render_template(b.template, b.template_data)
-		// If the template looks like HTML (contains <html or <body tags), treat as HTML
-		is_html_template := rendered.contains('<html') || rendered.contains('<body')
-		if b.is_html || b.html_body.len > 0 || is_html_template {
+		is_html_template := b.template.contains('<html') || b.template.contains('<body')
+		is_html_body := b.is_html || b.html_body.len > 0 || is_html_template
+		rendered := if is_html_body {
+			render_template(b.template, b.template_data)
+		} else {
+			render_template_raw(b.template, b.template_data)
+		}
+		if is_html_body {
 			e.html_body = rendered
 			e.is_html = true
 		} else {
@@ -296,14 +302,29 @@ pub fn html_escape(s string) string {
 	return result
 }
 
-// render_template substitutes {{variable}} placeholders in a template string.
-// Variables are HTML-escaped to prevent XSS attacks.
+// render_template substitutes {{variable}} placeholders in a template string
+// and HTML-escapes the values to prevent XSS.  Use it for HTML bodies; a
+// text/plain body must use render_template_raw(), otherwise `&`, `<` and `>`
+// reach the recipient as `&amp;`, `&lt;` and `&gt;`.
 // Unknown variables are left as-is.
 pub fn render_template(template string, data map[string]string) string {
+	return render_template_with(template, data, true)
+}
+
+// render_template_raw substitutes {{variable}} placeholders without escaping.
+// This is the correct renderer for text/plain bodies, where HTML entities are
+// meaningless characters.
+pub fn render_template_raw(template string, data map[string]string) string {
+	return render_template_with(template, data, false)
+}
+
+// render_template_with is the shared substitution loop.
+fn render_template_with(template string, data map[string]string, escape bool) string {
 	mut result := template
 	for key, val in data {
 		placeholder := '{{${key}}}'
-		result = result.replace(placeholder, html_escape(val))
+		value := if escape { html_escape(val) } else { val }
+		result = result.replace(placeholder, value)
 	}
 	return result
 }
