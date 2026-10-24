@@ -430,3 +430,36 @@ fn test_send_with_builder() {
 
 	m.send_with_builder(builder) or { assert false }
 }
+
+fn test_text_template_is_not_html_escaped() {
+	mut b := new_email_builder()
+	b = b.from('x@y.z')
+	b = b.to('a@b.c')
+	b = b.set_template('Total: {{total}} — Tom & Jerry <3')
+	b = b.with_var('total', '1 < 2')
+	email := b.build()
+
+	assert email.is_html == false
+	assert email.body == 'Total: 1 < 2 — Tom & Jerry <3'
+	assert !email.body.contains('&amp;')
+	assert !email.body.contains('&lt;')
+}
+
+fn test_html_template_still_escapes() {
+	mut b := new_email_builder()
+	b = b.from('x@y.z')
+	b = b.to('a@b.c')
+	b = b.set_template('<html><body><p>{{name}}</p></body></html>')
+	b = b.with_var('name', '<script>alert(1)</script>')
+	email := b.build()
+
+	assert email.is_html == true
+	assert !email.html_body.contains('<script>')
+	assert email.html_body.contains('&lt;script&gt;')
+}
+
+fn test_render_template_raw_leaves_placeholders_of_unknown_vars() {
+	assert render_template_raw('Hi {{a}} {{b}}', {
+		'a': 'x'
+	}) == 'Hi x {{b}}'
+}

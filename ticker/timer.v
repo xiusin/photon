@@ -133,6 +133,9 @@ pub fn (mut t Ticker) stop() {
 // The next tick will arrive after the new period elapses.
 pub fn (mut t Ticker) reset(d time.Duration) {
 	mut s := get_scheduler()
+	// Remove while `t.period` still holds the OLD period — remove_entry()
+	// matches periodic entries by period, so updating the field first would
+	// leave the old entry running and the ticker would never slow down.
 	s.remove_entry(t.bucket_idx, 0, t.period)
 	t.period = i64(d)
 	when := time.now().unix_nano() + t.period

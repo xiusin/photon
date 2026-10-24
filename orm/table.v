@@ -79,11 +79,16 @@ pub:
 	table_name  string
 	orm_manager &OrmManager = unsafe { nil }
 pub mut:
-	db_name       string
-	select_cols   []string
-	groups        [][]TablePredicate // AND of groups; each group is AND-joined
-	raw_fragments []string           // raw_where() fragments, in order
-	raw_values    []ParamValue       // values bound to those fragments
+	db_name     string
+	select_cols []string
+	groups      [][]TablePredicate // OR of groups; each group is AND-joined
+	// group_or marks a group whose predicates are alternatives — it renders as
+	// `(p1 OR p2 …)` and is AND-ed with the preceding plain group.  This is how
+	// `where_eq('tenant', 7).or_where_eq('status', 'active')` keeps the tenant
+	// filter AND-ed with the OR instead of silently widening the result set.
+	group_or      []bool
+	raw_fragments []string     // raw_where() fragments, in order
+	raw_values    []ParamValue // values bound to those fragments
 	order_parts   []string
 	group_cols    []string
 	having_parts  []string
@@ -174,6 +179,7 @@ fn (tq &TableQuery) rebuild(error_msg_ string, groups_ [][]TablePredicate) &Tabl
 		db_name:       tq.db_name
 		select_cols:   tq.select_cols
 		groups:        groups_
+		group_or:      tq.group_or
 		raw_fragments: tq.raw_fragments
 		raw_values:    tq.raw_values
 		order_parts:   tq.order_parts
@@ -209,6 +215,25 @@ fn (tq &TableQuery) copy_groups() [][]TablePredicate {
 		groups << row
 	}
 	return groups
+}
+
+// group_or_flags returns the OR-flags matching groups, padded with `false` so
+// the two slices never fall out of sync.
+fn (tq &TableQuery) group_or_flags(count int) []bool {
+	mut flags := []bool{len: count, init: false}
+	for i in 0 .. count {
+		if i < tq.group_or.len {
+			flags[i] = tq.group_or[i]
+		}
+	}
+	return flags
+}
+
+// with_groups_and_flags installs both the predicate groups and their OR-flags.
+fn (tq &TableQuery) with_groups_and_flags(groups [][]TablePredicate, flags []bool) &TableQuery {
+	mut next := tq.rebuild(tq.error_msg, groups)
+	next.group_or = flags
+	return next
 }
 
 // ── Execution wiring ──
@@ -341,14 +366,21 @@ pub fn (tq &TableQuery) one_column(col string) &TableQuery {
 // Grouping model (the only thing you need to remember):
 //   • every `.where*()` extends the current group (AND);
 //   • `.or_where*()` starts a NEW group (OR);
+//   • a group and an OR group collapse into one AND group when the OR is
+//     already contained in it — `.where_eq('tenant_id', 7).or_where_eq(...)`
+//     keeps the tenant filter AND-ed with the OR, which is what callers mean;
 //   • groups are OR-joined and each one is parenthesised at render time;
-//   • `.where_group(cb)` nests `cb`'s tree as one parenthesised AND group.
+//   • `.where_group(cb)` folds `cb`'s predicates into the current AND group.
 //
 //   .where_eq('tenant_id', 7).where_eq('status', 'active')
-//   → WHERE (tenant_id = ? AND status = ?)
+//   → WHERE tenant_id = ? AND status = ?
+//
+//   .where_eq('tenant_id', 7).where_group(|g| g.where_eq('status', 'active')
+//                                             .or_where_eq('status', 'trial'))
+//   → WHERE tenant_id = ? AND (status = ? OR status = ?)
 //
 //   .where_eq('a', 1).or_where_eq('b', 2).where_eq('c', 3)
-//   → WHERE (a = ?) OR (b = ? AND c = ?)
+//   → WHERE a = ? OR (b = ? AND c = ?)
 //
 // Operators: = != > >= < <= like "not like" (case-insensitive).
 //
@@ -504,10 +536,15 @@ pub fn (tq &TableQuery) where_between(col string, low ParamValue, high ParamValu
 	})
 }
 
-// or_where starts a new OR group:
+// or_where adds an alternative to the current OR group, creating that group on
+// first use.  A plain `where*()` that came before stays AND-ed with it — an OR
+// alternative must never escape the filters already applied:
 //
-//   .where_eq('status', 'active').or_where('status', '=', 'pending')
-//   → WHERE (status = ?) OR (status = ?)
+//   .where_eq('tenant_id', 7).or_where_eq('owner_id', 7)
+//   → WHERE tenant_id = ? AND (owner_id = ?)
+//
+//   .or_where_eq('status', 'active').or_where_eq('status', 'trial')
+//   → WHERE (status = ? OR status = ?)
 pub fn (tq &TableQuery) or_where(col string, op string, value ParamValue) &TableQuery {
 	c := column_or_error(col)
 	if c == '' {
@@ -517,15 +554,21 @@ pub fn (tq &TableQuery) or_where(col string, op string, value ParamValue) &Table
 	if norm == '' {
 		return tq.with_error('unsupported operator "${op}" / 不支持的操作符 "${op}"')
 	}
+	cond := TablePredicate{
+		column: c
+		op:     norm
+		value:  ?ParamValue(value)
+	}
 	mut groups := tq.copy_groups()
-	groups << [
-		TablePredicate{
-			column: c
-			op:     norm
-			value:  ?ParamValue(value)
-		},
-	]
-	return tq.with_groups(groups)
+	mut flags := tq.group_or_flags(groups.len)
+	// Extend the trailing OR group when there is one; otherwise open a new one.
+	if groups.len > 0 && flags[groups.len - 1] {
+		groups[groups.len - 1] << cond
+	} else {
+		groups << [cond]
+		flags << true
+	}
+	return tq.with_groups_and_flags(groups, flags)
 }
 
 // or_where_eq is the `= ?` shorthand of or_where.
@@ -533,9 +576,9 @@ pub fn (tq &TableQuery) or_where_eq(col string, value ParamValue) &TableQuery {
 	return tq.or_where(col, '=', value)
 }
 
-// where_group collects nested predicates into one parenthesised AND group.
-// Nesting is one level deep by design — deeper trees belong in raw_where() or
-// a Specification:
+// where_group folds a nested query into the current AND group as one
+// parenthesised sub-expression.  Nesting is one level deep by design — deeper
+// trees belong in raw_where() or a Specification:
 //
 //   .where_eq('tenant_id', 7)
 //   .where_group(fn (g &TableQuery) &TableQuery {
@@ -550,11 +593,44 @@ pub fn (tq &TableQuery) where_group(callback fn (&TableQuery) &TableQuery) &Tabl
 		select_cols: ['*']
 		groups:      [][]TablePredicate{}
 	})
-	mut groups := tq.copy_groups()
-	for group in inner.groups {
-		groups << group
+	if inner.error_msg.len > 0 {
+		return tq.with_error(inner.error_msg)
 	}
-	return tq.with_groups(groups)
+
+	// Fold the nested predicates into ONE sub-expression: a single OR group
+	// when the callback used `or_where*()`, a plain AND group otherwise.
+	mut nested := []TablePredicate{}
+	mut nested_is_or := false
+	for group_idx, group in inner.groups {
+		if inner.group_or.len > group_idx && inner.group_or[group_idx] {
+			nested_is_or = true
+		}
+		for cond in group {
+			nested << cond
+		}
+	}
+
+	mut groups := tq.copy_groups()
+	mut flags := tq.group_or_flags(groups.len)
+	if nested.len > 0 {
+		groups << nested
+		flags << nested_is_or
+	}
+
+	// raw_where() values live outside the groups, indexed in call order by
+	// build_where().  Dropping the nested query's raw_values would leave its
+	// `?` placeholders in the SQL with no bound argument (silent misbinding).
+	mut bound := tq.raw_values.clone()
+	for v in inner.raw_values {
+		bound << v
+	}
+	mut fragments := tq.raw_fragments.clone()
+	for f in inner.raw_fragments {
+		fragments << f
+	}
+	mut next := tq.with_groups_and_flags(groups, flags)
+	next = next.with_raw(fragments, bound)
+	return next
 }
 
 // when applies `callback` only when `condition` is true — keeps request-driven
@@ -594,11 +670,13 @@ pub fn (tq &TableQuery) raw_where(fragment string, values ...ParamValue) &TableQ
 // copies all the way down.
 fn (tq &TableQuery) append_condition(cond TablePredicate) &TableQuery {
 	mut groups := tq.copy_groups()
+	mut flags := tq.group_or_flags(groups.len)
 	if groups.len == 0 {
 		groups << []TablePredicate{}
+		flags << false
 	}
 	groups[groups.len - 1] << cond
-	return tq.with_groups(groups)
+	return tq.with_groups_and_flags(groups, flags)
 }
 
 // normalise_op maps an operator to its canonical lowercase form, or '' when it
@@ -777,15 +855,20 @@ pub fn (tq &TableQuery) to_sql() !(string, []ParamValue) {
 // order.
 //
 // Grouping rules:
-//   • a group is the AND of its predicates;
-//   • groups are OR-joined and each one is parenthesised;
-//   • IN expands to one `?` per value inside its own group;
+//   • a plain group is the AND of its predicates;
+//   • an OR group renders as `(p1 OR p2 …)` and is AND-ed with the group
+//     before it — `tenant = ? AND (status = ? OR status = ?)`;
+//   • groups that are neither OR nor AND-joined to a neighbour are OR-joined
+//     and parenthesised;
+//   • IN expands to one `?` per value inside its group;
 //   • unary predicates (`IS NULL`) emit no placeholder.
+//   • the number of rendered `?` always equals len(args).
 fn (tq &TableQuery) build_where() !(string, []ParamValue) {
 	mut args := []ParamValue{}
 	mut groups := []string{cap: tq.groups.len}
+	mut group_kinds := []bool{cap: tq.groups.len} // true = OR group
 	mut raw_idx := 0
-	for group in tq.groups {
+	for group_idx, group in tq.groups {
 		mut parts := []string{cap: group.len}
 		mut in_column := ''
 		mut in_count := 0
@@ -829,7 +912,13 @@ fn (tq &TableQuery) build_where() !(string, []ParamValue) {
 			}
 		}
 		if parts.len > 0 {
-			groups << parts.join(' AND ')
+			is_or := group_idx < tq.group_or.len && tq.group_or[group_idx]
+			if is_or {
+				groups << '(${parts.join(' OR ')})'
+			} else {
+				groups << parts.join(' AND ')
+			}
+			group_kinds << is_or
 		}
 	}
 	// raw_where() predicates carry their own bound values (see raw_values);
@@ -838,8 +927,17 @@ fn (tq &TableQuery) build_where() !(string, []ParamValue) {
 	if groups.len == 0 {
 		return '', args
 	}
-	where_sql := if groups.len == 1 { groups[0] } else { groups.map('(${it})').join(' OR ') }
-	return where_sql, args
+	mut rendered := groups[0]
+	for i in 1 .. groups.len {
+		if group_kinds[i] || group_kinds[i - 1] {
+			// An OR alternative is AND-ed with everything before it: a filter
+			// that was already applied must not be widened by an OR.
+			rendered += ' AND ' + groups[i]
+		} else {
+			rendered += ' OR ' + groups[i]
+		}
+	}
+	return rendered, args
 }
 
 // build_having renders the HAVING clause and its bound values.
