@@ -9,8 +9,8 @@ module logger
 //   - Request ID auto-injection into log output
 import time
 import os
-import sync
 import strings
+import sync
 
 // Channel is a log output destination
 pub interface Channel {
@@ -221,20 +221,42 @@ pub fn (cl &ChannelLogger) with_request_id(request_id string) &ChannelLogger {
 // Helper: format log line
 // ============================================================
 
+// format_log_line renders one log line.
+//
+// Built with a strings.Builder sized up front: the previous version allocated
+// a []string plus a joined string for the MDC context and then concatenated
+// everything again, so a line with context cost ~4 allocations per write.
 fn format_log_line(level Level, msg string, context map[string]string) string {
 	ts := time.now().format_rfc3339()
 	level_str := level.str()
 
-	mut ctx_str := ''
+	mut size := ts.len + level_str.len + msg.len + 8
 	if context.len > 0 {
-		mut pairs := []string{}
 		for k, v in context {
-			pairs << '${k}=${v}'
+			size += k.len + v.len + 4
 		}
-		ctx_str = ' [${pairs.join(' ')}]'
 	}
-
-	return '[${ts}] [${level_str}]${ctx_str} ${msg}'
+	mut sb := strings.new_builder(size)
+	sb.write_u8(`[`)
+	sb.write_string(ts)
+	sb.write_string2('] [', level_str)
+	sb.write_u8(`]`)
+	if context.len > 0 {
+		sb.write_string(' [')
+		mut first := true
+		for k, v in context {
+			if !first {
+				sb.write_u8(` `)
+			}
+			first = false
+			sb.write_string2(k, '=')
+			sb.write_string(v)
+		}
+		sb.write_u8(`]`)
+	}
+	sb.write_u8(` `)
+	sb.write_string(msg)
+	return sb.str()
 }
 
 // ============================================================

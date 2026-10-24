@@ -30,7 +30,11 @@ pub fn new_tag_set(tags []string) &TagSet {
 // get_namespace returns a unique namespace key for this tag set.
 // Uses a strings.Builder to avoid O(n²) string concatenation.
 pub fn (ts &TagSet) get_namespace() string {
-	mut sb := strings.new_builder(64)
+	mut total := 0
+	for tag in ts.tags {
+		total += tag.len + 1
+	}
+	mut sb := strings.new_builder(total)
 	for tag in ts.tags {
 		sb.write_string2(tag, ':')
 	}
@@ -197,7 +201,11 @@ pub fn (tc &TaggedCache) tag_key_count(tag string) int {
 // tagged_key builds a cache key from tags.
 // Uses a strings.Builder to avoid O(n²) string concatenation.
 fn tagged_key(tags []string, key string) string {
-	mut sb := strings.new_builder(64)
+	mut tag_len := 0
+	for tag in tags {
+		tag_len += tag.len + 1
+	}
+	mut sb := strings.new_builder(tag_len + key.len)
 	for tag in tags {
 		sb.write_string2(tag, ':')
 	}

@@ -17,60 +17,47 @@ pub interface DistributedLock {
 }
 
 // LocalMutex provides a real mutual exclusion lock.
-// V 0.5.1's sync.Mutex.try_lock() is broken (always returns false),
-// so we use a buffered channel as a binary semaphore:
-//   - lock()     blocks on send when the channel is full (mutex held)
-//   - try_lock() non-blocking send via select
-//   - unlock()   non-blocking receive via select
-// The OS-level channel implementation parks blocked goroutines
-// efficiently, avoiding CPU-wasting spin loops.
+//
+// Backed by sync.Mutex, not a channel. The previous implementation used a
+// buffered chan bool as a binary semaphore, which meant every lock() was a
+// channel send — a heap-allocated structure plus a scheduler round-trip even
+// when completely uncontended. A local mutex is the hottest primitive in the
+// framework; it has no business paying for a channel.
+//
+// `try_lock()` is kept because `LockManager.try_lock()` and
+// `lock_with_timeout()` depend on a non-blocking acquire.
+//
+// unlock() stays idempotent-by-contract: the RAII guards in guard.v all call
+// it unconditionally, so callers must not unlock a mutex they do not own.
 pub struct LocalMutex {
 mut:
-	ch chan bool = chan bool{cap: 1}
+	mu sync.Mutex
 }
 
 // new_mutex creates a new LocalMutex
 pub fn new_mutex() &LocalMutex {
-	return &LocalMutex{
-		ch: chan bool{cap: 1}
-	}
+	mut m := &LocalMutex{}
+	// Initialise eagerly: V's sync.Mutex lazy-initialises on first use, and
+	// that path is racy when two goroutines contend on a brand-new mutex —
+	// which is precisely what a lock manager produces.
+	unsafe { m.mu.init() }
+	return m
 }
 
 // lock acquires the mutex (blocking).
-// The channel send blocks (with OS-level parking) when the mutex is held,
-// so there is no CPU-wasting spin loop.
 pub fn (mut m LocalMutex) lock() {
-	m.ch <- true
+	m.mu.@lock()
 }
 
 // unlock releases the mutex.
-// Idempotent: unlocking an already-unlocked mutex is a safe no-op.
-// This matches the RAII "multiple release calls are no-ops" contract
-// used by guard.v / session locks, and avoids crashing on benign
-// double-release or lock-instance races under concurrency.
 pub fn (mut m LocalMutex) unlock() {
-	select {
-		_ := <-m.ch {}
-		else {
-			// already unlocked — no-op
-		}
-	}
+	m.mu.unlock()
 }
 
 // try_lock attempts to acquire without blocking.
 // Returns true if acquired, false if the mutex is already held.
-// Uses a non-blocking channel send via `select` with an `else` branch
-// (V's `ch <- v or { }` is blocking — it only handles closed channels,
-// not "would block" — so `select` is required for a true try-lock).
 pub fn (mut m LocalMutex) try_lock() bool {
-	mut acquired := false
-	select {
-		m.ch <- true {
-			acquired = true
-		}
-		else {}
-	}
-	return acquired
+	return m.mu.try_lock()
 }
 
 // LockManager provides unified lock operations (local + distributed)

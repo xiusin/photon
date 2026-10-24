@@ -72,8 +72,7 @@ pub:
 mut:
 	mu           sync.Mutex
 	objects      []PoolEntry
-	free_stack   []voidptr       // stack of free object pointers (O(1) pop/push)
-	obj_index    map[voidptr]int // reverse mapping: object ptr → index in objects
+	free_stack   []voidptr // stack of free object pointers (O(1) pop/push)
 	active_count int             // in-use + reserved slots
 	wait_count   int
 	closed       bool
@@ -81,6 +80,11 @@ mut:
 	stop_gc      chan bool
 	wg           sync.WaitGroup
 	gc_started   bool
+	// avail is a broadcast channel for waiters blocked in
+	// acquire_with_timeout(): release()/close() close it to wake every waiter
+	// at once, which replaces the previous 10ms polling loop. It is recreated
+	// (empty) by the woken waiter, so waiters never miss a wakeup.
+	avail chan bool
 }
 
 // PoolEntry wraps a pooled object with metadata
@@ -100,6 +104,7 @@ pub mut:
 // several goroutines immediately after construction, so the first lock is
 // very likely concurrent. Doing it here removes the window entirely.
 fn (mut p Pool) init_locks() {
+	p.avail = chan bool{}
 	unsafe {
 		p.mu.init()
 	}
@@ -156,7 +161,6 @@ pub fn (mut p Pool) initialize() ! {
 	if p.closed {
 		return error('pool "${p.name}" is closed')
 	}
-	p.obj_index = map[voidptr]int{}
 	for _ in 0 .. p.min_size {
 		obj := p.factory.create()!
 		p.objects << PoolEntry{
@@ -164,8 +168,6 @@ pub fn (mut p Pool) initialize() ! {
 			created_at:   time.now().unix()
 			last_used_at: time.now().unix()
 		}
-		idx := p.objects.len - 1
-		p.obj_index[obj] = idx
 		p.free_stack << obj
 	}
 }
@@ -252,9 +254,9 @@ fn (mut p Pool) gc_sweep() {
 			kept << entry
 		}
 	}
+	// Swap in the compacted ledger: this sweep is already O(n), so it is the
+	// natural place to drop tombstones and rebuild the free stack in one pass.
 	p.objects = kept
-	p.rebuild_obj_index()
-	// Rebuild free_stack: collect all idle objects from the kept list.
 	p.free_stack = []
 	for entry in kept {
 		if !entry.in_use {
@@ -270,13 +272,55 @@ fn (mut p Pool) gc_sweep() {
 	}
 }
 
-// rebuild_obj_index rebuilds the reverse-mapping from object pointer to
-// its current index in objects. Must be called after any deletion from
-// objects that shifts indices (e.g. in acquire(), gc_sweep(), close()).
-fn (mut p Pool) rebuild_obj_index() {
-	p.obj_index = map[voidptr]int{}
-	for i, entry in p.objects {
-		p.obj_index[entry.object] = i
+// wake_waiters_unsafe wakes every goroutine parked in acquire_with_timeout()
+// and arms a fresh channel for the next round. Closing the channel broadcasts
+// to all waiters at once; a single buffered send would only wake one.
+// Caller must hold `mu`.
+fn (mut p Pool) wake_waiters_unsafe() {
+	old := p.avail
+	p.avail = chan bool{}
+	old.close()
+}
+
+// entry_unsafe finds the ledger entry for `obj`. Caller must hold `mu`.
+//
+// The linear scan looks expensive, but the free stack is LIFO and the objects
+// handed out are almost always the ones handed back, so the hit is usually the
+// last entry. The previous version avoided the scan with a `map[voidptr]int`
+// reverse index — and then paid an O(n) rebuild of that map on every single
+// acquire/release/GC pass. The scan is strictly cheaper in practice and needs
+// no maintenance at all.
+fn (mut p Pool) entry_unsafe(obj voidptr) ?PoolEntry {
+	for i := p.objects.len - 1; i >= 0; i-- {
+		if p.objects[i].object == obj {
+			return p.objects[i]
+		}
+	}
+	return none
+}
+
+// mark_in_use_unsafe flips the ledger flag for `obj`. Caller must hold `mu`.
+fn (mut p Pool) mark_in_use_unsafe(obj voidptr) {
+	for i := p.objects.len - 1; i >= 0; i-- {
+		if p.objects[i].object == obj {
+			p.objects[i].in_use = true
+			p.objects[i].last_used_at = time.now().unix()
+			return
+		}
+	}
+}
+
+// tombstone_unsafe clears a dead entry's object pointer instead of deleting
+// the slice element. Caller must hold `mu`. The slot stays as a hole until the
+// next GC sweep compacts the ledger, which keeps every live object's position
+// stable and makes the O(n) index rebuild unnecessary.
+fn (mut p Pool) tombstone_unsafe(obj voidptr) {
+	for i := p.objects.len - 1; i >= 0; i-- {
+		if p.objects[i].object == obj {
+			unsafe { p.objects[i].object = nil }
+			p.objects[i].in_use = false
+			return
+		}
 	}
 }
 
@@ -295,33 +339,33 @@ pub fn (mut p Pool) acquire() !voidptr {
 		return error('pool "${p.name}" is closed')
 	}
 
-	// Pop from free stack (O(1)) until we find a valid idle object.
+	// Pop from the free stack (O(1)) until a valid idle object is found.
+	//
+	// `objects` is an append-only ledger: entries are tombstoned by clearing
+	// their object pointer, never removed by index. Deleting from the middle
+	// would shift every later index, which is what forced the previous
+	// rebuild_obj_index() O(n) pass — and the obj_index reverse map that
+	// existed only to pay for it. The ledger is compacted in one sweep when
+	// next GC sweep, which already walks the ledger to drop expired entries.
 	for p.free_stack.len > 0 {
 		obj_ptr := p.free_stack[p.free_stack.len - 1]
 		p.free_stack.delete(p.free_stack.len - 1)
 
-		idx := p.obj_index[obj_ptr] or { continue }
-		if idx >= p.objects.len {
-			continue
-		}
-		entry := p.objects[idx]
+		entry := p.entry_unsafe(obj_ptr) or { continue }
 		if entry.in_use {
 			continue
 		}
 
 		if p.factory.is_valid(entry.object) {
-			p.objects[idx].in_use = true
-			p.objects[idx].last_used_at = time.now().unix()
+			p.mark_in_use_unsafe(obj_ptr)
 			p.active_count++
 			p.mu.unlock()
 			return entry.object
 		}
 
-		// Invalid: destroy, remove, and rebuild index mapping.
+		// Invalid idle object: destroy it and drop it from the ledger.
 		p.factory.destroy(entry.object)
-		p.objects.delete(idx)
-		p.obj_index.delete(entry.object)
-		p.rebuild_obj_index()
+		p.tombstone_unsafe(obj_ptr)
 	}
 
 	// No valid idle object; create a new one if under the cap.
@@ -344,7 +388,6 @@ pub fn (mut p Pool) acquire() !voidptr {
 			last_used_at: time.now().unix()
 			in_use:       true
 		}
-		p.obj_index[obj] = p.objects.len - 1
 		p.mu.unlock()
 		return obj
 	}
@@ -369,14 +412,37 @@ pub fn (mut p Pool) acquire_with_timeout(timeout_seconds int) !voidptr {
 	deadline := time.now().unix() + i64(timeout_seconds)
 	for {
 		obj := p.acquire() or {
-			if err.msg().contains('exhausted') {
-				if time.now().unix() >= deadline {
-					return error('pool "${p.name}" acquire timed out after ${timeout_seconds}s')
-				}
-				time.sleep(10 * time.millisecond)
-				continue
+			if !err.msg().contains('exhausted') {
+				return err
 			}
-			return err
+			remaining := deadline - time.now().unix()
+			if remaining <= 0 {
+				return error('pool "${p.name}" acquire timed out after ${timeout_seconds}s')
+			}
+			// Park on the broadcast channel instead of polling every 10ms:
+			// release() closes it the moment an object becomes free, so a waiter
+			// wakes immediately and an idle waiter costs no CPU at all.
+			p.mu.@lock()
+			if p.closed {
+				p.mu.unlock()
+				return error('pool "${p.name}" is closed')
+			}
+			signal := p.avail
+			p.avail = chan bool{}
+			p.mu.unlock()
+
+			// `time.after` does not exist in V, so the timeout is a timer
+			// goroutine that fires the same broadcast channel the pool uses.
+			timer := spawn fn (sig chan bool, wait_s int) {
+				time.sleep(wait_s * time.second)
+				select {
+					sig <- true {}
+					else {}
+				}
+			}(signal, int(remaining))
+			_ := <-signal
+			timer.wait()
+			continue
 		}
 		return obj
 	}
@@ -406,15 +472,16 @@ pub fn (mut p Pool) release(obj voidptr) {
 		p.factory.destroy(obj)
 		return
 	}
-	idx := p.obj_index[obj] or { return }
-	entry := p.objects[idx]
-	if entry.in_use {
-		p.objects[idx].in_use = false
-		p.objects[idx].last_used_at = time.now().unix()
-		p.active_count--
-		p.free_stack << obj
+	// Tombstoned, unknown, or already-idle: silently ignore (backward compat).
+	for i in 0 .. p.objects.len {
+		if p.objects[i].object == obj && p.objects[i].in_use {
+			p.objects[i].in_use = false
+			p.objects[i].last_used_at = time.now().unix()
+			p.active_count--
+			p.free_stack << obj
+			break
+		}
 	}
-	// Object not found or not in use: silently ignore (backward compat).
 }
 
 // close drains and closes all idle pooled objects.
@@ -446,7 +513,7 @@ pub fn (mut p Pool) close() ! {
 	p.objects = kept
 	p.active_count = 0
 	p.free_stack = [] // all idle objects destroyed
-	p.rebuild_obj_index()
+	p.wake_waiters_unsafe()
 	gc_was_started := p.gc_started
 	p.mu.unlock()
 

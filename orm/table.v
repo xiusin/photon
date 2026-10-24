@@ -398,7 +398,7 @@ pub fn (tq &TableQuery) where(col string, op string, value ParamValue) &TableQue
 	return tq.append_condition(TablePredicate{
 		column: c
 		op:     norm
-		value:  ?ParamValue(value)
+		value:  value
 	})
 }
 
@@ -461,7 +461,7 @@ pub fn (tq &TableQuery) where_in(col string, values []ParamValue) &TableQuery {
 		group << TablePredicate{
 			column: c
 			op:     'in'
-			value:  ?ParamValue(v)
+			value:  v
 		}
 	}
 	// IN expands into one parenthesised AND-group of its own.
@@ -484,7 +484,7 @@ pub fn (tq &TableQuery) where_not_in(col string, values []ParamValue) &TableQuer
 		group << TablePredicate{
 			column: c
 			op:     'not in'
-			value:  ?ParamValue(v)
+			value:  v
 		}
 	}
 	mut groups := tq.copy_groups()
@@ -501,7 +501,7 @@ pub fn (tq &TableQuery) where_null(col string) &TableQuery {
 	return tq.append_condition(TablePredicate{
 		column: c
 		op:     'is null'
-		value:  ?ParamValue(none)
+		value:  none
 	})
 }
 
@@ -514,7 +514,7 @@ pub fn (tq &TableQuery) where_not_null(col string) &TableQuery {
 	return tq.append_condition(TablePredicate{
 		column: c
 		op:     'is not null'
-		value:  ?ParamValue(none)
+		value:  none
 	})
 }
 
@@ -527,12 +527,12 @@ pub fn (tq &TableQuery) where_between(col string, low ParamValue, high ParamValu
 	next := tq.append_condition(TablePredicate{
 		column: c
 		op:     '>='
-		value:  ?ParamValue(low)
+		value:  low
 	})
 	return next.append_condition(TablePredicate{
 		column: c
 		op:     '<='
-		value:  ?ParamValue(high)
+		value:  high
 	})
 }
 
@@ -557,7 +557,7 @@ pub fn (tq &TableQuery) or_where(col string, op string, value ParamValue) &Table
 	cond := TablePredicate{
 		column: c
 		op:     norm
-		value:  ?ParamValue(value)
+		value:  value
 	}
 	mut groups := tq.copy_groups()
 	mut flags := tq.group_or_flags(groups.len)
@@ -661,7 +661,7 @@ pub fn (tq &TableQuery) raw_where(fragment string, values ...ParamValue) &TableQ
 	next := tq.append_condition(TablePredicate{
 		column: fragment
 		op:     'raw'
-		value:  ?ParamValue(none)
+		value:  none
 	})
 	return next.with_raw(tq.raw_fragments, bound)
 }

@@ -153,12 +153,15 @@ pub fn (mut k HttpKernel) unfreeze() {
 
 // dispatch fires all listeners for an event.
 //
-// Fast path (frozen): reads the frozen flag under rlock for memory visibility,
-// then reads the immutable snapshot. The snapshot slice is cloned under rlock
-// to safely handle concurrent unfreeze()/off() calls.
+// Path (frozen): the snapshot is immutable once frozen, so the slice is read
+// under rlock and the listeners are invoked *after* the lock is released.
+// No clone: a map read copies the slice header, which is enough to iterate
+// safely, and freezing guarantees nobody writes the backing array afterwards.
+// This runs on every HTTP request, so the per-request allocation matters.
 //
-// Slow path (not frozen): clones the listener slice under a read lock to avoid
-// concurrent modification during iteration.
+// Path (not frozen): the listener table is still mutable, so the slice is
+// cloned under the read lock and iterated outside it. Callers are expected to
+// freeze_listeners() before serving traffic; this path is the cold one.
 fn (mut k HttpKernel) dispatch(event_type KernelEventType, data voidptr) {
 	name := kernel_event_name(event_type)
 	// Read frozen flag under rlock for memory visibility across goroutines.
@@ -168,9 +171,8 @@ fn (mut k HttpKernel) dispatch(event_type KernelEventType, data voidptr) {
 			k.mu.runlock()
 			return
 		}
-		listeners_copy := entries.clone()
 		k.mu.runlock()
-		for entry in listeners_copy {
+		for entry in entries {
 			if !isnil(entry.listener) {
 				entry.listener(name, data)
 			}
