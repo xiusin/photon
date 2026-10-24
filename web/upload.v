@@ -486,6 +486,7 @@ fn (mut cm UploadChunkManager) start_gc() {
 		}
 		mut elapsed := 0
 		mut idle_empty_sweeps := 0
+		mut idle_poll_ms := upload_gc_idle_poll_ms
 		for {
 			// Sleep in 100ms increments so close() can stop us promptly.
 			time.sleep(100 * time.millisecond)
@@ -503,22 +504,30 @@ fn (mut cm UploadChunkManager) start_gc() {
 				break
 			}
 
-			// Sweep every 60 seconds — remove uploads older than 1 hour
-			if elapsed >= 60000 {
+			// Sweep every 60 seconds — remove uploads older than 1 hour.
+			// An empty manager is probed quickly instead: there is nothing to
+			// clean, and waiting a full minute per abandoned instance is what
+			// lets a burst of short-lived managers exhaust the thread pool.
+			is_empty := unsafe { gcm.is_empty() }
+			if elapsed >= upload_gc_interval_ms || (is_empty && elapsed >= idle_poll_ms) {
 				elapsed = 0
-				unsafe {
-					mut m := gcm
-					m.gc_abandoned_uploads(3600, temp_dir)
+				if !is_empty {
+					unsafe {
+						mut m := gcm
+						m.gc_abandoned_uploads(3600, temp_dir)
+					}
 				}
 				// Retire once nothing is in flight: an abandoned manager
 				// would otherwise keep a thread alive forever.
-				if unsafe { gcm.is_empty() } {
+				if is_empty {
 					idle_empty_sweeps++
 					if idle_empty_sweeps >= upload_gc_idle_exit_sweeps {
 						break
 					}
+					idle_poll_ms = upload_gc_idle_poll_ms
 				} else {
 					idle_empty_sweeps = 0
+					idle_poll_ms = upload_gc_interval_ms
 				}
 			}
 		}
@@ -528,6 +537,12 @@ fn (mut cm UploadChunkManager) start_gc() {
 // upload_gc_idle_exit_sweeps is how many consecutive empty sweeps the
 // chunk-manager GC goroutine tolerates before retiring.
 const upload_gc_idle_exit_sweeps = 2
+
+// upload_gc_interval_ms is the sweep cadence while uploads are in flight.
+const upload_gc_interval_ms = 60000
+
+// upload_gc_idle_poll_ms is how long an EMPTY manager waits before retiring.
+const upload_gc_idle_poll_ms = 500
 
 // is_empty reports whether no chunked upload is currently tracked.
 fn (cm &UploadChunkManager) is_empty() bool {

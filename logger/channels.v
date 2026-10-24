@@ -10,6 +10,7 @@ module logger
 import time
 import os
 import sync
+import strings
 
 // Channel is a log output destination
 pub interface Channel {
@@ -254,37 +255,173 @@ const sensitive_patterns = [
 	'private_key',
 ]
 
-// mask_sensitive_data redacts passwords, tokens, and other sensitive info
-pub fn mask_sensitive_data(msg string) string {
-	mut result := msg
-	lower := msg.to_lower()
+// mask_separator_index returns the offset of the separator that sits between a
+// sensitive key and its value, or -1 when the text right after the key is not
+// a `key<sep>value` shape.
+//
+// A `=` / `:` only counts when it is the FIRST structural character after the
+// key — anything else means we matched a substring inside an unrelated word
+// (`token` inside `tokenizer`), and the search must move on. Both separators
+// are considered, whichever comes first, so `token=x` and `token: x` behave
+// the same.
+fn mask_separator_index(after_key string) int {
+	mut best := -1
+	for sep in [mask_eq_sep, mask_colon_sep] {
+		sep_idx := after_key.index(sep) or { continue }
+		if best < 0 || sep_idx < best {
+			best = sep_idx
+		}
+	}
+	if best < 0 {
+		return -1
+	}
+	// Only whitespace may sit between the key and its separator.
+	for ch in after_key[..best] {
+		if ch != ` ` && ch != `\t` {
+			return -1
+		}
+	}
+	return best
+}
 
+const mask_eq_sep = '='
+const mask_colon_sep = ':'
+
+// span_less orders spans by start, then by end.
+fn span_less(a []int, b []int) bool {
+	if a[0] != b[0] {
+		return a[0] < b[0]
+	}
+	return a[1] < b[1]
+}
+
+// apply_mask_spans replaces every [start, end) range in `spans` with `***`.
+// Ranges are sorted and merged first, so overlapping or touching masks produce
+// a single placeholder instead of duplicated text or a torn value.
+fn apply_mask_spans(text string, spans [][]int) string {
+	// Insertion sort: `sort_with_compare` on [][]int mis-ordered the inner
+	// slices in practice (V cgen gave the comparator bogus elements), and the
+	// span count here is tiny — one entry per masked value in a log line.
+	mut sorted := spans.clone()
+	for i in 1 .. sorted.len {
+		mut j := i
+		for j > 0 && span_less(sorted[j], sorted[j - 1]) {
+			sorted[j], sorted[j - 1] = sorted[j - 1], sorted[j]
+			j--
+		}
+	}
+
+	mut merged := [][]int{cap: sorted.len}
+	for i in 0 .. sorted.len {
+		start := if sorted[i][0] < 0 { 0 } else { sorted[i][0] }
+		end := if sorted[i][1] > text.len { text.len } else { sorted[i][1] }
+		if start >= end {
+			continue
+		}
+		if merged.len > 0 && start <= merged[merged.len - 1][1] {
+			if end > merged[merged.len - 1][1] {
+				merged[merged.len - 1][1] = end
+			}
+			continue
+		}
+		merged << [start, end]
+	}
+
+	mut out := strings.new_builder(text.len)
+	mut cursor := 0
+	for i in 0 .. merged.len {
+		out.write_string(text[cursor..merged[i][0]])
+		out.write_string(mask_placeholder)
+		cursor = merged[i][1]
+	}
+	out.write_string(text[cursor..])
+	return out.str()
+}
+
+// mask_placeholder is what redacted values are replaced with.
+const mask_placeholder = '***'
+
+// mask_value_separators terminate a sensitive value.
+const mask_value_separators = [' ', ',', '\n', '&', ';', '"', "'"]
+
+// mask_sensitive_data redacts passwords, tokens, and other sensitive info
+// 脱敏密码、令牌等敏感信息。
+//
+// The scan works on a lowercased snapshot that is never mutated, and masks are
+// recorded as (start, end) byte ranges. Only after every pattern has been
+// scanned is the output rebuilt in one pass. Two classes of bug came from the
+// previous "search a stale copy, rewrite `result` in place" approach:
+//
+//   - hard panic — `substr(out of bounds)` once `***` changed the length of
+//     the text the offsets were computed against
+//     (e.g. `password=x&token`, `token=xx&token=yy`);
+//   - silent over-masking — a second match of the same key landed inside the
+//     `***` placeholder already written, so the rest of the value was eaten
+//     (`token=xx&token=yy` became `token=***`).
+//
+// Recording ranges instead of rewriting keeps every offset valid and lets
+// overlapping masks collapse into one. `pos` only ever moves past the key that
+// was just matched, so the loop always terminates.
+pub fn mask_sensitive_data(msg string) string {
+	lower := msg.to_lower()
+	if lower.len == 0 {
+		return msg
+	}
+
+	// Byte ranges to replace with '***'.
+	mut spans := [][]int{}
 	for pattern in sensitive_patterns {
 		mut pos := 0
 		for {
 			idx := lower.index_after(pattern, pos) or { break }
-			pos = idx + 1
-			after_key := result[idx + pattern.len..]
-			eq_idx := after_key.index('=') or {
-				colon_idx := after_key.index(':') or { continue }
-				colon_idx
-			}
-			if eq_idx >= 0 && eq_idx < 50 {
-				value_start := idx + pattern.len + eq_idx + 1
-				value_rest := result[value_start..]
-				mut end_idx := value_rest.index(' ') or { value_rest.len }
-				comma_idx := value_rest.index(',') or { value_rest.len }
-				nl_idx := value_rest.index('\n') or { value_rest.len }
-				if comma_idx < end_idx { end_idx = comma_idx }
-				if nl_idx < end_idx { end_idx = nl_idx }
 
-				masked := result[..value_start] + '***' + result[value_start + end_idx..]
-				result = masked
+			// Advance past the matched key no matter what happens below —
+			// this is what guarantees termination.
+			next_pos := idx + pattern.len
+			after_key := if next_pos <= lower.len { lower[next_pos..] } else { '' }
+			eq_idx := mask_separator_index(after_key)
+			if eq_idx < 0 || eq_idx >= 50 {
+				// Not a `key = value` / `key: value` shape.
+				pos = next_pos
+				continue
+			}
+
+			// Skip the padding between the separator and the value so
+			// `password = secret` masks `secret` rather than giving up on the
+			// leading space.
+			mut value_start := next_pos + eq_idx + 1
+			for value_start < lower.len && (lower[value_start] == ` ` || lower[value_start] == `\t`) {
+				value_start++
+			}
+			if value_start >= lower.len {
+				pos = next_pos
+				continue
+			}
+			value_rest := lower[value_start..]
+			// A value ends at whitespace, a comma, a newline, or `&` — the
+			// last one matters for query strings (`a=1&token=x&b=2`), where
+			// stopping only on whitespace would swallow the rest of the line.
+			mut end_idx := value_rest.len
+			for sep in mask_value_separators {
+				if sep_idx := value_rest.index(sep) {
+					if sep_idx < end_idx {
+						end_idx = sep_idx
+					}
+				}
+			}
+			// An empty value has nothing to redact.
+			if end_idx > 0 {
+				spans << [value_start, value_start + end_idx]
+				pos = value_start + end_idx
+			} else {
+				pos = value_start
 			}
 		}
 	}
 
-	if lower.contains('bearer ') {
+	mut result := if spans.len == 0 { msg } else { apply_mask_spans(msg, spans) }
+
+	if result.to_lower().contains('bearer ') {
 		mut masked := ''
 		mut i := 0
 		for i < result.len {
