@@ -1664,49 +1664,79 @@ support.skip([1,2,3,4,5], 2)                          // [3,4,5]
 
 Photon 核心模块参考 Spring Boot Builder 模式和 Laravel Fluent API，提供链式调用接口。
 
-### 16.1 ORM QueryBuilder
+### 16.1 ORM 链式查询
 
-链式构建类型安全的 SQL 查询：
+`orm.table()` 是推荐的链式入口：值按类型绑定（`ParamValue`），不用写 `?`，
+也不用记 `where_` 后缀。
 
 ```v
 import photon.orm
 
 // 基础查询
-users := orm.new_query_builder(mgr, 'default', 'users')
-    .where_('age > ?', 18)
-    .order_by('name', .asc)
+rows := orm.table('users', mgr)
+    .where('age', '>', 18)
+    .where_eq('status', 'active')
+    .order_by_asc('name')
     .limit(10)
     .get()!
 
-// 复杂查询
-result := orm.new_query_builder(mgr, 'default', 'orders')
-    .select_(['o.id', 'o.total', 'u.name'])
-    .join('users u', 'o.user_id = u.id')
-    .where_('o.status = ?', 'paid')
-    .or_where('o.status = ?', 'shipped')
-    .order_by('o.created_at', .desc)
-    .group_by('u.name')
+// 复杂查询：投影 / JOIN 之外的组合条件
+qsql, args := orm.table('orders', mgr)
+    .select_(['id', 'total'])
+    .where_eq('status', 'paid')
+    .or_where_eq('status', 'shipped')
+    .group_by('user_id')
     .having('COUNT(*) > ?', 5)
+    .order_by_desc('created_at')
     .offset(0)
     .limit(20)
-    .get()!
+    .to_sql()!
 
-// 获取单条
-user := orm.new_query_builder(mgr, 'default', 'users')
-    .where_('email = ?', 'alice@test.com')
-    .first()!
+// 单条 / 计数 / 存在性
+user := orm.table('users', mgr).where_eq('email', 'alice@test.com').first()!
+total := orm.table('users', mgr).where_eq('status', 'active').count()!
+has_any := orm.table('users', mgr).where_eq('status', 'active').exists()!
 
-// 计数
-total := orm.new_query_builder(mgr, 'default', 'users')
-    .where_('status = ?', 'active')
-    .count()
-
-// 调试 SQL（返回原始 SQL + 参数）
-sql, params := orm.new_query_builder(mgr, 'default', 'users')
-    .select_(['id', 'name'])
-    .where_('age > ?', 18)
-    .to_sql()
+// 写入（update / delete 必须带 WHERE，否则直接报错）
+mut patch := map[string]orm.ParamValue{}
+patch['name'] = orm.ParamValue('Alice')
+orm.table('users', mgr).where_eq('id', 1).update(patch)!
+orm.table('users', mgr).where_eq('status', 'stale').delete()!
 ```
+
+链式查询是**不可变值**：每个子句方法返回新查询，旧查询原样保留，天然可复用、
+可并发共享。
+
+```v
+base := orm.table('users', mgr).where_eq('tenant_id', 7)
+active := base.where_eq('status', 'active').get()!   // 新查询
+all := base.get()!                                  // 仍只按 tenant 过滤
+```
+
+条件分组只有一条规则：`.where*()` 延长当前 AND 组，`.or_where*()` 另起 OR 组，
+渲染时每个 OR 组都会加括号。
+
+```v
+// WHERE (status = ?) AND (role = ? OR role = ?)
+orm.table('users', mgr)
+    .where_eq('status', 'active')
+    .where_group(fn (q &orm.TableQuery) &orm.TableQuery {
+        return q.where_eq('role', 'admin').or_where_eq('role', 'owner')
+    })
+```
+
+实体仓储接入链式查询：
+
+```v
+mut repo := orm.new_entity_repository[User](mgr, 'default', 'users', exec_fn, query_fn)!
+mut r := &repo
+users := orm.repo_query(r).where_ge('age', 18).order_by_desc('id').to_entities[User]()!
+```
+
+> 注意：`sql` 是 V 关键字，接收 `.to_sql()` 结果时请用 `qsql` 之类的变量名。
+>
+> 旧的 `orm.new_query_builder(...).where_(...)` 仍然可用，但新代码建议用
+> `orm.table()`：类型安全、无后缀、语义更清晰。
 
 ### 16.2 Cache 链式操作
 

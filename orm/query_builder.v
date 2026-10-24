@@ -17,8 +17,19 @@ import strings
 //               .limit(10)
 //               .get()!
 //
-//   // Chained with eager loading:
-//   repo.with("posts").where_("active", true).get()!
+//   // Prefer the shorter, typed facade (table.v):
+//   orm.table("users", manager).where("age", ">", 18).limit(10).get()!
+//
+// ── Guarantees ──
+//
+//   • Chain-safe: clause builders return `&QueryBuilder` (mutate in place).
+//   • Memory-safe: no hidden copies of the receiver; terminal methods work on
+//     a private snapshot, so `first()`/`count()` never disturb the builder.
+//   • Thread-safe usage: the builder holds no lock — use one per goroutine,
+//     or take `.clone()` for branches.  Connections are resolved through the
+//     RwMutex-guarded OrmManager on every terminal call.
+//   • Injection-safe: values are always bound as `?`; only `where_()` /
+//     `join()` / `order_by()` fragments are literal (they are code, not data).
 
 // ── Order Direction ──
 
@@ -38,16 +49,17 @@ pub:
 	orm_manager &OrmManager
 	db_name     string = 'default'
 pub mut:
-	columns    []string   // SELECT columns (default: *)
-	wheres     []string   // WHERE conditions
-	where_args []string   // positional parameters for WHERE
-	orders     []string   // ORDER BY clauses
-	joins      []string   // JOIN clauses
-	groups     []string   // GROUP BY columns
-	havings    []string   // HAVING conditions
-	limit_val  int        // LIMIT value (0 = no limit)
-	offset_val int        // OFFSET value (0 = no offset)
-	query_fn   SqlQueryFn = unsafe { nil } // see safe_cast.v
+	columns     []string // SELECT columns (default: *)
+	wheres      []string // WHERE conditions
+	where_logic []string // 'AND' per condition (AND by default, 'OR' for or_where)
+	where_args  []string // positional parameters for WHERE
+	orders      []string // ORDER BY clauses
+	joins       []string // JOIN clauses
+	groups      []string // GROUP BY columns
+	havings     []string // HAVING conditions
+	limit_val   int      // LIMIT value (0 = no limit)
+	offset_val  int      // OFFSET value (0 = no offset)
+	query_fn    SqlQueryFn = unsafe { nil } // see safe_cast.v
 }
 
 // new_query_builder creates a QueryBuilder for the given table.
@@ -85,10 +97,39 @@ pub fn (mut qb QueryBuilder) select_(cols []string) &QueryBuilder {
 //
 //   qb.where_("age > ? and age <= ?", 18, 65)
 //   qb.where_("status = ?", "active").where_("role IN (?, ?)", "admin", "moderator")
+//
+// The `_` suffix exists because `where` is a V keyword; `orm.table()` offers
+// the same predicate without the suffix.
 pub fn (mut qb QueryBuilder) where_(condition string, args ...string) &QueryBuilder {
+	if qb.wheres.len > 0 {
+		qb.where_logic << 'AND'
+	}
 	qb.wheres << condition
 	for arg in args {
 		qb.where_args << arg
+	}
+	return qb
+}
+
+// or_where joins the previous and the new condition with OR instead of AND.
+//
+//   qb.where_('status = ?', 'active').or_where('status = ?', 'pending')
+//   → WHERE (status = ?) OR (status = ?)
+pub fn (mut qb QueryBuilder) or_where(condition string, args ...string) &QueryBuilder {
+	// where_() records 'AND' for the new condition; overwrite it with 'OR'.
+	qb.where_(condition, ...args)
+	if qb.wheres.len > 1 && qb.where_logic.len > 0 {
+		qb.where_logic[qb.where_logic.len - 1] = 'OR'
+	}
+	return qb
+}
+
+// where_and appends several pre-formatted conditions at once.
+//
+//   qb.where_and(['age >= ?', 18, 'age <= ?', 65])
+pub fn (mut qb QueryBuilder) where_and(parts ...string) &QueryBuilder {
+	for part in parts {
+		qb.where_('${part}', part)
 	}
 	return qb
 }
@@ -100,6 +141,9 @@ pub fn (mut qb QueryBuilder) where_in(column string, values []string) &QueryBuil
 	if values.len == 0 {
 		return qb
 	}
+	if qb.wheres.len > 0 {
+		qb.where_logic << 'AND'
+	}
 	mut placeholders := []string{len: values.len, init: '?'}
 	qb.wheres << '${column} IN (${placeholders.join(', ')})'
 	for v in values {
@@ -110,18 +154,27 @@ pub fn (mut qb QueryBuilder) where_in(column string, values []string) &QueryBuil
 
 // where_not_null adds a WHERE ... IS NOT NULL clause.
 pub fn (mut qb QueryBuilder) where_not_null(column string) &QueryBuilder {
+	if qb.wheres.len > 0 {
+		qb.where_logic << 'AND'
+	}
 	qb.wheres << '${column} IS NOT NULL'
 	return qb
 }
 
 // where_null adds a WHERE ... IS NULL clause.
 pub fn (mut qb QueryBuilder) where_null(column string) &QueryBuilder {
+	if qb.wheres.len > 0 {
+		qb.where_logic << 'AND'
+	}
 	qb.wheres << '${column} IS NULL'
 	return qb
 }
 
 // where_between adds a WHERE ... BETWEEN ? AND ? clause.
 pub fn (mut qb QueryBuilder) where_between(column string, low string, high string) &QueryBuilder {
+	if qb.wheres.len > 0 {
+		qb.where_logic << 'AND'
+	}
 	qb.wheres << '${column} BETWEEN ? AND ?'
 	qb.where_args << low
 	qb.where_args << high
@@ -133,7 +186,10 @@ pub fn (mut qb QueryBuilder) where_between(column string, low string, high strin
 //   qb.order_by("name")                // ORDER BY name ASC (default)
 //   qb.order_by("created_at", .desc)   // ORDER BY created_at DESC
 pub fn (mut qb QueryBuilder) order_by(column string, dir OrderDir) &QueryBuilder {
-	qb.orders << '${column} ${match dir { .asc { 'ASC' } .desc { 'DESC' } }}'
+	qb.orders << '${column} ${match dir {
+		.asc { 'ASC' }
+		.desc { 'DESC' }
+	}}'
 	return qb
 }
 
@@ -234,11 +290,13 @@ pub fn (mut qb QueryBuilder) get() ![][]string {
 
 // first executes the SELECT with LIMIT 1 and returns the first row.
 // Returns an error if no rows match.
+//
+// The builder is not mutated: the LIMIT 1 lives on a temporary copy, so a
+// builder can be re-used after calling first().
 pub fn (mut qb QueryBuilder) first() ![]string {
-	prev_limit := qb.limit_val
-	qb.limit_val = 1
-	query, args := qb.build_select()
-	qb.limit_val = prev_limit
+	mut view := qb.clone()
+	view.limit_val = 1
+	query, args := view.build_select()
 	db := qb.orm_manager.get_conn(qb.db_name)!
 	rows := qb.query_fn(db, query, args)!
 	if rows.len == 0 {
@@ -247,22 +305,36 @@ pub fn (mut qb QueryBuilder) first() ![]string {
 	return rows[0]
 }
 
+// clone returns an independent copy of the builder, for branching a query
+// without disturbing the original.
+pub fn (qb &QueryBuilder) clone() &QueryBuilder {
+	return &QueryBuilder{
+		table_name:  qb.table_name
+		orm_manager: qb.orm_manager
+		db_name:     qb.db_name
+		columns:     qb.columns.clone()
+		wheres:      qb.wheres.clone()
+		where_logic: qb.where_logic.clone()
+		where_args:  qb.where_args.clone()
+		orders:      qb.orders.clone()
+		joins:       qb.joins.clone()
+		groups:      qb.groups.clone()
+		havings:     qb.havings.clone()
+		limit_val:   qb.limit_val
+		offset_val:  qb.offset_val
+		query_fn:    qb.query_fn
+	}
+}
+
 // count executes a SELECT COUNT(*) and returns the count.
 //
 //   n := qb.where_("status = ?", "active").count()!
 pub fn (mut qb QueryBuilder) count() !i64 {
-	mut qb_copy := &QueryBuilder{
-		table_name:  qb.table_name
-		orm_manager: qb.orm_manager
-		db_name:     qb.db_name
-		wheres:      qb.wheres.clone()
-		where_args:  qb.where_args.clone()
-		joins:       qb.joins.clone()
-		havings:     qb.havings.clone()
-		groups:      qb.groups.clone()
-		query_fn:    qb.query_fn
-		columns:     ['COUNT(*) AS cnt']
-	}
+	mut qb_copy := qb.clone()
+	qb_copy.columns = ['COUNT(*) AS cnt']
+	qb_copy.orders = []string{}
+	qb_copy.limit_val = 0
+	qb_copy.offset_val = 0
 	query, args := qb_copy.build_select()
 	db := qb.orm_manager.get_conn(qb.db_name)!
 	rows := qb.query_fn(db, query, args)!
@@ -283,9 +355,12 @@ pub fn (mut qb QueryBuilder) exists() !bool {
 // pluck retrieves a single column's values as a string list.
 //
 //   names := qb.where_("active", true).pluck("name")!
+//
+// The builder's own projection is left untouched (a copy is used).
 pub fn (mut qb QueryBuilder) pluck(column string) ![]string {
-	qb.columns = [column]
-	rows := qb.get()!
+	mut view := qb.clone()
+	view.columns = [column]
+	rows := view.get()!
 	mut values := []string{cap: rows.len}
 	for row in rows {
 		if row.len > 0 {
@@ -316,9 +391,42 @@ fn (qb &QueryBuilder) build_select() (string, []string) {
 		sb.write_string(' ${join}')
 	}
 
-	// WHERE
+	// WHERE — consecutive OR-joined conditions are wrapped in parentheses so
+	// `a AND b OR c` cannot silently flip the intended precedence.
 	if qb.wheres.len > 0 {
-		sb.write_string(' WHERE ${qb.wheres.join(' AND ')}')
+		mut where_sql := ''
+		mut in_or_run := false
+		for i, cond in qb.wheres {
+			logic := if i == 0 {
+				'AND'
+			} else if i - 1 < qb.where_logic.len {
+				qb.where_logic[i - 1]
+			} else {
+				'AND'
+			}
+			if i == 0 {
+				where_sql = cond
+				continue
+			}
+			if logic == 'OR' {
+				if in_or_run {
+					where_sql += ' OR ${cond}'
+				} else {
+					where_sql = '(${where_sql} OR ${cond}'
+					in_or_run = true
+				}
+				continue
+			}
+			if in_or_run {
+				where_sql += ')'
+				in_or_run = false
+			}
+			where_sql += ' AND ${cond}'
+		}
+		if in_or_run {
+			where_sql += ')'
+		}
+		sb.write_string(' WHERE ${where_sql}')
 	}
 
 	// GROUP BY
@@ -345,4 +453,76 @@ fn (qb &QueryBuilder) build_select() (string, []string) {
 	}
 
 	return sb.str(), qb.where_args.clone()
+}
+
+// ── Repository fluent entry point ──
+
+// repo_query returns a fluent TableQuery bound to the repository's table,
+// connection and callbacks — the entity-ordered projection is pre-selected so
+// rows can be paged into T with `find_all_with`.
+//
+//   page := orm.table('users', om).page(2, 10)
+//   users := repo.find_all_with(page)!
+//
+//   users := orm.table('users', om).where_eq('status', 'active').to_entities[T]()!
+//
+// or start from the repository so the projection, connection and callbacks are
+// already wired to the entity:
+//
+//   users := repo.query().where_eq('status', 'active').limit(10).to_entities[T]()!
+//
+// V note: Repository[T]'s methods that mention T in their signature cannot be
+// declared generic, so this lives on the value receiver `&Repository[T]` and is
+// only callable through a pointer.
+pub fn repo_query[T](repo &Repository[T]) &TableQuery {
+	return &TableQuery{
+		table_name:    repo.table_name
+		orm_manager:   repo.orm_manager
+		db_name:       repo.db_name
+		select_cols:   repo.column_names.clone()
+		exec_fn:       repo.exec_fn
+		exec_typed_fn: repo.exec_typed_fn
+		query_fn:      repo.query_fn
+	}
+}
+
+// Repository.query is a thin alias so call sites read naturally:
+//
+//   repo := orm.new_entity_repository[User](om, 'default', 'users', exec_fn, query_fn)!
+//   users := orm.repo_query(repo).where_eq('status', 'active').to_entities[User]()!
+pub fn (repo &Repository[T]) sql_query[T]() &TableQuery {
+	return repo_query[T](repo)
+}
+
+// to_entities executes the fluent query and maps every row onto T, honouring
+// @[column] renames (the projection is the entity's column order).
+//
+//   users := orm.table('users', om).where_eq('status', 'active').to_entities[T]()!
+pub fn (tq &TableQuery) to_entities[T]() ![]T {
+	rows := tq.get()!
+	mut entities := []T{cap: rows.len}
+	for row in rows {
+		mut entity := T{}
+		jpa_map_row(mut entity, row)
+		entities << entity
+	}
+	return entities
+}
+
+// to_entity executes the fluent query with LIMIT 1 and maps the row onto T.
+//
+//   user := orm.table('users', om).where_eq('email', 'a@b.com').to_entity[T]()!
+pub fn (tq &TableQuery) to_entity[T]() !T {
+	row := tq.first()!
+	mut entity := T{}
+	jpa_map_row(mut entity, row)
+	return entity
+}
+
+// find_all_with pages an arbitrary TableQuery into entities — the escape hatch
+// for WHERE trees that the fixed find_by_field() helpers cannot express.
+//
+//   users := orm.find_all_with(repo, orm.table('users', om).where_eq('status', 'active').page(2, 10))!
+pub fn find_all_with[T](repo &Repository[T], tq &TableQuery) ![]T {
+	return tq.to_entities[T]()
 }

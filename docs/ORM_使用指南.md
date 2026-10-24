@@ -1,6 +1,6 @@
-# photon ORM 与 QueryBuilder 使用指南
+# photon ORM 与链式查询使用指南
 
-> 基于 `photon/orm/` 源码深度分析生成，涵盖连接管理、实体映射、四种仓储层级、链式查询构建器、派生查询、Specification 模式、关系加载、事务管理、数据库迁移等全部核心能力。
+> 基于 `photon/orm/` 源码深度分析生成，涵盖连接管理、实体映射、四种仓储层级、链式查询构建器（`orm.table()`）、派生查询、Specification 模式、关系加载、事务管理、数据库迁移等全部核心能力。
 
 ---
 
@@ -13,7 +13,7 @@
 5. [BaseRepository — 完整 CRUD 仓储](#5-baserepository--完整-crud-仓储)
 6. [Repository — 编译时推导仓储（推荐）](#6-repository--编译时推导仓储推荐)
 7. [DerivedRepository — Spring Data 派生查询](#7-derivedrepository--spring-data-派生查询)
-8. [QueryBuilder — 链式查询构建器](#8-querybuilder--链式查询构建器)
+8. [链式查询构建器](#8-链式查询构建器)
 9. [派生查询方法名解析](#9-派生查询方法名解析)
 10. [原生 SQL 查询与命名参数](#10-原生-sql-查询与命名参数)
 11. [Specification 模式 — 动态组合查询](#11-specification-模式--动态组合查询)
@@ -62,7 +62,7 @@ photon 的 ORM 体系采用**双层架构**，包装在 V 官方 ORM 之上：
 | 多数据库路由 | photon `OrmManager` | 按名称注册与获取连接 |
 | Spring Data 派生查询 | photon `derive.v` | 方法名解析为 SQL |
 | Repository 模式 | photon `BaseRepository` / `Repository[T]` | 泛型 CRUD |
-| 链式查询构建 | photon `QueryBuilder` | WHERE/ORDER/LIMIT/JOIN |
+| 链式查询构建 | photon `table()` / `QueryBuilder` | WHERE/ORDER/LIMIT/JOIN |
 | 事务管理 | photon `TransactionManager` | 传播行为 + 隔离级别 |
 | 数据库迁移 | photon `MigrationManager` | 版本化 Schema 迁移 |
 
@@ -778,104 +778,136 @@ dr.repo.save(mut u)!
 
 ---
 
-## 8. QueryBuilder — 链式查询构建器
+## 8. 链式查询构建器
 
-`QueryBuilder` 是 Laravel Eloquent / Spring JdbcTemplate 风格的链式 SQL 构建器，生成参数化 SELECT 语句。
+两个入口，一个心智模型：
 
-### 8.1 创建
+| 入口 | 风格 | 何时用 |
+|------|------|--------|
+| `orm.table(name, mgr)` | 推荐：类型化参数、无 `?`、无 `_` 后缀 | 新代码，绝大多数场景 |
+| `orm.new_query_builder(mgr, db, name)` | SQL 片段风格，`where_('age > ?', '18')` | 老代码、需要拼接复杂原生片段 |
 
-```v
-import photon.orm as phorm
-
-// 需要 OrmManager 和 SQL 执行回调
-qb := phorm.new_query_builder(om, 'default', 'users')
-qb.set_query_fn(fn (db voidptr, query string, args []string) ![][]string {
-    real := unsafe { &sqlite.DB(db) }
-    rows := real.exec_param_many(query, args)!
-    return rows.map(it.vals)
-})
-```
-
-### 8.2 链式构建
+### 8.1 orm.table —— 推荐入口
 
 ```v
-// WHERE 条件
-rows := qb.where_('age > ? and age <= ?', '18', '65')
-           .where_('status = ?', 'active')
-           .where_in('role', ['admin', 'moderator'])
-           .where_not_null('email')
-           .where_null('deleted_at')
-           .where_between('score', '60', '100')
-           .order_by('created_at', .desc)
-           .limit(10)
-           .offset(20)
-           .get()!
+import photon.orm
+
+users := orm.table('users', om)
+    .where('age', '>', 18)          // 值按类型绑定（ParamValue）
+    .where_eq('status', 'active')
+    .order_by_desc('created_at')
+    .limit(10)
+    .get()!
 ```
 
-### 8.3 所有链式方法
+执行回调（与 `Repository` 共用同一套类型）：
 
-| 方法 | 说明 | 示例 |
-|------|------|------|
-| `select_(cols)` | 设置查询列 | `.select_(['id', 'name'])` |
-| `where_(cond, ...args)` | WHERE 条件 | `.where_('age > ?', '18')` |
-| `where_in(col, values)` | WHERE IN | `.where_in('status', ['active', 'pending'])` |
-| `where_not_null(col)` | IS NOT NULL | `.where_not_null('email')` |
-| `where_null(col)` | IS NULL | `.where_null('deleted_at')` |
-| `where_between(col, low, high)` | BETWEEN | `.where_between('age', '18', '65')` |
-| `order_by(col, dir)` | ORDER BY | `.order_by('name', .asc)` |
-| `latest(col)` | ORDER BY DESC | `.latest('created_at')` |
-| `oldest(col)` | ORDER BY ASC | `.oldest()` |
-| `group_by(...cols)` | GROUP BY | `.group_by('status', 'role')` |
-| `having(cond, ...args)` | HAVING | `.having('count > ?', '5')` |
-| `join(table, on)` | INNER JOIN | `.join('posts', 'posts.user_id = users.id')` |
-| `left_join(table, on)` | LEFT JOIN | `.left_join('profiles', '...')` |
-| `right_join(table, on)` | RIGHT JOIN | `.right_join('orders', '...')` |
-| `limit(n)` | LIMIT | `.limit(10)` |
-| `offset(n)` | OFFSET | `.offset(20)` |
-| `page(num, size)` | 分页（1-based） | `.page(2, 10)` → LIMIT 10 OFFSET 10 |
-| `when(cond, callback)` | 条件构建 | `.when(active_only, fn (mut q) { q.where_('active', 'true') })` |
+```v
+tbl := orm.table('users', om)
+    .set_query_fn(query_fn)   // SELECT → [][]string
+    .set_exec_fn(exec_fn)     // INSERT/UPDATE/DELETE/DDL
+// 或类型保真版本：
+//    .set_exec_typed_fn(typed_exec_fn)
+```
 
-### 8.4 终端方法（执行查询）
+### 8.2 条件方法
+
+| 方法 | SQL |
+|------|-----|
+| `where(col, op, value)` | `col <op> ?`（op 白名单：`= != > >= < <= like "not like"`） |
+| `where_eq / where_ne / where_gt / where_ge / where_lt / where_le` | 对应比较 |
+| `where_like(col, 'ali')` | `col LIKE '%ali%'` |
+| `where_not_like(col, pattern)` | `col NOT LIKE ?` |
+| `where_in / where_not_in(col, values)` | `col IN (?, ?, …)`，空列表 = 不生效 |
+| `where_null / where_not_null(col)` | `IS NULL` / `IS NOT NULL` |
+| `where_between(col, low, high)` | `BETWEEN ? AND ?` |
+| `or_where*` | 另起 OR 组 |
+| `where_group(cb)` | 一个带括号的 AND 组（`cb` 返回新查询） |
+| `when(cond, cb)` | 条件为真时才应用 |
+| `raw_where(fragment, ...values)` | 手写片段，值仍然参数化 |
+
+### 8.3 分组规则（只需记这一条）
+
+- `.where*()` 延长**当前 AND 组**
+- `.or_where*()` **另起 OR 组**
+- 渲染时每个 OR 组都加括号
+
+```v
+// WHERE (status = ?) AND (role = ? OR role = ?)
+grouped := orm.table('users', om)
+    .where_eq('status', 'active')
+    .where_group(fn (q &orm.TableQuery) &orm.TableQuery {
+        return q.where_eq('role', 'admin').or_where_eq('role', 'owner')
+    })
+```
+
+### 8.4 不可变语义
+
+每个子句方法返回**新查询**，原查询保持不变：
+
+```v
+base := orm.table('users', om).where_eq('tenant_id', 7)
+active := base.where_eq('status', 'active').get()!   // 新查询
+all := base.get()!                                  // 仍只按 tenant 过滤
+```
+
+好处：天然可复用、可跨协程共享、不存在"谁改了谁的查询"。
+
+### 8.5 终端方法
 
 | 方法 | 返回 | 说明 |
 |------|------|------|
-| `get()` | `![][]string` | 执行 SELECT，返回所有行 |
-| `first()` | `![]string` | LIMIT 1，返回首行（无行报错） |
-| `count()` | `!i64` | SELECT COUNT(*) |
+| `get()` | `![][]string` | 执行 SELECT |
+| `first()` | `![]string` | LIMIT 1，无行报错 |
+| `count()` | `!i64` | COUNT(*)，忽略 ORDER BY / LIMIT |
 | `exists()` | `!bool` | 是否有匹配行 |
-| `pluck(col)` | `![]string` | 取单列值列表 |
-| `to_sql()` | `(string, []string)` | 调试用：返回 SQL 和参数 |
+| `pluck()` | `![]string` | 首列值列表 |
+| `value()` | `!string` | 首行首列，无行返回 `''` |
+| `update(pairs)` | `!` | 必须带 WHERE |
+| `delete()` | `!` | 必须带 WHERE |
+| `insert(values)` | `!` | 按列名写入 |
+| `to_sql()` | `!(string, []ParamValue)` | 调试：SQL + 参数 |
+| `to_entities[T]()` | `![]T` | 映射为实体 |
+| `to_entity[T]()` | `!T` | 映射单条实体 |
+
+> ⚠️ `sql` 是 V 关键字：接收 `.to_sql()` 结果时用 `qsql` 之类的名字。
+
+### 8.6 安全模型
+
+- **值永不拼接**：全部走 `?` 占位符，按顺序以 `[]ParamValue` 交给驱动。
+- **标识符白名单校验**：表名、列名、操作符、排序方向不能参数化，因此逐个校验
+  （`is_safe_identifier`）；不合法的标识符直接报错，绝不"顺手转义"。
+- **写操作强制 WHERE**：`update()` / `delete()` 没有 WHERE 直接失败，避免误清表。
+- **OFFSET 必须搭配 LIMIT**。
+
+### 8.7 实体仓储接入
 
 ```v
-// 调试 SQL
-sql_str, args := qb.where_('id > ?', '10').limit(5).to_sql()
-println('SQL: ${sql_str}  ARGS: ${args}')
+mut repo := orm.new_entity_repository[User](om, 'default', 'users', exec_fn, query_fn)!
+mut r := &repo
+users := orm.repo_query(r).where_ge('age', 18).order_by_desc('id').to_entities[User]()!
 
-// first
-first_row := qb.where_('status = ?', 'active').first()!
-
-// count
-n := qb.where_('status = ?', 'active').count()!
-
-// pluck
-names := qb.where_('active', 'true').pluck('name')!
+// 也可以直接把查询交给仓储分页：
+page := orm.table('users', om).where_eq('status', 'active').page(2, 10)
+items := orm.find_all_with(repo, page)!
 ```
 
-### 8.5 生成的 SQL 结构
+### 8.8 老入口 QueryBuilder（保留兼容）
 
-```sql
-SELECT <columns>
-FROM <table>
-[INNER/LEFT/RIGHT JOIN <table> ON <condition>]
-[WHERE <conditions joined by AND>]
-[GROUP BY <columns>]
-[HAVING <conditions joined by AND>]
-[ORDER BY <columns>]
-[LIMIT <n>]
-[OFFSET <n>]
+`new_query_builder` 依旧是 SQL 片段风格，参数为字符串：
+
+```v
+mut qb := orm.new_query_builder(om, 'default', 'users').set_query_fn(query_fn)!
+qb.where_('age > ?', '18')
+qb.or_where('status = ?', 'active')
+qb.order_by('created_at', .desc)
+qb.limit(10)
+rows := qb.get()!
+qsql, args := qb.to_sql()     // []string 参数
 ```
 
----
+它同样具备：`or_where` 的括号化、`first()` / `count()` / `pluck()` 不修改原 builder
+（内部用 `clone()`），以及 `clone()` 供分支复用。
 
 ## 9. 派生查询方法名解析
 
@@ -2028,7 +2060,39 @@ fn (s &ArticleService) create_article(title string, body string) !Article {
 | `set_typed_exec_fn(callback)` | — |
 | `set_affected_rows_fn(callback)` | — |
 
-### QueryBuilder
+### orm.table（推荐）
+
+| API | 签名 |
+|-----|------|
+| `table(name, manager)` | `→ &TableQuery` |
+| `table_on(name, manager, db_name)` | `→ &TableQuery` |
+| `set_query_fn(fn)` / `set_exec_fn(fn)` / `set_exec_typed_fn(fn)` | `→ &TableQuery` |
+| `select_(cols)` / `one_column(col)` | `→ &TableQuery` |
+| `where(col, op, value)` | `→ &TableQuery` |
+| `where_eq / where_ne / where_gt / where_ge / where_lt / where_le` | `→ &TableQuery` |
+| `where_like / where_not_like` | `→ &TableQuery` |
+| `where_in / where_not_in(col, values)` | `→ &TableQuery` |
+| `where_null / where_not_null(col)` | `→ &TableQuery` |
+| `where_between(col, low, high)` | `→ &TableQuery` |
+| `or_where / or_where_eq` | `→ &TableQuery` |
+| `where_group(cb)` / `when(cond, cb)` | `→ &TableQuery` |
+| `raw_where(fragment, ...values)` | `→ &TableQuery` |
+| `order_by(col, desc) / order_by_asc / order_by_desc / latest / oldest` | `→ &TableQuery` |
+| `group_by(...cols)` / `having(fragment, ...values)` | `→ &TableQuery` |
+| `limit(n) / offset(n) / page(num, size)` | `→ &TableQuery` |
+| `get()` | `→ [][]string !` |
+| `first()` | `→ []string !` |
+| `count()` | `→ i64 !` |
+| `exists()` | `→ bool !` |
+| `pluck()` | `→ []string !` |
+| `value()` | `→ string !` |
+| `update(pairs)` / `delete()` / `insert(values)` | `!`（update/delete 强制 WHERE） |
+| `to_sql()` | `→ (string, []ParamValue) !` |
+| `to_entities[T]()` / `to_entity[T]()` | `→ []T !` / `→ T !` |
+| `repo_query(repo)` | `→ &TableQuery` |
+| `find_all_with(repo, query)` | `→ []T !` |
+
+### QueryBuilder（兼容旧入口）
 
 | API | 签名 |
 |-----|------|
@@ -2058,6 +2122,8 @@ fn (s &ArticleService) create_article(title string, body string) !Article {
 | `exists()` | `→ bool !` |
 | `pluck(col)` | `→ []string !` |
 | `to_sql()` | `→ (string, []string)` |
+| `or_where(cond, ...args)` | `→ &QueryBuilder` |
+| `clone()` | `→ &QueryBuilder`（分支复用） |
 
 ### TransactionManager
 
