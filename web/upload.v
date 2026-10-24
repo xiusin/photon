@@ -290,7 +290,9 @@ pub fn (mut h UploadHandler) handle_bytes(original_name string, data []u8, dest_
 
 	// Write file using binary-safe method
 	full_path := os.join_path(full_dir, stored_name)
-	os.write_file_array(full_path, data) or { return error('failed to write uploaded file: ${err}') }
+	os.write_file_array(full_path, data) or {
+		return error('failed to write uploaded file: ${err}')
+	}
 
 	// Compute hash
 	hash := sha256_hex(data)
@@ -456,6 +458,7 @@ pub fn new_chunk_manager() &UploadChunkManager {
 	mut cm := &UploadChunkManager{
 		chunks: map[string]&ChunkInfo{}
 	}
+	unsafe { cm.mu.init() }
 	cm.start_gc()
 	return cm
 }
@@ -482,6 +485,7 @@ fn (mut cm UploadChunkManager) start_gc() {
 			unsafe { gcm.wg.done() }
 		}
 		mut elapsed := 0
+		mut idle_empty_sweeps := 0
 		for {
 			// Sleep in 100ms increments so close() can stop us promptly.
 			time.sleep(100 * time.millisecond)
@@ -506,9 +510,33 @@ fn (mut cm UploadChunkManager) start_gc() {
 					mut m := gcm
 					m.gc_abandoned_uploads(3600, temp_dir)
 				}
+				// Retire once nothing is in flight: an abandoned manager
+				// would otherwise keep a thread alive forever.
+				if unsafe { gcm.is_empty() } {
+					idle_empty_sweeps++
+					if idle_empty_sweeps >= upload_gc_idle_exit_sweeps {
+						break
+					}
+				} else {
+					idle_empty_sweeps = 0
+				}
 			}
 		}
 	}(cm, sig, temp_dir)
+}
+
+// upload_gc_idle_exit_sweeps is how many consecutive empty sweeps the
+// chunk-manager GC goroutine tolerates before retiring.
+const upload_gc_idle_exit_sweeps = 2
+
+// is_empty reports whether no chunked upload is currently tracked.
+fn (cm &UploadChunkManager) is_empty() bool {
+	unsafe {
+		mut m := cm
+		m.mu.@rlock()
+		defer { m.mu.runlock() }
+		return m.chunks.len == 0
+	}
 }
 
 // close stops the background GC goroutine and waits for it to exit.
@@ -634,7 +662,9 @@ pub fn (mut cm UploadChunkManager) assemble(upload_id string, dest_path string) 
 	}
 
 	// Write the assembled file using binary-safe method
-	os.write_file_array(dest_path, content) or { return error('failed to write assembled file: ${err}') }
+	os.write_file_array(dest_path, content) or {
+		return error('failed to write assembled file: ${err}')
+	}
 
 	// Clean up chunks
 	os.rmdir_all(info.chunk_dir) or {}

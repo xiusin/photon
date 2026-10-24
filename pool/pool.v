@@ -72,9 +72,9 @@ pub:
 mut:
 	mu           sync.Mutex
 	objects      []PoolEntry
-	free_stack   []voidptr      // stack of free object pointers (O(1) pop/push)
+	free_stack   []voidptr       // stack of free object pointers (O(1) pop/push)
 	obj_index    map[voidptr]int // reverse mapping: object ptr → index in objects
-	active_count int // in-use + reserved slots
+	active_count int             // in-use + reserved slots
 	wait_count   int
 	closed       bool
 	factory      &Factory = unsafe { nil }
@@ -92,21 +92,36 @@ pub mut:
 	last_used_at i64
 }
 
+// init_locks initialises the pool's sync primitives up front.
+//
+// V's sync.RwMutex/Mutex initialise lazily on first use, and that lazy path
+// is racy: a goroutine that loses the CAS proceeds to lock a
+// pthread_rwlock_t that may not be initialised yet. A pool is handed to
+// several goroutines immediately after construction, so the first lock is
+// very likely concurrent. Doing it here removes the window entirely.
+fn (mut p Pool) init_locks() {
+	unsafe {
+		p.mu.init()
+	}
+}
+
 // new_pool creates a new Pool with a function factory.
 // The function is wrapped in a FuncFactory whose is_valid() always
 // returns true and whose destroy() is a no-op.
 pub fn new_pool(name string, factory fn () !voidptr) &Pool {
-	return &Pool{
+	mut p := &Pool{
 		name:    name
 		factory: &FuncFactory{
 			create_fn: factory
 		}
 	}
+	p.init_locks()
+	return p
 }
 
 // new_pool_with_config creates a Pool with custom sizes and a function factory.
 pub fn new_pool_with_config(name string, factory fn () !voidptr, min_size int, max_size int) &Pool {
-	return &Pool{
+	mut p := &Pool{
 		name:     name
 		factory:  &FuncFactory{
 			create_fn: factory
@@ -114,18 +129,22 @@ pub fn new_pool_with_config(name string, factory fn () !voidptr, min_size int, m
 		min_size: min_size
 		max_size: max_size
 	}
+	p.init_locks()
+	return p
 }
 
 // new_pool_with_factory creates a Pool with a Factory trait implementation.
 // Use this constructor when you need is_valid() validation and destroy()
 // cleanup (e.g. for real database connections).
 pub fn new_pool_with_factory(name string, factory &Factory, min_size int, max_size int) &Pool {
-	return &Pool{
+	mut p := &Pool{
 		name:     name
 		factory:  factory
 		min_size: min_size
 		max_size: max_size
 	}
+	p.init_locks()
+	return p
 }
 
 // initialize pre-creates min_size objects. The objects are created in
@@ -498,9 +517,7 @@ pub:
 //   conn.query('SELECT ...')
 //   // Even if query panics, defer ensures release
 pub fn (mut p Pool) acquire_guard[T]() !PooledGuard[T] {
-	obj := p.acquire() or {
-		return error('acquire_guard: ${err}')
-	}
+	obj := p.acquire() or { return error('acquire_guard: ${err}') }
 	return new_pooled_guard[T](p, obj)
 }
 
@@ -519,9 +536,7 @@ pub fn (mut p Pool) acquire_guard[T]() !PooledGuard[T] {
 //       conn.query('SELECT ...')
 //   })!
 pub fn (mut p Pool) with_acquired[T](callback fn (&T) !) ! {
-	obj := p.acquire() or {
-		return error('with_acquired: ${err}')
-	}
+	obj := p.acquire() or { return error('with_acquired: ${err}') }
 	typed_obj := unsafe { &T(obj) }
 
 	// Execute callback; release object regardless of success/failure
