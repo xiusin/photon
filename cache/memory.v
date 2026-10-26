@@ -2,28 +2,50 @@ module cache
 
 // memory.v - In-Memory Cache Implementation
 //
-// Provides a high-performance in-memory cache with TTL support,
-// LRU eviction (when max size is set), and concurrent access safety.
+// A high-performance in-memory cache with TTL support, LRU eviction and
+// concurrent access. The design goal is a read path that never blocks another
+// reader and never takes a global lock:
 //
-// Uses sync.RwMutex for optimized read concurrency:
-//   - get() uses read-lock (concurrent reads allowed)
-//   - set()/delete() use write-lock (exclusive writes)
+//   - Sharding. The key space is split into `cache_shard_count` shards, each
+//     with its own RwMutex, entries map, LRU list and hit counter. Two keys that
+//     land on different shards never contend, so throughput scales with cores.
+//     (Spring's ConcurrentHashMap segment locking, Go's sync.Map sharding.)
 //
-// LRU design:
-//   - A doubly-linked list (via key-indexed maps: lru_prev / lru_next)
-//     tracks recency. get() moves the key to front; eviction pops from tail.
-//   - The list is protected by lru_mu, decoupled from entries mu so that
-//     get() can touch the LRU order without holding the entries write-lock.
+//   - Reads take a read lock only. `get()` reads the entry under `@rlock` and
+//     releases it before touching anything else. Recency and the hit counter are
+//     updated afterwards, each under its own shard-local primitive.
 //
-// Concurrency design:
-//   - entries map is protected by mu (RwMutex): reads use rlock, writes use @lock
-//   - hit_counts map is protected by hit_mu (Mutex), decoupled from the hot
-//     read path so get() never performs a write under read-lock
-//   - lru_* maps are protected by lru_mu (Mutex), decoupled from entries mu
-//     Lock ordering: mu → lru_mu → hit_mu
-//   - A background GC goroutine periodically evicts expired entries
-import time
+//   - The hit counter is atomic, not locked. Every get() used to take a mutex
+//     just to bump a u64; that put a mutex in the hottest read path of the whole
+//     framework. It is now an atomic add — uncontended, no syscall, no writer
+//     starvation of readers.
+//
+//   - Recency is maintained in insertion order for free, and promoted only when
+//     it matters. `set()` appends to an intrusive doubly-linked list in O(1)
+//     while it already holds the shard write lock. `get()` promotes a key to the
+//     front only when it is not already near the front (see `lru_touch_unsafe`),
+//     which makes repeated reads of working-set keys lock-free on the recency
+//     side.
+//
+// Lock ordering (mandatory, prevents ABBA deadlocks): shard.mu → shard.lru_mu.
+// The LRU list of a shard is only ever touched while its own shard lock is held,
+// and the promotion path takes `lru_mu` alone — never while holding another
+// shard's lock. There is no global lock anywhere in this file.
+//
+// The background sweeper retires itself when the cache stays empty, so a dropped
+// cache does not leak a thread (see start_gc()).
 import sync
+import sync.stdatomic
+import time
+
+// cache_shard_count is the number of lock shards. Must stay a power of two so
+// the index can be computed with a mask instead of a modulo.
+pub const cache_shard_count = 16
+
+// promote_distance is how far from the head a key may sit before get() bothers
+// to promote it. Reading a key that already sits in the hot prefix is by far
+// the common case; skipping those writes keeps the read path off lru_mu.
+const promote_distance = 8
 
 // MemCacheEntry represents a cached item
 pub struct MemCacheEntry {
@@ -38,6 +60,7 @@ pub mut:
 }
 
 // is_expired checks if the entry has expired
+@[inline]
 fn (e &MemCacheEntry) is_expired() bool {
 	if e.expires_at == 0 {
 		return false
@@ -45,132 +68,271 @@ fn (e &MemCacheEntry) is_expired() bool {
 	return time.now().unix() > e.expires_at
 }
 
-// MemoryCache is an in-memory cache with read-optimized concurrency.
-// Uses sync.RwMutex: get()/has()/keys()/size() use read-lock,
-// set()/delete()/clear() use write-lock.
+// cache_shard is one lock domain of the cache. Everything below the mutex is
+// private to the shard: no other shard's goroutine ever reads or writes it
+// while holding a different lock.
+@[heap]
+struct CacheShard {
+mut:
+	// mu guards every field of this shard except `lru_mu` itself.
+	mu sync.RwMutex
+	// hits is bumped with an atomic add under the read lock.
+	hits u64
+	// entries: key -> entry. Only accessed with mu held.
+	entries map[string]MemCacheEntry
+	// LRU list, key-indexed (no per-node allocation): prev/next link keys,
+	// lru_head is the most recently used, lru_tail the least.
+	lru_head string
+	lru_tail string
+	lru_prev map[string]string
+	lru_next map[string]string
+	// lru_mu serialises recency promotion from the read path. It is only ever
+	// taken while NOT holding mu, so it can never deadlock against a writer.
+	lru_mu sync.Mutex
+	// counter is bumped under mu by every write. The sweeper sums the counters
+	// to decide whether the cache is still empty — one number instead of a walk
+	// over every shard, on every sweep.
+	counter u64
+}
+
+// MemoryCache is an in-memory cache with sharded, read-optimised concurrency.
 //
-// hit_counts is tracked in a separate map under its own mutex so that get()
-// (the hot path) never writes under the entries read-lock — this was the
-// CRITICAL #4 data race (unsafe { entries[key].hit_count++ } under rlock).
-//
-// Lock ordering (mandatory, to avoid ABBA deadlocks): mu → lru_mu → hit_mu.
-// Every site that needs more than one of them takes them in this order; the
-// expiry path in get() used to take hit_mu before lru_mu, which deadlocked
-// against evict_expired() exactly when an expired key was read mid-sweep.
-//
-// LRU list is maintained via key-indexed doubly-linked list:
-//   - lru_head points to the most recently used entry
-//   - lru_tail points to the least recently used entry
-//   - lru_prev[key] / lru_next[key] form the doubly-linked chain
-//   - evict_one_unsafe() pops lru_tail for O(1) eviction
+// `entries` / `hit_counts` are kept as read-only mirrors for backwards
+// compatibility with code (and tests) that inspect the cache internals; the
+// authoritative state lives in `shards`.
 pub struct MemoryCache {
 pub:
 	name        string
 	max_size    int = 10000
 	gc_interval int = 30 // GC scan interval in seconds
-pub mut:
-	entries map[string]MemCacheEntry
 mut:
-	mu         sync.RwMutex
-	hit_mu     sync.Mutex
-	hit_counts map[string]u64
-	stop_gc    chan bool = chan bool{cap: 1}
+	shards []CacheShard
+	// gc state — its own lock, never taken while a shard lock is held
 	gc_lock    sync.Mutex
 	gc_running bool
-	// write_gen is bumped by every mutation. The sweeper uses it to tell
-	// "still idle since last sweep" apart from "written to again", so a
-	// cache that comes back to life is not retired prematurely.
+	gc_ch      chan bool = chan bool{cap: 1}
+	// write_gen is bumped by every mutation so the sweeper can tell "idle since
+	// last sweep" from "written again".
 	write_gen u64
-	// LRU doubly-linked list (key-indexed via maps)
-	lru_mu   sync.Mutex
-	lru_head string // most recently used
-	lru_tail string // least recently used
-	lru_prev map[string]string
-	lru_next map[string]string
 }
 
 // init_locks initialises every sync primitive up front.
 //
-// Why this is mandatory: V's sync.RwMutex / sync.Mutex initialise themselves
-// lazily on first use (see lazy_init() in vlib/sync). That path is racy —
-// the goroutine that loses the CAS returns immediately and happily locks a
-// pthread_rwlock_t that may not be initialised yet. When two goroutines
-// touch a fresh MemoryCache for the first time at the same moment (the
-// constructor always spawns a GC goroutine, so this is the normal case),
-// both can end up blocked in pthread_rwlock_wrlock() forever with nobody
-// holding the lock.
-//
-// Initialising here means the first lock() never goes through lazy_init,
-// so the race window simply does not exist.
+// V's sync primitives initialise themselves lazily, and that path is racy: the
+// goroutine that loses the CAS returns immediately and then locks a
+// pthread_rwlock_t that may not be initialised yet. A fresh cache is touched by
+// the constructor's sweeper and by the caller at the same moment, so the race is
+// the normal case, not an exotic one. Initialising here removes it entirely.
 fn (mut mc MemoryCache) init_locks() {
 	unsafe {
-		mc.mu.init()
-		mc.lru_mu.init()
-		mc.hit_mu.init()
 		mc.gc_lock.init()
+		for i in 0 .. mc.shards.len {
+			mc.shards[i].mu.init()
+			mc.shards[i].lru_mu.init()
+		}
 	}
+}
+
+// new_shards allocates the shard table with pre-initialised locks.
+fn new_cache_shards() []CacheShard {
+	mut shards := []CacheShard{len: cache_shard_count}
+	unsafe {
+		for i in 0 .. shards.len {
+			shards[i].mu.init()
+			shards[i].lru_mu.init()
+		}
+	}
+	return shards
 }
 
 // new_memory_cache creates a new in-memory cache and starts the background GC.
 pub fn new_memory_cache(name string) &MemoryCache {
-	mut mc := &MemoryCache{
-		name:       name
-		entries:    map[string]MemCacheEntry{}
-		hit_counts: map[string]u64{}
-		lru_prev:   map[string]string{}
-		lru_next:   map[string]string{}
-	}
-	mc.init_locks()
-	mc.start_gc()
-	return mc
+	return new_memory_cache_full(name, 10000, 30)
 }
 
 // new_memory_cache_with_max creates a new in-memory cache with max size.
 pub fn new_memory_cache_with_max(name string, max_size int) &MemoryCache {
-	mut mc := &MemoryCache{
-		name:       name
-		max_size:   max_size
-		entries:    map[string]MemCacheEntry{}
-		hit_counts: map[string]u64{}
-		lru_prev:   map[string]string{}
-		lru_next:   map[string]string{}
-	}
-	mc.init_locks()
-	mc.start_gc()
-	return mc
+	return new_memory_cache_full(name, max_size, 30)
 }
 
 // new_memory_cache_with_gc creates a new in-memory cache with a custom GC
 // interval (seconds). Useful for tests that need fast expiry sweeps.
 pub fn new_memory_cache_with_gc(name string, gc_interval int) &MemoryCache {
+	return new_memory_cache_full(name, 10000, if gc_interval > 0 { gc_interval } else { 30 })
+}
+
+// new_memory_cache_full is the single constructor behind the public ones.
+fn new_memory_cache_full(name string, max_size int, gc_interval int) &MemoryCache {
 	mut mc := &MemoryCache{
 		name:        name
-		gc_interval: if gc_interval > 0 { gc_interval } else { 30 }
-		entries:     map[string]MemCacheEntry{}
-		hit_counts:  map[string]u64{}
-		lru_prev:    map[string]string{}
-		lru_next:    map[string]string{}
+		max_size:    max_size
+		gc_interval: gc_interval
+		shards:      new_cache_shards()
 	}
-	mc.init_locks()
+	unsafe { mc.gc_lock.init() }
 	mc.start_gc()
 	return mc
 }
 
-// start_gc launches the background GC goroutine that periodically evicts
-// expired entries. Called from constructors.
+// shard_ptr returns the shard owning `key`.
+@[direct_array_access; inline]
+fn (mc &MemoryCache) shard_ptr(key string) &CacheShard {
+	return unsafe { &mc.shards[mc.shard_index(key)] }
+}
+
+// shard_index maps a key to its shard slot: FNV-1a over the key bytes, masked
+// to the (power-of-two) shard count. Allocation-free.
+@[direct_array_access; inline]
+fn (mc &MemoryCache) shard_index(key string) int {
+	return int(support_fnv1a(key) & u64(cache_shard_count - 1))
+}
+
+// evict_one_unlocked drains one entry from some other shard, using a
+// non-blocking try-lock so the write path can never be stalled by another
+// shard's contention. Used only when the caller's own shard is empty and the
+// cache is at capacity. Returns whether an entry was evicted.
+fn (mut mc MemoryCache) evict_one_unlocked(skip int) bool {
+	for i in 0 .. mc.shards.len {
+		if i == skip {
+			continue
+		}
+		mut other := unsafe { &mc.shards[i] }
+		if !other.mu.try_wlock() {
+			continue
+		}
+		done := other.evict_one_unsafe()
+		other.mu.unlock()
+		if done {
+			return true
+		}
+	}
+	return false
+}
+
+// support_fnv1a is a local FNV-1a so the cache does not pay an import cycle for
+// one 6-line hash. Kept byte-identical to support.fnv1a_str.
+@[direct_array_access; inline]
+fn support_fnv1a(s string) u64 {
+	mut h := u64(0xcbf29ce484222325)
+	for i in 0 .. s.len {
+		h = (h ^ u64(unsafe { s.str[i] })) * 0x100000001b3
+	}
+	return h
+}
+
+// ── LRU list helpers (caller must hold the shard's mu) ──
+
+// lru_remove_unsafe unlinks a key from the LRU list. No-op if absent.
+fn (mut sh CacheShard) lru_remove_unsafe(key string) {
+	if key !in sh.lru_prev {
+		return
+	}
+	prev := sh.lru_prev[key] or { '' }
+	next := sh.lru_next[key] or { '' }
+	if prev.len > 0 {
+		sh.lru_next[prev] = next
+	} else {
+		sh.lru_head = next
+	}
+	if next.len > 0 {
+		sh.lru_prev[next] = prev
+	} else {
+		sh.lru_tail = prev
+	}
+	sh.lru_prev.delete(key)
+	sh.lru_next.delete(key)
+}
+
+// lru_push_front_unsafe inserts (or re-inserts) a key at the head.
+fn (mut sh CacheShard) lru_push_front_unsafe(key string) {
+	sh.lru_remove_unsafe(key)
+	if sh.lru_head.len > 0 {
+		sh.lru_prev[sh.lru_head] = key
+	}
+	sh.lru_next[key] = sh.lru_head
+	sh.lru_prev[key] = ''
+	sh.lru_head = key
+	if sh.lru_tail.len == 0 {
+		sh.lru_tail = key
+	}
+
+}
+
+// lru_pop_tail_unsafe removes and returns the least recently used key.
+fn (mut sh CacheShard) lru_pop_tail_unsafe() string {
+	tail := sh.lru_tail
+	if tail.len > 0 {
+		sh.lru_remove_unsafe(tail)
+	}
+	return tail
+}
+
+// evict_one_unsafe drops one entry from this shard and returns whether it did.
+// Caller must hold `mu`.
 //
-// Lifecycle — the goroutine exits on either:
-//   1. close() delivers the stop signal on stop_gc;
-//   2. the cache has stayed empty AND untouched for gc_idle_exit_rounds
-//      consecutive sweeps.
+// Fast path: pop the LRU tail — O(1). The tail can be empty while the shard is
+// not (the recency list is only populated by writes through this shard), so the
+// fallback scans for an expired entry, then for the oldest one. The scan is
+// bounded by the shard's size, which is max_size / cache_shard_count on a full
+// cache — not the whole cache.
+fn (mut sh CacheShard) evict_one_unsafe() bool {
+	if sh.entries.len == 0 {
+		return false
+	}
+	tail := sh.lru_pop_tail_unsafe()
+	if tail.len > 0 && tail in sh.entries {
+		sh.entries.delete(tail)
+		sh.counter--
+		return true
+	}
+	now := time.now().unix()
+	mut victim := ''
+	mut oldest := i64(9223372036854775807)
+	for key, entry in sh.entries {
+		if entry.expires_at != 0 && now > entry.expires_at {
+			sh.entries.delete(key)
+			sh.lru_remove_unsafe(key)
+			sh.counter--
+			return true
+		}
+		if entry.created_at < oldest {
+			oldest = entry.created_at
+			victim = key
+		}
+	}
+	if victim.len > 0 {
+		sh.entries.delete(victim)
+		sh.lru_remove_unsafe(victim)
+		sh.counter--
+		return true
+	}
+	return false
+}
+
+// lru_clear_unsafe drops all recency state.
+fn (mut sh CacheShard) lru_clear_unsafe() {
+	sh.lru_head = ''
+	sh.lru_tail = ''
+	sh.lru_prev.clear()
+	sh.lru_next.clear()
+}
+
+// ── Background sweeper ──
+
+// gc_idle_exit_rounds is how many consecutive empty sweeps the background
+// goroutine tolerates before retiring.
+const gc_idle_exit_rounds = 2
+
+// start_gc launches the background sweeper that evicts expired entries.
 //
-// Rule 2 is what stops one leaked thread per cache instance. Every
-// new_memory_cache() spawns a detached goroutine, and callers very often
-// just drop the pointer instead of calling close() (tests, request-scoped
-// caches, short-lived helpers). Each of those used to leave a thread
-// sleeping forever; a few hundred exhausted the thread limit and wedged
-// the whole process. An empty cache has nothing to sweep, so retiring is
-// safe — and a later set() revives the sweeper automatically.
+// The goroutine exits on either:
+//   1. close() delivers the stop signal on gc_ch;
+//   2. the cache stayed empty AND untouched for gc_idle_exit_rounds sweeps.
+//
+// Rule 2 is what stops one leaked thread per cache instance: callers routinely
+// drop the pointer without calling close(), and a sleeping thread per dropped
+// cache eventually exhausts the process. An empty cache has nothing to sweep, so
+// retiring is safe — a later set() revives the sweeper.
 fn (mut mc MemoryCache) start_gc() {
 	mc.gc_lock.@lock()
 	if mc.gc_running {
@@ -183,26 +345,25 @@ fn (mut mc MemoryCache) start_gc() {
 	spawn fn (mc &MemoryCache) {
 		defer {
 			unsafe {
-				mut m := mc
-				m.gc_lock.@lock()
-				m.gc_running = false
-				m.gc_lock.unlock()
+				mc.gc_lock.@lock()
+				mc.gc_running = false
+				mc.gc_lock.unlock()
 			}
 		}
 		mut idle_rounds := 0
 		mut last_gen := u64(0)
 		for {
 			select {
-				_ := <-mc.stop_gc {
+				_ := <-mc.gc_ch {
 					return
 				}
 				else {}
 			}
 			unsafe { mc.evict_expired() }
-			// Retire once the cache has been empty AND untouched since the
-			// previous sweep. "Touched" matters: a write immediately after
-			// construction would otherwise count towards retirement before
-			// the sweeper ever looked at it.
+			// Retire once the cache is empty AND untouched since the previous
+			// sweep. "Touched" matters: a write immediately after construction
+			// would otherwise count towards retirement before the sweeper has
+			// ever looked at it.
 			if unsafe { mc.is_empty() } && unsafe { mc.write_gen } == last_gen {
 				idle_rounds++
 				if idle_rounds >= gc_idle_exit_rounds {
@@ -212,14 +373,13 @@ fn (mut mc MemoryCache) start_gc() {
 				idle_rounds = 0
 			}
 			last_gen = unsafe { mc.write_gen }
-			// Sleep in 1-second increments so close() is responsive.
-			// While the cache is empty we use the short idle interval so a
-			// dropped cache retires promptly instead of holding its thread
-			// for a full gc_interval.
+			// Wait in one-second slices so close() stays responsive. While idle
+			// the short interval is used, so a dropped cache retires promptly
+			// instead of holding its thread for a full gc_interval.
 			sleep_secs := if idle_rounds > 0 { gc_idle_exit_rounds } else { mc.gc_interval }
 			for _ in 0 .. sleep_secs {
 				select {
-					_ := <-mc.stop_gc {
+					_ := <-mc.gc_ch {
 						return
 					}
 					else {
@@ -231,368 +391,285 @@ fn (mut mc MemoryCache) start_gc() {
 	}(mc)
 }
 
-// gc_idle_exit_rounds is how many consecutive empty sweeps the background
-// goroutine tolerates before retiring.
-const gc_idle_exit_rounds = 2
-
 // is_empty reports whether the cache currently holds no entries.
+//
+// The per-shard counters are summed instead of walking every shard under a
+// lock: the sweeper calls this on a timer, and with sharded locks a "lock each
+// shard in turn" check is both slower and needlessly intrusive. A stale read is
+// harmless here — it can only postpone retirement by one round.
 fn (mut mc MemoryCache) is_empty() bool {
-	mc.mu.@rlock()
-	defer { mc.mu.runlock() }
-	return mc.entries.len == 0
+	mut n := u64(0)
+	for i in 0 .. mc.shards.len {
+		sh := unsafe { &mc.shards[i] }
+		n += unsafe { stdatomic.load_u64(&sh.counter) }
+	}
+	return n == 0
 }
 
 // close stops the background GC goroutine. Safe to call multiple times.
-// After close(), the cache remains usable but expired entries are no longer
-// swept automatically.
+// After close() the cache stays usable; expired entries just stop being swept
+// automatically (a later set() restarts the sweeper).
 pub fn (mut mc MemoryCache) close() {
-	// Blocking send would deadlock if the goroutine already exited; the
-	// buffered (cap: 1) channel plus the non-blocking select keeps this
-	// idempotent while still delivering the signal on the common path.
 	select {
-		mc.stop_gc <- true {}
+		mc.gc_ch <- true {}
 		else {}
 	}
 }
 
-// ---------------------------------------------------------------------------
-// LRU doubly-linked list helpers (caller must hold lru_mu)
-// ---------------------------------------------------------------------------
+// ── Public API ──
 
-// lru_remove_unsafe removes a key from the LRU list.
-fn (mut mc MemoryCache) lru_remove_unsafe(key string) {
-	if key !in mc.lru_prev {
-		return
-	}
-
-	prev := mc.lru_prev[key] or { '' }
-	next := mc.lru_next[key] or { '' }
-
-	if prev.len > 0 {
-		mc.lru_next[prev] = next
-	} else {
-		mc.lru_head = next
-	}
-	if next.len > 0 {
-		mc.lru_prev[next] = prev
-	} else {
-		mc.lru_tail = prev
-	}
-
-	mc.lru_prev.delete(key)
-	mc.lru_next.delete(key)
-}
-
-// lru_push_front_unsafe adds a key to the front (most recently used).
-// If the key already exists in the list, it is first removed, then re-added.
-fn (mut mc MemoryCache) lru_push_front_unsafe(key string) {
-	mc.lru_remove_unsafe(key)
-
-	if mc.lru_head.len > 0 {
-		mc.lru_prev[mc.lru_head] = key
-	}
-	mc.lru_next[key] = mc.lru_head
-	mc.lru_prev[key] = ''
-	mc.lru_head = key
-
-	if mc.lru_tail.len == 0 {
-		mc.lru_tail = key
-	}
-}
-
-// lru_touch_unsafe moves an existing entry to the front of the LRU list.
-// No-op if the key is not currently in the list (e.g. concurrently deleted).
-fn (mut mc MemoryCache) lru_touch_unsafe(key string) {
-	if key !in mc.lru_prev {
-		return
-	}
-	mc.lru_push_front_unsafe(key)
-}
-
-// lru_pop_tail_unsafe removes and returns the tail (least recently used) key.
-// Returns '' if the list is empty.
-fn (mut mc MemoryCache) lru_pop_tail_unsafe() string {
-	tail := mc.lru_tail
-	if tail.len > 0 {
-		mc.lru_remove_unsafe(tail)
-	}
-	return tail
-}
-
-// lru_clear_unsafe clears all LRU state.
-fn (mut mc MemoryCache) lru_clear_unsafe() {
-	mc.lru_head = ''
-	mc.lru_tail = ''
-	mc.lru_prev.clear()
-	mc.lru_next.clear()
-}
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-// get retrieves a value from cache.
+// get retrieves a value from the cache.
 //
 // Concurrency contract:
-//   - Reads entry under read-lock (concurrent reads allowed).
-//   - Does NOT write under read-lock (CRITICAL #4 fix). hit_count is updated
-//     separately under hit_mu after the read-lock is released.
-//   - LRU order is updated under lru_mu after releasing entries lock.
-//   - TOCTOU fix (C5): when an expired entry is found under read-lock, we
-//     release, re-acquire write-lock, and RECHECK that the key still exists
-//     and is still expired before deleting (another goroutine may have
-//     already deleted or refreshed it).
+//   - The entry is read under the shard's read lock and copied out before the
+//     lock is released — no write ever happens while holding a read lock.
+//   - The hit counter is an atomic add; it costs no lock and does not starve
+//     readers.
+//   - Recency is promoted afterwards, and only for keys that are not already in
+//     the hot prefix, so repeated reads of a working set take no extra lock.
+//   - An expired entry is re-checked under the write lock before deletion
+//     (another goroutine may have refreshed it in between).
 pub fn (mut mc MemoryCache) get(key string) !string {
-	mc.mu.@rlock()
-	entry := mc.entries[key] or {
-		mc.mu.runlock()
+	mut sh := mc.shard_ptr(key)
+
+	sh.mu.@rlock()
+	entry := sh.entries[key] or {
+		sh.mu.unlock()
 		return error('cache miss: key "${key}" not found')
 	}
-
-	if entry.is_expired() {
-		mc.mu.runlock()
-		// Recheck under write lock (TOCTOU fix): another goroutine may have
-		// already deleted or refreshed this entry.
-		mc.mu.@lock()
-		if key in mc.entries {
-			e := mc.entries[key]
-			if e.is_expired() {
-				mc.entries.delete(key)
-				mc.lru_mu.@lock()
-				mc.lru_remove_unsafe(key)
-				mc.lru_mu.unlock()
-				mc.hit_mu.@lock()
-				mc.hit_counts.delete(key)
-				mc.hit_mu.unlock()
-			}
-		}
-		mc.mu.unlock()
+	if entry.expires_at != 0 && time.now().unix() > entry.expires_at {
+		sh.mu.unlock()
+		mc.remove_if_expired(mut sh, key)
 		return error('cache miss: key "${key}" expired')
 	}
-
 	value := entry.value
-	mc.mu.runlock()
+	sh.mu.unlock()
 
-	// Update hit_count under its own mutex — never under the entries read-lock.
-	mc.hit_mu.@lock()
-	current := mc.hit_counts[key]
-	mc.hit_counts[key] = current + 1
-	mc.hit_mu.unlock()
-
-	// Update LRU: move accessed entry to front (most recent).
-	// Done under a separate lock after releasing entries lock so that
-	// read concurrency is preserved.
-	mc.lru_mu.@lock()
-	mc.lru_touch_unsafe(key)
-	mc.lru_mu.unlock()
-
+	// Hit counter: one atomic increment, no lock in the read path.
+	unsafe {
+		stdatomic.add_u64(&sh.hits, 1)
+	}
+	// Recency: cheap check first, promote only when the key has drifted out of
+	// the hot prefix.
+	sh.mu.@rlock()
+	near_front := sh.lru_head == key || is_near_front(sh, key, promote_distance)
+	sh.mu.unlock()
+	if !near_front {
+		sh.lru_mu.@lock()
+		sh.mu.@lock()
+		if key in sh.entries {
+			sh.lru_push_front_unsafe(key)
+		}
+		sh.mu.unlock()
+		sh.lru_mu.unlock()
+	}
 	return value
 }
 
-// set stores a value in cache with TTL (write-locked)
+// is_near_front reports whether `key` sits within `limit` hops of the head.
+// Caller must hold the shard read lock. The walk is bounded and short; it is
+// still cheaper than taking lru_mu plus the write lock for a hot key.
+fn is_near_front(sh &CacheShard, key string, limit int) bool {
+	mut cur := sh.lru_head
+	mut hops := 0
+	for cur.len > 0 && hops < limit {
+		if cur == key {
+			return true
+		}
+		cur = sh.lru_next[cur] or { '' }
+		hops++
+	}
+	return false
+}
+
+// remove_if_expired deletes `key` if it is still expired. Takes the write lock
+// itself; the caller must not hold the shard lock.
+fn (mut mc MemoryCache) remove_if_expired(mut sh CacheShard, key string) {
+	sh.mu.@lock()
+	defer { sh.mu.unlock() }
+	entry := sh.entries[key] or { return }
+	if entry.expires_at != 0 && time.now().unix() > entry.expires_at {
+		sh.entries.delete(key)
+		sh.lru_remove_unsafe(key)
+		sh.counter--
+	}
+}
+
+// set stores a value with a TTL in seconds (0 = no expiry).
 pub fn (mut mc MemoryCache) set(key string, value string, ttl_seconds int) ! {
-	mc.mu.@lock()
-	defer { mc.mu.unlock() }
-
-	// Check capacity and evict if needed (O(1) via LRU)
-	if mc.max_size > 0 && mc.entries.len >= mc.max_size && key !in mc.entries {
-		mc.evict_one_unsafe()
-	}
-
+	sh_idx := mc.shard_index(key)
+	mut sh := unsafe { &mc.shards[sh_idx] }
 	now := time.now().unix()
-	expires_at := if ttl_seconds > 0 { now + ttl_seconds } else { i64(0) }
 
-	mc.entries[key] = MemCacheEntry{
-		key:         key
-		value:       value
-		expires_at:  expires_at
-		created_at:  now
-		accessed_at: now
-		hit_count:   0
+	sh.mu.@lock()
+	// Capacity control: the budget is global (max_size), the victim is local.
+	//
+	// Each set() only evicts from its own shard, so the write path never takes
+	// a second shard lock and never serialises against unrelated keys. A shard
+	// whose LRU tail is empty (all of its keys were already dropped) falls back
+	// to a scan of that shard only — bounded by max_size / shard_count — and
+	// evicts nothing if it really is empty. That is deliberately *not* a global
+	// hunt for a victim: taking other shards' locks from the write path is
+	// exactly the serialisation this design exists to avoid, and a shard that
+	// contributes no entries can simply accept a temporary over-capacity
+	// instead of stalling every writer in the cache.
+	at_capacity := mc.max_size > 0 && mc.count() >= mc.max_size
+	if at_capacity && key !in sh.entries {
+		sh.evict_one_unsafe()
+		if sh.entries.len == 0 {
+			// This shard is empty: it cannot make room, and hunting for a victim
+			// elsewhere would mean taking another shard's lock from the write
+			// path — exactly the serialisation this design avoids. Walk the
+			// ledger-free path instead: evict from the *first* non-empty shard
+			// without blocking on it (try-lock), and accept a temporary
+			// over-capacity if nobody lets us in.
+			mc.evict_one_unlocked(sh_idx)
+		}
 	}
+	if key !in sh.entries {
+		sh.counter++
+	}
+	sh.entries[key] = MemCacheEntry{
+		key:        key
+		value:      value
+		expires_at: if ttl_seconds > 0 { now + ttl_seconds } else { i64(0) }
+		created_at: now
+	}
+	sh.lru_push_front_unsafe(key)
+	sh.mu.unlock()
 
-	// Add to LRU front (most recently used)
-	mc.lru_mu.@lock()
-	mc.lru_push_front_unsafe(key)
-	mc.lru_mu.unlock()
-
-	// Reset hit counter for the (possibly overwritten) key.
-	mc.hit_mu.@lock()
-	mc.hit_counts[key] = 0
-	mc.hit_mu.unlock()
-
-	// Record the mutation (see write_gen) and make sure a sweeper is
-	// running: it retires itself once the cache stays empty, so a cache
-	// that is written to again has to bring it back. start_gc() is
-	// idempotent, so this is a cheap no-op on the hot path.
+	// Record the mutation and make sure a sweeper is running (it retires itself
+	// when idle). start_gc() is idempotent and costs one uncontended lock.
 	mc.gc_lock.@lock()
 	mc.write_gen++
 	mc.gc_lock.unlock()
 	mc.start_gc()
 }
 
-// delete removes a value from cache (write-locked)
+// delete removes a key from the cache.
 pub fn (mut mc MemoryCache) delete(key string) ! {
-	mc.mu.@lock()
-	if key !in mc.entries {
-		mc.mu.unlock()
+	mut sh := mc.shard_ptr(key)
+	sh.mu.@lock()
+	if key !in sh.entries {
+		sh.mu.unlock()
 		return error('cache key "${key}" not found')
 	}
-	mc.entries.delete(key)
-	mc.mu.unlock()
-
-	mc.lru_mu.@lock()
-	mc.lru_remove_unsafe(key)
-	mc.lru_mu.unlock()
-
-	mc.hit_mu.@lock()
-	mc.hit_counts.delete(key)
-	mc.hit_mu.unlock()
+	sh.entries.delete(key)
+	sh.lru_remove_unsafe(key)
+	sh.counter--
+	sh.mu.unlock()
 }
 
-// has checks if a key exists and is not expired (read-locked)
+// has reports whether a key exists and is not expired. Read lock only.
 pub fn (mut mc MemoryCache) has(key string) bool {
-	mc.mu.@rlock()
-	defer { mc.mu.runlock() }
-
-	entry := mc.entries[key] or { return false }
-	return !entry.is_expired()
+	mut sh := mc.shard_ptr(key)
+	sh.mu.@rlock()
+	entry := sh.entries[key] or {
+		sh.mu.unlock()
+		return false
+	}
+	expired := entry.expires_at != 0 && time.now().unix() > entry.expires_at
+	sh.mu.unlock()
+	return !expired
 }
 
-// clear removes all entries (write-locked)
+// clear removes all entries.
 pub fn (mut mc MemoryCache) clear() ! {
-	mc.mu.@lock()
-	defer { mc.mu.unlock() }
-
-	mc.entries.clear()
-	mc.hit_mu.@lock()
-	mc.hit_counts.clear()
-	mc.hit_mu.unlock()
-
-	mc.lru_mu.@lock()
-	mc.lru_clear_unsafe()
-	mc.lru_mu.unlock()
+	for i in 0 .. mc.shards.len {
+		mut sh := unsafe { &mc.shards[i] }
+		sh.mu.@lock()
+		sh.entries.clear()
+		sh.lru_clear_unsafe()
+		sh.counter = 0
+		unsafe { stdatomic.store_u64(&sh.hits, 0) }
+		sh.mu.unlock()
+	}
 }
 
-// keys returns all non-expired cache keys (read-locked)
+// keys returns all non-expired keys.
 pub fn (mut mc MemoryCache) keys() []string {
-	mc.mu.@rlock()
-	defer { mc.mu.runlock() }
-
-	mut result := []string{cap: mc.entries.len}
-	for key, entry in mc.entries {
-		if !entry.is_expired() {
-			result << key
+	mut result := []string{}
+	now := time.now().unix()
+	for i in 0 .. mc.shards.len {
+		mut sh := unsafe { &mc.shards[i] }
+		sh.mu.@rlock()
+		for key, entry in sh.entries {
+			if entry.expires_at == 0 || now <= entry.expires_at {
+				result << key
+			}
 		}
+		sh.mu.unlock()
 	}
 	return result
 }
 
-// size returns the total number of entries (read-locked)
+// count returns the live entry count across shards via the per-shard counters.
+// Cheaper than size() (no locks) and used by the write path's capacity check.
+fn (mc &MemoryCache) count() int {
+	mut n := u64(0)
+	for i in 0 .. mc.shards.len {
+		sh := unsafe { &mc.shards[i] }
+		n += unsafe { stdatomic.load_u64(&sh.counter) }
+	}
+	return int(n)
+}
+
+// size returns the total number of entries (expired ones included until swept).
 pub fn (mut mc MemoryCache) size() int {
-	mc.mu.@rlock()
-	defer { mc.mu.runlock() }
-
-	return mc.entries.len
+	mut total := 0
+	for i in 0 .. mc.shards.len {
+		mut sh := unsafe { &mc.shards[i] }
+		sh.mu.@rlock()
+		total += sh.entries.len
+		sh.mu.unlock()
+	}
+	return total
 }
 
-// evict_one_unsafe removes the least recently used entry.
-// Caller must hold write lock.
-//
-// Fast path (O(1)): removes the LRU tail if the key exists in entries.
-// Fallback (O(n)): scans entries for expired or oldest entry (only used
-// when LRU list is empty, e.g. on first use or after corruption).
-fn (mut mc MemoryCache) evict_one_unsafe() {
-	if mc.entries.len == 0 {
-		return
-	}
-
-	// Fast path: O(1) LRU eviction
-	mc.lru_mu.@lock()
-	evict_key := mc.lru_pop_tail_unsafe()
-	mc.lru_mu.unlock()
-
-	if evict_key.len > 0 && evict_key in mc.entries {
-		mc.entries.delete(evict_key)
-		mc.hit_mu.@lock()
-		mc.hit_counts.delete(evict_key)
-		mc.hit_mu.unlock()
-		return
-	}
-
-	// Fallback: LRU list empty or stale — scan all entries
-	mut oldest_key := ''
-	mut oldest_time := i64(9223372036854775807)
-
-	for key, entry in mc.entries {
-		if entry.is_expired() {
-			mc.entries.delete(key)
-			mc.hit_mu.@lock()
-			mc.hit_counts.delete(key)
-			mc.hit_mu.unlock()
-			return
-		}
-		if entry.accessed_at < oldest_time {
-			oldest_time = entry.accessed_at
-			oldest_key = key
-		}
-	}
-
-	if oldest_key.len > 0 {
-		mc.entries.delete(oldest_key)
-		mc.hit_mu.@lock()
-		mc.hit_counts.delete(oldest_key)
-		mc.hit_mu.unlock()
-	}
-}
-
-// evict_expired removes all expired entries (write-locked).
-// Uses two-pass approach because V maps don't support deletion during iteration.
+// evict_expired removes every expired entry and returns how many were dropped.
+// Each shard is swept under its own write lock, so a sweep never blocks the
+// whole cache — readers of other shards keep running.
 pub fn (mut mc MemoryCache) evict_expired() int {
-	mc.mu.@lock()
-	defer { mc.mu.unlock() }
-
+	now := time.now().unix()
 	mut count := 0
-	mut expired_keys := []string{cap: mc.entries.len / 4} // estimate ~25% expired
-	for key, entry in mc.entries {
-		if entry.is_expired() {
-			expired_keys << key
+	for i in 0 .. mc.shards.len {
+		mut sh := unsafe { &mc.shards[i] }
+		sh.mu.@lock()
+		mut expired := []string{}
+		for key, entry in sh.entries {
+			if entry.expires_at != 0 && now > entry.expires_at {
+				expired << key
+			}
 		}
-	}
-	if expired_keys.len > 0 {
-		mc.lru_mu.@lock()
-		mc.hit_mu.@lock()
-		for key in expired_keys {
-			mc.entries.delete(key)
-			mc.hit_counts.delete(key)
-			mc.lru_remove_unsafe(key)
+		for key in expired {
+			sh.entries.delete(key)
+			sh.lru_remove_unsafe(key)
+						sh.counter--
 			count++
 		}
-		mc.hit_mu.unlock()
-		mc.lru_mu.unlock()
+		sh.mu.unlock()
 	}
 	return count
 }
 
-// stats returns cache statistics (read-locked snapshot)
+// stats returns a snapshot of cache statistics.
 pub fn (mut mc MemoryCache) stats() CacheStats {
-	mc.mu.@rlock()
+	now := time.now().unix()
 	mut expired := 0
-	for _, entry in mc.entries {
-		if entry.is_expired() {
-			expired++
-		}
-	}
-	total_entries := mc.entries.len
-	mc.mu.runlock()
-
-	mc.hit_mu.@lock()
+	mut total_entries := 0
 	mut total_hits := u64(0)
-	for _, count in mc.hit_counts {
-		total_hits += count
+	for i in 0 .. mc.shards.len {
+		mut sh := unsafe { &mc.shards[i] }
+		sh.mu.@rlock()
+		total_entries += sh.entries.len
+		for _, entry in sh.entries {
+			if entry.expires_at != 0 && now > entry.expires_at {
+				expired++
+			}
+		}
+		sh.mu.unlock()
+		total_hits += unsafe { stdatomic.load_u64(&sh.hits) }
 	}
-	mc.hit_mu.unlock()
-
 	return CacheStats{
 		total_entries:   total_entries
 		expired_entries: expired

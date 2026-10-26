@@ -7,13 +7,12 @@ module cache
 // Prevents cache stampede / thundering herd under high concurrency.
 //
 // Notification mechanism:
-//   - Each Call has a buffered done_ch channel (cap:1).
-//   - The leader sends on done_ch when the call completes.
-//   - Followers select on done_ch with a fallback sleep to avoid busy-waiting.
-//   - This replaces the previous 1ms polling loop with immediate wakeup
-//     when the leader finishes.
+//   - Each Call carries a `done_ch` that the leader *closes* when finished.
+//     Closing wakes every follower at once (a broadcast); sending on a
+//     buffered channel would only wake one and leave the rest polling.
+//   - Followers block on `<-done_ch` with no timeout and no fallback sleep:
+//     a waiting follower costs zero CPU, and the wakeup is immediate.
 import sync
-import time
 
 // Call represents an in-flight or completed singleflight call
 struct Call {
@@ -22,7 +21,7 @@ mut:
 	val     string
 	err     string
 	done    bool
-	done_ch chan bool // closed/sent when leader completes
+	done_ch chan bool // closed by the leader when the call completes
 }
 
 // Singleflight deduplicates concurrent function calls for the same key.
@@ -53,75 +52,48 @@ pub fn (mut sf Singleflight) do(key string, f fn () !string) !string {
 	sf.mu.@lock()
 	existing := sf.calls[key] or { unsafe { nil } }
 	if isnil(existing) {
-		// Leader — create in-flight Call and execute fn
+		// Leader — create the in-flight Call and execute f outside the lock.
 		mut c := &Call{
 			key:     key
-			done_ch: chan bool{cap: 1}
+			done_ch: chan bool{}
 		}
 		sf.calls[key] = c
 		sf.mu.unlock()
 
-		// Execute the function; on error, store it for followers
+		mut failed := false
 		result := f() or {
-			sf.mu.@lock()
-			c.err = err.msg()
-			c.done = true
-			// Notify followers via channel (non-blocking send)
-			select {
-				c.done_ch <- true {}
-				else {}
-			}
-			sf.calls.delete(key)
-			sf.mu.unlock()
-			return err
+			failed = true
+			err.msg()
 		}
-
-		// Store result and notify followers under lock
 		sf.mu.@lock()
-		c.val = result
-		c.done = true
-		// Notify followers via channel (non-blocking send)
-		select {
-			c.done_ch <- true {}
-			else {}
+		if failed {
+			c.err = result
+		} else {
+			c.val = result
 		}
+		c.done = true
 		sf.calls.delete(key)
 		sf.mu.unlock()
 
+		// Broadcast to every follower. Closing after the state is published
+		// (under the lock) guarantees followers see the final val/err.
+		c.done_ch.close()
+		if failed {
+			return error(result)
+		}
 		return result
 	}
-
-	// Follower — leader is already executing for this key
 	sf.mu.unlock()
 
-	// Wait for leader with channel notification + fallback polling
-	for {
-		sf.mu.@lock()
-		if existing.done {
-			sf.mu.unlock()
-			break
-		}
-		sf.mu.unlock()
+	// Follower — block until the leader broadcasts. No polling, no timeout.
+	_ := <-existing.done_ch
 
-		// Select on done_ch for immediate wakeup; else fallback to 1ms sleep
-		select {
-			_ := <-existing.done_ch {}
-			else {
-				time.sleep(1 * time.millisecond)
-			}
-		}
+	// Publish-and-read: the leader wrote val/err before closing done_ch, and
+	// close/recv are a happens-before pair, so no lock is needed to read them.
+	if existing.err.len > 0 {
+		return error(existing.err)
 	}
-
-	// Read final result under lock for memory ordering
-	sf.mu.@lock()
-	get_val := existing.val
-	get_err := existing.err
-	sf.mu.unlock()
-
-	if get_err.len > 0 {
-		return error(get_err)
-	}
-	return get_val
+	return existing.val
 }
 
 // has_inflight checks if a call is currently in-flight for the given key
