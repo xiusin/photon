@@ -89,9 +89,9 @@ mut:
 	// lru_mu serialises recency promotion from the read path. It is only ever
 	// taken while NOT holding mu, so it can never deadlock against a writer.
 	lru_mu sync.Mutex
-	// counter is bumped under mu by every write. The sweeper sums the counters
-	// to decide whether the cache is still empty — one number instead of a walk
-	// over every shard, on every sweep.
+	// counter is bumped under mu by every write; it is read WITHOUT the lock by
+	// the sweeper (stdatomic) and by the capacity check. A slightly stale read
+	// can only postpone an eviction or a retirement by one round, both harmless.
 	counter u64
 }
 
@@ -114,6 +114,9 @@ mut:
 	// write_gen is bumped by every mutation so the sweeper can tell "idle since
 	// last sweep" from "written again".
 	write_gen u64
+	// sweeper_on is 1 while the background goroutine is alive. Read with a plain
+	// atomic load from set(), so the steady state never takes gc_lock.
+	sweeper_on u64
 }
 
 // init_locks initialises every sync primitive up front.
@@ -340,11 +343,13 @@ fn (mut mc MemoryCache) start_gc() {
 		return
 	}
 	mc.gc_running = true
+	unsafe { stdatomic.store_u64(&mc.sweeper_on, 1) }
 	mc.gc_lock.unlock()
 
 	spawn fn (mc &MemoryCache) {
 		defer {
 			unsafe {
+				stdatomic.store_u64(&mc.sweeper_on, 0)
 				mc.gc_lock.@lock()
 				mc.gc_running = false
 				mc.gc_lock.unlock()
@@ -364,7 +369,7 @@ fn (mut mc MemoryCache) start_gc() {
 			// sweep. "Touched" matters: a write immediately after construction
 			// would otherwise count towards retirement before the sweeper has
 			// ever looked at it.
-			if unsafe { mc.is_empty() } && unsafe { mc.write_gen } == last_gen {
+			if unsafe { mc.is_empty() } && unsafe { stdatomic.load_u64(&mc.write_gen) } == last_gen {
 				idle_rounds++
 				if idle_rounds >= gc_idle_exit_rounds {
 					return
@@ -372,7 +377,7 @@ fn (mut mc MemoryCache) start_gc() {
 			} else {
 				idle_rounds = 0
 			}
-			last_gen = unsafe { mc.write_gen }
+			last_gen = unsafe { stdatomic.load_u64(&mc.write_gen) }
 			// Wait in one-second slices so close() stays responsive. While idle
 			// the short interval is used, so a dropped cache retires promptly
 			// instead of holding its thread for a full gc_interval.
@@ -432,6 +437,10 @@ pub fn (mut mc MemoryCache) close() {
 pub fn (mut mc MemoryCache) get(key string) !string {
 	mut sh := mc.shard_ptr(key)
 
+	// Single read-lock section: copy the value out AND decide whether a
+	// recency promotion is needed. The previous version took a second read
+	// lock just to look at the LRU links — two acquisitions on the hottest
+	// path in the framework for one map read.
 	sh.mu.@rlock()
 	entry := sh.entries[key] or {
 		sh.mu.unlock()
@@ -443,27 +452,33 @@ pub fn (mut mc MemoryCache) get(key string) !string {
 		return error('cache miss: key "${key}" expired')
 	}
 	value := entry.value
+	near_front := sh.lru_head == key || is_near_front(sh, key, promote_distance)
 	sh.mu.unlock()
 
 	// Hit counter: one atomic increment, no lock in the read path.
-	unsafe {
-		stdatomic.add_u64(&sh.hits, 1)
-	}
-	// Recency: cheap check first, promote only when the key has drifted out of
-	// the hot prefix.
-	sh.mu.@rlock()
-	near_front := sh.lru_head == key || is_near_front(sh, key, promote_distance)
-	sh.mu.unlock()
+	unsafe { stdatomic.add_u64(&sh.hits, 1) }
+
+	// Recency: promote only when the key has drifted out of the hot prefix.
+	// Working-set reads (the common case) never touch lru_mu or the write lock.
 	if !near_front {
-		sh.lru_mu.@lock()
-		sh.mu.@lock()
-		if key in sh.entries {
-			sh.lru_push_front_unsafe(key)
-		}
-		sh.mu.unlock()
-		sh.lru_mu.unlock()
+		mc.promote(mut sh, key)
 	}
 	return value
+}
+
+// promote moves `key` to the LRU head.
+//
+// Lock order: lru_mu → mu, and never mu → lru_mu, so it cannot deadlock
+// against the write path. The double check inside mu keeps a concurrent
+// delete/expiry from resurrecting the key in the recency list.
+fn (mut mc MemoryCache) promote(mut sh CacheShard, key string) {
+	sh.lru_mu.@lock()
+	sh.mu.@lock()
+	if key in sh.entries {
+		sh.lru_push_front_unsafe(key)
+	}
+	sh.mu.unlock()
+	sh.lru_mu.unlock()
 }
 
 // is_near_front reports whether `key` sits within `limit` hops of the head.
@@ -506,23 +521,17 @@ pub fn (mut mc MemoryCache) set(key string, value string, ttl_seconds int) ! {
 	//
 	// Each set() only evicts from its own shard, so the write path never takes
 	// a second shard lock and never serialises against unrelated keys. A shard
-	// whose LRU tail is empty (all of its keys were already dropped) falls back
-	// to a scan of that shard only — bounded by max_size / shard_count — and
-	// evicts nothing if it really is empty. That is deliberately *not* a global
-	// hunt for a victim: taking other shards' locks from the write path is
-	// exactly the serialisation this design exists to avoid, and a shard that
-	// contributes no entries can simply accept a temporary over-capacity
-	// instead of stalling every writer in the cache.
-	at_capacity := mc.max_size > 0 && mc.count() >= mc.max_size
-	if at_capacity && key !in sh.entries {
+	// whose LRU tail is empty falls back to a scan of that shard only. That is
+	// deliberately *not* a global hunt for a victim: taking other shards' locks
+	// from the write path is exactly the serialisation this design exists to
+	// avoid, and a shard that contributes no entries can accept a temporary
+	// over-capacity instead of stalling every writer in the cache.
+	//
+	// count() reads the per-shard atomic counters, so even this check is
+	// lock-free with respect to other shards.
+	if mc.max_size > 0 && mc.count() >= mc.max_size && key !in sh.entries {
 		sh.evict_one_unsafe()
 		if sh.entries.len == 0 {
-			// This shard is empty: it cannot make room, and hunting for a victim
-			// elsewhere would mean taking another shard's lock from the write
-			// path — exactly the serialisation this design avoids. Walk the
-			// ledger-free path instead: evict from the *first* non-empty shard
-			// without blocking on it (try-lock), and accept a temporary
-			// over-capacity if nobody lets us in.
 			mc.evict_one_unlocked(sh_idx)
 		}
 	}
@@ -538,11 +547,24 @@ pub fn (mut mc MemoryCache) set(key string, value string, ttl_seconds int) ! {
 	sh.lru_push_front_unsafe(key)
 	sh.mu.unlock()
 
-	// Record the mutation and make sure a sweeper is running (it retires itself
-	// when idle). start_gc() is idempotent and costs one uncontended lock.
-	mc.gc_lock.@lock()
-	mc.write_gen++
-	mc.gc_lock.unlock()
+	// Record the mutation for the sweeper's idle detection, then make sure a
+	// goroutine is running (it retires itself when idle). Both steps are on the
+	// *cold* side of set(): an atomic add plus a boolean read. Only an actual
+	// restart pays for gc_lock, so a steady-state cache never touches it.
+	unsafe { stdatomic.add_u64(&mc.write_gen, 1) }
+	mc.ensure_sweeper()
+}
+
+// ensure_sweeper restarts the background sweeper when it has retired itself.
+//
+// Hot-path cost when the sweeper is alive: one atomic load. The gc_lock is only
+// taken on the (rare) restart, and start_gc() re-checks under it, so a race
+// between two writers can at worst launch the goroutine twice — the second
+// instance sees `gc_running` and returns immediately.
+fn (mut mc MemoryCache) ensure_sweeper() {
+	if unsafe { stdatomic.load_u64(&mc.sweeper_on) } == 1 {
+		return
+	}
 	mc.start_gc()
 }
 
