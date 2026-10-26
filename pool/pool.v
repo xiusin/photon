@@ -72,6 +72,10 @@ pub:
 mut:
 	mu           sync.Mutex
 	objects      []PoolEntry
+	// obj_index maps an object pointer to its ledger slot. Maintained only when
+	// the ledger is rebuilt (initialize / gc_sweep / close), so no operation pays
+	// an O(n) rebuild: appends just record the new slot.
+	obj_index    map[voidptr]int
 	free_stack   []voidptr // stack of free object pointers (O(1) pop/push)
 	active_count int             // in-use + reserved slots
 	wait_count   int
@@ -105,6 +109,7 @@ pub mut:
 // very likely concurrent. Doing it here removes the window entirely.
 fn (mut p Pool) init_locks() {
 	p.avail = chan bool{}
+	p.obj_index = map[voidptr]int{}
 	unsafe {
 		p.mu.init()
 	}
@@ -163,6 +168,7 @@ pub fn (mut p Pool) initialize() ! {
 	}
 	for _ in 0 .. p.min_size {
 		obj := p.factory.create()!
+		p.obj_index[obj] = p.objects.len
 		p.objects << PoolEntry{
 			object:       obj
 			created_at:   time.now().unix()
@@ -256,9 +262,16 @@ fn (mut p Pool) gc_sweep() {
 	}
 	// Swap in the compacted ledger: this sweep is already O(n), so it is the
 	// natural place to drop tombstones and rebuild the free stack in one pass.
+	// Swap in the compacted ledger and rebuild the reverse index + free stack
+	// in the same O(n) pass. This sweep already walks the ledger, so the index
+	// costs nothing extra and no other operation has to maintain it.
 	p.objects = kept
+	p.obj_index = map[voidptr]int{}
 	p.free_stack = []
-	for entry in kept {
+	for i, entry in kept {
+		if entry.object != unsafe { nil } {
+			p.obj_index[entry.object] = i
+		}
 		if !entry.in_use {
 			p.free_stack << entry.object
 		}
@@ -284,43 +297,47 @@ fn (mut p Pool) wake_waiters_unsafe() {
 
 // entry_unsafe finds the ledger entry for `obj`. Caller must hold `mu`.
 //
-// The linear scan looks expensive, but the free stack is LIFO and the objects
-// handed out are almost always the ones handed back, so the hit is usually the
-// last entry. The previous version avoided the scan with a `map[voidptr]int`
-// reverse index — and then paid an O(n) rebuild of that map on every single
-// acquire/release/GC pass. The scan is strictly cheaper in practice and needs
-// no maintenance at all.
+// O(1) through the reverse index, which is only rebuilt by the passes that
+// already walk the whole ledger (initialize / gc_sweep / close). The previous
+// version scanned the ledger backwards on every acquire and release; with the
+// index maintained at rebuild time there is nothing to pay per operation.
 fn (mut p Pool) entry_unsafe(obj voidptr) ?PoolEntry {
-	for i := p.objects.len - 1; i >= 0; i-- {
-		if p.objects[i].object == obj {
-			return p.objects[i]
-		}
+	idx := p.obj_index[obj] or { return none }
+	if idx < 0 || idx >= p.objects.len {
+		return none
 	}
-	return none
+	entry := p.objects[idx]
+	if entry.object != obj {
+		return none
+	}
+	return entry
 }
 
 // mark_in_use_unsafe flips the ledger flag for `obj`. Caller must hold `mu`.
 fn (mut p Pool) mark_in_use_unsafe(obj voidptr) {
-	for i := p.objects.len - 1; i >= 0; i-- {
-		if p.objects[i].object == obj {
-			p.objects[i].in_use = true
-			p.objects[i].last_used_at = time.now().unix()
-			return
-		}
+	if obj !in p.obj_index {
+		return
 	}
+	idx := p.obj_index[obj]
+	if idx < 0 || idx >= p.objects.len {
+		return
+	}
+	p.objects[idx].in_use = true
+	p.objects[idx].last_used_at = time.now().unix()
 }
 
-// tombstone_unsafe clears a dead entry's object pointer instead of deleting
-// the slice element. Caller must hold `mu`. The slot stays as a hole until the
-// next GC sweep compacts the ledger, which keeps every live object's position
-// stable and makes the O(n) index rebuild unnecessary.
+// tombstone_unsafe clears a dead entry's object pointer and drops it from the
+// reverse index. Caller must hold `mu`. The slot stays as a hole until the next
+// GC sweep compacts the ledger, which keeps every live object's slot stable.
 fn (mut p Pool) tombstone_unsafe(obj voidptr) {
-	for i := p.objects.len - 1; i >= 0; i-- {
-		if p.objects[i].object == obj {
-			unsafe { p.objects[i].object = nil }
-			p.objects[i].in_use = false
-			return
-		}
+	if obj !in p.obj_index {
+		return
+	}
+	idx := p.obj_index[obj]
+	p.obj_index.delete(obj)
+	if idx >= 0 && idx < p.objects.len {
+		unsafe { p.objects[idx].object = nil }
+		p.objects[idx].in_use = false
 	}
 }
 
@@ -332,68 +349,109 @@ fn (mut p Pool) tombstone_unsafe(obj voidptr) {
 // max_size, a new object is created.
 // Returns an error if the pool is closed or exhausted.
 pub fn (mut p Pool) acquire() !voidptr {
-	p.mu.@lock()
+	for {
+		p.mu.@lock()
 
-	if p.closed {
-		p.mu.unlock()
-		return error('pool "${p.name}" is closed')
-	}
+		if p.closed {
+			p.mu.unlock()
+			return error('pool "${p.name}" is closed')
+		}
 
-	// Pop from the free stack (O(1)) until a valid idle object is found.
-	//
-	// `objects` is an append-only ledger: entries are tombstoned by clearing
-	// their object pointer, never removed by index. Deleting from the middle
-	// would shift every later index, which is what forced the previous
-	// rebuild_obj_index() O(n) pass — and the obj_index reverse map that
-	// existed only to pay for it. The ledger is compacted in one sweep when
-	// next GC sweep, which already walks the ledger to drop expired entries.
-	for p.free_stack.len > 0 {
-		obj_ptr := p.free_stack[p.free_stack.len - 1]
-		p.free_stack.delete(p.free_stack.len - 1)
+		// Pop from the free stack (O(1)) until a valid idle object is found.
+		//
+		// `objects` is an append-only ledger: dead entries are tombstoned by
+		// clearing their pointer, never removed by index, so every live object
+		// keeps a stable slot and the reverse index stays valid between GC
+		// sweeps.
+		mut candidate := unsafe { nil }
+		mut found := false
+		for p.free_stack.len > 0 {
+			obj_ptr := p.free_stack[p.free_stack.len - 1]
+			p.free_stack.delete(p.free_stack.len - 1)
 
-		entry := p.entry_unsafe(obj_ptr) or { continue }
-		if entry.in_use {
+			entry := p.entry_unsafe(obj_ptr) or { continue }
+			if entry.in_use || entry.object == unsafe { nil } {
+				continue
+			}
+			candidate = entry.object
+			found = true
+			break
+		}
+
+		if found {
+			// Health-check OUTSIDE the pool lock: is_valid() may ping a database
+			// or open a socket, and doing that while holding the pool mutex
+			// stalls every other goroutine in the pool for the duration of a
+			// network round-trip.
+			p.mu.unlock()
+			if p.factory.is_valid(candidate) {
+				p.mu.@lock()
+				// Re-check under the lock: a concurrent release may have already
+				// handed this object out, or the pool may have been closed.
+				if p.closed {
+					p.mu.unlock()
+					p.factory.destroy(candidate)
+					return error('pool "${p.name}" is closed')
+				}
+				entry := p.entry_unsafe(candidate) or {
+					p.mu.unlock()
+					continue
+				}
+				if entry.in_use {
+					// Lost the race, put it back and retry.
+					p.free_stack << candidate
+					p.mu.unlock()
+					continue
+				}
+				p.mark_in_use_unsafe(candidate)
+				p.active_count++
+				p.mu.unlock()
+				return candidate
+			}
+
+			// Invalid object: destroy it (outside the lock) and drop it from the
+			// kernel-visible ledger so the slot can be compacted by GC.
+			p.factory.destroy(candidate)
+			p.mu.@lock()
+			p.tombstone_unsafe(candidate)
+			p.mu.unlock()
 			continue
 		}
 
-		if p.factory.is_valid(entry.object) {
-			p.mark_in_use_unsafe(obj_ptr)
+		// No idle object; create a new one if under the cap.
+		if p.active_count < p.max_size {
+			// Reserve the slot under the lock, create outside it (the factory may
+			// do network I/O), then register the object.
 			p.active_count++
 			p.mu.unlock()
-			return entry.object
-		}
-
-		// Invalid idle object: destroy it and drop it from the ledger.
-		p.factory.destroy(entry.object)
-		p.tombstone_unsafe(obj_ptr)
-	}
-
-	// No valid idle object; create a new one if under the cap.
-	if p.active_count < p.max_size {
-		// Reserve a slot under the lock, then release it so the factory
-		// call (which may do network I/O) runs without holding the lock.
-		p.active_count++
-		p.mu.unlock()
-		obj := p.factory.create() or {
-			// Factory failed: release the reserved slot under the lock.
+			obj := p.factory.create() or {
+				p.mu.@lock()
+				p.active_count--
+				p.mu.unlock()
+				return err
+			}
 			p.mu.@lock()
-			p.active_count--
+			if p.closed {
+				p.active_count--
+				p.mu.unlock()
+				p.factory.destroy(obj)
+				return error('pool "${p.name}" is closed')
+			}
+			p.obj_index[obj] = p.objects.len
+			p.objects << PoolEntry{
+				object:       obj
+				created_at:   time.now().unix()
+				last_used_at: time.now().unix()
+				in_use:       true
+			}
 			p.mu.unlock()
-			return err
+			return obj
 		}
-		p.mu.@lock()
-		p.objects << PoolEntry{
-			object:       obj
-			created_at:   time.now().unix()
-			last_used_at: time.now().unix()
-			in_use:       true
-		}
-		p.mu.unlock()
-		return obj
-	}
 
-	p.mu.unlock()
-	return error('pool "${p.name}" exhausted (max=${p.max_size}, active=${p.active_count})')
+		p.mu.unlock()
+		return error('pool "${p.name}" exhausted (max=${p.max_size}, active=${p.active_count})')
+	}
+	return error('pool "${p.name}" acquire: unreachable')
 }
 
 // acquire_with_timeout blocks until an object is available or the timeout expires.
@@ -466,22 +524,28 @@ pub fn (mut p Pool) acquire_guard_with_timeout[T](timeout_seconds int) !PooledGu
 // last_used_at is updated so the GC can evict it after idle_timeout_seconds.
 pub fn (mut p Pool) release(obj voidptr) {
 	p.mu.@lock()
-	defer { p.mu.unlock() }
 	if p.closed {
 		// Pool is closed: destroy the object directly to avoid a leak.
+		p.mu.unlock()
 		p.factory.destroy(obj)
 		return
 	}
-	// Tombstoned, unknown, or already-idle: silently ignore (backward compat).
-	for i in 0 .. p.objects.len {
-		if p.objects[i].object == obj && p.objects[i].in_use {
-			p.objects[i].in_use = false
-			p.objects[i].last_used_at = time.now().unix()
-			p.active_count--
-			p.free_stack << obj
-			break
-		}
+	// O(1) via the reverse index. Unknown / tombstoned / already-idle objects
+	// are silently ignored (backward compat), and a double release cannot
+	// inflate active_count or push the same pointer twice onto the free stack.
+	entry := p.entry_unsafe(obj) or {
+		p.mu.unlock()
+		return
 	}
+	if entry.in_use {
+		idx := p.obj_index[obj]
+		p.objects[idx].in_use = false
+		p.objects[idx].last_used_at = time.now().unix()
+		p.active_count--
+		p.free_stack << obj
+		p.wake_waiters_unsafe()
+	}
+	p.mu.unlock()
 }
 
 // close drains and closes all idle pooled objects.
@@ -513,6 +577,12 @@ pub fn (mut p Pool) close() ! {
 	p.objects = kept
 	p.active_count = 0
 	p.free_stack = [] // all idle objects destroyed
+	p.obj_index = map[voidptr]int{}
+	for i, entry in kept {
+		if entry.object != unsafe { nil } {
+			p.obj_index[entry.object] = i
+		}
+	}
 	p.wake_waiters_unsafe()
 	gc_was_started := p.gc_started
 	p.mu.unlock()

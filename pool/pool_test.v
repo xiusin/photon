@@ -229,19 +229,22 @@ fn test_pool_factory_respects_count() {
 // Helper: object factory (not a test, despite name prefix)
 // ============================================================
 
-fn obj_factory() !voidptr {
-	return voidptr(42)
-}
-
-// distinct_obj_factory hands out a fresh heap struct per call, so pool
-// entries stay distinguishable in the obj_index reverse map.
-// (unsafe malloc of the same size gets recycled between calls, which
-// collapses the reverse map — a heap struct does not.)
+// PoolTestObject exists only to hand out a unique address per factory call.
 struct PoolTestObject {
 mut:
 	id int
 }
 
-fn distinct_obj_factory() !voidptr {
+// obj_factory hands out a distinct pointer per call. The pool indexes objects
+// by pointer, so a constant would collapse every entry onto one identity:
+// acquire() would create a second ledger slot for the same address and the
+// reverse index would silently point at the wrong one.
+fn obj_factory() !voidptr {
 	return voidptr(&PoolTestObject{})
+}
+
+// distinct_obj_factory is the historical name for the same guarantee; kept so
+// the tests that specifically exercise the reverse index read naturally.
+fn distinct_obj_factory() !voidptr {
+	return obj_factory()
 }
