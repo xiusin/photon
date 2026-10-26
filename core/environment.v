@@ -1375,7 +1375,7 @@ fn bind_to_struct_impl[T](env &Environment, prefix string, typ &T) !T {
 			}
 		} $else $if field.typ is f32 {
 			if env_mut.has_property(full_key) {
-				config.$(field.name) = f32(env_mut.get_property(full_key).f64())
+				config.$(field.name) = env_mut.get_property(full_key).f32()
 			}
 		} $else $if field.typ is f64 {
 			if env_mut.has_property(full_key) {

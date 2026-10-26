@@ -225,7 +225,7 @@ pub fn (mut b PropertyBinder) bind_to_struct[T]() !T {
 				}
 			} $else $if field.typ is f32 {
 				if raw_value.len > 0 {
-					result.$(field.name) = f32(raw_value.f64())
+					result.$(field.name) = raw_value.f32()
 				}
 			} $else $if field.typ is f64 {
 				if raw_value.len > 0 {
