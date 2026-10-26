@@ -19,8 +19,6 @@ import rand
 // pulled in (undefined reference to `photon_argon2id_verify`), so the
 // bridge and libargon2 are attached with #flag instead.
 #flag -largon2
-#flag -I/opt/homebrew/include
-#flag -L/opt/homebrew/lib
 #flag -I@VMODROOT/security
 #flag @VMODROOT/security/argon2_bridge.c
 

@@ -80,7 +80,7 @@ fn test_lru_list_stays_consistent_after_reads_and_writes() {
 	}
 	// 链表必须仍然可遍历且不出现环
 	for i in 0 .. 64 {
-		sh := c.shard_ptr('k${i % 32}')
+		mut sh := c.shard_ptr('k${i % 32}')
 		sh.mu.@rlock()
 		mut visited := 0
 		mut cur := sh.lru_head

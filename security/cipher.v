@@ -184,51 +184,21 @@ fn pkcs7_unpad(data []u8) ![]u8 {
 // ── AES-CBC Implementation ──
 
 // aes_cbc_encrypt encrypts data using AES-256-CBC.
+// Delegates to vlib's crypto.cipher CBC mode (constant-time block chaining,
+// no per-block allocations) instead of a hand-rolled loop.
 fn (c &AesCipher) aes_cbc_encrypt(data []u8, iv []u8) []u8 {
-	mut result := []u8{len: data.len, init: 0}
-	mut prev := iv.clone()
-
-	for i := 0; i < data.len; i += aes.block_size {
-		// XOR with previous ciphertext block (CBC mode)
-		mut block := []u8{len: aes.block_size, init: 0}
-		for j in 0 .. aes.block_size {
-			block[j] = data[i + j] ^ prev[j]
-		}
-
-		// Encrypt block with AES-256
-		mut encrypted_block := []u8{len: aes.block_size, init: 0}
-		c.cipher.encrypt(mut encrypted_block, block)
-
-		for j in 0 .. aes.block_size {
-			result[i + j] = encrypted_block[j]
-		}
-		prev = encrypted_block.clone()
-	}
-
-	return result
+	mut out := []u8{len: data.len, init: 0}
+	mut mode := cipher.new_cbc(c.cipher, iv)
+	mode.encrypt_blocks(mut out, data)
+	return out
 }
 
 // aes_cbc_decrypt decrypts data using AES-256-CBC.
 fn (c &AesCipher) aes_cbc_decrypt(data []u8, iv []u8) []u8 {
-	mut result := []u8{len: data.len, init: 0}
-	mut prev := iv.clone()
-
-	for i := 0; i < data.len; i += aes.block_size {
-		// Save current ciphertext block for next iteration
-		mut cipher_block := data[i..i + aes.block_size].clone()
-
-		// Decrypt block with AES-256
-		mut decrypted_block := []u8{len: aes.block_size, init: 0}
-		c.cipher.decrypt(mut decrypted_block, cipher_block)
-
-		// XOR with previous ciphertext block
-		for j in 0 .. aes.block_size {
-			result[i + j] = decrypted_block[j] ^ prev[j]
-		}
-		prev = cipher_block.clone()
-	}
-
-	return result
+	mut out := []u8{len: data.len, init: 0}
+	mut mode := cipher.new_cbc(c.cipher, iv)
+	mode.decrypt_blocks(mut out, data)
+	return out
 }
 
 // ── Random Byte Generation ──
