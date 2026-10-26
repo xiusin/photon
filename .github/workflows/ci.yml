@@ -43,7 +43,7 @@ jobs:
           - pool
           - locking
           - async
-          - i18n
+          - photon_i18n
           - health
           - metrics
           - mailer

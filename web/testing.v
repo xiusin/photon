@@ -25,6 +25,7 @@ module web
 //       .assert_redirect('/login')
 //       .dump()
 import json2
+import math
 
 // TestResponse wraps an HTTP response for fluent assertions.
 // All assertion methods return &TestResponse so you can chain them.
@@ -223,28 +224,97 @@ pub fn (mut tr TestResponse) assert_body_missing(needle string) &TestResponse {
 // ============================================================
 
 // assert_json asserts the body JSON matches the expected JSON string.
-// Both are parsed as map[string]string and compared key-by-key,
-// so key ordering doesn't matter.
+// Both sides are parsed into json2.Any and compared deeply, so key ordering
+// doesn't matter and nested objects/arrays/numbers are compared properly
+// (the old map[string]string comparison flattened every leaf to a string).
 pub fn (mut tr TestResponse) assert_json(expected string) &TestResponse {
-	expected_parsed := json2.decode[map[string]string]( expected) or {
-		assert false, 'assert_json: invalid expected JSON: ${err}\nExpected: ${expected}'
+	expected_doc := json_parse_any(expected) or {
+		assert false, 'assert_json: invalid expected JSON.\nExpected: ${expected}'
 		return tr
 	}
-	actual_parsed := json2.decode[map[string]string]( tr.body) or {
-		assert false, 'assert_json: invalid response JSON: ${err}\nBody: ${tr.body}'
+	actual_doc := json_parse_any(tr.body) or {
+		assert false, 'assert_json: invalid response JSON.\nBody: ${tr.body}'
 		return tr
 	}
 
-	assert expected_parsed.len == actual_parsed.len, 'JSON mismatch: expected ${expected_parsed.len} keys but got ${actual_parsed.len}.\nExpected: ${expected}\nActual:   ${tr.body}'
-
-	for key, val in expected_parsed {
-		actual_val := actual_parsed[key] or {
-			assert false, 'JSON mismatch: missing key "${key}".\nExpected: ${expected}\nActual:   ${tr.body}'
-			return tr
-		}
-		assert val == actual_val, 'JSON mismatch at key "${key}": expected "${val}" but got "${actual_val}".\nExpected: ${expected}\nActual:   ${tr.body}'
+	if json_any_equal(expected_doc, actual_doc) {
+		return tr
 	}
+	assert false, 'JSON mismatch.\nExpected: ${expected}\nActual:   ${tr.body}'
 	return tr
+}
+
+// json_any_equal compares two parsed JSON documents structurally.
+//
+// Numbers are compared through their float64 value so that `1` and `1.0`
+// match, mirroring how a JSON consumer sees them.
+fn json_any_equal(a json2.Any, b json2.Any) bool {
+	return match a {
+		map[string]json2.Any {
+			bm := b as map[string]json2.Any
+			if a.len != bm.len {
+				return false
+			}
+			for key, av in a {
+				if key !in bm {
+					return false
+				}
+				if !json_any_equal(av, bm[key]) {
+					return false
+				}
+			}
+			true
+		}
+		[]json2.Any {
+			barr := b as []json2.Any
+			if a.len != barr.len {
+				return false
+			}
+			for i in 0 .. a.len {
+				if !json_any_equal(a[i], barr[i]) {
+					return false
+				}
+			}
+			true
+		}
+		string {
+			b is string && a == b
+		}
+		bool {
+			b is bool && a == b
+		}
+		i8, i16, int, i64, u8, u16, u32, u64, f32, f64 {
+			json_number_of(b) == json_number_of(a)
+		}
+		else {
+			false
+		}
+	}
+}
+
+// safe_nan produces a NaN at runtime so the compiler does not reject the
+// literal division by zero.
+fn safe_nan() f64 {
+	zero := f64(unsafe { (&u64(0))[0] })
+	return zero / zero
+}
+
+// json_number_of normalises a numeric json2.Any to f64; non-numbers return NaN
+// so that a numeric/string comparison never spuriously matches.
+fn json_number_of(v json2.Any) f64 {
+	return match v {
+		i8 { f64(v) }
+		i16 { f64(v) }
+		int { f64(v) }
+		i64 { f64(v) }
+		u8 { f64(v) }
+		u16 { f64(v) }
+		u32 { f64(v) }
+		u64 { f64(v) }
+		f32 { f64(v) }
+		f64 { v }
+		else { safe_nan() }
+	}
 }
 
 // assert_json_path asserts a value at a dot-notation path within the JSON body.
@@ -272,14 +342,9 @@ pub fn (mut tr TestResponse) assert_json_missing(path string) &TestResponse {
 
 // assert_json_structure asserts the JSON has specific top-level keys
 pub fn (mut tr TestResponse) assert_json_structure(keys []string) &TestResponse {
-	parsed := json2.decode[map[string]string]( tr.body) or {
-		assert false, 'assert_json_structure: failed to parse JSON: ${err}'
-		return tr
-	}
-
+	present := json_root_keys(tr.body)
 	for key in keys {
-		exists := key in parsed
-		assert exists, 'assert_json_structure: expected key "${key}" in JSON. Keys present: ${parsed.keys()}'
+		assert key in present, 'assert_json_structure: expected key "${key}" in JSON. Keys present: ${present}'
 	}
 	return tr
 }
@@ -290,27 +355,20 @@ pub fn (mut tr TestResponse) assert_json_structure(keys []string) &TestResponse 
 // For root arrays like '["a","b","c"]', pass path ''.
 // For root objects like '{"a":1,"b":2}', pass path '' to count top-level keys.
 pub fn (mut tr TestResponse) assert_json_count(path string, expected int) &TestResponse {
-	if path.len == 0 {
-		// Root level: try object keys first, then array
-		root_obj := json2.decode[map[string]string]( tr.body) or {
-			// Probably an array — try that
-			root_arr := json2.decode[[]string]( tr.body) or {
-				assert false, 'assert_json_count: failed to parse JSON: ${err}'
-				return tr
-			}
-			assert root_arr.len == expected, 'assert_json_count(""): expected ${expected} items but got ${root_arr.len}'
-
-			return tr
-		}
-		assert root_obj.len == expected, 'assert_json_count(""): expected ${expected} keys but got ${root_obj.len}'
-
+	root := json_parse_any(tr.body) or {
+		assert false, 'assert_json_count: failed to parse JSON. Body: ${tr.body}'
 		return tr
 	}
-
-	// Nested path: navigate using raw JSON body
-	count := json_path_count(tr.body, path)
-	assert count == expected, 'assert_json_count("${path}"): expected ${expected} items but got ${count}'
-
+	count := if path.len == 0 {
+		match root {
+			map[string]json2.Any { root.len }
+			[]json2.Any { root.len }
+			else { 0 }
+		}
+	} else {
+		json_path_count(tr.body, path)
+	}
+	assert count == expected, 'assert_json_count("${path}"): expected ${expected} items but got ${count}. Body: ${tr.body}'
 	return tr
 }
 
@@ -399,6 +457,79 @@ pub fn (mut tr TestResponse) dump() &TestResponse {
 // Helpers
 // ============================================================
 
+// ── JSON traversal (json2.Any based) ──
+//
+// These helpers used to hand-parse JSON with string scanning, because the old
+// `json` module could only decode into `map[string]string` and silently turned
+// every non-string leaf into "". After the move to json2 there is no reason to
+// keep a second parser in the test kit: json2.Any models the document exactly,
+// so navigation is a straight walk with no quoting/bracket heuristics.
+
+// json_parse_any decodes a JSON document into json2.Any, returning none if the
+// text is not valid JSON.
+fn json_parse_any(body string) ?json2.Any {
+	if body.trim_space().len == 0 {
+		return none
+	}
+	return json2.decode[json2.Any](body) or { return none }
+}
+
+// json_navigate walks `path` (dot-notation) into an already-parsed document.
+// Numeric segments index arrays, everything else indexes objects.
+fn json_navigate(root json2.Any, path string) ?json2.Any {
+	if path.len == 0 {
+		return root
+	}
+	mut cur := root
+	for part in path.split('.') {
+		cur = match cur {
+			map[string]json2.Any {
+				cur[part] or { return none }
+			}
+			[]json2.Any {
+				if !is_numeric_part(part) {
+					return none
+				}
+				idx := part.int()
+				if idx < 0 || idx >= cur.len {
+					return none
+				}
+				cur[idx]
+			}
+			else {
+				return none
+			}
+		}
+	}
+	return cur
+}
+
+// json_value_to_string renders a leaf as the string the assertions compare
+// against. Strings are unquoted; numbers/bools/null render naturally.
+fn json_value_to_string(v json2.Any) string {
+	return match v {
+		string { v }
+		bool { v.str() }
+		i8, i16, int, i64, u8, u16, u32, u64 { '${v}' }
+		// Floating point is rendered without a trailing ".0" so that a JSON
+		// integer written by an encoder as 0.0 still compares as "0" — the
+		// assertions historically compared textual values.
+		f32 { format_json_float(f64(v)) }
+		f64 { format_json_float(v) }
+		else { '' }
+	}
+}
+
+// format_json_float renders a float the way a JSON encoder would when the
+// value happens to be integral.
+fn format_json_float(v f64) string {
+	iv := i64(v)
+	if v == f64(iv) && math.abs(v) < 1000000000000000.0 {
+		return '${iv}'
+	}
+	return '${v}'
+}
+
 // is_numeric_part returns true if the string is a valid non-negative integer.
 // Used to distinguish array indices ('0', '1', '42') from map keys ('name').
 fn is_numeric_part(s string) bool {
@@ -421,293 +552,39 @@ fn is_numeric_part(s string) bool {
 //   'user.email'        → root.user.email
 //   'data.items.0.id'   → root.data.items[0].id
 //
-// Returns '' if the path does not exist.
-//
-// Strategy: use json2.decode(map[string]string) for key navigation
-// (works for all string values and nested objects/arrays), and fall
-// back to raw JSON extraction for non-string leaf values (numbers,
-// booleans, null) which json2.decode(map[string]string) returns as empty.
+// Returns '' if the path does not exist, or if the value at the path is an
+// object/array (compare those with assert_json / assert_json_count).
 fn json_path_get(body string, path string) string {
-	if path.len == 0 || body.len == 0 {
-		return ''
-	}
-
-	parts := path.split('.')
-	mut current_body := body.trim_space()
-
-	for i, part in parts {
-		is_last := i == parts.len - 1
-
-		// Try to parse current_body as an object
-		obj := json2.decode[map[string]string]( current_body) or {
-			// Not an object — try array if part is numeric
-			if is_numeric_part(part) {
-				arr := json2.decode[[]string]( current_body) or { return '' }
-				idx := part.int()
-				if idx >= 0 && idx < arr.len {
-					current_body = arr[idx]
-					if is_last {
-						return json_leaf_value(current_body)
-					}
-					continue
-				}
-			}
-			return ''
-		}
-		// Get the key's value
-		mut val := obj[part] or { return '' }
-		// If value is empty, it's a non-string type — extract from raw
-		if val.len == 0 {
-			val = json_extract_key_raw(current_body, part)
-			if val.len == 0 {
-				return ''
-			}
-		}
-		// For leaf nodes, return the value (strip string quotes)
-		if is_last {
-			return json_leaf_value(val)
-		}
-		current_body = val
-	}
-
-	return ''
-}
-
-// json_leaf_value converts a JSON value to its display string.
-// Strips surrounding quotes for string values; returns as-is for numbers/booleans.
-fn json_leaf_value(val string) string {
-	if val.len > 0 {
-		if val.starts_with('"') && val.ends_with('"') && val.len >= 2 {
-			return val[1..val.len - 1]
-		}
-		return val
-	}
-	return ''
-}
-
-// json_extract_key_raw finds a key in raw JSON and extracts its value.
-// Handles non-string values (numbers, booleans, null, objects, arrays).
-fn json_extract_key_raw(raw string, key string) string {
-	search := '"${key}"'
-	pos := raw.index(search) or { return '' }
-
-	// Find colon after the key
-	after_key := raw[pos + search.len..]
-	colon_pos := after_key.index(':') or { return '' }
-
-	// Skip whitespace after colon
-	after_colon := after_key[colon_pos + 1..].trim_left(' \t\n\r')
-
-	return json_extract_value(after_colon)
-}
-
-// json_extract_value extracts a complete JSON value (string, number, bool,
-// null, object, or array) from the start of the given string.
-fn json_extract_value(s string) string {
-	if s.len == 0 {
-		return ''
-	}
-
-	first := s[0]
-
-	// Quoted string
-	if first == `"` {
-		mut end := 1
-		for end < s.len {
-			if s[end] == `"` && s[end - 1] != `\\` {
-				return s[0..end + 1]
-			}
-			end++
-		}
-		return s
-	}
-
-	// Object or array — count brackets
-	if first == `{` || first == `[` {
-		close := if first == `{` { `}` } else { `]` }
-		mut depth := 0
-		mut in_string := false
-		for i, ch in s {
-			if ch == `"` && (i == 0 || s[i - 1] != `\\`) {
-				in_string = !in_string
-			}
-			if in_string {
-				continue
-			}
-			if ch == first {
-				depth++
-			}
-			if ch == close {
-				depth--
-				if depth == 0 {
-					return s[0..i + 1]
-				}
-			}
-		}
-		return s
-	}
-
-	// Unquoted value: number, true, false, null
-	mut end := 0
-	for end < s.len && s[end] != `,` && s[end] != `}` && s[end] != `]` && s[end] != ` `
-		&& s[end] != `\t` && s[end] != `\n` && s[end] != `\r` {
-		end++
-	}
-	return s[0..end]
+	root := json_parse_any(body) or { return '' }
+	value := json_navigate(root, path) or { return '' }
+	return json_value_to_string(value)
 }
 
 // json_path_count navigates the JSON body to the given path and returns
-// the count (keys for objects, elements for arrays).
+// the number of object keys or array elements. Returns 0 for leaves/missing.
 fn json_path_count(body string, path string) int {
-	parts := path.split('.')
-	mut current_body := body.trim_space()
-
-	for part in parts {
-		current_body = extract_json_value(current_body, part) or { return 0 }
-	}
-
-	// Now count: try object, then array
-	obj := json2.decode[map[string]string]( current_body) or {
-		arr := json2.decode[[]string]( current_body) or {
-			// Try counting array elements manually for nested arrays
-			return count_json_array_elements(current_body)
-		}
-		return arr.len
-	}
-	return obj.len
-}
-
-// extract_json_value extracts the raw JSON value for a given key from a JSON object string.
-// Returns the raw JSON representation as a string.
-fn extract_json_value(json_str string, key string) !string {
-	trimmed := json_str.trim_space()
-	if !trimmed.starts_with('{') {
-		return error('not an object')
-	}
-
-	// Find the key in the JSON string
-	search_key := '"${key}"'
-	key_idx := trimmed.index(search_key) or { return error('key not found') }
-
-	// Move past the key and colon
-	after_key := trimmed[key_idx + search_key.len..].trim_space()
-	if !after_key.starts_with(':') {
-		return error('invalid JSON')
-	}
-	value_start := after_key[1..].trim_space()
-
-	// Extract the value based on its type
-	if value_start.starts_with('{') {
-		// Object - find matching closing brace
-		return extract_json_block(value_start, `{`, `}`)
-	} else if value_start.starts_with('[') {
-		// Array - find matching closing bracket
-		return extract_json_block(value_start, `[`, `]`)
-	} else if value_start.starts_with('"') {
-		// String - find closing quote
-		end_idx := value_start[1..].index('"') or { return error('unclosed string') }
-		return value_start[..end_idx + 2]
-	} else {
-		// Number, boolean, or null - find end
-		mut end := 0
-		for i, ch in value_start {
-			if ch == `,` || ch == `}` || ch == `]` {
-				end = i
-				break
-			}
-			end = i + 1
-		}
-		return value_start[..end].trim_space()
+	root := json_parse_any(body) or { return 0 }
+	value := json_navigate(root, path) or { return 0 }
+	return match value {
+		map[string]json2.Any { value.len }
+		[]json2.Any { value.len }
+		else { 0 }
 	}
 }
 
-// extract_json_block extracts a JSON block (object or array) with proper nesting.
-fn extract_json_block(s string, open u8, close u8) !string {
-	mut depth := 0
-	mut in_string := false
-	mut escape := false
-
-	for i, ch in s {
-		if escape {
-			escape = false
-			continue
-		}
-		if ch == `\\` {
-			escape = true
-			continue
-		}
-		if ch == `"` {
-			in_string = !in_string
-			continue
-		}
-		if !in_string {
-			if ch == open {
-				depth++
-			} else if ch == close {
-				depth--
-				if depth == 0 {
-					return s[..i + 1]
-				}
-			}
-		}
-	}
-	return error('unclosed block')
+// json_root_count counts the top level of the document: keys for an object,
+// elements for an array.
+fn json_root_count(body string) int {
+	return json_path_count(body, '')
 }
 
-// count_json_array_elements counts elements in a JSON array string.
-fn count_json_array_elements(s string) int {
-	trimmed := s.trim_space()
-	if !trimmed.starts_with('[') {
-		return 0
+// json_root_keys returns the top-level keys of an object document.
+fn json_root_keys(body string) []string {
+	root := json_parse_any(body) or { return [] }
+	if root is map[string]json2.Any {
+		return root.keys()
 	}
-
-	// Empty array
-	if trimmed.starts_with('[]') {
-		return 0
-	}
-
-	mut count := 0
-	mut depth := 0
-	mut in_string := false
-	mut escape := false
-	mut has_content := false
-
-	for ch in trimmed[1..] {
-		if escape {
-			escape = false
-			continue
-		}
-		if ch == `\\` {
-			escape = true
-			continue
-		}
-		if ch == `"` {
-			in_string = !in_string
-			has_content = true
-			continue
-		}
-		if !in_string {
-			if ch == `{` || ch == `[` {
-				depth++
-				has_content = true
-			} else if ch == `}` || ch == `]` {
-				if depth == 0 {
-					// End of array
-					if has_content {
-						count++
-					}
-					return count
-				}
-				depth--
-			} else if ch == `,` && depth == 0 {
-				count++
-				has_content = false
-			} else if ch != ` ` && ch != `\t` && ch != `\n` && ch != `\r` {
-				has_content = true
-			}
-		}
-	}
-	return count
+	return []string{}
 }
 
 // ============================================================

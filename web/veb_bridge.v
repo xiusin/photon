@@ -769,4 +769,3 @@ pub fn (mut tb TranslationBridge) load_translations(lang string, translations ma
 //   - 热重载仅在开发模式启用，生产环境自动禁用
 //   - 不影响性能（开发模式额外开销 < 1ms）
 //   - 可通过 VEXCLUDE_LIVERELOAD=1 环境变量禁用
-

@@ -6,6 +6,7 @@ module web
 // kernel.request → kernel.controller → kernel.response →
 // kernel.exception → kernel.terminate.
 import sync
+import sync.stdatomic
 
 // KernelEventType defines standard kernel events
 pub enum KernelEventType {
@@ -61,9 +62,14 @@ pub mut:
 	listeners        map[string][]KernelListenerEntry
 	frozen_listeners map[string][]KernelListenerEntry
 mut:
-	mu      sync.RwMutex
-	frozen  bool
-	next_id int
+	mu sync.RwMutex
+	// frozen mirrors the `frozen` boolean for lock-free reads on the request
+	// path. Every per-request entry point (handle/handle_with/dispatch) reads
+	// it with one atomic load instead of taking the RwMutex — dispatch alone
+	// ran three times per request, i.e. three uncontended-but-still-real
+	// mutex acquisitions purely to observe a flag that almost never changes.
+	frozen_flag u64
+	next_id     int
 }
 
 // new_http_kernel creates a new HttpKernel
@@ -128,16 +134,19 @@ pub fn (mut k HttpKernel) off(listener_id int) {
 pub fn (mut k HttpKernel) freeze_listeners() {
 	k.mu.@lock()
 	defer { k.mu.unlock() }
-	if k.frozen {
+	if unsafe { stdatomic.load_u64(&k.frozen_flag) } == 1 {
 		return
 	}
 	// Clone each slice so the snapshot is independent of the live listeners
 	// map — later on() calls (which would be a programming error after
 	// freezing) cannot mutate the frozen backing arrays.
+	k.frozen_listeners = map[string][]KernelListenerEntry{}
 	for name, lst in k.listeners {
 		k.frozen_listeners[name] = lst.clone()
 	}
-	k.frozen = true
+	// Publish the snapshot before flipping the flag: readers that see 1 must
+	// see a complete frozen_listeners table.
+	unsafe { stdatomic.store_u64(&k.frozen_flag, 1) }
 }
 
 // unfreeze thaws the kernel, allowing listeners to be modified again.
@@ -147,8 +156,14 @@ pub fn (mut k HttpKernel) freeze_listeners() {
 pub fn (mut k HttpKernel) unfreeze() {
 	k.mu.@lock()
 	defer { k.mu.unlock() }
-	k.frozen = false
+	unsafe { stdatomic.store_u64(&k.frozen_flag, 0) }
 	k.frozen_listeners = map[string][]KernelListenerEntry{}
+}
+
+// is_frozen reports whether the listener snapshot has been published.
+// Lock-free: one atomic load.
+pub fn (k &HttpKernel) is_frozen() bool {
+	return unsafe { stdatomic.load_u64(&k.frozen_flag) } == 1
 }
 
 // dispatch fires all listeners for an event.
@@ -164,14 +179,17 @@ pub fn (mut k HttpKernel) unfreeze() {
 // freeze_listeners() before serving traffic; this path is the cold one.
 fn (mut k HttpKernel) dispatch(event_type KernelEventType, data voidptr) {
 	name := kernel_event_name(event_type)
-	// Read frozen flag under rlock for memory visibility across goroutines.
-	k.mu.rlock()
-	if k.frozen {
-		entries := k.frozen_listeners[name] or {
-			k.mu.runlock()
+	if unsafe { stdatomic.load_u64(&k.frozen_flag) } == 1 {
+		// Frozen: the snapshot is immutable, so the map read only needs the
+		// read lock for the duration of the lookup. The slice header copy is
+		// enough to iterate safely afterwards — no clone per request.
+		k.mu.rlock()
+		found := name in k.frozen_listeners
+		entries := k.frozen_listeners[name]
+		k.mu.runlock()
+		if !found {
 			return
 		}
-		k.mu.runlock()
 		for entry in entries {
 			if !isnil(entry.listener) {
 				entry.listener(name, data)
@@ -179,7 +197,8 @@ fn (mut k HttpKernel) dispatch(event_type KernelEventType, data voidptr) {
 		}
 		return
 	}
-	// Slow path: not yet frozen — clone under read lock.
+	// Cold path: still mutable — clone under the read lock, iterate outside.
+	k.mu.rlock()
 	entries := k.listeners[name].clone()
 	k.mu.runlock()
 	for entry in entries {
@@ -191,10 +210,7 @@ fn (mut k HttpKernel) dispatch(event_type KernelEventType, data voidptr) {
 
 // handle processes a request through the kernel lifecycle
 pub fn (mut k HttpKernel) handle() ! {
-	k.mu.rlock()
-	frozen := k.frozen
-	k.mu.runlock()
-	if !frozen {
+	if unsafe { stdatomic.load_u64(&k.frozen_flag) } == 0 {
 		k.freeze_listeners()
 	}
 	k.dispatch(.request, unsafe { nil })
@@ -207,10 +223,7 @@ pub fn (mut k HttpKernel) handle() ! {
 // Dispatches request → controller → response events, and exception on error.
 // Returns the handler's response.
 pub fn (mut k HttpKernel) handle_with(resolver HandlerResolver, ctx voidptr) !voidptr {
-	k.mu.rlock()
-	frozen := k.frozen
-	k.mu.runlock()
-	if !frozen {
+	if unsafe { stdatomic.load_u64(&k.frozen_flag) } == 0 {
 		k.freeze_listeners()
 	}
 	k.dispatch(.request, ctx)

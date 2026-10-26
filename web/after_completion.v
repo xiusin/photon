@@ -13,6 +13,7 @@ module web
 //   - freeze(): freeze callback list, subsequent fire() needs no lock
 //   - fire(): fire all callbacks (finally semantics, exceptions don't block subsequent callbacks)
 import sync
+import sync.stdatomic
 
 // AfterCompletionCallback 是请求后置回调函数类型。
 // ctx: 请求上下文（veb.Context 的不可变引用）
@@ -49,9 +50,12 @@ pub mut:
 	entries        []AfterCompletionEntry
 	frozen_entries []AfterCompletionEntry
 mut:
-	mu      sync.RwMutex
-	frozen  bool
-	next_id int
+	mu sync.RwMutex
+	// frozen_flag mirrors `frozen` so the per-request fire() fast path is a
+	// single atomic load instead of a plain field read that races with
+	// unfreeze() on another goroutine.
+	frozen_flag u64
+	next_id     int
 }
 
 // new_after_completion_registry 创建 AfterCompletionRegistry。
@@ -98,7 +102,7 @@ pub fn (mut r AfterCompletionRegistry) off(id int) {
 	}
 	r.entries = new_entries
 	// 同步移除冻结列表中的条目 / Also remove from frozen entries
-	if r.frozen {
+	if unsafe { stdatomic.load_u64(&r.frozen_flag) } == 1 {
 		mut new_frozen := []AfterCompletionEntry{}
 		for entry in r.frozen_entries {
 			if entry.id != id {
@@ -119,7 +123,7 @@ pub fn (mut r AfterCompletionRegistry) off(id int) {
 pub fn (mut r AfterCompletionRegistry) freeze() {
 	r.mu.@lock()
 	defer { r.mu.unlock() }
-	if r.frozen {
+	if unsafe { stdatomic.load_u64(&r.frozen_flag) } == 1 {
 		return
 	}
 	// 按 order 排序后快照 / Sort by order then snapshot
@@ -133,8 +137,9 @@ pub fn (mut r AfterCompletionRegistry) freeze() {
 		}
 		return 0
 	})
+	// Publish the snapshot, then flip the flag.
 	r.frozen_entries = sorted
-	r.frozen = true
+	unsafe { stdatomic.store_u64(&r.frozen_flag, 1) }
 }
 
 // unfreeze 解冻，允许修改回调列表。
@@ -145,7 +150,7 @@ pub fn (mut r AfterCompletionRegistry) freeze() {
 pub fn (mut r AfterCompletionRegistry) unfreeze() {
 	r.mu.@lock()
 	defer { r.mu.unlock() }
-	r.frozen = false
+	unsafe { stdatomic.store_u64(&r.frozen_flag, 0) }
 	r.frozen_entries = []AfterCompletionEntry{}
 }
 
@@ -169,8 +174,9 @@ pub fn (mut r AfterCompletionRegistry) unfreeze() {
 // and once true it never goes back to false (unfreeze() is only called at
 // shutdown), so it can be safely read without atomics.
 pub fn (mut r AfterCompletionRegistry) fire(ctx voidptr, err ?string) {
-	// 冻结快速路径：无锁读取不可变快照 / Frozen fast path: lock-free read of immutable snapshot
-	if r.frozen {
+	// 冻结快速路径：一次原子读，无锁读快照
+	// Frozen fast path: one atomic load, lock-free snapshot read.
+	if unsafe { stdatomic.load_u64(&r.frozen_flag) } == 1 {
 		for entry in r.frozen_entries {
 			execute_callback_safely(entry.callback, ctx, err)
 		}
@@ -188,13 +194,7 @@ pub fn (mut r AfterCompletionRegistry) fire(ctx voidptr, err ?string) {
 // is_frozen 返回是否已冻结。
 // is_frozen returns whether the registry is frozen.
 pub fn (mut r AfterCompletionRegistry) is_frozen() bool {
-	// 冻结标志在写锁下设置且不会回退，直接读取安全。
-	// 加 rlock 会与 fire() 的无锁快速路径产生不必要的竞争。
-	//
-	// The frozen flag is set under write lock and never reverts,
-	// so reading it directly is safe. Adding rlock would create
-	// unnecessary contention with fire()'s lock-free fast path.
-	return r.frozen
+	return unsafe { stdatomic.load_u64(&r.frozen_flag) } == 1
 }
 
 // callback_count 返回已注册的回调数量。
@@ -202,7 +202,7 @@ pub fn (mut r AfterCompletionRegistry) is_frozen() bool {
 pub fn (mut r AfterCompletionRegistry) callback_count() int {
 	r.mu.rlock()
 	defer { r.mu.runlock() }
-	if r.frozen {
+	if unsafe { stdatomic.load_u64(&r.frozen_flag) } == 1 {
 		return r.frozen_entries.len
 	}
 	return r.entries.len

@@ -1,4 +1,4 @@
-module i18n
+module photon_i18n
 
 // message_source.v - Photon i18n Module
 //

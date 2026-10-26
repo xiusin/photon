@@ -1,4 +1,4 @@
-module i18n
+module photon_i18n
 
 // message_source_test.v - Unit tests for Photon i18n Module
 // Tests: locale parsing, message resolution, placeholder substitution,

@@ -8,7 +8,7 @@
 set -e
 
 VFLAGS="-enable-globals"
-MODULES="core config logger security cli web orm http queue support ticker cache pool locking async i18n health metrics mailer retry storage tracing apidoc"
+MODULES="core config logger security cli web orm http queue support ticker cache pool locking async photon_i18n health metrics mailer retry storage tracing apidoc"
 
 echo ""
 echo "=============================================="

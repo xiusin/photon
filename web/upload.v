@@ -25,7 +25,7 @@ import veb
 import os
 import crypto.sha256
 import encoding.hex
-import crypto.rand
+import crypto.rand as crand
 import sync
 import strconv
 import time
@@ -349,7 +349,7 @@ pub fn (h &UploadHandler) generate_name(original_name string, content string) st
 	}
 	if h.naming_strategy == .uuid {
 		mut bytes := []u8{len: 8}
-		rand.read(mut bytes) or {
+		crand.read(mut bytes) or {
 			// Fallback: use time-based bytes
 			ts_fallback := time.now().unix_nano()
 			for i in 0 .. 8 {
@@ -379,7 +379,7 @@ pub fn (h &UploadHandler) generate_name_from_bytes(original_name string, data []
 	}
 	if h.naming_strategy == .uuid {
 		mut bytes := []u8{len: 8}
-		rand.read(mut bytes) or {
+		crand.read(mut bytes) or {
 			// Fallback: use time-based bytes
 			ts_fallback := time.now().unix_nano()
 			for i in 0 .. 8 {
@@ -688,7 +688,7 @@ pub fn (mut cm UploadChunkManager) assemble(upload_id string, dest_path string) 
 fn generate_upload_id() string {
 	ts := time.now().unix_nano()
 	mut bytes := []u8{len: 8}
-	rand.read(mut bytes) or {
+	crand.read(mut bytes) or {
 		// Fallback: use time-based bytes
 		for i in 0 .. 8 {
 			bytes[i] = u8((ts >> (i * 8)) & 0xff)

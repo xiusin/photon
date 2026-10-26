@@ -170,11 +170,8 @@ fn test_web_lifecycle_kernel_handle_auto_freezes() {
 	// handle() auto-freezes on first call if not already frozen
 	k.handle() or { assert false }
 
-	// After auto-freeze, frozen flag should be true
-	k.mu.rlock()
-	frozen := k.frozen
-	k.mu.runlock()
-	assert frozen == true
+	// After auto-freeze, the lock-free frozen flag should be set
+	assert k.is_frozen()
 }
 
 // ============================================================

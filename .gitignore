@@ -298,3 +298,6 @@ example/main
 *.db
 /demo/demo
 fluent-tab/
+# V test binaries produced next to *_test.v sources
+*_test
+!*_test.v
