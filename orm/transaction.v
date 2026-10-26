@@ -75,6 +75,7 @@ pub:
 //   take WRITE locks.  For truly concurrent transactions across
 //   goroutines, give each goroutine its own TransactionManager —
 //   a shared manager serializes correctly but does not parallelise.
+@[heap]
 pub struct TransactionManager {
 pub mut:
 	active_count    int

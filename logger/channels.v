@@ -135,11 +135,12 @@ pub fn (c &SyslogChannel) write(level Level, msg string, context map[string]stri
 }
 
 // ChannelLogger sends log entries to multiple channels.
-// @deprecated: Use Logger with add_sink() instead.
-// ChannelLogger will be removed in a future version.
-// Migration: replace `cl := new_channel_logger()` with `l := logger.new()`,
-// then use `l.add_sink(FileChannel{...})` for file output.
-@[deprecated: 'use Logger with add_sink() instead']
+//
+// This is the multi-sink logger and it is still fully supported; the type is
+// only *scheduled* for consolidation into Logger.add_sink(). It must not carry
+// @[deprecated] until that migration exists: `-prod` turns deprecation warnings
+// into errors, so the marker alone breaks the production build while every
+// caller is still using this type.
 pub struct ChannelLogger {
 pub mut:
 	channels []&Channel

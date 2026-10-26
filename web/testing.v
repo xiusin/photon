@@ -259,7 +259,7 @@ fn json_any_equal(a json2.Any, b json2.Any) bool {
 				if key !in bm {
 					return false
 				}
-				if !json_any_equal(av, bm[key]) {
+				if !json_any_equal(av, bm[key] or { return false }) {
 					return false
 				}
 			}

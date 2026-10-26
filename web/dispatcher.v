@@ -127,13 +127,13 @@ fn find_static_route(rr &RouteRegistry, method string, url_path string, host str
 	for path in candidates {
 		if host.len > 0 {
 			key := route_static_key(method, host, path)
-			if key in rr.static_routes {
-				return rr.static_routes[key]
+			if route := rr.static_routes[key] {
+				return route
 			}
 		}
 		key := route_static_key(method, '', path)
-		if key in rr.static_routes {
-			return rr.static_routes[key]
+		if route := rr.static_routes[key] {
+			return route
 		}
 	}
 	return none
