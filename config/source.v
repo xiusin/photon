@@ -10,7 +10,7 @@ module config
 // Both interfaces use mut receivers for their methods to support
 // lazy loading of property data from external sources.
 import os
-import json
+import json2
 
 // FileConfigSource loads configuration from a file (JSON or properties format)
 pub struct FileConfigSource {
@@ -37,7 +37,7 @@ pub fn (mut s FileConfigSource) load() !map[string]string {
 
 	if s.filepath.ends_with('.json') {
 		// Parse JSON config
-		parsed := json.decode(map[string]string, content) or {
+		parsed := json2.decode[map[string]string]( content) or {
 			return error('failed to parse JSON config: ${err}')
 		}
 		for key, val in parsed {

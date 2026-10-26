@@ -27,7 +27,7 @@ module web
 //   app.WebModule.register(&UserController{ user_service: svc })
 import veb
 import net.http
-import json
+import json2
 
 // 注意：Controller 接口定义在 router.v（闭包式 register_routes 契约），此处不再重复声明。
 
@@ -155,7 +155,7 @@ pub fn json_text(mut ctx veb.Context, data string) veb.Result {
 
 // error_response_json builds a standard error JSON string.
 fn error_response_json(code int, msg string) string {
-	return '{"error":${json.encode(msg)},"code":${code}}'
+	return '{"error":${json2.encode(msg)},"code":${code}}'
 }
 
 // api_error 构造标准错误 JSON 字符串

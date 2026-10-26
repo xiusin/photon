@@ -1156,10 +1156,9 @@ pub fn (mut env Environment) prefix_count(prefix string) int {
 // bind_to binds all properties with a given prefix into a target map.
 // The prefix is stripped from the keys in the resulting map.
 //
-// Deprecated: use bind_to_struct[T] for type-safe binding to structs.
-@[deprecated: 'use bind_to_struct[T] for type-safe binding to structs']
-@[deprecated_after: '2026-06-01']
-pub fn (mut env Environment) bind_to(prefix string) !map[string]string {
+// bind_to_map is the undeprecated name; `bind_to` is kept as a deprecated
+// alias so existing call sites keep compiling only with -d allow_deprecated.
+pub fn (mut env Environment) bind_to_map(prefix string) !map[string]string {
 	env.mu.rlock()
 	defer { env.mu.runlock() }
 
@@ -1541,4 +1540,11 @@ fn strip_toml_comment_core(value string) string {
 		}
 	}
 	return value.trim_space()
+}
+
+// bind_to is the deprecated alias of bind_to_map.
+@[deprecated: 'use bind_to_map or bind_to_struct[T] instead']
+@[deprecated_after: '2026-06-01']
+pub fn (mut env Environment) bind_to(prefix string) !map[string]string {
+	return env.bind_to_map(prefix)
 }

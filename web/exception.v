@@ -40,7 +40,7 @@ module web
 //   mut resolver := new_exception_resolver()
 //   resolver.register_handler('NotFoundError', NotFoundAdvice{})
 //   status, body := resolver.resolve(err)!
-import json
+import json2
 import sync
 
 // ── HttpException ──
@@ -488,7 +488,7 @@ fn text_response_for_error(status int, message string) string {
 		code:    status
 		message: message
 	}
-	return json.encode(resp)
+	return json2.encode(resp)
 }
 
 // error_json creates a JSON string for an error response.
@@ -498,7 +498,7 @@ pub fn error_json(code int, message string) string {
 		code:    code
 		message: message
 	}
-	return json.encode(resp)
+	return json2.encode(resp)
 }
 
 // error_json_with_details creates a JSON string for an error response with details.
@@ -509,7 +509,7 @@ pub fn error_json_with_details(code int, message string, details map[string]stri
 		message: message
 		details: details
 	}
-	return json.encode(resp)
+	return json2.encode(resp)
 }
 
 // ── Panic Recovery Middleware ──

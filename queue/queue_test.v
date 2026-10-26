@@ -1,7 +1,7 @@
 module queue
 
 // queue_test.v - Tests for the Queue module
-import json
+import json2
 
 @[heap]
 struct TestJob {
@@ -26,11 +26,11 @@ fn (j &TestJob) backoff() []i64 {
 }
 
 fn (j &TestJob) data() string {
-	return json.encode(j)
+	return json2.encode(j)
 }
 
 fn (mut j TestJob) from_json(data string) ! {
-	decoded := json.decode(TestJob, data)!
+	decoded := json2.decode[TestJob]( data)!
 	j.name = decoded.name
 }
 

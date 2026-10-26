@@ -13,6 +13,11 @@ module cache
 
 // CacheOperation builds a pending cache operation with chainable methods.
 // Terminal methods execute the operation; non-terminal methods return &CacheOperation.
+//
+// @[heap]: chainable setters hand the instance back as a reference, and V 0.5.2
+// refuses to store a pointer to a stack object. The builder is always heap
+// allocated behind an &CacheOperation anyway.
+@[heap]
 pub struct CacheOperation {
 pub mut:
 	cache_registry &CacheRegistry

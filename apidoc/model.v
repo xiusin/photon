@@ -3,7 +3,7 @@ module apidoc
 // model.v — API Documentation Data Model
 //
 // Types: ApiDocEntry, ApiDocParam, ApiDocHeader, ApiDocResponseProp
-import json
+import json2
 
 // ApiDocParam represents a request parameter
 pub struct ApiDocParam {
@@ -70,5 +70,5 @@ pub mut:
 
 // to_json serializes the entry as a JSON string using the built-in json module
 pub fn (e &ApiDocEntry) to_json() string {
-	return json.encode(e)
+	return json2.encode(e)
 }

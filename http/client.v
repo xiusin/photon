@@ -11,7 +11,7 @@
 // ============================================================
 module http
 
-import json
+import json2
 import time
 import net.http as vhttp
 import strings
@@ -132,7 +132,7 @@ pub fn (e RequestEntity) body_str(data string) RequestEntity {
 pub fn (e RequestEntity) body_json[T](data T) RequestEntity {
 	return RequestEntity{
 		...e
-		body: json.encode(data)
+		body: json2.encode(data)
 	}
 }
 
@@ -183,7 +183,7 @@ pub fn (r ResponseEntity) is_5xx() bool {
 
 // body_as deserialises the response body into T (Spring's getBody())
 pub fn (r ResponseEntity) body_as[T]() !T {
-	return json.decode(T, r.body)
+	return json2.decode[T]( r.body)
 }
 
 // header_value returns a single header value (Spring's getHeaders().getFirst())
@@ -301,15 +301,19 @@ pub fn (rt RestTemplate) set_base_url(url string) RestTemplate {
 
 pub fn (rt RestTemplate) set_default_header(key string, value string) RestTemplate {
 	mut r := rt
-	r.default_headers[key] = value
+	mut headers := r.default_headers.clone()
+	headers[key] = value
+	r.default_headers = headers
 	return r
 }
 
 pub fn (rt RestTemplate) set_default_headers(h map[string]string) RestTemplate {
 	mut r := rt
+	mut headers := r.default_headers.clone()
 	for k, v in h {
-		r.default_headers[k] = v
+		headers[k] = v
 	}
+	r.default_headers = headers
 	return r
 }
 

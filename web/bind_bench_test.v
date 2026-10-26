@@ -5,7 +5,7 @@ module web
 // Measures throughput for struct binding (query/form), JSON body binding,
 // and raw JSON decoding — the core paths exercised by bind[T] and bind_json[T].
 import veb
-import json
+import json2
 import time
 
 struct BenchLoginDto {
@@ -63,9 +63,9 @@ fn test_bench_json_decode() {
 	start := time.ticks()
 	for i in 0 .. measure {
 		body := '{"name":"user${i}","email":"user${i}@test.com","age":25}'
-		_ := json.decode(BenchCreateUserDto, body) or { BenchCreateUserDto{} }
+		_ := json2.decode[BenchCreateUserDto]( body) or { BenchCreateUserDto{} }
 	}
 	elapsed := time.ticks() - start
 
-	bench_report('json.decode(BenchCreateUserDto) x10000', measure, elapsed * 1000000)
+	bench_report('json2.decode(BenchCreateUserDto) x10000', measure, elapsed * 1000000)
 }

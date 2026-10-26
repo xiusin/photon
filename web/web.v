@@ -78,6 +78,7 @@ import os
 //       veb.Context
 //       web.WebModule
 //   }
+@[heap]
 pub struct WebModule {
 pub mut:
 	router    &RouteRegistry

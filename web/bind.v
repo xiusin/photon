@@ -18,7 +18,7 @@ module web
 //   dto := web.bind[LoginDto](ctx) or { return app.text('invalid') }
 //   dto_json := web.bind_json[CreateUserDto](ctx) or { ... }
 import veb
-import json
+import json2
 
 // ============================================================
 // Query/Form Binding (like Spring @ModelAttribute)
@@ -108,7 +108,7 @@ pub fn bind_json[T](ctx &veb.Context) !T {
 	if body == '' {
 		return error('empty request body')
 	}
-	return json.decode(T, body) or { error('invalid JSON: ${err}') }
+	return json2.decode[T]( body) or { error('invalid JSON: ${err}') }
 }
 
 // bind_request_body binds a JSON request body to a struct T with validation.
@@ -138,7 +138,7 @@ pub fn bind_request_body[T](ctx &veb.Context) !T {
 	if body == '' {
 		return error('request body is empty / 请求体为空')
 	}
-	mut result := json.decode(T, body) or {
+	mut result := json2.decode[T]( body) or {
 		return error('invalid JSON: ${err} / JSON 解析失败: ${err}')
 	}
 	// Run validation on the decoded struct

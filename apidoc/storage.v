@@ -10,7 +10,7 @@ module apidoc
 // race that existed when mutable references were returned after unlock.
 // Read-only access is provided by get_entry, which returns a value copy.
 import sync
-import json
+import json2
 
 // OpenAPI 3.0 output structures
 
@@ -215,5 +215,5 @@ pub fn (mut s ApiDocStore) export_openapi() string {
 		}
 		paths:   path_map
 	}
-	return json.encode(doc)
+	return json2.encode(doc)
 }

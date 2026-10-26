@@ -27,7 +27,7 @@ import crypto.sha256
 import crypto.sha512
 import encoding.hex
 import encoding.base64
-import json
+import json2
 import crypto.rand
 
 // ── AES-256-CBC Cipher ──
@@ -48,7 +48,7 @@ pub fn new_aes_cipher(key string) !&AesCipher {
 	key_bytes := key.bytes().clone()
 	return &AesCipher{
 		key:    key_bytes
-		cipher: aes.new_cipher(key_bytes.clone())
+		cipher: aes.new_cipher(key_bytes.clone())!
 	}
 }
 
@@ -79,7 +79,7 @@ pub fn (c &AesCipher) encrypt(plaintext string) !string {
 		tag:   ''
 	}
 
-	json_bytes := json.encode(payload)
+	json_bytes := json2.encode(payload)
 	return base64.encode(json_bytes.bytes())
 }
 
@@ -94,7 +94,7 @@ pub fn (c &AesCipher) decrypt(payload_str string) !string {
 	json_bytes := base64.decode(payload_str)
 
 	// Parse JSON
-	payload := json.decode(EncryptedPayload, json_bytes.bytestr()) or {
+	payload := json2.decode[EncryptedPayload]( json_bytes.bytestr()) or {
 		return error('invalid JSON payload')
 	}
 
@@ -235,11 +235,13 @@ fn (c &AesCipher) aes_cbc_decrypt(data []u8, iv []u8) []u8 {
 
 // generate_random_bytes generates cryptographically secure random bytes.
 fn generate_random_bytes(n int) []u8 {
-	return rand.read(n) or {
+	mut buf := []u8{len: n}
+	rand.read(mut buf) or {
 		// crypto/rand failure is fatal — do NOT fall back to weak randomness.
 		// A predictable IV/salt would undermine the security of the cipher.
 		panic('crypto/rand failed: cannot generate secure random bytes')
 	}
+	return buf
 }
 
 // ── SHA-512 Hashing ──

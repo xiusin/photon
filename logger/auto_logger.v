@@ -124,6 +124,10 @@ pub fn (mut f LoggerFactory) logger_count() int {
 // LogContext holds request-scoped structured logging fields.
 // These fields are automatically included in all log entries
 // created from a Logger that has this context attached.
+//
+// @[heap]: the with_*() setters return &LogContext for chaining, so the
+// context can never be stack allocated.
+@[heap]
 pub struct LogContext {
 pub mut:
 	trace_id   string

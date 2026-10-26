@@ -16,7 +16,7 @@ module web
 //       ...
 //   }
 import veb
-import json
+import json2
 
 // Input wraps veb.Context with Laravel-style access methods.
 // Create with: web.input(ctx)
@@ -202,7 +202,7 @@ pub fn (i Input) has_file(key string) bool {
 // to_json returns all input data as a JSON string
 pub fn (i Input) to_json() string {
 	all := i.all()
-	return json.encode(all)
+	return json2.encode(all)
 }
 
 // integer returns an input value as int, with default

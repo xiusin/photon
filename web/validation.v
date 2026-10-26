@@ -1,7 +1,7 @@
 module web
 
 import veb
-import json
+import json2
 
 // validation.v - Request Validation (Laravel FormRequest + Spring @Valid inspired)
 //
@@ -1053,7 +1053,7 @@ pub fn validate_body[T](ctx &veb.Context) (T, ValidationErrors) {
 	}
 
 	// Decode JSON into the struct
-	result = json.decode(T, body) or {
+	result = json2.decode[T]( body) or {
 		// If JSON decode fails, try to validate individual fields
 		mut decode_errors := map[string][]ValidationError{}
 		decode_errors['_body'] = [ValidationError{

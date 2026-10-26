@@ -24,10 +24,11 @@ module web
 //   web.response_with_headers(302, '', {'Location': '/login'})
 //       .assert_redirect('/login')
 //       .dump()
-import json
+import json2
 
 // TestResponse wraps an HTTP response for fluent assertions.
 // All assertion methods return &TestResponse so you can chain them.
+@[heap]
 pub struct TestResponse {
 pub mut:
 	status       int
@@ -225,11 +226,11 @@ pub fn (mut tr TestResponse) assert_body_missing(needle string) &TestResponse {
 // Both are parsed as map[string]string and compared key-by-key,
 // so key ordering doesn't matter.
 pub fn (mut tr TestResponse) assert_json(expected string) &TestResponse {
-	expected_parsed := json.decode(map[string]string, expected) or {
+	expected_parsed := json2.decode[map[string]string]( expected) or {
 		assert false, 'assert_json: invalid expected JSON: ${err}\nExpected: ${expected}'
 		return tr
 	}
-	actual_parsed := json.decode(map[string]string, tr.body) or {
+	actual_parsed := json2.decode[map[string]string]( tr.body) or {
 		assert false, 'assert_json: invalid response JSON: ${err}\nBody: ${tr.body}'
 		return tr
 	}
@@ -271,7 +272,7 @@ pub fn (mut tr TestResponse) assert_json_missing(path string) &TestResponse {
 
 // assert_json_structure asserts the JSON has specific top-level keys
 pub fn (mut tr TestResponse) assert_json_structure(keys []string) &TestResponse {
-	parsed := json.decode(map[string]string, tr.body) or {
+	parsed := json2.decode[map[string]string]( tr.body) or {
 		assert false, 'assert_json_structure: failed to parse JSON: ${err}'
 		return tr
 	}
@@ -291,9 +292,9 @@ pub fn (mut tr TestResponse) assert_json_structure(keys []string) &TestResponse 
 pub fn (mut tr TestResponse) assert_json_count(path string, expected int) &TestResponse {
 	if path.len == 0 {
 		// Root level: try object keys first, then array
-		root_obj := json.decode(map[string]string, tr.body) or {
+		root_obj := json2.decode[map[string]string]( tr.body) or {
 			// Probably an array — try that
-			root_arr := json.decode([]string, tr.body) or {
+			root_arr := json2.decode[[]string]( tr.body) or {
 				assert false, 'assert_json_count: failed to parse JSON: ${err}'
 				return tr
 			}
@@ -422,10 +423,10 @@ fn is_numeric_part(s string) bool {
 //
 // Returns '' if the path does not exist.
 //
-// Strategy: use json.decode(map[string]string) for key navigation
+// Strategy: use json2.decode(map[string]string) for key navigation
 // (works for all string values and nested objects/arrays), and fall
 // back to raw JSON extraction for non-string leaf values (numbers,
-// booleans, null) which json.decode(map[string]string) returns as empty.
+// booleans, null) which json2.decode(map[string]string) returns as empty.
 fn json_path_get(body string, path string) string {
 	if path.len == 0 || body.len == 0 {
 		return ''
@@ -438,10 +439,10 @@ fn json_path_get(body string, path string) string {
 		is_last := i == parts.len - 1
 
 		// Try to parse current_body as an object
-		obj := json.decode(map[string]string, current_body) or {
+		obj := json2.decode[map[string]string]( current_body) or {
 			// Not an object — try array if part is numeric
 			if is_numeric_part(part) {
-				arr := json.decode([]string, current_body) or { return '' }
+				arr := json2.decode[[]string]( current_body) or { return '' }
 				idx := part.int()
 				if idx >= 0 && idx < arr.len {
 					current_body = arr[idx]
@@ -566,8 +567,8 @@ fn json_path_count(body string, path string) int {
 	}
 
 	// Now count: try object, then array
-	obj := json.decode(map[string]string, current_body) or {
-		arr := json.decode([]string, current_body) or {
+	obj := json2.decode[map[string]string]( current_body) or {
+		arr := json2.decode[[]string]( current_body) or {
 			// Try counting array elements manually for nested arrays
 			return count_json_array_elements(current_body)
 		}
@@ -759,6 +760,7 @@ pub type MockHandler = fn (req MockRequest) !MockResult
 
 // MockMvc simulates Spring's MockMvc for testing HTTP request
 // handling without actual network I/O.
+@[heap]
 pub struct MockMvc {
 pub mut:
 	handlers map[string]MockHandler // key: "METHOD /path"

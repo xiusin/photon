@@ -36,6 +36,7 @@ pub interface Condition {
 
 // ConditionContext provides the context in which conditions are evaluated.
 // It gives access to the container, environment, and configuration.
+@[heap]
 pub struct ConditionContext {
 pub mut:
 	container  &Container = unsafe { nil }

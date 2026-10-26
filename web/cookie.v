@@ -30,6 +30,7 @@ pub enum SameSite {
 
 // CookieBuilder provides a fluent API for constructing http.Cookie.
 // CookieBuilder 提供 Fluent API 构建 Cookie。
+@[heap]
 pub struct CookieBuilder {
 pub mut:
 	name      string
@@ -274,9 +275,8 @@ pub fn (mut cm CookieManager) encrypt(plaintext string) !string {
 	// Reusing a nonce with the same key completely breaks security.
 	// 生成随机 12 字节 nonce（IV）——每次加密必须唯一。
 	// 在相同密钥下复用 nonce 会完全破坏安全性。
-	nonce := rand.read(12) or {
-		return error('nonce generation failed / nonce 生成失败')
-	}
+	mut nonce := []u8{len: 12}
+	rand.read(mut nonce) or { return error('nonce generation failed / nonce 生成失败') }
 
 	// Placeholder: XOR-based obfuscation with the encryption key and nonce.
 	// This is NOT secure encryption — it only provides basic obfuscation.

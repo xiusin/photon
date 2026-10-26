@@ -12,6 +12,7 @@ module web
 pub type PipeFunc = fn (passable voidptr, next fn (voidptr) voidptr) voidptr
 
 // Pipeline executes middleware in an onion-like pattern
+@[heap]
 pub struct Pipeline {
 mut:
 	pipes    []PipeFunc

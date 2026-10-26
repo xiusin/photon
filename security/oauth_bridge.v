@@ -19,7 +19,7 @@ module security
 //       // 处理错误
 //       ''
 //   }
-import json
+import json2
 import net.http
 
 // TokenPostType token 交换的请求格式
@@ -75,10 +75,10 @@ pub fn new_oauth_context(config OAuthContext) OAuthContext {
 //       return
 //   }
 //   // 解析 JSON 响应
-//   token_data := json.decode(json.Any, resp)!
+//   token_data := json2.decode[json2.Any]( resp)!
 pub fn (ctx &OAuthContext) exchange_token(code string) ?string {
 	if ctx.token_post_type == .json {
-		body := json.encode({
+		body := json2.encode({
 			'client_id':     ctx.client_id
 			'client_secret': ctx.client_secret
 			'code':          code

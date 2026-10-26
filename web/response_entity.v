@@ -33,13 +33,13 @@ module web
 //   return entity.to_result(ctx)
 
 import veb
-import json
+import json2
 import net.http
 
 // ── ResponseEntity ──
 
 // ResponseEntity wraps an HTTP response with typed body, status code,
-// and headers. The body type T is generic — use json.encode() to
+// and headers. The body type T is generic — use json2.encode() to
 // serialize it.
 //
 // Spring equivalent: ResponseEntity<T>
@@ -193,7 +193,7 @@ pub fn (re ResponseEntity[T]) to_result(mut ctx veb.Context) veb.Result {
 
 	// Serialize body
 	body_str := if content_type == 'application/json' {
-		json.encode(re.body)
+		json2.encode(re.body)
 	} else {
 		'${re.body}'
 	}
@@ -209,7 +209,7 @@ pub fn (re ResponseEntity[T]) to_json_result(mut ctx veb.Context) veb.Result {
 	for key, value in re.headers {
 		ctx.set_custom_header(key, value) or {}
 	}
-	body_str := json.encode(re.body)
+	body_str := json2.encode(re.body)
 	ctx.set_content_type('application/json')
 	return ctx.text(body_str)
 }

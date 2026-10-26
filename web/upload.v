@@ -348,14 +348,13 @@ pub fn (h &UploadHandler) generate_name(original_name string, content string) st
 		return '${ts}${ext}'
 	}
 	if h.naming_strategy == .uuid {
-		mut bytes := rand.read(8) or {
+		mut bytes := []u8{len: 8}
+		rand.read(mut bytes) or {
 			// Fallback: use time-based bytes
-			mut fallback := []u8{len: 8}
 			ts_fallback := time.now().unix_nano()
 			for i in 0 .. 8 {
-				fallback[i] = u8((ts_fallback >> (i * 8)) & 0xff)
+				bytes[i] = u8((ts_fallback >> (i * 8)) & 0xff)
 			}
-			fallback
 		}
 		return hex.encode(bytes) + ext
 	}
@@ -379,14 +378,13 @@ pub fn (h &UploadHandler) generate_name_from_bytes(original_name string, data []
 		return '${ts}${ext}'
 	}
 	if h.naming_strategy == .uuid {
-		mut bytes := rand.read(8) or {
+		mut bytes := []u8{len: 8}
+		rand.read(mut bytes) or {
 			// Fallback: use time-based bytes
-			mut fallback := []u8{len: 8}
 			ts_fallback := time.now().unix_nano()
 			for i in 0 .. 8 {
-				fallback[i] = u8((ts_fallback >> (i * 8)) & 0xff)
+				bytes[i] = u8((ts_fallback >> (i * 8)) & 0xff)
 			}
-			fallback
 		}
 		return hex.encode(bytes) + ext
 	}
@@ -689,13 +687,12 @@ pub fn (mut cm UploadChunkManager) assemble(upload_id string, dest_path string) 
 
 fn generate_upload_id() string {
 	ts := time.now().unix_nano()
-	bytes := rand.read(8) or {
+	mut bytes := []u8{len: 8}
+	rand.read(mut bytes) or {
 		// Fallback: use time-based bytes
-		mut fallback := []u8{len: 8}
 		for i in 0 .. 8 {
-			fallback[i] = u8((ts >> (i * 8)) & 0xff)
+			bytes[i] = u8((ts >> (i * 8)) & 0xff)
 		}
-		fallback
 	}
 	rnd := hex.encode(bytes)
 	return '${strconv.format_int(ts, 16)}_${rnd}'

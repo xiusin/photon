@@ -1388,7 +1388,7 @@ pub fn (mut ctx ApplicationContext) prefix_count(prefix string) int {
 @[deprecated: 'use bind_to_struct[T] for type-safe binding to structs']
 @[deprecated_after: '2026-06-01']
 pub fn (mut ctx ApplicationContext) bind_to(prefix string) !map[string]string {
-	return ctx.environment.bind_to(prefix)
+	return ctx.environment.bind_to_map(prefix)
 }
 
 // bind_to_struct binds all properties with a given prefix into a typed struct T.

@@ -37,7 +37,7 @@ module web
 // Spring equivalent: org.springframework.http.ProblemDetail
 
 import veb
-import json
+import json2
 import net.http
 
 // ── ProblemDetail ──
@@ -169,12 +169,12 @@ pub fn (mut pd ProblemDetail) add_errors(errors []FieldError) ProblemDetail {
 // RFC 7807 conventions. The 'type_' field is serialized as 'type'
 // and 'instance_' as 'instance'.
 pub fn (pd ProblemDetail) to_json() string {
-	mut sb := '{"type":${json.encode(pd.type_)},"title":${json.encode(pd.title)},"status":${pd.status}'
+	mut sb := '{"type":${json2.encode(pd.type_)},"title":${json2.encode(pd.title)},"status":${pd.status}'
 	if pd.detail.len > 0 {
-		sb += ',"detail":${json.encode(pd.detail)}'
+		sb += ',"detail":${json2.encode(pd.detail)}'
 	}
 	if pd.instance_.len > 0 {
-		sb += ',"instance":${json.encode(pd.instance_)}'
+		sb += ',"instance":${json2.encode(pd.instance_)}'
 	}
 	if pd.errors.len > 0 {
 		sb += ',"errors":['
@@ -182,7 +182,7 @@ pub fn (pd ProblemDetail) to_json() string {
 			if i > 0 {
 				sb += ','
 			}
-			sb += '{"field":${json.encode(err.field)},"message":${json.encode(err.message)}}'
+			sb += '{"field":${json2.encode(err.field)},"message":${json2.encode(err.message)}}'
 		}
 		sb += ']'
 	}

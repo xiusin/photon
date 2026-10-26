@@ -5,10 +5,13 @@ module config
 // Provides a unified configuration system supporting multiple sources
 // (files, environment variables, command-line flags) with property binding
 // and profile-based configuration.
-import json
+import json2
 import sync
 
 // Config manages application configuration from multiple sources
+// @[heap]: the fluent setters return &Config for chaining, and V 0.5.2
+// refuses to hand out a pointer to a stack object.
+@[heap]
 pub struct Config {
 pub mut:
 	sources    []ConfigSource
@@ -160,5 +163,5 @@ pub fn (c &Config) to_json() string {
 	mut cm := unsafe { &Config(c) }
 	cm.mu.@rlock()
 	defer { cm.mu.runlock() }
-	return json.encode(c.properties)
+	return json2.encode(c.properties)
 }

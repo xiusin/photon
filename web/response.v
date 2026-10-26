@@ -30,6 +30,7 @@ import strings
 //   - ResponseBuilder is a request-scoped object; each request owns
 //     an exclusive instance, so no locking is needed. The Builder pattern
 //     completes construction through chained calls in a single thread.
+@[heap]
 pub struct ResponseBuilder {
 pub mut:
 	status_code  int              = 200

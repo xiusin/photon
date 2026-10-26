@@ -43,6 +43,10 @@ pub enum OrderDir {
 // QueryBuilder builds parameterised SQL queries for a single table.
 // Methods return &QueryBuilder for fluent chaining.  Terminal methods
 // (get, first, count, exists) execute via the configured callbacks.
+//
+// @[heap]: every fluent setter hands the builder back by reference, and V
+// 0.5.2 refuses to store a pointer to a stack object.
+@[heap]
 pub struct QueryBuilder {
 pub:
 	table_name  string

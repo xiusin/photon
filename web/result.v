@@ -5,7 +5,7 @@ module web
 // Provides a standardized API response format with status codes,
 // messages, data payloads, and pagination support.
 // Designed for consistent REST API responses.
-import json
+import json2
 import time
 
 // Result is the standard API response wrapper
@@ -91,7 +91,7 @@ pub fn page(data string, page int, page_size int, total int) PageResult {
 
 // to_json serializes the Result to JSON
 pub fn (r &Result) to_json() string {
-	return json.encode(r)
+	return json2.encode(r)
 }
 
 // to_json serializes the PageResult (including pagination) to JSON
@@ -99,7 +99,7 @@ pub fn (r &Result) to_json() string {
 // 的 json.encode 会生成无效 C 代码（struct or union expected）
 pub fn (r &PageResult) to_json() string {
 	p := r.pagination
-	return '{"success":${r.success},"code":${r.code},"message":${json.encode(r.message)},"data":${r.data},"timestamp":${r.timestamp},"path":${json.encode(r.path)},"pagination":{"page":${p.page},"page_size":${p.page_size},"total":${p.total},"total_pages":${p.total_pages},"has_next":${p.has_next},"has_prev":${p.has_prev}}}'
+	return '{"success":${r.success},"code":${r.code},"message":${json2.encode(r.message)},"data":${r.data},"timestamp":${r.timestamp},"path":${json2.encode(r.path)},"pagination":{"page":${p.page},"page_size":${p.page_size},"total":${p.total},"total_pages":${p.total_pages},"has_next":${p.has_next},"has_prev":${p.has_prev}}}'
 }
 
 // -- Convenience builders --

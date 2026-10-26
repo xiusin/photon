@@ -22,6 +22,10 @@ mut:
 }
 
 // CacheRegistry is the in-memory implementation of the CacheManager interface (see manager.v).
+//
+// @[heap]: registries are handed out as &CacheRegistry and captured by the
+// fluent CacheOperation builder, so they must never live on the stack.
+@[heap]
 pub struct CacheRegistry {
 pub mut:
 	caches        map[string]&Cache

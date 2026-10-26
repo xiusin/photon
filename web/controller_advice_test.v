@@ -9,7 +9,7 @@ module web
 //   - Specific handler takes priority over global
 //   - Default status mapping via err.code() (extract_status)
 //   - Last-resort 500 fallback for unknown errors
-import json
+import json2
 
 // ── Custom error type ──
 
@@ -199,7 +199,7 @@ fn test_resolver_response_body_is_valid_json() {
 		HttpException: new_http_exception(404, 'gone')
 	})
 	_, body := resolver.resolve(err)!
-	parsed := json.decode(ErrorResponse, body) or {
+	parsed := json2.decode[ErrorResponse]( body) or {
 		assert false, 'body should be valid JSON ErrorResponse'
 		return
 	}

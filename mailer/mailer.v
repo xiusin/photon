@@ -509,7 +509,7 @@ pub fn get_null_sent_count() int {
 // get_null_last_email returns the last email sent via NullTransport.
 pub fn get_null_last_email() ?Email {
 	if null_transport_sent_count == 0 {
-		none
+		return none
 	}
 	return null_transport_last_email
 }
