@@ -18,6 +18,7 @@ module queue
 //   dispatcher.set_driver(driver)
 
 import sync
+import time
 
 // QueueRedisClient is the minimal Redis interface required by RedisDriver.
 // Users must provide an adapter for their Redis library.
@@ -30,6 +31,12 @@ pub interface QueueRedisClient {
 	llen(key string) !int
 	// del removes one or more keys. Returns the number of keys deleted.
 	del(keys ...string) !int
+	// zadd 向有序集合写入成员，score 为 run_at（unix 纳秒）。
+	zadd(key string, score f64, member string) !int
+	// zrangebyscore 返回 score 落在 [min, max] 的成员，最多 count 个。
+	zrangebyscore(key string, min string, max string, count int) ![]string
+	// zrem 从有序集合移除成员。
+	zrem(key string, member string) !int
 }
 
 // RedisDriver implements QueueDriver using Redis lists for persistent storage.
@@ -76,9 +83,39 @@ pub fn (mut d RedisDriver) push(queue_name string, payload string) ! {
 	}
 }
 
+// push_delayed adds a job to a per-run_at 的 sorted set，
+// 到期后由 promote_delayed 搬进主列表。
+//
+// Redis 版的延迟任务放在 `<prefix><queue>:delayed` 里（zset，score=run_at 纳秒），
+// 不占用主 list，因此不会挡住立即任务。
+pub fn (mut d RedisDriver) push_delayed(queue_name string, payload string, delay_secs i64) ! {
+	key := d.delayed_key(queue_name)
+	run_at := time.now().unix_nano() + delay_secs * 1_000_000_000
+	d.client.zadd(key, f64(run_at), payload) or {
+		return error('redis push_delayed failed for queue "${queue_name}": ${err}')
+	}
+}
+
+// delayed_key 返回延迟任务的 zset 键名。
+fn (d &RedisDriver) delayed_key(queue_name string) string {
+	return d.queue_key(queue_name) + ':delayed'
+}
+
+// promote_delayed 把已到期的延迟任务搬进主列表（调用方为 pop 之前）。
+pub fn (mut d RedisDriver) promote_delayed(queue_name string) {
+	key := d.delayed_key(queue_name)
+	now := time.now().unix_nano()
+	due := d.client.zrangebyscore(key, '-inf', '${now}', 100) or { return }
+	for payload in due {
+		d.client.lpush(d.queue_key(queue_name), payload) or { continue }
+		d.client.zrem(key, payload) or {}
+	}
+}
+
 // pop removes and returns the next job payload from the head of the queue.
 // Returns an error with message 'EMPTY' when the queue has no items.
 pub fn (mut d RedisDriver) pop(queue_name string) !string {
+	d.promote_delayed(queue_name)
 	key := d.queue_key(queue_name)
 	result := d.client.rpop(key) or {
 		return error('redis pop failed for queue "${queue_name}": ${err}')

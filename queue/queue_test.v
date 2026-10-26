@@ -30,7 +30,7 @@ fn (j &TestJob) data() string {
 }
 
 fn (mut j TestJob) from_json(data string) ! {
-	decoded := json2.decode[TestJob]( data)!
+	decoded := json2.decode[TestJob](data)!
 	j.name = decoded.name
 }
 

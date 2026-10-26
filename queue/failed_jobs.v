@@ -24,8 +24,8 @@ pub:
 	queue_name string
 	attempts   int
 pub mut:
-	retry_count int    // Number of retry attempts made / 已重试次数
-	next_retry  i64    // Timestamp of next retry / 下次重试时间戳
+	retry_count int // Number of retry attempts made / 已重试次数
+	next_retry  i64 // Timestamp of next retry / 下次重试时间戳
 }
 
 // RetryStats holds statistics about retry operations
@@ -62,7 +62,7 @@ pub struct MemoryFailedJobRepository {
 pub mut:
 	jobs []FailedJob
 mut:
-	mu         sync.Mutex
+	mu          sync.Mutex
 	retry_stats RetryStats // retry statistics / 重试统计
 }
 
@@ -152,6 +152,19 @@ pub fn (mut r MemoryFailedJobRepository) increment_retry_stats() {
 	r.mu.unlock()
 }
 
+// failed_job_seq 给同纳秒内产生的失败任务补一个单调序号。
+__global (
+	failed_job_seq    sync.Mutex
+	g_failed_job_seen int
+)
+
+fn next_failed_job_seq() int {
+	failed_job_seq.@lock()
+	defer { failed_job_seq.unlock() }
+	g_failed_job_seen++
+	return g_failed_job_seen
+}
+
 // FailedJobHandler processes failed jobs during queue worker execution
 // FailedJobHandler 在队列 Worker 执行期间处理失败任务
 @[heap]
@@ -173,13 +186,15 @@ pub fn new_failed_job_handler(repo &FailedJobRepository) &FailedJobHandler {
 // handle 记录任务为失败
 pub fn (mut h FailedJobHandler) handle(job_type string, payload string, exception string, queue_name string, attempts int) ! {
 	failed := FailedJob{
-		id:         'failed_${time.now().unix_nano()}'
-		job_type:   job_type
-		payload:    payload
-		exception:  exception
-		failed_at:  time.now().unix()
-		queue_name: queue_name
-		attempts:   attempts
+		// 纳秒时间戳在批量失败时会撞（同一 tick 内数百条），撞了就
+		// find_by_id 取到别人的记录。补一个进程内单调序号。
+		id:          'failed_${time.now().unix_nano()}_${next_failed_job_seq()}'
+		job_type:    job_type
+		payload:     payload
+		exception:   exception
+		failed_at:   time.now().unix()
+		queue_name:  queue_name
+		attempts:    attempts
 		retry_count: 0
 		next_retry:  0
 	}
@@ -196,23 +211,22 @@ pub fn (mut h FailedJobHandler) retry(id string) ! {
 }
 
 // retry_with_backoff replays a failed job with exponential backoff delay.
-// The delay is calculated as: base_delay * 2^retry_count (in seconds).
+// The delay is calculated as: base_delay * 2^retry_count (in seconds),
+// capped at one hour.
 // retry_with_backoff 带退避重试失败任务。
-// 延迟计算为：base_delay * 2^retry_count（秒）。
-pub fn (mut h FailedJobHandler) retry_with_backoff(id int) ! {
-	// Find by numeric index (convert int id to string-based lookup)
-	// 通过数字索引查找（将 int id 转为基于字符串的查找）
-	id_str := '${id}'
-	job := h.repository.find_by_id(id_str) or {
-		// Try finding by position in the list
-		// 尝试通过列表位置查找
-		all_jobs := h.repository.all() or { []FailedJob{} }
-		if id < 0 || id >= all_jobs.len {
-			return error('failed job not found: ${id}')
-		}
-		all_jobs[id]
-	}
+// 延迟计算为：base_delay * 2^retry_count（秒），上限一小时。
+//
+// `id` 是 FailedJob.id（字符串）。旧签名收 int 并回退到「列表下标」，
+// 下标会指向任意别的任务 —— 等于随机重试一条无关记录，已废弃该行为。
+pub fn (mut h FailedJobHandler) retry_with_backoff(id string) ! {
+	job := h.repository.find_by_id(id)!
+	return h.retry_job_with_backoff(job)
+}
 
+// retry_job_with_backoff 是 retry_with_backoff 的实现体，也是给
+// 「按下标取到的记录」保留的精确入口 —— 调用方已经拿到整条记录，
+// 不需要再靠 id 反查。
+pub fn (mut h FailedJobHandler) retry_job_with_backoff(job FailedJob) ! {
 	// Calculate backoff delay: base 1s * 2^retry_count
 	// 计算退避延迟：基准 1s * 2^retry_count
 	mut delay_secs := i64(1)
@@ -275,9 +289,11 @@ pub fn (mut h FailedJobHandler) retry_all() ! {
 
 // dispatch_later_by_type re-dispatches a job by type name
 // dispatch_later_by_type 通过类型名称重新分发任务
-fn dispatch_later_by_type(job_type string, _delay_secs i64) ! {
+fn dispatch_later_by_type(job_type string, delay_secs i64) ! {
 	// Reconstruct and push
 	payload := serialize_job(job_type, '{}')
 	mut d := get_dispatcher()
-	d.driver.push(d.default_queue, payload)!
+	// 退避延迟必须真的生效：原来收了参数却丢掉，传 0 进去，
+	// 于是「指数退避」在派发环节退化成立即重试。
+	d.driver.push_delayed(d.default_queue, payload, delay_secs)!
 }

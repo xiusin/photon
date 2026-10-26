@@ -2,6 +2,7 @@ module queue
 
 // queue_lifecycle_test.v - Lifecycle tests for Queue Worker and FailedJobs
 import json2
+
 //
 // Verifies fixes for:
 //   - H3:  Worker.running flag thread-safe (sync.Mutex protected)
@@ -39,7 +40,7 @@ fn (j &LifecycleJob) data() string {
 }
 
 fn (mut j LifecycleJob) from_json(data string) ! {
-	decoded := json2.decode[LifecycleJob]( data)!
+	decoded := json2.decode[LifecycleJob](data)!
 	j.name = decoded.name
 }
 

@@ -21,8 +21,8 @@ pub type JobFactory = fn () &Job
 // WorkerConfig 队列 Worker 配置
 pub struct WorkerConfig {
 pub:
-	max_jobs          int    // Max jobs to process (0 = unlimited) / 最大处理任务数（0 = 无限）
-	rest_interval     int    // Rest interval in secs after max_jobs / 达到上限后休息间隔（秒）
+	max_jobs          int // Max jobs to process (0 = unlimited) / 最大处理任务数（0 = 无限）
+	rest_interval     int // Rest interval in secs after max_jobs / 达到上限后休息间隔（秒）
 	timeout           int  = 30   // Job timeout in seconds / 任务超时时间（秒）
 	graceful_shutdown bool = true // Enable graceful shutdown / 启用优雅关闭
 }
@@ -48,14 +48,14 @@ pub mut:
 	registry       map[string]JobFactory
 	failed_handler &FailedJobHandler = unsafe { nil }
 mut:
-	mu             sync.Mutex   // protects running flag / 保护 running 标志
-	registry_mu    sync.RwMutex // protects registry map / 保护注册表
-	stop_ch        chan bool = chan bool{cap: 1}
-	config         WorkerConfig // worker configuration / Worker 配置
-	lifecycle      &WorkerLifecycle = unsafe { nil } // lifecycle hooks / 生命周期钩子
-	active_jobs    int          // currently processing jobs / 当前处理中的任务数
-	draining       bool         // drain mode active / 排空模式激活
-	drained_ch     chan bool = chan bool{cap: 1} // signal when drained / 排空完成信号
+	mu          sync.Mutex   // protects running flag / 保护 running 标志
+	registry_mu sync.RwMutex // protects registry map / 保护注册表
+	stop_ch     chan bool = chan bool{cap: 1}
+	config      WorkerConfig // worker configuration / Worker 配置
+	lifecycle   &WorkerLifecycle = unsafe { nil } // lifecycle hooks / 生命周期钩子
+	active_jobs int  // currently processing jobs / 当前处理中的任务数
+	draining    bool // drain mode active / 排空模式激活
+	drained_ch  chan bool = chan bool{cap: 1} // signal when drained / 排空完成信号
 }
 
 // new_worker creates a new QueueWorker with an empty job registry
@@ -63,7 +63,7 @@ mut:
 pub fn new_worker() &QueueWorker {
 	return &QueueWorker{
 		registry: map[string]JobFactory{}
-		config: WorkerConfig{}
+		config:   WorkerConfig{}
 	}
 }
 
@@ -165,8 +165,10 @@ pub fn (mut w QueueWorker) drain() {
 	// Signal drained
 	// 发送排空完成信号
 	select {
-		w.drained_ch <- true {}
-		else {}
+		w.drained_ch <- true {
+		}
+		else {
+		}
 	}
 
 	if !isnil(w.lifecycle) {
@@ -357,7 +359,8 @@ fn (mut w QueueWorker) interruptible_sleep(delay_secs i64) bool {
 			_ := <-w.stop_ch {
 				stopped = true
 			}
-			else {}
+			else {
+			}
 		}
 		if stopped {
 			w.mu.@lock()
@@ -390,8 +393,10 @@ pub fn (mut w QueueWorker) stop() {
 	w.mu.unlock()
 	// Signal interruptible_sleep to wake up immediately
 	select {
-		w.stop_ch <- true {}
-		else {}
+		w.stop_ch <- true {
+		}
+		else {
+		}
 	}
 	if !isnil(w.lifecycle) {
 		w.lifecycle.on_stop()
@@ -405,10 +410,16 @@ struct JobInfo {
 	data string
 }
 
-// parse_job_payload extracts job type and data from payload
-// parse_job_payload 从 payload 提取任务类型和数据
+// parse_job_payload extracts job type and data from payload.
+//
+// 延迟任务的 payload 头部是 `<run_at_ns>||`，必须先剥掉再按 `||` 切分，
+// 否则 job_type 会变成那串纳秒时间戳，worker 按类型找不到工厂，
+// 任务被静默记成 "unregistered job type"。
+//
+// parse_job_payload 从 payload 提取任务类型和数据（兼容延迟任务前缀）。
 fn parse_job_payload(payload string) !JobInfo {
-	name, data := deserialize_job(payload)!
+	_, body := split_delay(payload)
+	name, data := deserialize_job(body)!
 	return JobInfo{
 		name: name
 		data: data

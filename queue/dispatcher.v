@@ -83,10 +83,10 @@ mut:
 pub fn new_dispatcher(driver &MemoryDriver) &QueueDispatcher {
 	return unsafe {
 		&QueueDispatcher{
-			driver: driver
+			driver:        driver
 			job_factories: map[string]JobFactoryFn{}
 			paused_queues: map[string]bool{}
-			stats: map[string]QueueStats{}
+			stats:         map[string]QueueStats{}
 		}
 	}
 }

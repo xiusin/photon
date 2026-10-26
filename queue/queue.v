@@ -41,9 +41,9 @@ pub interface Job {
 	// data serializes the job's fields to JSON for transport
 	// data 将任务字段序列化为 JSON 用于传输
 	data() string
-mut:
 	// from_json populates the job's fields from JSON data
 	// from_json 从 JSON 数据填充任务字段
+mut:
 	from_json(data string) !
 }
 
@@ -63,11 +63,11 @@ mut:
 // JobMetadata 保存编译期扫描的 Job 元数据
 pub struct JobMetadata {
 pub:
-	job_type    string   // Job type name / 任务类型名称
-	queue_name  string   // Target queue name / 目标队列名称
-	max_retries int      // Max retry attempts / 最大重试次数
-	backoff_ms  []int    // Backoff delays in ms / 退避延迟（毫秒）
-	timeout_secs int     // Job timeout in seconds / 任务超时时间（秒）
+	job_type     string // Job type name / 任务类型名称
+	queue_name   string // Target queue name / 目标队列名称
+	max_retries  int    // Max retry attempts / 最大重试次数
+	backoff_ms   []int  // Backoff delays in ms / 退避延迟（毫秒）
+	timeout_secs int    // Job timeout in seconds / 任务超时时间（秒）
 }
 
 // default_job_metadata returns a JobMetadata with sensible defaults
