@@ -150,8 +150,10 @@ fn test_try_submit_returns_false_when_full() {
 	// to prevent the worker from blocking shutdown's task_wg.wait() forever.
 	defer {
 		select {
-			barrier <- true {}
-			else {}
+			barrier <- true {
+			}
+			else {
+			}
 		}
 		te.shutdown()
 	}
@@ -175,8 +177,10 @@ fn test_try_submit_returns_false_when_full() {
 
 	// Release the worker and let everything drain.
 	select {
-		barrier <- true {}
-		else {}
+		barrier <- true {
+		}
+		else {
+		}
 	}
 	te.wait_all()
 }

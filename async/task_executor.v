@@ -57,7 +57,7 @@ pub fn new_task_executor(worker_count int, queue_size int) &TaskExecutor {
 		panic('TaskExecutor: queue_size must be > 0 / queue_size 必须 > 0')
 	}
 	mut te := &TaskExecutor{
-		task_queue: chan TaskFunc{cap: queue_size}
+		task_queue:   chan TaskFunc{cap: queue_size}
 		worker_count: worker_count
 	}
 	te.start_workers()

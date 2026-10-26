@@ -319,14 +319,43 @@ pub fn render_template_raw(template string, data map[string]string) string {
 }
 
 // render_template_with is the shared substitution loop.
+//
+// 单遍扫描，不是「逐个变量 replace」。逐个 replace 有两个坑：
+//   1. 变量值里若含 `{{other}}`，后续轮次会把它再展开一次 —— 用户可控的
+//      字符串（昵称、备注）等于能读到别的变量
+//   2. map 迭代顺序不定，`{{a}}` 可能先吃掉 `{{ab}}` 的前缀
+// 现在只从左到右扫一遍原文，命中已知 key 才替换，替换结果不再参与扫描。
 fn render_template_with(template string, data map[string]string, escape bool) string {
-	mut result := template
-	for key, val in data {
-		placeholder := '{{${key}}}'
-		value := if escape { html_escape(val) } else { val }
-		result = result.replace(placeholder, value)
+	if data.len == 0 || !template.contains('{{') {
+		return template
 	}
-	return result
+	mut sb := strings.new_builder(template.len + 32)
+	mut i := 0
+	for i < template.len {
+		open := template.index_after('{{', i) or {
+			sb.write_string(template[i..])
+			break
+		}
+		if open > i {
+			sb.write_string(template[i..open])
+		}
+		close := template.index_after('}}', open + 2) or {
+			// 没有配对，剩余部分原样保留
+			sb.write_string(template[open..])
+			break
+		}
+		key := template[open + 2..close]
+		if key in data {
+			val := data[key]
+			value := if escape { html_escape(val) } else { val }
+			sb.write_string(value)
+		} else {
+			// 未知变量原样保留
+			sb.write_string(template[open..close + 2])
+		}
+		i = close + 2
+	}
+	return sb.str()
 }
 
 // ── Mail Transport Interface ──

@@ -50,7 +50,10 @@ fn test_counter_starts_at_zero() {
 
 fn test_counter_name_and_tags() {
 	mut registry := new_in_memory_registry()
-	c := registry.counter('http_requests', {'method': 'GET', 'status': '200'})
+	c := registry.counter('http_requests', {
+		'method': 'GET'
+		'status': '200'
+	})
 
 	assert c.name() == 'http_requests'
 	assert c.tags()['method'] == 'GET'
@@ -59,8 +62,12 @@ fn test_counter_name_and_tags() {
 
 fn test_counter_with_different_tags_are_distinct() {
 	mut registry := new_in_memory_registry()
-	mut get_counter := registry.counter('http_requests', {'method': 'GET'})
-	mut post_counter := registry.counter('http_requests', {'method': 'POST'})
+	mut get_counter := registry.counter('http_requests', {
+		'method': 'GET'
+	})
+	mut post_counter := registry.counter('http_requests', {
+		'method': 'POST'
+	})
 
 	get_counter.increment_by(10)
 	post_counter.increment_by(3)
@@ -71,8 +78,12 @@ fn test_counter_with_different_tags_are_distinct() {
 
 fn test_counter_same_tags_returns_same_instance() {
 	mut registry := new_in_memory_registry()
-	mut c1 := registry.counter('orders', {'region': 'us'})
-	mut c2 := registry.counter('orders', {'region': 'us'})
+	mut c1 := registry.counter('orders', {
+		'region': 'us'
+	})
+	mut c2 := registry.counter('orders', {
+		'region': 'us'
+	})
 
 	// Mutating c1 must be visible through c2 → same underlying instance.
 	c1.increment()
@@ -86,8 +97,14 @@ fn test_counter_same_tags_returns_same_instance() {
 fn test_counter_tag_order_independent() {
 	// {a=1,b=2} and {b=2,a=1} must resolve to the same meter.
 	mut registry := new_in_memory_registry()
-	mut c1 := registry.counter('events', {'a': '1', 'b': '2'})
-	mut c2 := registry.counter('events', {'b': '2', 'a': '1'})
+	mut c1 := registry.counter('events', {
+		'a': '1'
+		'b': '2'
+	})
+	mut c2 := registry.counter('events', {
+		'b': '2'
+		'a': '1'
+	})
 
 	c1.increment_by(7)
 	assert c2.value() == 7
@@ -113,7 +130,9 @@ fn test_gauge_set_and_get() {
 
 fn test_gauge_name_and_tags() {
 	mut registry := new_in_memory_registry()
-	g := registry.gauge('queue_depth', {'queue': 'emails'})
+	g := registry.gauge('queue_depth', {
+		'queue': 'emails'
+	})
 
 	assert g.name() == 'queue_depth'
 	assert g.tags()['queue'] == 'emails'
@@ -121,8 +140,12 @@ fn test_gauge_name_and_tags() {
 
 fn test_gauge_with_different_tags_are_distinct() {
 	mut registry := new_in_memory_registry()
-	mut g1 := registry.gauge('queue_depth', {'queue': 'emails'})
-	mut g2 := registry.gauge('queue_depth', {'queue': 'sms'})
+	mut g1 := registry.gauge('queue_depth', {
+		'queue': 'emails'
+	})
+	mut g2 := registry.gauge('queue_depth', {
+		'queue': 'sms'
+	})
 
 	g1.set(100.0)
 	g2.set(5.0)
@@ -180,7 +203,9 @@ fn test_timer_start_and_record_sample() {
 
 fn test_timer_name_and_tags() {
 	mut registry := new_in_memory_registry()
-	t := registry.timer('request_duration', {'route': '/api/users'})
+	t := registry.timer('request_duration', {
+		'route': '/api/users'
+	})
 
 	assert t.name() == 'request_duration'
 	assert t.tags()['route'] == '/api/users'
@@ -256,7 +281,10 @@ fn test_format_prometheus_all_three_meter_types() {
 
 fn test_format_prometheus_with_tags() {
 	mut registry := new_in_memory_registry()
-	mut c := registry.counter('http_requests', {'method': 'GET', 'status': '200'})
+	mut c := registry.counter('http_requests', {
+		'method': 'GET'
+		'status': '200'
+	})
 	c.increment()
 
 	out := registry.format_prometheus()
@@ -267,7 +295,11 @@ fn test_format_prometheus_with_tags() {
 
 fn test_format_prometheus_tags_sorted() {
 	mut registry := new_in_memory_registry()
-	mut c := registry.counter('events', {'zeta': '1', 'alpha': '2', 'mid': '3'})
+	mut c := registry.counter('events', {
+		'zeta':  '1'
+		'alpha': '2'
+		'mid':   '3'
+	})
 	c.increment()
 
 	out := registry.format_prometheus()
@@ -475,7 +507,9 @@ fn test_concurrent_registry_counter_creation() {
 		spawn fn (done chan bool, registry &InMemoryMeterRegistry) {
 			// Get counter once (tests concurrent creation dedup), then
 			// hammer increment from all goroutines.
-			c := registry.counter('race_counter', {'tag': 'v'})
+			c := registry.counter('race_counter', {
+				'tag': 'v'
+			})
 			for _ in 0 .. 50 {
 				c.increment()
 			}
@@ -486,7 +520,9 @@ fn test_concurrent_registry_counter_creation() {
 		_ := <-done
 	}
 
-	mut c := registry.counter('race_counter', {'tag': 'v'})
+	mut c := registry.counter('race_counter', {
+		'tag': 'v'
+	})
 	assert c.value() == i64(num_workers * 50)
 	// Exactly one meter must exist for this name+tags.
 	assert registry.list_meters().len == 1

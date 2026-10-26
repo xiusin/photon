@@ -112,8 +112,8 @@ pub fn extract_async_methods[T]() []AsyncMethodInfo {
 			parsed := parse_async_attr(arg)
 			methods << AsyncMethodInfo{
 				method_name: method.name
-				executor: parsed.executor
-				attrs: method.attrs.clone()
+				executor:    parsed.executor
+				attrs:       method.attrs.clone()
 			}
 		}
 	}

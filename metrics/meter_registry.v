@@ -514,7 +514,29 @@ fn format_tags(tags map[string]string) string {
 	keys.sort()
 	mut parts := []string{cap: keys.len}
 	for k in keys {
-		parts << '${k}="${tags[k]}"'
+		parts << '${k}="${escape_label_value(tags[k])}"'
 	}
 	return '{${parts.join(',')}}'
+}
+
+// escape_label_value 按 Prometheus 文本格式转义标签值。
+//
+// 规范只要求转义 `\\`、`\n` 和 `"`，但漏掉任何一个都会让整条
+// exposition 解析失败 —— 而且 /metrics 是给监控系统读的，出错时不会有
+// 人看到异常，只会在 grafana 上表现为「没数据」。标签值里出现引号
+// （路径、错误消息）很常见，所以这里必须转。
+fn escape_label_value(v string) string {
+	if !v.contains('\\') && !v.contains('\n') && !v.contains('"') {
+		return v
+	}
+	mut sb := strings.new_builder(v.len + 8)
+	for c in v {
+		match c {
+			`\\` { sb.write_string('\\\\') }
+			`\n` { sb.write_string('\\n') }
+			`"` { sb.write_string('\\"') }
+			else { sb.write_u8(c) }
+		}
+	}
+	return sb.str()
 }
