@@ -4,7 +4,7 @@
 # ── Stage 1: Build ──
 FROM ubuntu:22.04 AS builder
 
-ARG V_BRANCH=weekly.2025.06
+ARG V_BRANCH=0.5.2
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git make gcc libc6-dev ca-certificates curl libargon2-dev && \
@@ -21,6 +21,7 @@ WORKDIR /app/photon
 # directory must be compiled — pointing v at example/main.v alone loses every
 # type declared in its siblings.
 RUN v install xiusin.vredis && \
+    sh scripts/patch-vredis.sh && \
     mkdir -p bin && \
     v -enable-globals -prod -o bin/photon example/ && \
     ls -lh bin/

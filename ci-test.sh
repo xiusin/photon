@@ -16,9 +16,17 @@ echo "  Photon Framework — CI Pipeline (Local)"
 echo "=============================================="
 echo ""
 
-# Step 1: Verify V installation
+# Step 1: Verify V installation + module deps
 echo "→ Step 1: V version"
 v --version
+echo ""
+
+echo "→ Step 1b: Module dependencies"
+# v.mod 声明 xiusin.vredis；上游版本在 V 0.5.2 下编不过，装完打补丁。
+if [ ! -d "$HOME/.vmodules/xiusin/vredis" ]; then
+    v install xiusin.vredis
+fi
+sh scripts/patch-vredis.sh
 echo ""
 
 # Step 2: Check formatting (non-blocking)

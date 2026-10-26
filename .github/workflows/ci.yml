@@ -14,7 +14,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  V_BRANCH: 'weekly.2025.06'           # V 0.5.x stable releases
+  # 只匹配最新 V：本条流水线基线为 V 0.5.2（json2 / select mut 语义 / &mut 回调）。
+  # setup-v 抓不到 -> vlang/v 的最新 main tag；Dockerfile 用同一分支。
+  V_BRANCH: '0.5.2'
   APP_NAME: photon
 
 jobs:
@@ -57,7 +59,7 @@ jobs:
       - name: Setup V (cached)
         uses: alexesprit/setup-v@v1
         with:
-          v-version: 'weekly.2025.06'
+          v-version: '0.5.2'
 
       - name: Install native deps
         run: |
@@ -68,8 +70,10 @@ jobs:
       - name: Install v dependencies
         run: |
           # v.mod declares xiusin.vredis; cache/redis_cache.v imports it.
-          # `v install` is a no-op when the module is already present.
-          v install xiusin.vredis || true
+          # 上游 vredis 仍用已删除的 `json` 模块 + 旧 select mut 语义，
+          # 在 V 0.5.2 下直接编译失败，这里打补丁后再装。
+          v install --force xiusin.vredis
+          sh scripts/patch-vredis.sh
 
       - name: Verify V
         run: |
@@ -116,7 +120,7 @@ jobs:
       - name: Setup V
         uses: alexesprit/setup-v@v1
         with:
-          v-version: 'weekly.2025.06'
+          v-version: '0.5.2'
 
       - name: Install native deps
         run: |
@@ -124,7 +128,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends libargon2-dev
 
       - name: Install v dependencies
-        run: v install xiusin.vredis || true
+        run: |
+          v install --force xiusin.vredis
+          sh scripts/patch-vredis.sh
 
       - name: Build example
         run: |
