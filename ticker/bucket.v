@@ -6,6 +6,7 @@ module ticker
 // Uses a simple polling approach compatible with V's threading model.
 // Timers are checked lazily when the user blocks on a channel receive.
 import sync
+import sync.stdatomic
 import time
 
 const num_buckets = 64
@@ -146,6 +147,7 @@ fn scheduler_run(s &TimerScheduler, stop_signal chan bool) {
 					entry := bucket.heap.pop()
 					f := entry.f
 					period := entry.period
+					entry_id := entry.id
 					bucket.heap.mu.unlock()
 
 					if f != unsafe { nil } {
@@ -155,7 +157,11 @@ fn scheduler_run(s &TimerScheduler, stop_signal chan bool) {
 					bucket.heap.mu.@lock()
 
 					if period > 0 {
-						new_entry := new_timer_entry(now + period, period, f)
+						// Periodic re-insertion must preserve the id, otherwise
+						// the owner can no longer cancel it (stop/reset match
+						// by id).
+						mut new_entry := new_timer_entry(now + period, period, f)
+						new_entry.id = entry_id
 						bucket.heap.push(new_entry)
 					}
 				} else {
@@ -200,16 +206,54 @@ fn sync_bucket_head(s &TimerScheduler, bucket_idx int) {
 }
 
 fn (mut s TimerScheduler) add_entry(entry TimerEntry) int {
+	idx, _ := s.add_entry_with_id(entry)
+	return idx
+}
+
+// add_entry_with_id pushes `entry` into the next shard bucket and returns both
+// the bucket index and the entry's unique id. Owners keep the id so that a
+// later cancel/remove can target exactly this entry — matching periodic
+// tickers by period alone is ambiguous once several tickers share a period.
+fn (mut s TimerScheduler) add_entry_with_id(entry TimerEntry) (int, u64) {
 	s.mu.@lock()
 	idx := int(s.counter % num_buckets)
 	s.counter++
 	s.mu.unlock()
+	mut e := entry
+	mut next_id := u64(0)
+	unsafe {
+		next_id = stdatomic.add_u64(&entry_id_seq, 1)
+	}
+	e.id = next_id
 	mut bucket := &s.buckets[idx]
 	bucket.heap.mu.@lock()
-	bucket.heap.push(entry)
+	bucket.heap.push(e)
 	sync_bucket_head(s, idx)
 	bucket.heap.mu.unlock()
-	return idx
+	return idx, e.id
+}
+
+// remove_entry_by_id removes the entry with the given id from `bucket_idx`.
+// Returns true when the entry was found and dropped.
+fn (mut s TimerScheduler) remove_entry_by_id(bucket_idx int, id u64) bool {
+	if id == 0 || bucket_idx < 0 || bucket_idx >= num_buckets {
+		return false
+	}
+	mut bucket := &s.buckets[bucket_idx]
+	bucket.heap.mu.@lock()
+	mut found := false
+	for i in 0 .. bucket.heap.entries.len {
+		if bucket.heap.entries[i].id == id {
+			bucket.heap.remove(i)
+			found = true
+			break
+		}
+	}
+	if found {
+		sync_bucket_head(s, bucket_idx)
+	}
+	bucket.heap.mu.unlock()
+	return found
 }
 
 // remove_entry removes a timer/ticker entry from the specified bucket.

@@ -20,6 +20,7 @@ pub mut:
 	period i64 // 0 = one-shot timer, >0 = periodic tick interval (ns)
 	f      TimerCallback = unsafe { nil }
 	index  int           = -1 // position in heap (-1 = removed)
+	id     u64                // unique handle, lets owners cancel their own entry
 }
 
 // new_timer_entry creates a TimerEntry
@@ -31,6 +32,11 @@ pub fn new_timer_entry(when i64, period i64, f TimerCallback) TimerEntry {
 		index:  -1
 	}
 }
+
+// entry_id_seq hands out unique TimerEntry ids.
+__global (
+	entry_id_seq u64
+)
 
 // TimerHeap is a 4-ary min-heap of TimerEntry elements
 pub struct TimerHeap {

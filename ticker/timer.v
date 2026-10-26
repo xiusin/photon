@@ -26,6 +26,7 @@ pub:
 mut:
 	bucket_idx int
 	when       i64 // trigger timestamp (unix nano)
+	entry_id   u64 // id of the live entry (0 when not scheduled)
 }
 
 // new_timer creates a Timer that will send the current time on its channel
@@ -48,7 +49,7 @@ pub fn new_timer(d time.Duration) &Timer {
 
 	entry := new_timer_entry(when, 0, callback)
 	mut s := get_scheduler()
-	t.bucket_idx = s.add_entry(entry)
+	t.bucket_idx, t.entry_id = s.add_entry_with_id(entry)
 	return t
 }
 
@@ -57,7 +58,7 @@ pub fn new_timer(d time.Duration) &Timer {
 pub fn (mut t Timer) reset(d time.Duration) bool {
 	was_active := t.when > time.now().unix_nano()
 	mut s := get_scheduler()
-	s.remove_entry(t.bucket_idx, t.when, 0)
+	s.remove_entry_by_id(t.bucket_idx, t.entry_id)
 	t.when = time.now().unix_nano() + i64(d)
 
 	ch := t.c
@@ -69,7 +70,7 @@ pub fn (mut t Timer) reset(d time.Duration) bool {
 	}
 
 	entry := new_timer_entry(t.when, 0, callback)
-	t.bucket_idx = s.add_entry(entry)
+	t.bucket_idx, t.entry_id = s.add_entry_with_id(entry)
 	return was_active
 }
 
@@ -78,7 +79,8 @@ pub fn (mut t Timer) reset(d time.Duration) bool {
 pub fn (mut t Timer) stop() bool {
 	was_active := t.when > time.now().unix_nano()
 	mut s := get_scheduler()
-	s.remove_entry(t.bucket_idx, t.when, 0)
+	s.remove_entry_by_id(t.bucket_idx, t.entry_id)
+	t.entry_id = 0
 	t.when = 0
 	return was_active
 }
@@ -95,6 +97,11 @@ pub:
 mut:
 	bucket_idx int
 	period     i64 // tick interval in nanoseconds
+	entry_id   u64 // id of the live entry (0 when stopped)
+	// gen is bumped by reset(). Callbacks capture the generation they were
+	// created under and drop their tick when it no longer matches, so a tick
+	// already in flight while reset() runs cannot be delivered afterwards.
+	gen u64
 }
 
 // new_ticker returns a new Ticker containing a channel that will send
@@ -107,49 +114,66 @@ pub fn new_ticker(d time.Duration) &Ticker {
 	mut t := &Ticker{
 		c:      ch
 		period: period
+		gen:     0
 	}
 
-	callback := fn [ch] () {
-		select {
-			ch <- time.now() {}
-			0 {}
+	callback := fn [ch, t] () {
+		if t.is_current_gen(0) {
+			select {
+				ch <- time.now() {}
+				0 {}
+			}
 		}
 	}
 
 	entry := new_timer_entry(when, period, callback)
 	mut s := get_scheduler()
-	t.bucket_idx = s.add_entry(entry)
+	t.bucket_idx, t.entry_id = s.add_entry_with_id(entry)
 	return t
+}
+
+// is_current_gen reports whether `gen` is still the ticker's active
+// generation. Callbacks use it to drop ticks that were already in flight when
+// reset() bumped the generation, so reset() takes effect immediately instead
+// of leaking one more old-period tick.
+@[inline]
+fn (t &Ticker) is_current_gen(gen u64) bool {
+	return t.gen == gen
 }
 
 // stop turns off a ticker. After Stop, no more ticks will be sent.
 // Stop does not close the channel to prevent erroneous reads.
 pub fn (mut t Ticker) stop() {
 	mut s := get_scheduler()
-	s.remove_entry(t.bucket_idx, 0, t.period)
+	s.remove_entry_by_id(t.bucket_idx, t.entry_id)
+	t.entry_id = 0
 }
 
 // reset stops a ticker and resets its period to the specified duration.
 // The next tick will arrive after the new period elapses.
 pub fn (mut t Ticker) reset(d time.Duration) {
 	mut s := get_scheduler()
-	// Remove while `t.period` still holds the OLD period — remove_entry()
-	// matches periodic entries by period, so updating the field first would
-	// leave the old entry running and the ticker would never slow down.
-	s.remove_entry(t.bucket_idx, 0, t.period)
+	// Cancel by entry id, not by period: several tickers in the same process
+	// commonly share a period, and matching by period could cancel someone
+	// else's entry while leaving this one running at the old rate.
+	s.remove_entry_by_id(t.bucket_idx, t.entry_id)
 	t.period = i64(d)
+	t.gen++
+	gen := t.gen
 	when := time.now().unix_nano() + t.period
 
 	ch := t.c
-	callback := fn [ch] () {
-		select {
-			ch <- time.now() {}
-			0 {}
+	callback := fn [ch, t, gen] () {
+		if t.is_current_gen(gen) {
+			select {
+				ch <- time.now() {}
+				0 {}
+			}
 		}
 	}
 
 	entry := new_timer_entry(when, t.period, callback)
-	t.bucket_idx = s.add_entry(entry)
+	t.bucket_idx, t.entry_id = s.add_entry_with_id(entry)
 }
 
 // ============================================================
@@ -183,7 +207,7 @@ pub fn after_func(d time.Duration, f TimerCallback) &Timer {
 
 	entry := new_timer_entry(when, 0, f)
 	mut s := get_scheduler()
-	t.bucket_idx = s.add_entry(entry)
+	t.bucket_idx, t.entry_id = s.add_entry_with_id(entry)
 	return t
 }
 
