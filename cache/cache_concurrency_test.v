@@ -315,9 +315,7 @@ fn test_close_stops_gc() {
 fn test_cache_registry_unregister() {
 	mut cm := new_cache_registry()
 	mut mem := new_memory_cache('named')
-	unsafe {
-		cm.register('named', mem)
-	}
+	cm.register('named', mem)
 	assert cm.get_cache_names().len == 1
 
 	// Unregister the cache.
@@ -340,9 +338,7 @@ fn test_cache_registry_unregister_under_load() {
 	for i in 0 .. 5 {
 		mut mem := new_memory_cache('cache-${i}')
 		caches << mem
-		unsafe {
-			cm.register('cache-${i}', mem)
-		}
+		cm.register('cache-${i}', mem)
 	}
 	assert cm.get_cache_names().len == 5
 

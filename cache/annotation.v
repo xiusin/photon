@@ -195,7 +195,7 @@ pub fn build_evict_key(attr CacheEvictAttribute, method_name string, args ...str
 // #result resolves to the method return value; #param.name resolves to a named parameter.
 pub struct ExpressionContext {
 pub:
-	result         string // #result value (empty string if null)
+	result         string            // #result value (empty string if null)
 	params         map[string]string // #param.name → value
 	is_null_result bool
 }
@@ -290,8 +290,8 @@ fn resolve_value(token string, ctx ExpressionContext) string {
 	}
 
 	// String literal 'value' or "value"
-	if (t.starts_with("'") && t.ends_with("'") && t.len >= 2) ||
-		(t.starts_with('"') && t.ends_with('"') && t.len >= 2) {
+	if (t.starts_with("'") && t.ends_with("'") && t.len >= 2)
+		|| (t.starts_with('"') && t.ends_with('"') && t.len >= 2) {
 		return t[1..t.len - 1]
 	}
 
@@ -471,11 +471,11 @@ pub fn (g SimpleKeyGenerator) generate(method_name string, args ...string) strin
 // CacheMethodInfo describes a method annotated with a cache annotation.
 pub struct CacheMethodInfo {
 pub:
-	method_name string       // V method name
-	attr_type   string       // 'cacheable', 'cache_evict', or 'cache_put'
-	attr_value  string       // raw attribute value string
-	cache_name  string       // resolved cache name
-	key_pattern string       // resolved key pattern
+	method_name string // V method name
+	attr_type   string // 'cacheable', 'cache_evict', or 'cache_put'
+	attr_value  string // raw attribute value string
+	cache_name  string // resolved cache name
+	key_pattern string // resolved key pattern
 }
 
 // scan_cache_annotations scans type T at compile time for cache-annotated methods.

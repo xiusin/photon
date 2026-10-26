@@ -14,20 +14,20 @@ import time
 @[params]
 pub struct RedisCacheConfig {
 pub:
-	name             string = 'redis'
-	host             string = '127.0.0.1'
-	port             int    = 6379
-	db               u32
-	username         string
-	password         string
-	read_timeout     int = 10 // seconds
-	write_timeout    int = 10 // seconds
+	name          string = 'redis'
+	host          string = '127.0.0.1'
+	port          int    = 6379
+	db            u32
+	username      string
+	password      string
+	read_timeout  int = 10 // seconds
+	write_timeout int = 10 // seconds
 	// Pool settings
-	max_active       int = 10
-	idle_timeout     int = 600 // seconds
-	max_conn_life    int = 600 // seconds
-	key_prefix       string   // optional prefix for all keys (e.g. 'photon:')
-	test_on_borrow   bool = true // ping connection on borrow
+	max_active     int = 10
+	idle_timeout   int = 600 // seconds
+	max_conn_life  int = 600 // seconds
+	key_prefix     string // optional prefix for all keys (e.g. 'photon:')
+	test_on_borrow bool = true // ping connection on borrow
 }
 
 // RedisStore is a Redis-backed implementation of the Cache interface.
@@ -49,8 +49,16 @@ pub fn new_redis_cache(config RedisCacheConfig) !&RedisStore {
 		db:            config.db
 		username:      config.username
 		requirepass:   config.password
-		read_timeout:  if config.read_timeout > 0 { time.second * config.read_timeout } else { time.second * 10 }
-		write_timeout: if config.write_timeout > 0 { time.second * config.write_timeout } else { time.second * 10 }
+		read_timeout:  if config.read_timeout > 0 {
+			time.second * config.read_timeout
+		} else {
+			time.second * 10
+		}
+		write_timeout: if config.write_timeout > 0 {
+			time.second * config.write_timeout
+		} else {
+			time.second * 10
+		}
 	}
 
 	// Verify connectivity before creating the pool.
@@ -63,13 +71,13 @@ pub fn new_redis_cache(config RedisCacheConfig) !&RedisStore {
 	}
 
 	pool_opt := vredis.PoolOpt{
-		max_active: config.max_active
-		idle_timeout: config.idle_timeout
+		max_active:         config.max_active
+		idle_timeout:       config.idle_timeout
 		max_conn_life_time: config.max_conn_life
-		dial: fn [opts] () !&vredis.Redis {
+		dial:               fn [opts] () !&vredis.Redis {
 			return vredis.new_client(opts)!
 		}
-		test_on_borrow: if config.test_on_borrow {
+		test_on_borrow:     if config.test_on_borrow {
 			fn (mut conn vredis.ActiveRedisConn) ! {
 				conn.ping()!
 			}

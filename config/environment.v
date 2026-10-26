@@ -15,18 +15,21 @@ mut:
 	get_all_with_prefix(prefix string) map[string]string
 }
 
-// Environment provides unified property access.
-// @deprecated: Use core.Environment instead.
-// config.Environment will be merged into core.Environment in a future version.
-// Migration: replace `config.new_environment()` with `core.new_environment()`.
-@[deprecated: 'use core.Environment instead — config.Environment will be merged into core.Environment']
+// Environment provides unified property access over a list of PropertySource.
+//
+// 这是 config 包自己的实现，与 core.Environment 是两个类型：
+//   - core.Environment：应用运行时环境（profile / TOML / CLI 参数），并发安全
+//   - config.Environment：轻量属性解析器，只依赖 PropertySource 接口
+//
+// 两者职责不同，所以这里**不是**废弃别名。之前挂的 @[deprecated] 会让任何
+// 使用它的代码在 -prod 下直接编译失败（废弃告警被升级成 error），已移除。
 pub struct Environment {
 pub mut:
 	property_sources []&PropertySource
 	active_profiles  []string
 mut:
-	source_cache     map[string]string
-	cache_valid      bool
+	source_cache map[string]string
+	cache_valid  bool
 }
 
 // new_environment creates an Environment

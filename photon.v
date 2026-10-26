@@ -106,8 +106,8 @@ pub type AppliedMigration = orm.AppliedMigration
 // pub type OrmAdapter = orm.OrmAdapter
 
 // Re-export config environment types
-// @deprecated: config.Environment is deprecated, use core.Environment directly.
-// The photon.Environment alias will be redirected to core.Environment in a future version.
+// photon.Environment 指向 config.Environment（基于 PropertySource 的属性解析器）。
+// core.Environment 是另一套（运行时 profile / TOML / CLI），两者并存，不是替代关系。
 pub type Environment = config.Environment
 
 // Re-export locking types

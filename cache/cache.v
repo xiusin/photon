@@ -44,7 +44,6 @@ pub fn new_cache_registry() &CacheRegistry {
 }
 
 // register adds a named cache
-@[unsafe]
 pub fn (mut cm CacheRegistry) register(name string, c &Cache) {
 	cm.mu.@lock()
 	defer { cm.mu.unlock() }

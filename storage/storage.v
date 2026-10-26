@@ -117,8 +117,8 @@ pub interface Storage {
 	temporary_url(path string, expiration_sec i64) !string
 	read_stream(path string) !string
 	adapter_name() string
-mut:
 	// — Write operations (mutable) —
+mut:
 	write(path string, contents string, options StorageWriteOptions) !
 	delete(path string) !
 	copy(source string, dest string) !
@@ -155,7 +155,6 @@ pub fn new_manager() &StorageManager {
 }
 
 // register adds a named storage disk
-@[unsafe]
 pub fn (mut sm StorageManager) register(name string, adapter &Storage) {
 	sm.disks[name] = adapter
 	if sm.default_disk.len == 0 {

@@ -517,11 +517,18 @@ fn test_snapshot_singletons_multi_instance_multi_alias() {
 	snapshot := c.snapshot_singletons()
 	// 2 实例 + 3 别名 = 5 条目
 	assert snapshot.len == 5
-	assert snapshot['bean_a'] == unsafe { voidptr(repo1) }
-	assert snapshot['bean_b'] == unsafe { voidptr(repo2) }
-	assert snapshot['AliasA'] == unsafe { voidptr(repo1) }
-	assert snapshot['AliasB'] == unsafe { voidptr(repo2) }
-	assert snapshot['TypeA'] == unsafe { voidptr(repo1) }
+	// 指针值 map 的下标必须带 `or {}`（-prod 下缺失会直接编译失败），
+	// 下面统一走一次 unsafely 取值，保持断言可读。
+	got_a := snapshot['bean_a'] or { voidptr(0) }
+	got_b := snapshot['bean_b'] or { voidptr(0) }
+	got_alias_a := snapshot['AliasA'] or { voidptr(0) }
+	got_alias_b := snapshot['AliasB'] or { voidptr(0) }
+	got_type_a := snapshot['TypeA'] or { voidptr(0) }
+	assert unsafe { got_a == voidptr(repo1) }
+	assert unsafe { got_b == voidptr(repo2) }
+	assert unsafe { got_alias_a == voidptr(repo1) }
+	assert unsafe { got_alias_b == voidptr(repo2) }
+	assert unsafe { got_type_a == voidptr(repo1) }
 }
 
 // ── NN. resolve 未知 bean 错误信息 ──

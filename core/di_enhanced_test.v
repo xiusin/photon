@@ -1076,8 +1076,8 @@ fn test_container_resolve_lookup_for_bean() {
 	}
 
 	assert result.len == 2
-	assert result['create_command'] == unsafe { voidptr(42) }
-	assert result['get_handler'] == unsafe { voidptr(84) }
+	assert unsafe { (result['create_command'] or { voidptr(0) }) == voidptr(42) }
+	assert unsafe { (result['get_handler'] or { voidptr(0) }) == voidptr(84) }
 }
 
 fn test_container_resolve_lookup_for_bean_no_lookups() {
@@ -1129,7 +1129,7 @@ fn test_application_context_resolve_lookup_for_bean() {
 		return
 	}
 	assert result.len == 1
-	assert result['create_command'] == unsafe { voidptr(42) }
+	assert unsafe { (result['create_command'] or { voidptr(0) }) == voidptr(42) }
 }
 
 fn test_bean_registration_options_lookup_injections() {

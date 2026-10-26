@@ -271,7 +271,6 @@ fn (mut sh CacheShard) lru_push_front_unsafe(key string) {
 	if sh.lru_tail.len == 0 {
 		sh.lru_tail = key
 	}
-
 }
 
 // lru_pop_tail_unsafe removes and returns the least recently used key.
@@ -375,7 +374,8 @@ fn (mut mc MemoryCache) start_gc() {
 				_ := <-mc.gc_ch {
 					return
 				}
-				else {}
+				else {
+				}
 			}
 			unsafe { mc.evict_expired() }
 			// Retire once the cache is empty AND untouched since the previous
@@ -429,8 +429,10 @@ fn (mut mc MemoryCache) is_empty() bool {
 // automatically (a later set() restarts the sweeper).
 pub fn (mut mc MemoryCache) close() {
 	select {
-		mc.gc_ch <- true {}
-		else {}
+		mc.gc_ch <- true {
+		}
+		else {
+		}
 	}
 }
 
@@ -680,7 +682,7 @@ pub fn (mut mc MemoryCache) evict_expired() int {
 		for key in expired {
 			sh.entries.delete(key)
 			sh.lru_remove_unsafe(key)
-						sh.counter--
+			sh.counter--
 			count++
 		}
 		sh.mu.unlock()

@@ -38,8 +38,8 @@ fn test_snapshot_singletons_captures_all_instances() {
 
 	snapshot := c.snapshot_singletons()
 	assert snapshot.len == 2
-	assert !isnil(snapshot['mock_repo'])
-	assert !isnil(snapshot['log'])
+	assert !isnil(snapshot['mock_repo'] or { voidptr(0) })
+	assert !isnil(snapshot['log'] or { voidptr(0) })
 }
 
 fn test_snapshot_singletons_captures_aliases() {
@@ -53,12 +53,15 @@ fn test_snapshot_singletons_captures_aliases() {
 	snapshot := c.snapshot_singletons()
 	// 1 instance + 2 aliases = 3 entries
 	assert snapshot.len == 3
-	assert snapshot['mock_repo'] == unsafe { voidptr(repo) }
-	assert snapshot['MockRepo'] == unsafe { voidptr(repo) }
-	assert snapshot['Repo'] == unsafe { voidptr(repo) }
+	got_repo := snapshot['mock_repo'] or { voidptr(0) }
+	got_named := snapshot['MockRepo'] or { voidptr(0) }
+	got_alias := snapshot['Repo'] or { voidptr(0) }
+	assert unsafe { got_repo == voidptr(repo) }
+	assert unsafe { got_named == voidptr(repo) }
+	assert unsafe { got_alias == voidptr(repo) }
 	// 所有别名应指向同一实例
-	assert snapshot['mock_repo'] == snapshot['MockRepo']
-	assert snapshot['MockRepo'] == snapshot['Repo']
+	assert unsafe { got_repo == got_named }
+	assert unsafe { got_named == got_alias }
 }
 
 fn test_snapshot_singletons_empty_container() {

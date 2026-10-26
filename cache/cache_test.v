@@ -247,18 +247,14 @@ fn test_new_cache_registry() {
 fn test_cache_registry_register() {
 	mut cm := new_cache_registry()
 	mut mem := new_memory_cache('named')
-	unsafe {
-		cm.register('named', mem)
-	}
+	cm.register('named', mem)
 	assert cm.caches.len == 1
 }
 
 fn test_cache_registry_get_cache() {
 	mut cm := new_cache_registry()
 	mut mem := new_memory_cache('named')
-	unsafe {
-		cm.register('named', mem)
-	}
+	cm.register('named', mem)
 	retrieved := cm.get_cache('named')
 	assert true // reached without crash
 	_ = retrieved

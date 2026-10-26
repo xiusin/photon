@@ -121,8 +121,9 @@ fn parse_and_merge_params(mut entry ApiDocEntry, url string) {
 
 	for kv in query.split('&') {
 		pair := kv.split('=')
-		if pair.len < 1 || pair[0].len == 0 { continue
-		 }
+		if pair.len < 1 || pair[0].len == 0 {
+			continue
+		}
 		mut val := ''
 		if pair.len >= 2 { val = pair[1] }
 		// Check if parameter already exists
@@ -240,8 +241,9 @@ fn parse_and_merge_headers(mut entry ApiDocEntry, ctx &veb.Context) {
 
 fn parse_and_merge_form_params(mut entry ApiDocEntry, ctx &veb.Context) {
 	for key, val in ctx.form {
-		if key.len == 0 { continue
-		 }
+		if key.len == 0 {
+			continue
+		}
 		// Check if parameter already exists
 		mut found := false
 		for i in 0 .. entry.parameters.len {

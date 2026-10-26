@@ -19,13 +19,9 @@ fn test_cache_registry_get_cache_names_empty() {
 fn test_cache_registry_get_cache_names_with_caches() {
 	mut cm := new_cache_registry()
 	mut mem := new_memory_cache('users')
-	unsafe {
-		cm.register('users', mem)
-	}
+	cm.register('users', mem)
 	mut mem2 := new_memory_cache('orders')
-	unsafe {
-		cm.register('orders', mem2)
-	}
+	cm.register('orders', mem2)
 
 	names := cm.get_cache_names()
 	assert names.len == 2
@@ -36,9 +32,7 @@ fn test_cache_registry_get_cache_names_with_caches() {
 fn test_cache_registry_adapter_implements_manager() {
 	mut cm := new_cache_registry()
 	mut mem := new_memory_cache('test')
-	unsafe {
-		cm.register('test', mem)
-	}
+	cm.register('test', mem)
 
 	adapter := new_cache_registry_adapter(cm)
 	// Verify it implements CacheManager interface

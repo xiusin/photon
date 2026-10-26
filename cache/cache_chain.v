@@ -24,7 +24,7 @@ pub mut:
 	cache_name     string = 'default'
 	key            string
 	value          string
-	ttl_seconds    int = 300 // default 5 minutes
+	ttl_seconds    int           = 300          // default 5 minutes
 	loader         fn () !string = unsafe { nil } // see safe_cast.v
 	tags           []string
 	condition      fn () bool = unsafe { nil } // see safe_cast.v
