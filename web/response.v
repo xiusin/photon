@@ -33,13 +33,13 @@ import strings
 @[heap]
 pub struct ResponseBuilder {
 pub mut:
-	status_code  int              = 200
-	content_type string           = 'application/json'
+	status_code  int    = 200
+	content_type string = 'application/json'
 	headers      map[string]string
 	body         string
 	// Cache-related fields / 缓存相关字段
 	cache_control_str string
-	etag_str         string
+	etag_str          string
 	last_modified_str string
 }
 

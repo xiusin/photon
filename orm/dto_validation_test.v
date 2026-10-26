@@ -14,20 +14,20 @@ module orm
 // Test entities with extended annotations
 // ════════════════════════════════════════════════════════════════
 
-@[entity]
 @[table: 'products']
+@[entity]
 struct DtoProduct {
 pub mut:
 	id         int    @[id; generated_value]
 	name       string @[size: '255']
 	sku        string @[unique; size: '50']
 	price      f64
-	quantity   int    @[min: '0'; max: '10000']
-	is_active  bool   @[nullable]
-	created_at i64    @[created_at]
-	updated_at i64    @[updated_at]
-	version    int    @[version]
-	deleted_at i64    @[soft_delete]
+	quantity   int  @[min: '0'; max: '10000']
+	is_active  bool @[nullable]
+	created_at i64  @[created_at]
+	updated_at i64  @[updated_at]
+	version    int  @[version]
+	deleted_at i64  @[soft_delete]
 }
 
 @[entity]

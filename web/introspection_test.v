@@ -322,7 +322,7 @@ fn test_serve_beans_returns_body_content_type_status() {
 
 fn test_mappings_endpoint_returns_200() {
 	mut mock_routes := []RouteInfo{}
-	mock_routes << RouteInfo{method: 'GET', path: '/users', handler_name: 'users'}
+	mock_routes << RouteInfo{ method: 'GET', path: '/users', handler_name: 'users' }
 
 	mut mvc := new_mockmvc()
 	mvc.get('/mappings', mappings_mock_handler(mock_routes))
@@ -333,7 +333,7 @@ fn test_mappings_endpoint_returns_200() {
 
 fn test_mappings_endpoint_content_type_is_json() {
 	mut mock_routes := []RouteInfo{}
-	mock_routes << RouteInfo{method: 'GET', path: '/users', handler_name: 'users'}
+	mock_routes << RouteInfo{ method: 'GET', path: '/users', handler_name: 'users' }
 
 	mut mvc := new_mockmvc()
 	mvc.get('/mappings', mappings_mock_handler(mock_routes))
@@ -344,7 +344,7 @@ fn test_mappings_endpoint_content_type_is_json() {
 
 fn test_mappings_endpoint_returns_mappings_structure() {
 	mut mock_routes := []RouteInfo{}
-	mock_routes << RouteInfo{method: 'GET', path: '/users', handler_name: 'users'}
+	mock_routes << RouteInfo{ method: 'GET', path: '/users', handler_name: 'users' }
 
 	mut mvc := new_mockmvc()
 	mvc.get('/mappings', mappings_mock_handler(mock_routes))
@@ -359,7 +359,7 @@ fn test_mappings_endpoint_returns_mappings_structure() {
 
 fn test_mappings_endpoint_has_method_path_handler() {
 	mut mock_routes := []RouteInfo{}
-	mock_routes << RouteInfo{method: 'GET', path: '/users', handler_name: 'users'}
+	mock_routes << RouteInfo{ method: 'GET', path: '/users', handler_name: 'users' }
 
 	mut mvc := new_mockmvc()
 	mvc.get('/mappings', mappings_mock_handler(mock_routes))
@@ -372,10 +372,10 @@ fn test_mappings_endpoint_has_method_path_handler() {
 
 fn test_mappings_endpoint_multiple_routes() {
 	mut mock_routes := []RouteInfo{}
-	mock_routes << RouteInfo{method: 'GET', path: '/users', handler_name: 'list_users'}
-	mock_routes << RouteInfo{method: 'POST', path: '/users', handler_name: 'create_user'}
-	mock_routes << RouteInfo{method: 'GET', path: '/orders', handler_name: 'list_orders'}
-	mock_routes << RouteInfo{method: 'DELETE', path: '/orders/:id', handler_name: 'delete_order'}
+	mock_routes << RouteInfo{ method: 'GET', path: '/users', handler_name: 'list_users' }
+	mock_routes << RouteInfo{ method: 'POST', path: '/users', handler_name: 'create_user' }
+	mock_routes << RouteInfo{ method: 'GET', path: '/orders', handler_name: 'list_orders' }
+	mock_routes << RouteInfo{ method: 'DELETE', path: '/orders/:id', handler_name: 'delete_order' }
 
 	mut mvc := new_mockmvc()
 	mvc.get('/mappings', mappings_mock_handler(mock_routes))
@@ -404,11 +404,11 @@ fn test_mappings_endpoint_empty_routes() {
 
 fn test_mappings_endpoint_all_http_methods() {
 	mut mock_routes := []RouteInfo{}
-	mock_routes << RouteInfo{method: 'GET', path: '/r1', handler_name: 'h1'}
-	mock_routes << RouteInfo{method: 'POST', path: '/r2', handler_name: 'h2'}
-	mock_routes << RouteInfo{method: 'PUT', path: '/r3', handler_name: 'h3'}
-	mock_routes << RouteInfo{method: 'DELETE', path: '/r4', handler_name: 'h4'}
-	mock_routes << RouteInfo{method: 'PATCH', path: '/r5', handler_name: 'h5'}
+	mock_routes << RouteInfo{ method: 'GET', path: '/r1', handler_name: 'h1' }
+	mock_routes << RouteInfo{ method: 'POST', path: '/r2', handler_name: 'h2' }
+	mock_routes << RouteInfo{ method: 'PUT', path: '/r3', handler_name: 'h3' }
+	mock_routes << RouteInfo{ method: 'DELETE', path: '/r4', handler_name: 'h4' }
+	mock_routes << RouteInfo{ method: 'PATCH', path: '/r5', handler_name: 'h5' }
 
 	mut mvc := new_mockmvc()
 	mvc.get('/mappings', mappings_mock_handler(mock_routes))
@@ -423,7 +423,7 @@ fn test_mappings_endpoint_all_http_methods() {
 
 fn test_serve_mappings_returns_body_content_type_status() {
 	mut mock_routes := []RouteInfo{}
-	mock_routes << RouteInfo{method: 'GET', path: '/users', handler_name: 'users'}
+	mock_routes << RouteInfo{ method: 'GET', path: '/users', handler_name: 'users' }
 
 	body, ct, code := serve_mappings(mock_routes)
 
@@ -465,7 +465,7 @@ fn test_beans_json_format_valid() {
 
 fn test_mappings_json_format_valid() {
 	mut mock_routes := []RouteInfo{}
-	mock_routes << RouteInfo{method: 'GET', path: '/users', handler_name: 'users'}
+	mock_routes << RouteInfo{ method: 'GET', path: '/users', handler_name: 'users' }
 
 	body, _, _ := serve_mappings(mock_routes)
 
@@ -511,7 +511,7 @@ fn test_beans_endpoint_unknown_path_returns_404() {
 
 fn test_mappings_endpoint_unknown_path_returns_404() {
 	mut mock_routes := []RouteInfo{}
-	mock_routes << RouteInfo{method: 'GET', path: '/users', handler_name: 'users'}
+	mock_routes << RouteInfo{ method: 'GET', path: '/users', handler_name: 'users' }
 
 	mut mvc := new_mockmvc()
 	mvc.get('/mappings', mappings_mock_handler(mock_routes))

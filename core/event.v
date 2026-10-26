@@ -115,7 +115,7 @@ pub mut:
 	transactional_listeners map[string][]TransactionalRegisteredListener
 mut:
 	sharded_mu ShardedRwMutex // 分片锁：按事件名分片，替代全局 mu sync.RwMutex
-	id_mu      sync.Mutex    // next_id 专用互斥锁 / dedicated mutex for next_id (避免分片锁间的竞态)
+	id_mu      sync.Mutex     // next_id 专用互斥锁 / dedicated mutex for next_id (避免分片锁间的竞态)
 	wg         sync.WaitGroup
 	next_id    int
 }

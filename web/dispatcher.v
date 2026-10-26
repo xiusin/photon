@@ -30,8 +30,8 @@ pub type RouteHandler = fn (ctx_ptr voidptr, params map[string]string) veb.Resul
 @[heap]
 pub struct RouteDef {
 pub:
-	method            string           // GET / POST / PUT / DELETE / PATCH
-	path              string           // 原始路径，如 /api/v1/users/:id
+	method            string // GET / POST / PUT / DELETE / PATCH
+	path              string // 原始路径，如 /api/v1/users/:id
 	handler           RouteHandler = unsafe { nil } // 处理器闭包
 	segments          []RouteSegment   // 编译后的路径段
 	middlewares       []MiddlewareFunc // 路由级前置中间件
@@ -235,9 +235,9 @@ fn find_route_linear(routes []&RouteDef, method string, url_path string, host st
 // DispatchedRequest 是请求调度结果，在 before_request 中填充
 pub struct DispatchedRequest {
 pub mut:
-	matched      bool
-	route        &RouteDef = unsafe { nil }
-	params       map[string]string
+	matched bool
+	route   &RouteDef = unsafe { nil }
+	params  map[string]string
 }
 
 // new_dispatched_request 创建 DispatchedRequest

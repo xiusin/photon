@@ -153,7 +153,7 @@ fn test_response_builder_cache_control_public() {
 	mut rb := response()
 	rb.cache_control(CacheControlBuilder{
 		is_public: true
-		max_age: 3600
+		max_age:   3600
 	})
 	assert rb.cache_control_str == 'public, max-age=3600'
 }
@@ -164,7 +164,7 @@ fn test_response_builder_cache_control_private() {
 	mut rb := response()
 	rb.cache_control(CacheControlBuilder{
 		is_public: false
-		max_age: 600
+		max_age:   600
 	})
 	assert rb.cache_control_str == 'private, max-age=600'
 }
@@ -175,7 +175,7 @@ fn test_response_builder_cache_control_no_cache() {
 	mut rb := response()
 	rb.cache_control(CacheControlBuilder{
 		is_public: true
-		no_cache: true
+		no_cache:  true
 	})
 	assert rb.cache_control_str.contains('no-cache')
 }
@@ -186,7 +186,7 @@ fn test_response_builder_cache_control_no_store() {
 	mut rb := response()
 	rb.cache_control(CacheControlBuilder{
 		is_public: true
-		no_store: true
+		no_store:  true
 	})
 	assert rb.cache_control_str.contains('no-store')
 }
@@ -196,7 +196,7 @@ fn test_response_builder_cache_control_must_revalidate() {
 	// cache_control() sets must-revalidate
 	mut rb := response()
 	rb.cache_control(CacheControlBuilder{
-		is_public: true
+		is_public:       true
 		must_revalidate: true
 	})
 	assert rb.cache_control_str.contains('must-revalidate')
@@ -218,11 +218,11 @@ fn test_response_builder_cache_control_full() {
 	// cache_control() full combination
 	mut rb := response()
 	rb.cache_control(CacheControlBuilder{
-		is_public: true
-		max_age: 3600
-		s_max_age: 7200
-		no_cache: false
-		no_store: false
+		is_public:       true
+		max_age:         3600
+		s_max_age:       7200
+		no_cache:        false
+		no_store:        false
 		must_revalidate: true
 	})
 	assert rb.cache_control_str.contains('public')
@@ -265,10 +265,10 @@ fn test_response_builder_last_modified_format() {
 	// last_modified() uses HTTP-date format
 	mut rb := response()
 	t := time.Time{
-		year: 2024
-		month: 1
-		day: 15
-		hour: 12
+		year:   2024
+		month:  1
+		day:    15
+		hour:   12
 		minute: 30
 		second: 45
 	}
@@ -428,7 +428,7 @@ fn test_response_builder_full_construction() {
 	rb.body('{"message":"ok"}')
 	rb.cache_control(CacheControlBuilder{
 		is_public: true
-		max_age: 300
+		max_age:   300
 	})
 	rb.etag('v2')
 	t := time.now()
@@ -457,8 +457,8 @@ fn test_response_builder_multiple_last_modified_calls() {
 	// 多次调用 last_modified() 覆盖之前的值
 	// Multiple last_modified() calls overwrite the previous value
 	mut rb := response()
-	t1 := time.Time{year: 2024, month: 1, day: 1}
-	t2 := time.Time{year: 2025, month: 6, day: 15}
+	t1 := time.Time{ year: 2024, month: 1, day: 1 }
+	t2 := time.Time{ year: 2025, month: 6, day: 15 }
 	rb.last_modified(t1)
 	lm1 := rb.last_modified_str
 	rb.last_modified(t2)

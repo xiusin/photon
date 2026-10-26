@@ -83,15 +83,15 @@ pub mut:
 	propagation     Propagation = .required
 	isolation       Isolation   = .default_
 	read_only       bool
-	timeout_ms      int                  // 0 = no timeout (B3.3)
-	started_at      time.Time            // when the current tx began (B3.3)
-	rollback_for    []string             // exception type names that trigger rollback (B3.4)
-	no_rollback_for []string             // exception type names that do NOT trigger rollback (B3.4)
-	driver          DriverType = .sqlite // driver for isolation SQL generation (B3.1)
-	conn            voidptr        = unsafe { nil } // 数据库连接（由用户提供）
-	begin_fn        fn (voidptr) ! = unsafe { nil } // 真实 begin 回调
-	commit_fn       fn (voidptr) ! = unsafe { nil } // 真实 commit 回调
-	rollback_fn     fn (voidptr) ! = unsafe { nil } // 真实 rollback 回调
+	timeout_ms      int       // 0 = no timeout (B3.3)
+	started_at      time.Time // when the current tx began (B3.3)
+	rollback_for    []string  // exception type names that trigger rollback (B3.4)
+	no_rollback_for []string  // exception type names that do NOT trigger rollback (B3.4)
+	driver          DriverType             = .sqlite      // driver for isolation SQL generation (B3.1)
+	conn            voidptr                = unsafe { nil } // 数据库连接（由用户提供）
+	begin_fn        fn (voidptr) !         = unsafe { nil } // 真实 begin 回调
+	commit_fn       fn (voidptr) !         = unsafe { nil } // 真实 commit 回调
+	rollback_fn     fn (voidptr) !         = unsafe { nil } // 真实 rollback 回调
 	exec_fn         fn (voidptr, string) ! = unsafe { nil } // execute raw SQL (B3.1/B3.2)
 mut:
 	mu sync.RwMutex
@@ -384,10 +384,10 @@ pub fn (mut tm TransactionManager) rollback_if_needed(err IError, attr Transacti
 // upper-cased) is a write operation that a read-only transaction
 // must not perform.
 fn is_write_operation(sql_upper string) bool {
-	return sql_upper.starts_with('INSERT') || sql_upper.starts_with('UPDATE') ||
-		sql_upper.starts_with('DELETE') || sql_upper.starts_with('DROP') ||
-		sql_upper.starts_with('CREATE') || sql_upper.starts_with('ALTER') ||
-		sql_upper.starts_with('TRUNCATE')
+	return sql_upper.starts_with('INSERT') || sql_upper.starts_with('UPDATE')
+		|| sql_upper.starts_with('DELETE') || sql_upper.starts_with('DROP')
+		|| sql_upper.starts_with('CREATE') || sql_upper.starts_with('ALTER')
+		|| sql_upper.starts_with('TRUNCATE')
 }
 
 // isolation_sql returns the SQL statement to set the isolation level
@@ -450,10 +450,10 @@ fn error_type_matches(err IError, type_name string) bool {
 // for use with begin_with_options().
 pub fn (attr TransactionAttribute) to_options() TransactionOptions {
 	return TransactionOptions{
-		isolation: attr.isolation
-		readonly: attr.readonly
-		timeout_ms: attr.timeout_ms
-		rollback_for: attr.rollback_for
+		isolation:       attr.isolation
+		readonly:        attr.readonly
+		timeout_ms:      attr.timeout_ms
+		rollback_for:    attr.rollback_for
 		no_rollback_for: attr.no_rollback_for
 	}
 }

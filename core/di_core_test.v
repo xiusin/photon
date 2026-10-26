@@ -45,16 +45,19 @@ fn test_check_circular_dependencies_no_cycle() {
 
 	// A → B → C（无环）
 	mut def_a := new_bean_definition('dep_a')
-	def_a.dependencies = [Dependency{field_name: 'b', type_name: 'dep_b'}]
+	def_a.dependencies = [Dependency{ field_name: 'b', type_name: 'dep_b' }]
 	c.register(def_a) or { assert false }
 
 	mut def_b := new_bean_definition('dep_b')
-	def_b.dependencies = [Dependency{field_name: 'c', type_name: 'dep_c'}]
+	def_b.dependencies = [Dependency{ field_name: 'c', type_name: 'dep_c' }]
 	c.register(def_b) or { assert false }
 
 	c.register(new_bean_definition('dep_c')) or { assert false }
 
-	c.check_circular_dependencies() or { assert false; return }
+	c.check_circular_dependencies() or {
+		assert false
+		return
+	}
 }
 
 fn test_check_circular_dependencies_detects_simple_cycle() {
@@ -62,11 +65,11 @@ fn test_check_circular_dependencies_detects_simple_cycle() {
 
 	// A → B → A（简单环）
 	mut def_a := new_bean_definition('cycle_a')
-	def_a.dependencies = [Dependency{field_name: 'b', type_name: 'cycle_b'}]
+	def_a.dependencies = [Dependency{ field_name: 'b', type_name: 'cycle_b' }]
 	c.register(def_a) or { assert false }
 
 	mut def_b := new_bean_definition('cycle_b')
-	def_b.dependencies = [Dependency{field_name: 'a', type_name: 'cycle_a'}]
+	def_b.dependencies = [Dependency{ field_name: 'a', type_name: 'cycle_a' }]
 	c.register(def_b) or { assert false }
 
 	c.check_circular_dependencies() or {
@@ -81,15 +84,15 @@ fn test_check_circular_dependencies_detects_three_node_cycle() {
 
 	// A → B → C → A（三节点环）
 	mut def_a := new_bean_definition('tri_a')
-	def_a.dependencies = [Dependency{field_name: 'b', type_name: 'tri_b'}]
+	def_a.dependencies = [Dependency{ field_name: 'b', type_name: 'tri_b' }]
 	c.register(def_a) or { assert false }
 
 	mut def_b := new_bean_definition('tri_b')
-	def_b.dependencies = [Dependency{field_name: 'c', type_name: 'tri_c'}]
+	def_b.dependencies = [Dependency{ field_name: 'c', type_name: 'tri_c' }]
 	c.register(def_b) or { assert false }
 
 	mut def_c := new_bean_definition('tri_c')
-	def_c.dependencies = [Dependency{field_name: 'a', type_name: 'tri_a'}]
+	def_c.dependencies = [Dependency{ field_name: 'a', type_name: 'tri_a' }]
 	c.register(def_c) or { assert false }
 
 	c.check_circular_dependencies() or {
@@ -104,7 +107,7 @@ fn test_check_circular_dependencies_self_reference() {
 
 	// A → A（自引用环）
 	mut def := new_bean_definition('self_ref')
-	def.dependencies = [Dependency{field_name: 'self', type_name: 'self_ref'}]
+	def.dependencies = [Dependency{ field_name: 'self', type_name: 'self_ref' }]
 	c.register(def) or { assert false }
 
 	c.check_circular_dependencies() or {
@@ -118,11 +121,11 @@ fn test_find_dependency_cycle_returns_path() {
 	mut c := new_container()
 
 	mut def_a := new_bean_definition('path_a')
-	def_a.dependencies = [Dependency{field_name: 'b', type_name: 'path_b'}]
+	def_a.dependencies = [Dependency{ field_name: 'b', type_name: 'path_b' }]
 	c.register(def_a) or { assert false }
 
 	mut def_b := new_bean_definition('path_b')
-	def_b.dependencies = [Dependency{field_name: 'a', type_name: 'path_a'}]
+	def_b.dependencies = [Dependency{ field_name: 'a', type_name: 'path_a' }]
 	c.register(def_b) or { assert false }
 
 	cycle := c.find_dependency_cycle()
@@ -174,9 +177,9 @@ fn test_register_duplicate_returns_error() {
 
 fn test_register_instance_duplicate_returns_error() {
 	mut c := new_container()
-	c.register_instance('dup_inst', unsafe { voidptr(&CoreMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('dup_inst', unsafe { voidptr(&CoreMockRepo{ id: 1 }) }) or { assert false }
 
-	c.register_instance('dup_inst', unsafe { voidptr(&CoreMockRepo{id: 2}) }) or {
+	c.register_instance('dup_inst', unsafe { voidptr(&CoreMockRepo{ id: 2 }) }) or {
 		assert err.msg().contains('already registered')
 		return
 	}
@@ -189,11 +192,14 @@ fn test_set_instance_stores_and_resolves() {
 	mut c := new_container()
 	c.register(new_bean_definition('set_bean')) or { assert false }
 
-	repo := &CoreMockRepo{id: 42}
+	repo := &CoreMockRepo{ id: 42 }
 	c.set_instance('set_bean', unsafe { voidptr(repo) })
 
 	// resolve 应返回 set_instance 存储的实例
-	inst := c.resolve('set_bean') or { assert false; return }
+	inst := c.resolve('set_bean') or {
+		assert false
+		return
+	}
 	assert inst == unsafe { voidptr(repo) }
 	assert c.has_instance('set_bean') == true
 }
@@ -202,13 +208,16 @@ fn test_set_instance_overwrites_existing() {
 	mut c := new_container()
 	c.register(new_bean_definition('overwrite_bean')) or { assert false }
 
-	repo1 := &CoreMockRepo{id: 1}
+	repo1 := &CoreMockRepo{ id: 1 }
 	c.set_instance('overwrite_bean', unsafe { voidptr(repo1) })
 
-	repo2 := &CoreMockRepo{id: 2}
+	repo2 := &CoreMockRepo{ id: 2 }
 	c.set_instance('overwrite_bean', unsafe { voidptr(repo2) })
 
-	inst := c.resolve('overwrite_bean') or { assert false; return }
+	inst := c.resolve('overwrite_bean') or {
+		assert false
+		return
+	}
 	assert inst == unsafe { voidptr(repo2) }
 }
 
@@ -228,7 +237,7 @@ fn test_register_init_callback() {
 fn test_invoke_init_callback_executes() {
 	mut c := new_container()
 	c.register(new_bean_definition('invoke_bean')) or { assert false }
-	repo := &CoreMockRepo{id: 10}
+	repo := &CoreMockRepo{ id: 10 }
 	c.register_instance('invoke_bean', unsafe { voidptr(repo) }) or { assert false }
 
 	invoked := false
@@ -237,7 +246,10 @@ fn test_invoke_init_callback_executes() {
 	})
 
 	// invoke_init_callback 不应报错
-	c.invoke_init_callback('invoke_bean', unsafe { voidptr(repo) }) or { assert false; return }
+	c.invoke_init_callback('invoke_bean', unsafe { voidptr(repo) }) or {
+		assert false
+		return
+	}
 	_ = invoked
 }
 
@@ -246,14 +258,17 @@ fn test_invoke_init_callback_no_callback_is_noop() {
 	c.register(new_bean_definition('no_callback_bean')) or { assert false }
 
 	// 没有 callback 时，invoke 应静默通过（noop）
-	c.invoke_init_callback('no_callback_bean', voidptr(unsafe { nil })) or { assert false; return }
+	c.invoke_init_callback('no_callback_bean', voidptr(unsafe { nil })) or {
+		assert false
+		return
+	}
 }
 
 // ── FF. replace_definition 副作用 ──
 
 fn test_replace_definition_removes_old_instance() {
 	mut c := new_container()
-	repo1 := &CoreMockRepo{id: 1}
+	repo1 := &CoreMockRepo{ id: 1 }
 	c.register_instance('replace_bean', unsafe { voidptr(repo1) }) or { assert false }
 	assert c.has_instance('replace_bean') == true
 
@@ -281,7 +296,7 @@ fn test_replace_definition_updates_qualifier() {
 
 fn test_replace_definition_preserves_aliases() {
 	mut c := new_container()
-	c.register_instance('aliased_bean', unsafe { voidptr(&CoreMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('aliased_bean', unsafe { voidptr(&CoreMockRepo{ id: 1 }) }) or { assert false }
 	c.register_alias('Alias1', 'aliased_bean') or { assert false }
 	c.register_alias('Alias2', 'aliased_bean') or { assert false }
 
@@ -295,7 +310,7 @@ fn test_replace_definition_preserves_aliases() {
 
 fn test_remove_definition_removes_instance() {
 	mut c := new_container()
-	c.register_instance('rm_bean', unsafe { voidptr(&CoreMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('rm_bean', unsafe { voidptr(&CoreMockRepo{ id: 1 }) }) or { assert false }
 	assert c.has_instance('rm_bean') == true
 
 	c.remove_definition('rm_bean') or { assert false }
@@ -316,7 +331,7 @@ fn test_remove_definition_removes_qualifier() {
 
 fn test_remove_definition_removes_aliases() {
 	mut c := new_container()
-	c.register_instance('aliased_rm', unsafe { voidptr(&CoreMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('aliased_rm', unsafe { voidptr(&CoreMockRepo{ id: 1 }) }) or { assert false }
 	c.register_alias('RmAlias1', 'aliased_rm') or { assert false }
 	c.register_alias('RmAlias2', 'aliased_rm') or { assert false }
 
@@ -341,7 +356,7 @@ fn test_multi_level_alias_chain_resolution() {
 	// 不支持指向别名的别名。所以多级别名链通过公开 API 不可达。
 	// 但单级别名链 resolve_alias_chain 的递归逻辑仍需验证。
 	mut c := new_container()
-	repo := &CoreMockRepo{id: 99}
+	repo := &CoreMockRepo{ id: 99 }
 	c.register_instance('actual_bean', unsafe { voidptr(repo) }) or { assert false }
 
 	// 单级别名: AliasA → actual_bean
@@ -352,13 +367,16 @@ fn test_multi_level_alias_chain_resolution() {
 	assert c.canonical_name('actual_bean') == 'actual_bean'
 
 	// resolve 通过别名应找到实例
-	inst := c.resolve('AliasA') or { assert false; return }
+	inst := c.resolve('AliasA') or {
+		assert false
+		return
+	}
 	assert inst == unsafe { voidptr(repo) }
 }
 
 fn test_alias_chain_self_reference_returns_self() {
 	mut c := new_container()
-	c.register_instance('self_bean', unsafe { voidptr(&CoreMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('self_bean', unsafe { voidptr(&CoreMockRepo{ id: 1 }) }) or { assert false }
 	c.register_alias('SelfRef', 'self_bean') or { assert false }
 
 	// 正常链解析
@@ -373,18 +391,27 @@ fn test_alias_chain_self_reference_returns_self() {
 fn test_get_service_resolves_by_type() {
 	mut ctx := new_application_context()
 	// create_and_register 内部用 T.name 注册，与 get_service[T] 的 T.name 一致
-	ctx.create_and_register[CoreMockRepo]() or { assert false; return }
+	ctx.create_and_register[CoreMockRepo]() or {
+		assert false
+		return
+	}
 
-	svc := ctx.get_service[CoreMockRepo]() or { assert false; return }
+	svc := ctx.get_service[CoreMockRepo]() or {
+		assert false
+		return
+	}
 	assert !isnil(svc)
 }
 
 fn test_get_service_by_name_resolves() {
 	mut ctx := new_application_context()
-	repo := &CoreMockRepo{id: 66}
+	repo := &CoreMockRepo{ id: 66 }
 	ctx.register_instance('named_service', unsafe { voidptr(repo) }) or { assert false }
 
-	inst := ctx.get_service_by_name('named_service') or { assert false; return }
+	inst := ctx.get_service_by_name('named_service') or {
+		assert false
+		return
+	}
 	assert inst == unsafe { voidptr(repo) }
 }
 
@@ -398,7 +425,7 @@ fn test_get_service_by_name_not_found() {
 
 fn test_has_service_checks_existence() {
 	mut ctx := new_application_context()
-	ctx.register_instance('present', unsafe { voidptr(&CoreMockRepo{id: 1}) }) or { assert false }
+	ctx.register_instance('present', unsafe { voidptr(&CoreMockRepo{ id: 1 }) }) or { assert false }
 
 	assert ctx.has_service('present') == true
 	assert ctx.has_service('absent') == false
@@ -408,8 +435,8 @@ fn test_has_service_checks_existence() {
 
 fn test_autowire_bean_multi_field_injection() {
 	mut ctx := new_application_context()
-	repo := &CoreMockRepo{id: 10}
-	cache := &CoreMockCache{size: 256}
+	repo := &CoreMockRepo{ id: 10 }
+	cache := &CoreMockCache{ size: 256 }
 
 	ctx.register_instance('repo', unsafe { voidptr(repo) }) or { assert false }
 	ctx.register_instance('cache', unsafe { voidptr(cache) }) or { assert false }
@@ -425,7 +452,7 @@ fn test_autowire_bean_multi_field_injection() {
 
 fn test_autowire_bean_partial_injection_when_one_missing() {
 	mut ctx := new_application_context()
-	repo := &CoreMockRepo{id: 20}
+	repo := &CoreMockRepo{ id: 20 }
 	// 只注册 repo，不注册 cache
 	ctx.register_instance('repo', unsafe { voidptr(repo) }) or { assert false }
 
@@ -443,7 +470,7 @@ fn test_autowire_bean_partial_injection_when_one_missing() {
 
 fn test_autowire_bean_capitalize_first_match() {
 	mut ctx := new_application_context()
-	repo := &CoreMockRepo{id: 30}
+	repo := &CoreMockRepo{ id: 30 }
 
 	// 注册名为首字母大写形式 'Repo'，字段名为 'repo'
 	ctx.register_instance('Repo', unsafe { voidptr(repo) }) or { assert false }
@@ -458,8 +485,8 @@ fn test_autowire_bean_capitalize_first_match() {
 
 fn test_autowire_bean_field_name_exact_match_preferred() {
 	mut ctx := new_application_context()
-	repo_lower := &CoreMockRepo{id: 40}
-	repo_upper := &CoreMockRepo{id: 41}
+	repo_lower := &CoreMockRepo{ id: 40 }
+	repo_upper := &CoreMockRepo{ id: 41 }
 
 	// 同时注册 'repo' 和 'Repo'
 	ctx.register_instance('repo', unsafe { voidptr(repo_lower) }) or { assert false }
@@ -484,7 +511,10 @@ fn test_get_definition_returns_correct_copy() {
 	def.qualifier = 'my_qual'
 	c.register(def) or { assert false }
 
-	retrieved := c.get_definition('def_bean') or { assert false; return }
+	retrieved := c.get_definition('def_bean') or {
+		assert false
+		return
+	}
 	assert retrieved.type_name == 'def_bean'
 	assert retrieved.scope == .prototype
 	assert retrieved.is_lazy == true
@@ -505,8 +535,8 @@ fn test_get_definition_unknown_returns_error() {
 
 fn test_snapshot_singletons_multi_instance_multi_alias() {
 	mut c := new_container()
-	repo1 := &CoreMockRepo{id: 1}
-	repo2 := &CoreMockRepo{id: 2}
+	repo1 := &CoreMockRepo{ id: 1 }
+	repo2 := &CoreMockRepo{ id: 2 }
 
 	c.register_instance('bean_a', unsafe { voidptr(repo1) }) or { assert false }
 	c.register_instance('bean_b', unsafe { voidptr(repo2) }) or { assert false }
@@ -555,16 +585,22 @@ fn test_resolve_unknown_in_empty_container() {
 
 fn test_resolve_before_freeze_populates_cache() {
 	mut ctx := new_application_context()
-	repo := &CoreMockRepo{id: 77}
+	repo := &CoreMockRepo{ id: 77 }
 	ctx.register_instance('pre_freeze_bean', unsafe { voidptr(repo) }) or { assert false }
 
 	// 未冻结时 resolve
-	inst1 := ctx.resolve('pre_freeze_bean') or { assert false; return }
+	inst1 := ctx.resolve('pre_freeze_bean') or {
+		assert false
+		return
+	}
 	assert inst1 == unsafe { voidptr(repo) }
 
 	// 第二次 resolve 应命中缓存（未冻结时走 cache_mu 路径）
 	misses_before := ctx.cache_miss_count()
-	inst2 := ctx.resolve('pre_freeze_bean') or { assert false; return }
+	inst2 := ctx.resolve('pre_freeze_bean') or {
+		assert false
+		return
+	}
 	misses_after := ctx.cache_miss_count()
 
 	assert inst2 == inst1
@@ -576,7 +612,7 @@ fn test_resolve_before_freeze_populates_cache() {
 
 fn test_register_instance_auto_creates_definition() {
 	mut c := new_container()
-	c.register_instance('auto_def_bean', unsafe { voidptr(&CoreMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('auto_def_bean', unsafe { voidptr(&CoreMockRepo{ id: 1 }) }) or { assert false }
 
 	// register_instance 应自动创建 definition
 	assert c.has_definition('auto_def_bean') == true
@@ -590,14 +626,23 @@ fn test_register_instance_auto_creates_definition() {
 
 fn test_freeze_cache_hits_increment_on_resolve() {
 	mut ctx := new_application_context()
-	ctx.register_instance('hit_bean', unsafe { voidptr(&CoreMockRepo{id: 1}) }) or { assert false }
+	ctx.register_instance('hit_bean', unsafe { voidptr(&CoreMockRepo{ id: 1 }) }) or { assert false }
 	ctx.freeze_bean_definitions()
 
 	hits_before := ctx.cache_hit_count()
 
-	_ = ctx.resolve('hit_bean') or { assert false; return }
-	_ = ctx.resolve('hit_bean') or { assert false; return }
-	_ = ctx.resolve('hit_bean') or { assert false; return }
+	_ = ctx.resolve('hit_bean') or {
+		assert false
+		return
+	}
+	_ = ctx.resolve('hit_bean') or {
+		assert false
+		return
+	}
+	_ = ctx.resolve('hit_bean') or {
+		assert false
+		return
+	}
 
 	hits_after := ctx.cache_hit_count()
 	// 3 次 resolve 应产生 3 次 cache hit 增长

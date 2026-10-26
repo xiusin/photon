@@ -39,7 +39,7 @@ pub mut:
 	path      string = '/'
 	max_age   int    = -1
 	secure    bool
-	http_only bool   = true
+	http_only bool     = true
 	same_site SameSite = .lax
 }
 
@@ -103,12 +103,12 @@ pub fn (b &CookieBuilder) build() http.Cookie {
 		.none { http.SameSite.same_site_none_mode }
 	}
 	return http.Cookie{
-		name:     b.name
-		value:    b.value
-		domain:   b.domain
-		path:     b.path
-		max_age:  b.max_age
-		secure:   b.secure
+		name:      b.name
+		value:     b.value
+		domain:    b.domain
+		path:      b.path
+		max_age:   b.max_age
+		secure:    b.secure
 		http_only: b.http_only
 		same_site: ss
 	}
@@ -397,11 +397,11 @@ pub fn (mut cm CookieManager) decrypt(encrypted string) ?string {
 pub fn (mut cm CookieManager) set_encrypted_cookie(mut ctx veb.Context, name string, value string) !string {
 	encrypted_value := cm.encrypt(value)!
 	ctx.set_cookie(http.Cookie{
-		name:     name
-		value:    encrypted_value
-		path:     '/'
+		name:      name
+		value:     encrypted_value
+		path:      '/'
 		http_only: true
-		secure:   true
+		secure:    true
 		same_site: http.SameSite.same_site_lax_mode
 	})
 	return encrypted_value

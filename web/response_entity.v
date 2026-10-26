@@ -49,9 +49,9 @@ import net.http
 // a single goroutine and consumed immediately.
 pub struct ResponseEntity[T] {
 pub:
-	status  int               = 200
-	headers map[string]string
-	body    T
+	status   int = 200
+	headers  map[string]string
+	body     T
 	has_body bool = true
 }
 
@@ -61,8 +61,8 @@ pub:
 // Spring equivalent: ResponseEntity.ok(body)
 pub fn ok_entity[T](body T) ResponseEntity[T] {
 	return ResponseEntity[T]{
-		status: 200
-		body: body
+		status:  200
+		body:    body
 		headers: map[string]string{}
 	}
 }
@@ -71,8 +71,8 @@ pub fn ok_entity[T](body T) ResponseEntity[T] {
 // Spring equivalent: ResponseEntity.created(uri).body(body)
 pub fn created_entity[T](body T) ResponseEntity[T] {
 	return ResponseEntity[T]{
-		status: 201
-		body: body
+		status:  201
+		body:    body
 		headers: map[string]string{}
 	}
 }
@@ -81,9 +81,9 @@ pub fn created_entity[T](body T) ResponseEntity[T] {
 // Spring equivalent: ResponseEntity.accepted()
 pub fn accepted_entity[T]() ResponseEntity[T] {
 	return ResponseEntity[T]{
-		status: 202
+		status:   202
 		has_body: false
-		headers: map[string]string{}
+		headers:  map[string]string{}
 	}
 }
 
@@ -91,9 +91,9 @@ pub fn accepted_entity[T]() ResponseEntity[T] {
 // Spring equivalent: ResponseEntity.noContent()
 pub fn no_content_entity[T]() ResponseEntity[T] {
 	return ResponseEntity[T]{
-		status: 204
+		status:   204
 		has_body: false
-		headers: map[string]string{}
+		headers:  map[string]string{}
 	}
 }
 
@@ -101,9 +101,9 @@ pub fn no_content_entity[T]() ResponseEntity[T] {
 // Spring equivalent: ResponseEntity.badRequest()
 pub fn bad_request_entity[T]() ResponseEntity[T] {
 	return ResponseEntity[T]{
-		status: 400
+		status:   400
 		has_body: false
-		headers: map[string]string{}
+		headers:  map[string]string{}
 	}
 }
 
@@ -111,18 +111,18 @@ pub fn bad_request_entity[T]() ResponseEntity[T] {
 // Spring equivalent: ResponseEntity.notFound()
 pub fn not_found_entity[T]() ResponseEntity[T] {
 	return ResponseEntity[T]{
-		status: 404
+		status:   404
 		has_body: false
-		headers: map[string]string{}
+		headers:  map[string]string{}
 	}
 }
 
 // server_error_entity creates a ResponseEntity with 500 status.
 pub fn server_error_entity[T]() ResponseEntity[T] {
 	return ResponseEntity[T]{
-		status: 500
+		status:   500
 		has_body: false
-		headers: map[string]string{}
+		headers:  map[string]string{}
 	}
 }
 

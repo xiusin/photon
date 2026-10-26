@@ -574,15 +574,15 @@ pub fn spec_not(inner &Specification) &NotSpecification {
 
 pub struct SpecificationExecutor[T] {
 pub mut:
-	exec_find_by_criteria fn (criteria Criteria) ![]T = unsafe { nil }
-	exec_count_by_criteria fn (criteria Criteria) !int  = unsafe { nil }
+	exec_find_by_criteria  fn (criteria Criteria) ![]T = unsafe { nil }
+	exec_count_by_criteria fn (criteria Criteria) !int = unsafe { nil }
 }
 
 // new_specification_executor creates a SpecificationExecutor with
 // the given callback functions.
 pub fn new_specification_executor[T](find_fn fn (criteria Criteria) ![]T, count_fn fn (criteria Criteria) !int) SpecificationExecutor[T] {
 	return SpecificationExecutor[T]{
-		exec_find_by_criteria: find_fn
+		exec_find_by_criteria:  find_fn
 		exec_count_by_criteria: count_fn
 	}
 }

@@ -303,9 +303,15 @@ fn test_extract_column_types() {
 	meta := extract_entity_metadata[AnnotCustomUser]()
 	for col in meta.columns {
 		match col.field_name {
-			'user_id', 'age' { assert col.typ == 'int' }
-			'name', 'email' { assert col.typ == 'string' }
-			else { assert false, 'unexpected field: ${col.field_name}' }
+			'user_id', 'age' {
+				assert col.typ == 'int'
+			}
+			'name', 'email' {
+				assert col.typ == 'string'
+			}
+			else {
+				assert false, 'unexpected field: ${col.field_name}'
+			}
 		}
 	}
 }

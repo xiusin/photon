@@ -297,7 +297,8 @@ pub fn (mut m SmartLifecycleManager) stop_all() {
 			_ := <-done {
 				return
 			}
-			else {}
+			else {
+			}
 		}
 		if time.now().unix_nano() >= deadline_ns {
 			return

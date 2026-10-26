@@ -1273,7 +1273,7 @@ pub fn (mut env Environment) validate_prefix(prefix string, required_keys []stri
 	}
 
 	if missing.len > 0 {
-		return error('missing required properties under \'${prefix}\': ${missing.join(', ')}')
+		return error("missing required properties under '${prefix}': ${missing.join(', ')}")
 	}
 }
 
@@ -1530,7 +1530,7 @@ fn strip_toml_comment_core(value string) string {
 	mut quote_char := u8(0)
 
 	for i, ch in value {
-		if !in_quote && (ch == `"` || ch == `'` ) {
+		if !in_quote && (ch == `"` || ch == `'`) {
 			in_quote = true
 			quote_char = ch
 		} else if in_quote && ch == quote_char {

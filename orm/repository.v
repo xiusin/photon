@@ -101,13 +101,13 @@ pub type OrmExecExists = fn (conn voidptr, id int) bool
 pub struct BaseRepository[T] {
 pub mut:
 	adapter       &OrmAdapter[T]
-	exec_find     fn (conn voidptr, id int) !T     = unsafe { nil }
-	exec_find_all fn (conn voidptr) ![]T           = unsafe { nil }
-	exec_insert   fn (conn voidptr, entity T) !    = unsafe { nil }
-	exec_update   fn (conn voidptr, entity T) !    = unsafe { nil }
-	exec_delete   OrmExecDelete                    = unsafe { nil }
-	exec_count    OrmExecCount                     = unsafe { nil }
-	exec_exists   OrmExecExists                    = unsafe { nil }
+	exec_find     fn (conn voidptr, id int) !T  = unsafe { nil }
+	exec_find_all fn (conn voidptr) ![]T        = unsafe { nil }
+	exec_insert   fn (conn voidptr, entity T) ! = unsafe { nil }
+	exec_update   fn (conn voidptr, entity T) ! = unsafe { nil }
+	exec_delete   OrmExecDelete                 = unsafe { nil }
+	exec_count    OrmExecCount                  = unsafe { nil }
+	exec_exists   OrmExecExists                 = unsafe { nil }
 }
 
 // RepositoryConfig[T] bundles all ORM execution callbacks for
@@ -162,7 +162,10 @@ pub fn new_repository_with_config[T](manager &OrmManager, db_name string, config
 // connection in the OrmManager, with all ORM execution callbacks.
 //
 // All callback fields must be provided.
-@[deprecated: 'use new_repository_with_config instead']
+//
+// 不标 @[deprecated]：新旧两个构造器并存是合理的（9 个回调走位置参数更直观），
+// 而 -prod 会把废弃告警升级成编译错误——挂个标记就等于把生产构建打断。
+// 需要更少实参的写法请用 new_repository_with_config。
 pub fn new_repository[T](manager &OrmManager, db_name string, exec_find OrmExecFind[T], exec_find_all OrmExecFindAll[T], exec_insert OrmExecInsert[T], exec_update OrmExecUpdate[T], exec_delete OrmExecDelete, exec_count OrmExecCount, exec_exists OrmExecExists) !&BaseRepository[T] {
 	mut adapter := new_orm_adapter[T](manager, db_name)!
 	return &BaseRepository[T]{
@@ -695,7 +698,7 @@ mut:
 	field_names        []string
 	column_names       []string // DB column names in field order (Task B7)
 	exec_fn            SqlExecFn         = unsafe { nil }
-	exec_typed_fn      TypedSqlExecFn    = unsafe { nil }  // type-safe alternative (preserves int/bool/f64 types)
+	exec_typed_fn      TypedSqlExecFn    = unsafe { nil } // type-safe alternative (preserves int/bool/f64 types)
 	query_fn           SqlQueryFn        = unsafe { nil }
 	affected_rows_fn   SqlAffectedRowsFn = unsafe { nil }
 }
@@ -1278,10 +1281,10 @@ fn jpa_map_row[T](mut entity T, row []string) {
 // KeysetPageRequest represents a cursor-based pagination request.
 pub struct KeysetPageRequest {
 pub:
-	after_value string       // cursor value (empty for first page)
-	sort_field  string = 'id' // field name used for ordering
+	after_value string // cursor value (empty for first page)
+	sort_field  string = 'id'  // field name used for ordering
 	sort_dir    string = 'asc' // 'asc' or 'desc'
-	limit       int    = 20   // number of items to return per page
+	limit       int    = 20  // number of items to return per page
 }
 
 // ═══════════════════════════════════════════════════════════════════

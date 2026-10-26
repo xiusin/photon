@@ -448,7 +448,13 @@ fn test_logger_config_concurrent_reads_and_writes_no_race() {
 				w.done()
 			}
 			ns := if idx % 2 == 0 { 'com.photon' } else { 'com.photon.db' }
-			lvl := if idx % 3 == 0 { logger.Level.debug } else if idx % 3 == 1 { logger.Level.warn } else { logger.Level.error }
+			lvl := if idx % 3 == 0 {
+				logger.Level.debug
+			} else if idx % 3 == 1 {
+				logger.Level.warn
+			} else {
+				logger.Level.error
+			}
 			c.set_namespace_level(ns, lvl)
 		}(mut cfg, i, mut wg)
 	}

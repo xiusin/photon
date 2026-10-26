@@ -265,7 +265,7 @@ fn test_environment_add_source_and_get_property() {
 	mut env := new_environment()
 	source := MapPropertySource{
 		source_name: 'test'
-		data: {
+		data:        {
 			'app.name':    'PhotonApp'
 			'server.port': '8080'
 		}
@@ -280,7 +280,7 @@ fn test_environment_get_property_or() {
 	assert env.get_property_or('missing.key', 'default') == 'default'
 	source := MapPropertySource{
 		source_name: 'test'
-		data: {
+		data:        {
 			'key': 'value'
 		}
 	}
@@ -293,7 +293,7 @@ fn test_environment_contains_property() {
 	assert env.contains_property('any.key') == false
 	source := MapPropertySource{
 		source_name: 'test'
-		data: {
+		data:        {
 			'key': 'value'
 		}
 	}
@@ -307,7 +307,7 @@ fn test_environment_has_property() {
 	assert env.has_property('any.key') == false
 	source := MapPropertySource{
 		source_name: 'test'
-		data: {
+		data:        {
 			'key': 'value'
 		}
 	}
@@ -319,7 +319,7 @@ fn test_resolve_placeholders_simple() {
 	mut env := new_environment()
 	source := MapPropertySource{
 		source_name: 'test'
-		data: {
+		data:        {
 			'app.name': 'Photon'
 		}
 	}
@@ -339,7 +339,7 @@ fn test_resolve_placeholders_with_default_override() {
 	mut env := new_environment()
 	source := MapPropertySource{
 		source_name: 'test'
-		data: {
+		data:        {
 			'db.host': 'prod-db.example.com'
 			'db.port': '3306'
 		}
@@ -367,9 +367,9 @@ fn test_resolve_placeholders_multiple() {
 	mut env := new_environment()
 	source := MapPropertySource{
 		source_name: 'test'
-		data: {
-			'first':  'John'
-			'last':   'Doe'
+		data:        {
+			'first': 'John'
+			'last':  'Doe'
 		}
 	}
 	env.add_source(source)
@@ -381,8 +381,8 @@ fn test_resolve_placeholders_nested() {
 	mut env := new_environment()
 	source := MapPropertySource{
 		source_name: 'test'
-		data: {
-			'env':        'dev'
+		data:        {
+			'env':          'dev'
 			'app.dev.host': 'dev.example.com'
 		}
 	}
@@ -396,7 +396,7 @@ fn test_resolve_placeholders_nested_with_default() {
 	mut env := new_environment()
 	source := MapPropertySource{
 		source_name: 'test'
-		data: {
+		data:        {
 			'env': 'prod'
 		}
 	}
@@ -421,7 +421,7 @@ fn test_environment_get_by_prefix() {
 	mut env := new_environment()
 	source := MapPropertySource{
 		source_name: 'test'
-		data: {
+		data:        {
 			'app.db.host': 'localhost'
 			'app.db.port': '5432'
 			'app.name':    'TestApp'
@@ -438,7 +438,7 @@ fn test_environment_get_subtree() {
 	mut env := new_environment()
 	source := MapPropertySource{
 		source_name: 'test'
-		data: {
+		data:        {
 			'app.db.host': 'localhost'
 			'app.db.port': '5432'
 		}
@@ -468,7 +468,7 @@ fn test_map_property_source() {
 fn test_map_property_source_get_all_with_prefix() {
 	source := MapPropertySource{
 		source_name: 'test'
-		data: {
+		data:        {
 			'app.db.host': 'localhost'
 			'app.db.port': '5432'
 			'app.name':    'TestApp'

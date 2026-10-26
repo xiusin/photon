@@ -63,7 +63,7 @@ fn test_bench_json_decode() {
 	start := time.ticks()
 	for i in 0 .. measure {
 		body := '{"name":"user${i}","email":"user${i}@test.com","age":25}'
-		_ := json2.decode[BenchCreateUserDto]( body) or { BenchCreateUserDto{} }
+		_ := json2.decode[BenchCreateUserDto](body) or { BenchCreateUserDto{} }
 	}
 	elapsed := time.ticks() - start
 

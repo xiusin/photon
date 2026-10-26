@@ -535,7 +535,7 @@ fn test_rollback_for_matching() {
 	attr := TransactionAttribute{
 		rollback_for: ['NetworkError']
 	}
-	err := IError(NetworkError{msg: 'NetworkError: connection refused'})
+	err := IError(NetworkError{ msg: 'NetworkError: connection refused' })
 
 	tm.rollback_if_needed(err, attr)!
 
@@ -558,7 +558,7 @@ fn test_rollback_for_mismatch_no_rollback() {
 		rollback_for: ['NetworkError']
 	}
 	// ValueError does not match NetworkError → no rollback
-	err := IError(ValueError{msg: 'ValueError: invalid input'})
+	err := IError(ValueError{ msg: 'ValueError: invalid input' })
 
 	tm.rollback_if_needed(err, attr)!
 
@@ -584,7 +584,7 @@ fn test_no_rollback_for_matching() {
 		no_rollback_for: ['TransientError']
 	}
 	// TransientError matches no_rollback_for → no rollback
-	err := IError(TransientError{msg: 'TransientError: temporary failure'})
+	err := IError(TransientError{ msg: 'TransientError: temporary failure' })
 
 	tm.rollback_if_needed(err, attr)!
 
@@ -609,7 +609,7 @@ fn test_no_rollback_for_mismatch_rollback() {
 		no_rollback_for: ['TransientError']
 	}
 	// NetworkError does not match no_rollback_for → rollback (default)
-	err := IError(NetworkError{msg: 'NetworkError: connection refused'})
+	err := IError(NetworkError{ msg: 'NetworkError: connection refused' })
 
 	tm.rollback_if_needed(err, attr)!
 
@@ -630,7 +630,7 @@ fn test_default_rollback_on_any_error() {
 
 	// No rollback_for / no_rollback_for → rollback on any error
 	attr := TransactionAttribute{}
-	err := IError(ValueError{msg: 'ValueError: something went wrong'})
+	err := IError(ValueError{ msg: 'ValueError: something went wrong' })
 
 	tm.rollback_if_needed(err, attr)!
 
@@ -675,10 +675,10 @@ fn test_no_rollback_for_takes_precedence_over_rollback_for() {
 	// Both rollback_for and no_rollback_for contain the error type.
 	// no_rollback_for is checked first → no rollback.
 	attr := TransactionAttribute{
-		rollback_for: ['NetworkError']
+		rollback_for:    ['NetworkError']
 		no_rollback_for: ['NetworkError']
 	}
-	err := IError(NetworkError{msg: 'NetworkError: connection refused'})
+	err := IError(NetworkError{ msg: 'NetworkError: connection refused' })
 
 	tm.rollback_if_needed(err, attr)!
 
@@ -694,7 +694,7 @@ fn test_rollback_if_needed_no_active_transaction() {
 	attr := TransactionAttribute{
 		rollback_for: ['NetworkError']
 	}
-	err := IError(NetworkError{msg: 'NetworkError: fail'})
+	err := IError(NetworkError{ msg: 'NetworkError: fail' })
 
 	tm.rollback_if_needed(err, attr) or {
 		assert false, 'should not error when no active transaction'
@@ -708,11 +708,11 @@ fn test_rollback_if_needed_no_active_transaction() {
 
 fn test_transaction_attribute_to_options() {
 	attr := TransactionAttribute{
-		propagation: .requires_new
-		isolation: .read_committed
-		readonly: true
-		timeout_ms: 5000
-		rollback_for: ['NetworkError']
+		propagation:     .requires_new
+		isolation:       .read_committed
+		readonly:        true
+		timeout_ms:      5000
+		rollback_for:    ['NetworkError']
 		no_rollback_for: ['TransientError']
 	}
 	opts := attr.to_options()

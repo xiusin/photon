@@ -24,7 +24,7 @@ struct AdvMockRepo {
 
 fn test_canonical_name_single_alias() {
 	mut c := new_container()
-	repo := &AdvMockRepo{id: 1}
+	repo := &AdvMockRepo{ id: 1 }
 	c.register_instance('mock_repo', unsafe { voidptr(repo) }) or { assert false }
 	c.register_alias('AdvMockRepo', 'mock_repo') or { assert false }
 
@@ -34,7 +34,7 @@ fn test_canonical_name_single_alias() {
 
 fn test_canonical_name_no_alias_returns_self() {
 	mut c := new_container()
-	c.register_instance('plain_bean', unsafe { voidptr(&AdvMockRepo{id: 2}) }) or { assert false }
+	c.register_instance('plain_bean', unsafe { voidptr(&AdvMockRepo{ id: 2 }) }) or { assert false }
 
 	assert c.canonical_name('plain_bean') == 'plain_bean'
 	assert c.canonical_name('nonexistent') == 'nonexistent'
@@ -42,11 +42,14 @@ fn test_canonical_name_no_alias_returns_self() {
 
 fn test_resolve_uses_alias_to_find_instance() {
 	mut c := new_container()
-	repo := &AdvMockRepo{id: 33}
+	repo := &AdvMockRepo{ id: 33 }
 	c.register_instance('mock_repo', unsafe { voidptr(repo) }) or { assert false }
 	c.register_alias('Repo', 'mock_repo') or { assert false }
 
-	inst := c.resolve('Repo') or { assert false; return }
+	inst := c.resolve('Repo') or {
+		assert false
+		return
+	}
 	assert inst == unsafe { voidptr(repo) }
 }
 
@@ -67,7 +70,7 @@ fn test_freeze_blocks_register_instance() {
 	mut ctx := new_application_context()
 	ctx.freeze_bean_definitions()
 
-	ctx.register_instance('blocked_inst', unsafe { voidptr(&AdvMockRepo{id: 1}) }) or {
+	ctx.register_instance('blocked_inst', unsafe { voidptr(&AdvMockRepo{ id: 1 }) }) or {
 		assert err.msg().contains('frozen')
 		return
 	}
@@ -78,7 +81,7 @@ fn test_freeze_blocks_register_instance_with_aliases() {
 	mut ctx := new_application_context()
 	ctx.freeze_bean_definitions()
 
-	ctx.register_instance_with_aliases('blocked', unsafe { voidptr(&AdvMockRepo{id: 1}) }, ['Alias']) or {
+	ctx.register_instance_with_aliases('blocked', unsafe { voidptr(&AdvMockRepo{ id: 1 }) }, ['Alias']) or {
 		assert err.msg().contains('frozen')
 		return
 	}
@@ -87,7 +90,7 @@ fn test_freeze_blocks_register_instance_with_aliases() {
 
 fn test_freeze_blocks_remove_definition() {
 	mut ctx := new_application_context()
-	ctx.register_instance('removable', unsafe { voidptr(&AdvMockRepo{id: 1}) }) or { assert false }
+	ctx.register_instance('removable', unsafe { voidptr(&AdvMockRepo{ id: 1 }) }) or { assert false }
 	ctx.freeze_bean_definitions()
 
 	ctx.remove_definition('removable') or {
@@ -99,7 +102,7 @@ fn test_freeze_blocks_remove_definition() {
 
 fn test_freeze_blocks_replace_definition() {
 	mut ctx := new_application_context()
-	ctx.register_instance('replaceable', unsafe { voidptr(&AdvMockRepo{id: 1}) }) or { assert false }
+	ctx.register_instance('replaceable', unsafe { voidptr(&AdvMockRepo{ id: 1 }) }) or { assert false }
 	ctx.freeze_bean_definitions()
 
 	ctx.replace_definition(new_bean_definition('replaceable')) or {
@@ -120,7 +123,7 @@ fn test_has_finds_registered_definition() {
 
 fn test_has_finds_via_alias() {
 	mut c := new_container()
-	c.register_instance('real_bean', unsafe { voidptr(&AdvMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('real_bean', unsafe { voidptr(&AdvMockRepo{ id: 1 }) }) or { assert false }
 	c.register_alias('Alias', 'real_bean') or { assert false }
 
 	assert c.has('Alias') == true
@@ -134,7 +137,7 @@ fn test_has_returns_false_for_unknown() {
 
 fn test_has_alias_check() {
 	mut c := new_container()
-	c.register_instance('bean', unsafe { voidptr(&AdvMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('bean', unsafe { voidptr(&AdvMockRepo{ id: 1 }) }) or { assert false }
 	c.register_alias('A1', 'bean') or { assert false }
 
 	assert c.has_alias('A1') == true
@@ -143,7 +146,7 @@ fn test_has_alias_check() {
 
 fn test_has_definition_strict_check() {
 	mut c := new_container()
-	c.register_instance('inst_bean', unsafe { voidptr(&AdvMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('inst_bean', unsafe { voidptr(&AdvMockRepo{ id: 1 }) }) or { assert false }
 
 	// register_instance auto-creates definition, so has_definition is true
 	assert c.has_definition('inst_bean') == true
@@ -153,7 +156,7 @@ fn test_has_definition_strict_check() {
 fn test_has_instance_after_register_instance() {
 	mut c := new_container()
 	c.register(new_bean_definition('def_only')) or { assert false }
-	c.register_instance('with_inst', unsafe { voidptr(&AdvMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('with_inst', unsafe { voidptr(&AdvMockRepo{ id: 1 }) }) or { assert false }
 
 	assert c.has_instance('with_inst') == true
 	assert c.has_instance('def_only') == false // definition only, no instance
@@ -163,7 +166,7 @@ fn test_has_instance_after_register_instance() {
 
 fn test_resolve_or_returns_default_when_not_found() {
 	mut c := new_container()
-	default_val := unsafe { voidptr(&AdvMockRepo{id: 999}) }
+	default_val := unsafe { voidptr(&AdvMockRepo{ id: 999 }) }
 
 	result := c.resolve_or('nonexistent', default_val)
 	assert result == default_val
@@ -171,9 +174,9 @@ fn test_resolve_or_returns_default_when_not_found() {
 
 fn test_resolve_or_returns_instance_when_found() {
 	mut c := new_container()
-	repo := &AdvMockRepo{id: 55}
+	repo := &AdvMockRepo{ id: 55 }
 	c.register_instance('found', unsafe { voidptr(repo) }) or { assert false }
-	default_val := unsafe { voidptr(&AdvMockRepo{id: 999}) }
+	default_val := unsafe { voidptr(&AdvMockRepo{ id: 999 }) }
 
 	result := c.resolve_or('found', default_val)
 	assert result == unsafe { voidptr(repo) }
@@ -182,10 +185,13 @@ fn test_resolve_or_returns_instance_when_found() {
 
 fn test_resolve_typed_correct_cast() {
 	mut ctx := new_application_context()
-	repo := &AdvMockRepo{id: 77}
+	repo := &AdvMockRepo{ id: 77 }
 	ctx.register_instance('AdvMockRepo', unsafe { voidptr(repo) }) or { assert false }
 
-	resolved := ctx.resolve_typed[AdvMockRepo]('AdvMockRepo') or { assert false; return }
+	resolved := ctx.resolve_typed[AdvMockRepo]('AdvMockRepo') or {
+		assert false
+		return
+	}
 	assert resolved.id == 77
 }
 
@@ -193,19 +199,22 @@ fn test_resolve_typed_correct_cast() {
 
 fn test_parent_container_fallback_resolve() {
 	mut parent := new_container()
-	parent_repo := &AdvMockRepo{id: 42}
+	parent_repo := &AdvMockRepo{ id: 42 }
 	parent.register_instance('parent_bean', unsafe { voidptr(parent_repo) }) or { assert false }
 
 	mut child := new_container()
 	child.set_parent(parent)
 
-	inst := child.resolve('parent_bean') or { assert false; return }
+	inst := child.resolve('parent_bean') or {
+		assert false
+		return
+	}
 	assert inst == unsafe { voidptr(parent_repo) }
 }
 
 fn test_has_checks_parent_container() {
 	mut parent := new_container()
-	parent.register_instance('parent_only', unsafe { voidptr(&AdvMockRepo{id: 1}) }) or { assert false }
+	parent.register_instance('parent_only', unsafe { voidptr(&AdvMockRepo{ id: 1 }) }) or { assert false }
 
 	mut child := new_container()
 	child.set_parent(parent)
@@ -222,13 +231,13 @@ fn test_beans_for_interface_lookup() {
 	builder1.add_interface('EventHandler')
 	def1 := builder1.build()
 	c.register(def1) or { assert false }
-	c.register_instance('handler_a', unsafe { voidptr(&AdvMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('handler_a', unsafe { voidptr(&AdvMockRepo{ id: 1 }) }) or { assert false }
 
 	mut builder2 := new_bean_definition_builder('handler_b')
 	builder2.add_interface('EventHandler')
 	def2 := builder2.build()
 	c.register(def2) or { assert false }
-	c.register_instance('handler_b', unsafe { voidptr(&AdvMockRepo{id: 2}) }) or { assert false }
+	c.register_instance('handler_b', unsafe { voidptr(&AdvMockRepo{ id: 2 }) }) or { assert false }
 
 	names := c.beans_for_interface('EventHandler')
 	assert 'handler_a' in names
@@ -242,10 +251,13 @@ fn test_resolve_all_by_interface() {
 	builder.add_interface('IDataSource')
 	def := builder.build()
 	c.register(def) or { assert false }
-	repo := &AdvMockRepo{id: 88}
+	repo := &AdvMockRepo{ id: 88 }
 	c.register_instance('iface_bean', unsafe { voidptr(repo) }) or { assert false }
 
-	instances := c.resolve_all_by_interface('IDataSource') or { assert false; return }
+	instances := c.resolve_all_by_interface('IDataSource') or {
+		assert false
+		return
+	}
 	assert instances.len >= 1
 	assert instances[0] == unsafe { voidptr(repo) }
 }
@@ -256,13 +268,13 @@ fn test_beans_for_tag_lookup() {
 	builder1.add_tag('cache')
 	def1 := builder1.build()
 	c.register(def1) or { assert false }
-	c.register_instance('cache_a', unsafe { voidptr(&AdvMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('cache_a', unsafe { voidptr(&AdvMockRepo{ id: 1 }) }) or { assert false }
 
 	mut builder2 := new_bean_definition_builder('cache_b')
 	builder2.add_tag('cache')
 	def2 := builder2.build()
 	c.register(def2) or { assert false }
-	c.register_instance('cache_b', unsafe { voidptr(&AdvMockRepo{id: 2}) }) or { assert false }
+	c.register_instance('cache_b', unsafe { voidptr(&AdvMockRepo{ id: 2 }) }) or { assert false }
 
 	names := c.beans_for_tag('cache')
 	assert 'cache_a' in names
@@ -275,10 +287,13 @@ fn test_resolve_all_by_tag() {
 	builder.add_tag('service')
 	def := builder.build()
 	c.register(def) or { assert false }
-	repo := &AdvMockRepo{id: 66}
+	repo := &AdvMockRepo{ id: 66 }
 	c.register_instance('tagged_bean', unsafe { voidptr(repo) }) or { assert false }
 
-	instances := c.resolve_all_by_tag('service') or { assert false; return }
+	instances := c.resolve_all_by_tag('service') or {
+		assert false
+		return
+	}
 	assert instances.len >= 1
 	assert instances[0] == unsafe { voidptr(repo) }
 }
@@ -291,13 +306,16 @@ fn test_resolve_primary_returns_primary() {
 	mut def_primary := new_bean_definition('primary_repo')
 	def_primary.is_primary = true
 	c.register(def_primary) or { assert false }
-	c.register_instance('primary_repo', unsafe { voidptr(&AdvMockRepo{id: 111}) }) or { assert false }
+	c.register_instance('primary_repo', unsafe { voidptr(&AdvMockRepo{ id: 111 }) }) or { assert false }
 
 	mut def_secondary := new_bean_definition('secondary_repo')
 	c.register(def_secondary) or { assert false }
-	c.register_instance('secondary_repo', unsafe { voidptr(&AdvMockRepo{id: 222}) }) or { assert false }
+	c.register_instance('secondary_repo', unsafe { voidptr(&AdvMockRepo{ id: 222 }) }) or { assert false }
 
-	inst := c.resolve_primary() or { assert false; return }
+	inst := c.resolve_primary() or {
+		assert false
+		return
+	}
 	repo := unsafe { &AdvMockRepo(inst) }
 	assert repo.id == 111
 }
@@ -317,18 +335,24 @@ fn test_get_primary_bean_name() {
 
 fn test_deferred_provider_lazy_resolution() {
 	mut c := new_container()
-	repo := &AdvMockRepo{id: 77}
+	repo := &AdvMockRepo{ id: 77 }
 	c.register_instance('mock_repo', unsafe { voidptr(repo) }) or { assert false }
 
 	mut provider := c.create_deferred_provider('mock_repo')
 	assert provider.is_resolved() == false
 
-	inst := provider.get() or { assert false; return }
+	inst := provider.get() or {
+		assert false
+		return
+	}
 	assert provider.is_resolved() == true
 	assert inst == unsafe { voidptr(repo) }
 
 	// 第二次 get 应返回缓存（同一实例）
-	inst2 := provider.get() or { assert false; return }
+	inst2 := provider.get() or {
+		assert false
+		return
+	}
 	assert inst2 == inst
 }
 
@@ -341,8 +365,8 @@ pub mut:
 
 fn test_autowire_bean_qualifier_precedence() {
 	mut ctx := new_application_context()
-	primary_repo := &AdvMockRepo{id: 100}
-	field_name_repo := &AdvMockRepo{id: 200}
+	primary_repo := &AdvMockRepo{ id: 100 }
+	field_name_repo := &AdvMockRepo{ id: 200 }
 
 	// 注册两个 bean：qualifier 名 'primary' + 字段名 'repo'
 	ctx.register_instance('primary', unsafe { voidptr(primary_repo) }) or { assert false }
@@ -360,11 +384,14 @@ fn test_autowire_bean_qualifier_precedence() {
 
 fn test_unfreeze_clears_cache_and_counters() {
 	mut ctx := new_application_context()
-	ctx.register_instance('bean_a', unsafe { voidptr(&AdvMockRepo{id: 1}) }) or { assert false }
+	ctx.register_instance('bean_a', unsafe { voidptr(&AdvMockRepo{ id: 1 }) }) or { assert false }
 	ctx.freeze_bean_definitions()
 
 	// 冻结后 resolve 产生 cache hit
-	_ = ctx.resolve('bean_a') or { assert false; return }
+	_ = ctx.resolve('bean_a') or {
+		assert false
+		return
+	}
 	assert ctx.cache_hit_count() >= 1
 
 	ctx.unfreeze_bean_definitions()
@@ -376,11 +403,14 @@ fn test_unfreeze_clears_cache_and_counters() {
 
 fn test_replace_definition_invalidates_cache() {
 	mut ctx := new_application_context()
-	repo1 := &AdvMockRepo{id: 10}
+	repo1 := &AdvMockRepo{ id: 10 }
 	ctx.register_instance('replaceable_bean', unsafe { voidptr(repo1) }) or { assert false }
 
 	// resolve 填充缓存
-	inst1 := ctx.resolve('replaceable_bean') or { assert false; return }
+	inst1 := ctx.resolve('replaceable_bean') or {
+		assert false
+		return
+	}
 	assert inst1 == unsafe { voidptr(repo1) }
 
 	// replace_definition 应使缓存失效

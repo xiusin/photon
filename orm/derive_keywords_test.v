@@ -120,14 +120,20 @@ fn test_parse_in() {
 fn test_parse_in_with_arrays_expands_placeholders() {
 	parts := parse_method_name('findByIdIn') or { panic(err) }
 	// to_where_cond_with_arrays expands based on array length
-	where_sql := parts.to_where_cond_with_arrays({'id': 3})
+	where_sql := parts.to_where_cond_with_arrays({
+		'id': 3
+	})
 	assert where_sql == 'id IN (?, ?, ?)'
-	assert parts.to_where_param_count_with_arrays({'id': 3}) == 3
+	assert parts.to_where_param_count_with_arrays({
+		'id': 3
+	}) == 3
 }
 
 fn test_parse_in_with_arrays_single_element() {
 	parts := parse_method_name('findByIdIn') or { panic(err) }
-	where_sql := parts.to_where_cond_with_arrays({'id': 1})
+	where_sql := parts.to_where_cond_with_arrays({
+		'id': 1
+	})
 	assert where_sql == 'id IN (?)'
 }
 
@@ -143,9 +149,13 @@ fn test_parse_not_in() {
 
 fn test_parse_not_in_with_arrays_expands_placeholders() {
 	parts := parse_method_name('findByIdNotIn') or { panic(err) }
-	where_sql := parts.to_where_cond_with_arrays({'id': 2})
+	where_sql := parts.to_where_cond_with_arrays({
+		'id': 2
+	})
 	assert where_sql == 'id NOT IN (?, ?)'
-	assert parts.to_where_param_count_with_arrays({'id': 2}) == 2
+	assert parts.to_where_param_count_with_arrays({
+		'id': 2
+	}) == 2
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -298,9 +308,15 @@ fn test_parse_and_with_in_and_not_in() {
 	assert parts.conditions[1].property == 'status'
 	assert parts.conditions[1].operator == 'NOT IN'
 	// Expand with array lengths
-	where_sql := parts.to_where_cond_with_arrays({'id': 3, 'status': 2})
+	where_sql := parts.to_where_cond_with_arrays({
+		'id':     3
+		'status': 2
+	})
 	assert where_sql == 'id IN (?, ?, ?) AND status NOT IN (?, ?)'
-	assert parts.to_where_param_count_with_arrays({'id': 3, 'status': 2}) == 5
+	assert parts.to_where_param_count_with_arrays({
+		'id':     3
+		'status': 2
+	}) == 5
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -439,8 +455,12 @@ fn test_combined_in_and_is_null_with_arrays() {
 	assert parts.conditions.len == 2
 	assert parts.conditions[0].operator == 'IN'
 	assert parts.conditions[1].operator == 'IS NULL'
-	where_sql := parts.to_where_cond_with_arrays({'id': 4})
+	where_sql := parts.to_where_cond_with_arrays({
+		'id': 4
+	})
 	// IS NULL contributes no placeholder
 	assert where_sql == 'id IN (?, ?, ?, ?) AND deleted_at IS NULL'
-	assert parts.to_where_param_count_with_arrays({'id': 4}) == 4
+	assert parts.to_where_param_count_with_arrays({
+		'id': 4
+	}) == 4
 }

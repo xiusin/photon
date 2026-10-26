@@ -75,7 +75,8 @@ fn test_graceful_shutdown_request_completed_allows_fast_shutdown() {
 				finished = true
 				break
 			}
-			else {}
+			else {
+			}
 		}
 		if finished {
 			break
@@ -110,8 +111,10 @@ fn test_graceful_shutdown_idempotent() {
 	cb_ch := chan bool{cap: 2}
 	gsm.set_on_shutdown(fn [cb_ch] () {
 		select {
-			cb_ch <- true {}
-			else {}
+			cb_ch <- true {
+			}
+			else {
+			}
 		}
 	})
 	gsm.shutdown()
@@ -194,7 +197,8 @@ fn test_graceful_shutdown_waits_for_in_flight() {
 		_ := <-shutdown_done {
 			assert false
 		}
-		else {}
+		else {
+		}
 	}
 
 	// Wait for the in-flight request to complete and shutdown to finish
@@ -206,7 +210,8 @@ fn test_graceful_shutdown_waits_for_in_flight() {
 				finished = true
 				break
 			}
-			else {}
+			else {
+			}
 		}
 		if finished {
 			break
@@ -274,7 +279,8 @@ fn test_graceful_shutdown_wait_blocks_until_shutdown() {
 		_ := <-wait_done {
 			assert false
 		}
-		else {}
+		else {
+		}
 	}
 
 	// Trigger shutdown — wait() should now return
@@ -287,7 +293,8 @@ fn test_graceful_shutdown_wait_blocks_until_shutdown() {
 				returned = true
 				break
 			}
-			else {}
+			else {
+			}
 		}
 		if returned {
 			break
@@ -393,8 +400,10 @@ fn test_graceful_shutdown_full_flow_with_in_flight() {
 	cb_ch := chan bool{cap: 1}
 	gsm.set_on_shutdown(fn [cb_ch] () {
 		select {
-			cb_ch <- true {}
-			else {}
+			cb_ch <- true {
+			}
+			else {
+			}
 		}
 	})
 

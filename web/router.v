@@ -99,7 +99,7 @@ pub fn print_routes(routes []RouteInfo) {
 	println('')
 	println('  Registered Routes:')
 	println('  ${'─'.repeat(60)}')
-	println('  ${'METHOD':-8s} ${'PATH':-30s} ${'HANDLER'}')
+	println('  ${'METHOD':-8s} ${'PATH':-30s} HANDLER')
 	println('  ${'─'.repeat(60)}')
 	for route in routes {
 		println('  ${route.method:-8s} ${route.path:-30s} ${route.handler_name}')
@@ -136,7 +136,7 @@ pub mut:
 pub fn new_route_registry() &RouteRegistry {
 	return &RouteRegistry{
 		static_routes: map[string]&RouteDef{}
-		param_routes: map[int][]&RouteDef{}
+		param_routes:  map[int][]&RouteDef{}
 	}
 }
 

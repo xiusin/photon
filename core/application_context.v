@@ -70,29 +70,29 @@ pub fn (as_ ApplicationState) str() string {
 @[heap]
 pub struct ApplicationContext {
 pub mut:
-	container               &Container             = unsafe { nil } // see safe_cast.v
-	event_bus               &EventBus              = unsafe { nil } // see safe_cast.v
-	lifecycle               &LifecycleManager      = unsafe { nil } // see safe_cast.v
-	smart_lifecycle         &SmartLifecycleManager = unsafe { nil } // see safe_cast.v
-	environment             &Environment           = unsafe { nil } // see safe_cast.v
-	post_processors         []&BeanPostProcessor
-	factory_post_processors []&BeanFactoryPostProcessor
+	container                &Container             = unsafe { nil } // see safe_cast.v
+	event_bus                &EventBus              = unsafe { nil } // see safe_cast.v
+	lifecycle                &LifecycleManager      = unsafe { nil } // see safe_cast.v
+	smart_lifecycle          &SmartLifecycleManager = unsafe { nil } // see safe_cast.v
+	environment              &Environment           = unsafe { nil } // see safe_cast.v
+	post_processors          []&BeanPostProcessor
+	factory_post_processors  []&BeanFactoryPostProcessor
 	registry_post_processors []&BeanDefinitionRegistryPostProcessor
-	auto_config_manager     &AutoConfigurationManager = unsafe { nil } // see safe_cast.v
-	provider_registry       &ProviderRegistry         = unsafe { nil } // ServiceProvider — see safe_cast.v
-	runners                 []&ApplicationRunner
-	shutdown_hooks          &ShutdownHookManager    = unsafe { nil } // see safe_cast.v
-	ordered_shutdown        &OrderedShutdownManager = unsafe { nil } // ordered shutdown — see safe_cast.v
-	lifecycle_beans         []&Lifecycle // Spring Lifecycle beans
-	resolve_cache           map[string]voidptr // resolve 结果缓存 / resolve result cache
+	auto_config_manager      &AutoConfigurationManager = unsafe { nil } // see safe_cast.v
+	provider_registry        &ProviderRegistry         = unsafe { nil } // ServiceProvider — see safe_cast.v
+	runners                  []&ApplicationRunner
+	shutdown_hooks           &ShutdownHookManager    = unsafe { nil } // see safe_cast.v
+	ordered_shutdown         &OrderedShutdownManager = unsafe { nil } // ordered shutdown — see safe_cast.v
+	lifecycle_beans          []&Lifecycle       // Spring Lifecycle beans
+	resolve_cache            map[string]voidptr // resolve 结果缓存 / resolve result cache
 mut:
-	state           ApplicationState = .created
-	mu              sync.RwMutex
-	cache_mu        sync.RwMutex // resolve 缓存专用锁 / dedicated lock for resolve cache
+	state            ApplicationState = .created
+	mu               sync.RwMutex
+	cache_mu         sync.RwMutex              // resolve 缓存专用锁 / dedicated lock for resolve cache
 	frozen_bean_defs map[string]BeanDefinition // 冻结快照 / frozen snapshot of bean definitions
-	is_frozen       bool // 是否已冻结 / whether bean definitions are frozen
-	cache_hits      int  // 缓存命中次数 / cache hit count (diagnostic)
-	cache_misses    int  // 缓存未命中次数 / cache miss count (diagnostic)
+	is_frozen        bool                      // 是否已冻结 / whether bean definitions are frozen
+	cache_hits       int                       // 缓存命中次数 / cache hit count (diagnostic)
+	cache_misses     int                       // 缓存未命中次数 / cache miss count (diagnostic)
 }
 
 // new_application_context creates a fully initialized ApplicationContext
@@ -1053,7 +1053,8 @@ fn (mut ctx ApplicationContext) shutdown_stage(name string, stage_fn fn () !) {
 			_ := <-done {
 				return
 			}
-			else {}
+			else {
+			}
 		}
 		if time.now().unix_nano() >= deadline_ns {
 			eprintln('[ApplicationContext] shutdown stage "${name}" timed out after 5s, continuing')

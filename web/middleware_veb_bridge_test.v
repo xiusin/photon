@@ -319,11 +319,11 @@ fn test_web_module_add_multiple_resource_handlers() {
 
 fn test_cors_config_creation() {
 	config := new_cors_config(
-		origins: ['https://example.com', 'https://app.example.com']
+		origins:           ['https://example.com', 'https://app.example.com']
 		allow_credentials: true
-		allowed_headers: ['Content-Type', 'Authorization']
-		allowed_methods: [.get, .post, .put, .delete]
-		max_age: 3600
+		allowed_headers:   ['Content-Type', 'Authorization']
+		allowed_methods:   [.get, .post, .put, .delete]
+		max_age:           3600
 	)
 
 	assert config.origins.len == 2
@@ -335,7 +335,7 @@ fn test_cors_config_creation() {
 
 fn test_cors_config_to_before_middleware() {
 	config := new_cors_config(
-		origins: ['*']
+		origins:         ['*']
 		allowed_methods: [.get, .post]
 	)
 

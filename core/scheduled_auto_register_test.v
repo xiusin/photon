@@ -137,9 +137,15 @@ fn test_extract_scheduled_methods_multiple() {
 	// Verify cron expressions match the annotations
 	for t in tasks {
 		match t.method_name {
-			'task_a' { assert t.cron_expr == '* * * * *' }
-			'task_b' { assert t.cron_expr == '0 * * * *' }
-			else { assert false }
+			'task_a' {
+				assert t.cron_expr == '* * * * *'
+			}
+			'task_b' {
+				assert t.cron_expr == '0 * * * *'
+			}
+			else {
+				assert false
+			}
 		}
 	}
 }

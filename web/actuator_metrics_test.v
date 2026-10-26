@@ -95,7 +95,10 @@ fn test_metrics_endpoint_contains_all_meter_types() {
 
 fn test_metrics_endpoint_renders_tags() {
 	mut registry := metrics.new_in_memory_registry()
-	mut c := registry.counter('http_requests', {'method': 'GET', 'status': '200'})
+	mut c := registry.counter('http_requests', {
+		'method': 'GET'
+		'status': '200'
+	})
 	c.increment()
 
 	mut mvc := new_mockmvc()

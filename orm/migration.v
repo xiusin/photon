@@ -668,8 +668,8 @@ fn (sc &Schema) build_modify_column(table_name string, col ColumnDef) string {
 		// SQLite does not support ALTER COLUMN directly.
 		// The recommended approach is to recreate the table,
 		// which is handled by the migration author via fresh() or raw SQL.
-		return '-- ALTER TABLE ${table_name} ALTER COLUMN ${col.name} TYPE ${col.type_.sql_type(sc.driver)}'
-			+ ' -- SQLite requires table recreation; use a raw SQL migration'
+		return '-- ALTER TABLE ${table_name} ALTER COLUMN ${col.name} TYPE ${col.type_.sql_type(sc.driver)}' +
+			' -- SQLite requires table recreation; use a raw SQL migration'
 	}
 	if sc.driver == .pg {
 		return 'ALTER TABLE ${table_name} ALTER COLUMN ${col.name} TYPE ${col.type_.sql_type(sc.driver)}'
@@ -960,7 +960,7 @@ fn (mut mm MigrationManager) migrate_in_memory() !MigrationResult {
 	return MigrationResult{
 		applied: applied
 		skipped: skipped
-		failed: []string{}
+		failed:  []string{}
 	}
 }
 
@@ -1034,7 +1034,7 @@ fn (mut mm MigrationManager) migrate_with_sql() !MigrationResult {
 	return MigrationResult{
 		applied: applied_count
 		skipped: skipped_count
-		failed: failed_migrations
+		failed:  failed_migrations
 	}
 }
 
@@ -1139,7 +1139,7 @@ pub fn (mut mm MigrationManager) status() ! {
 	println('')
 	println('  ${'Migration Status':-60s}')
 	println('  ${'─'.repeat(60)}')
-	println('  ${'Status':-10s} ${'Version':-10s} ${'Batch':-8s} ${'Name'}')
+	println('  ${'Status':-10s} ${'Version':-10s} ${'Batch':-8s} Name')
 	println('  ${'─'.repeat(60)}')
 
 	for migration in mm.migrations {

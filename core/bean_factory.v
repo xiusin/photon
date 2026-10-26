@@ -108,8 +108,8 @@ mut:
 // DefaultBeanFactory is the standard BeanFactory type that combines
 // all sub-interfaces. Container satisfies this combined interface.
 pub interface DefaultBeanFactory {
-mut:
 	// BeanFactory
+mut:
 	resolve(name string) !voidptr
 	has(name string) bool
 	has_qualifier(qualifier string) bool

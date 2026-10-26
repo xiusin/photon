@@ -229,8 +229,10 @@ fn test_session_lock_concurrent_different_sessions() {
 			session_id := 'session-${idx}'
 			mut guard := manager.acquire(session_id)!
 			select {
-				ch <- 1 {}
-				else {}
+				ch <- 1 {
+				}
+				else {
+				}
 			}
 			guard.release()
 		}(mut slm, i, mut wg, success_ch)

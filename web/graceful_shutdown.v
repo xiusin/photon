@@ -42,7 +42,7 @@ pub mut:
 	shutdown_ch    chan bool      // signals that shutdown() has been initiated
 	stopped        bool
 	timeout        time.Duration = default_graceful_shutdown_timeout
-	on_shutdown    fn () = unsafe { nil } // optional cleanup callback (e.g., ctx.shutdown())
+	on_shutdown    fn ()         = unsafe { nil } // optional cleanup callback (e.g., ctx.shutdown())
 	wg             sync.WaitGroup // tracks the signal-listener goroutine
 	signal_started bool
 	signal_ready   chan bool // signaled after signal handlers are registered
@@ -127,8 +127,10 @@ pub fn (mut gsm GracefulShutdownManager) shutdown() {
 
 	// Signal shutdown initiated (non-blocking — channel has cap:1).
 	select {
-		gsm.shutdown_ch <- true {}
-		else {}
+		gsm.shutdown_ch <- true {
+		}
+		else {
+		}
 	}
 
 	// Wait for in-flight requests with timeout. We spawn a goroutine that
@@ -141,8 +143,10 @@ pub fn (mut gsm GracefulShutdownManager) shutdown() {
 			g.in_flight_wg.wait()
 		}
 		select {
-			d <- true {}
-			else {}
+			d <- true {
+			}
+			else {
+			}
 		}
 	}(gsm, done_ch)
 
@@ -153,7 +157,8 @@ pub fn (mut gsm GracefulShutdownManager) shutdown() {
 				// All in-flight requests completed
 				break
 			}
-			else {}
+			else {
+			}
 		}
 		if time.now().unix_nano() >= deadline_ns {
 			// Timeout — force shutdown (in-flight requests may still be running)
@@ -217,29 +222,37 @@ pub fn (mut gsm GracefulShutdownManager) start_signal_listener() {
 		sig_ch := chan bool{cap: 1}
 		handler := fn [sig_ch] (_ os.Signal) {
 			select {
-				sig_ch <- true {}
-				else {}
+				sig_ch <- true {
+				}
+				else {
+				}
 			}
 		}
 		os.signal_opt(.term, handler) or {
 			select {
-				g.signal_ready <- true {}
-				else {}
+				g.signal_ready <- true {
+				}
+				else {
+				}
 			}
 			return
 		}
 		os.signal_opt(.int, handler) or {
 			select {
-				g.signal_ready <- true {}
-				else {}
+				g.signal_ready <- true {
+				}
+				else {
+				}
 			}
 			return
 		}
 
 		// Signal that handlers are registered and we're ready to receive.
 		select {
-			g.signal_ready <- true {}
-			else {}
+			g.signal_ready <- true {
+			}
+			else {
+			}
 		}
 
 		// Block until a signal is received.
@@ -270,7 +283,8 @@ pub fn (mut gsm GracefulShutdownManager) wait_signal_ready() {
 			_ := <-ready_ch {
 				return
 			}
-			else {}
+			else {
+			}
 		}
 		if time.now().unix_nano() >= deadline_ns {
 			return

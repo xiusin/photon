@@ -37,7 +37,7 @@ pub fn (mut s FileConfigSource) load() !map[string]string {
 
 	if s.filepath.ends_with('.json') {
 		// Parse JSON config
-		parsed := json2.decode[map[string]string]( content) or {
+		parsed := json2.decode[map[string]string](content) or {
 			return error('failed to parse JSON config: ${err}')
 		}
 		for key, val in parsed {

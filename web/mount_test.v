@@ -23,24 +23,24 @@ pub mut:
 }
 
 // 分离式注解：@[get] + @['/hello']
-@[get]
 @['/hello']
+@[get]
 pub fn (mut c TestControllerA) hello(mut ctx veb.Context) veb.Result {
 	c.called_name = 'hello'
 	return ctx.text('hello from A')
 }
 
 // 分离式注解：@[post] + @['/create']
-@[post]
 @['/create']
+@[post]
 pub fn (mut c TestControllerA) create(mut ctx veb.Context) veb.Result {
 	c.called_name = 'create'
 	return ctx.text('created')
 }
 
 // 带路径参数的路由
-@[get]
 @['/item/:id']
+@[get]
 pub fn (mut c TestControllerA) show(mut ctx veb.Context) veb.Result {
 	// veb only builds string/int/bool handler parameters from path and
 	// query segments, so the :id segment is read back from the request.
@@ -56,8 +56,8 @@ pub fn (mut c TestControllerA) ping(mut ctx veb.Context) veb.Result {
 }
 
 // TestControllerB — 使用合并式注解的测试控制器
-@[controller]
 @[prefix: '/api/v2']
+@[controller]
 pub struct TestControllerB {
 pub mut:
 	value int

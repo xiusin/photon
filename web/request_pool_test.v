@@ -380,9 +380,15 @@ fn test_reset_session() {
 	// reset_session 重置 Session 对象
 	// reset_session resets a Session object
 	mut sess := new_session('test-id')
-	sess.data = {'key': 'value'}
-	sess.flash_data = {'flash': 'data'}
-	sess.old_flash = {'old': 'data'}
+	sess.data = {
+		'key': 'value'
+	}
+	sess.flash_data = {
+		'flash': 'data'
+	}
+	sess.old_flash = {
+		'old': 'data'
+	}
 	sess.is_dirty = true
 	sess.is_new = false
 
@@ -399,8 +405,11 @@ fn test_reset_middleware_context() {
 	// reset_middleware_context 重置 MiddlewareContext
 	// reset_middleware_context resets MiddlewareContext
 	mut mctx := &MiddlewareContext{
-		data: {'request_id': 'abc', '_global_config': 'val'}
-		ctx: unsafe { nil }
+		data: {
+			'request_id':     'abc'
+			'_global_config': 'val'
+		}
+		ctx:  unsafe { nil }
 	}
 
 	reset_middleware_context(voidptr(mctx))

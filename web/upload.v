@@ -496,7 +496,8 @@ fn (mut cm UploadChunkManager) start_gc() {
 				_ := <-stop_sig {
 					should_stop = true
 				}
-				else {}
+				else {
+				}
 			}
 			if should_stop {
 				break
@@ -565,8 +566,10 @@ pub fn (mut cm UploadChunkManager) close() {
 	cm.mu.unlock()
 
 	select {
-		sig <- true {}
-		else {}
+		sig <- true {
+		}
+		else {
+		}
 	}
 	cm.wg.wait()
 }

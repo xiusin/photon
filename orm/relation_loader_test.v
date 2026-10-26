@@ -501,8 +501,8 @@ pub mut:
 
 struct RelTag {
 pub mut:
-	id    i64
-	name  string
+	id   i64
+	name string
 }
 
 fn test_load_has_many_with_primary_key_attr() {

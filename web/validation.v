@@ -1053,12 +1053,12 @@ pub fn validate_body[T](ctx &veb.Context) (T, ValidationErrors) {
 	}
 
 	// Decode JSON into the struct
-	result = json2.decode[T]( body) or {
+	result = json2.decode[T](body) or {
 		// If JSON decode fails, try to validate individual fields
 		mut decode_errors := map[string][]ValidationError{}
 		decode_errors['_body'] = [ValidationError{
-			field: '_body'
-			rule: 'json'
+			field:   '_body'
+			rule:    'json'
 			message: 'invalid JSON body'
 		}]
 		return result, decode_errors
@@ -1267,7 +1267,7 @@ pub fn validate_params(constraints string, params map[string]string) ! {
 		violations << validate_field(param_name, value, rules)
 	}
 	if violations.len > 0 {
-		return ConstraintViolationException{violations: violations}
+		return ConstraintViolationException{ violations: violations }
 	}
 }
 
@@ -1347,7 +1347,7 @@ pub fn validate_method_params[T](method_name string, params map[string]string) !
 	}
 
 	if violations.len > 0 {
-		return ConstraintViolationException{violations: violations}
+		return ConstraintViolationException{ violations: violations }
 	}
 }
 

@@ -1257,7 +1257,7 @@ pub fn (mut c Container) print_beans() {
 	defer { c.mu.runlock() }
 
 	println('═══ Photon Container: ${c.definitions.len} bean(s) ═══')
-	println('${'Bean':-30s} ${'Scope':-12s} ${'State':-14s} ${'Dependencies'}')
+	println('${'Bean':-30s} ${'Scope':-12s} ${'State':-14s} Dependencies')
 	println('${'─'.repeat(80)}')
 
 	for name, def in c.definitions {

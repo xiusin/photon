@@ -126,12 +126,12 @@ pub fn (mut sse SSEConnection) close() {
 //   chain.use(cors.to_before_middleware())
 pub struct CorsConfig {
 pub:
-	origins           []string        // 允许的来源列表
-	allow_credentials bool            // 是否允许携带凭证
-	allowed_headers   []string        // 允许的请求头
-	allowed_methods   []http.Method   // 允许的 HTTP 方法
-	expose_headers    []string        // 暴露给客户端的响应头
-	max_age           ?int            // preflight 缓存时间（秒）
+	origins           []string      // 允许的来源列表
+	allow_credentials bool          // 是否允许携带凭证
+	allowed_headers   []string      // 允许的请求头
+	allowed_methods   []http.Method // 允许的 HTTP 方法
+	expose_headers    []string      // 暴露给客户端的响应头
+	max_age           ?int          // preflight 缓存时间（秒）
 }
 
 // new_cors_config 创建 CORS 配置。
@@ -600,8 +600,8 @@ pub:
 // lang 为语言代码，如 'zh-CN', 'en-US'。
 pub fn new_translation_bridge(lang string) TranslationBridge {
 	return TranslationBridge{
-		lang:          lang
-		translations:  map[string]map[string]string{}
+		lang:         lang
+		translations: map[string]map[string]string{}
 	}
 }
 

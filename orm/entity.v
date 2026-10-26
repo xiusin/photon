@@ -165,27 +165,27 @@ pub fn (mut e SoftDeletableEntity) restore() {
 // Centralized constants for all supported annotation names.
 // Used by scan_entity[T]() and validation functions at compile time.
 
-pub const attr_table          = 'table'
-pub const attr_entity         = 'entity'
-pub const attr_id             = 'id'
-pub const attr_primary_key    = 'primary_key'
-pub const attr_column         = 'column'
+pub const attr_table = 'table'
+pub const attr_entity = 'entity'
+pub const attr_id = 'id'
+pub const attr_primary_key = 'primary_key'
+pub const attr_column = 'column'
 pub const attr_generated_value = 'generated_value'
-pub const attr_version        = 'version'
-pub const attr_created_at     = 'created_at'
-pub const attr_updated_at     = 'updated_at'
-pub const attr_soft_delete    = 'soft_delete'
-pub const attr_size           = 'size'
-pub const attr_nullable       = 'nullable'
-pub const attr_unique         = 'unique'
+pub const attr_version = 'version'
+pub const attr_created_at = 'created_at'
+pub const attr_updated_at = 'updated_at'
+pub const attr_soft_delete = 'soft_delete'
+pub const attr_size = 'size'
+pub const attr_nullable = 'nullable'
+pub const attr_unique = 'unique'
 
 // DTO validation annotation name constants
-pub const attr_required       = 'required'
-pub const attr_email          = 'email'
-pub const attr_min            = 'min'
-pub const attr_max            = 'max'
-pub const attr_pattern        = 'pattern'
-pub const attr_length         = 'length'
+pub const attr_required = 'required'
+pub const attr_email = 'email'
+pub const attr_min = 'min'
+pub const attr_max = 'max'
+pub const attr_pattern = 'pattern'
+pub const attr_length = 'length'
 
 // ColumnMetadata describes a single entity field's DB mapping.
 pub struct ColumnMetadata {

@@ -11,7 +11,7 @@ module orm
 
 struct EnhTestUser {
 pub mut:
-	id     int    @[id]
+	id     int @[id]
 	name   string
 	email  string
 	status string
@@ -360,10 +360,10 @@ fn test_paginate_negative_page_normalized() {
 
 fn test_page_result_has_next() {
 	pr := PageResult[EnhTestUser]{
-		items: []EnhTestUser{cap: 1}
-		total: 20
-		page: 1
-		page_size: 10
+		items:       []EnhTestUser{cap: 1}
+		total:       20
+		page:        1
+		page_size:   10
 		total_pages: 2
 	}
 	assert pr.has_next() == true
@@ -372,10 +372,10 @@ fn test_page_result_has_next() {
 
 fn test_page_result_has_previous() {
 	pr := PageResult[EnhTestUser]{
-		items: []EnhTestUser{cap: 1}
-		total: 20
-		page: 2
-		page_size: 10
+		items:       []EnhTestUser{cap: 1}
+		total:       20
+		page:        2
+		page_size:   10
 		total_pages: 2
 	}
 	assert pr.has_next() == false
@@ -384,10 +384,10 @@ fn test_page_result_has_previous() {
 
 fn test_page_result_is_empty() {
 	pr := PageResult[EnhTestUser]{
-		items: []EnhTestUser{}
-		total: 0
-		page: 1
-		page_size: 10
+		items:       []EnhTestUser{}
+		total:       0
+		page:        1
+		page_size:   10
 		total_pages: 0
 	}
 	assert pr.is_empty() == true

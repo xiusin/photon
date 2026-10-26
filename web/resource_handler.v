@@ -48,7 +48,7 @@ pub mut:
 // ResourceHandlerRegistry holds all static resource mappings.
 pub struct ResourceHandlerRegistry {
 pub mut:
-	mappings  []ResourceHandlerMapping
+	mappings    []ResourceHandlerMapping
 	compression StaticCompressionConfig
 }
 

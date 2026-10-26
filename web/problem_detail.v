@@ -51,12 +51,12 @@ pub mut:
 	// ── RFC 7807 standard fields ──
 	type_     string // 'type' is a reserved keyword in V, use 'type_'
 	title     string
-	status    int    = 500
+	status    int = 500
 	detail    string
 	instance_ string // 'instance' may conflict, use 'instance_'
 
 	// ── Extension members ──
-	errors    []FieldError
+	errors []FieldError
 }
 
 // FieldError represents a single field-level validation error.

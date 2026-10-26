@@ -189,13 +189,6 @@ pub fn get_query_param(ctx &veb.Context, key string) string {
 	return ''
 }
 
-// get_path_param 已弃用：veb 路径参数应通过路由处理器的 params 字典获取。
-// 保留此函数仅为向后兼容，恒返回空字符串。
-@[deprecated: 'use route handler params map instead']
-pub fn get_path_param(ctx &veb.Context, key string) string {
-	return ''
-}
-
 // get_header_val 返回请求头的值，缺失时返回空字符串。
 pub fn get_header_val(ctx &veb.Context, key string) string {
 	return ctx.get_custom_header(key) or { '' }

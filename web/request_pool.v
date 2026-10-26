@@ -113,9 +113,9 @@ pub mut:
 	pools map[string]&pool.Pool
 	stats map[string]pool.PoolStats
 mut:
-	mu        sync.RwMutex
-	config    RequestPoolConfig
-	entries   map[string]PoolEntry // name → PoolEntry with reset_fn
+	mu      sync.RwMutex
+	config  RequestPoolConfig
+	entries map[string]PoolEntry // name → PoolEntry with reset_fn
 }
 
 // ── Constructor / 构造函数 ──

@@ -45,7 +45,7 @@ import os
 // Spring equivalent: org.springframework.boot.info.BuildProperties
 pub struct BuildInfo {
 pub mut:
-	version     string = '0.0.0' // semantic version (e.g. '0.1.0')
+	version     string = '0.0.0'   // semantic version (e.g. '0.1.0')
 	commit      string = 'unknown' // git commit SHA
 	commit_time string = 'unknown' // ISO-8601 timestamp of the commit
 	build_time  string = 'unknown' // ISO-8601 timestamp of the build

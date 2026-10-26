@@ -65,7 +65,7 @@ fn test_is_singleton_returns_false_for_unknown() {
 struct MockConnectionFactory {}
 
 fn (f &MockConnectionFactory) create() !voidptr {
-	return unsafe { voidptr(&EdgeMockRepo{id: 1, label: 'factory'}) }
+	return unsafe { voidptr(&EdgeMockRepo{ id: 1, label: 'factory' }) }
 }
 
 fn (f &MockConnectionFactory) bean_type() string {
@@ -85,7 +85,10 @@ fn test_factory_bean_registration_and_resolution() {
 	assert c.has('FactoryProducedRepo') == true
 
 	// resolve 应调用 factory.create()
-	inst := c.resolve('FactoryProducedRepo') or { assert false; return }
+	inst := c.resolve('FactoryProducedRepo') or {
+		assert false
+		return
+	}
 	assert !isnil(inst)
 	repo := unsafe { &EdgeMockRepo(inst) }
 	assert repo.label == 'factory'
@@ -98,9 +101,15 @@ fn test_factory_bean_singleton_cached() {
 	c.register_factory('FactoryProducedRepo', factory) or { assert false }
 
 	// 第一次 resolve — factory.create() 被调用
-	inst1 := c.resolve('FactoryProducedRepo') or { assert false; return }
+	inst1 := c.resolve('FactoryProducedRepo') or {
+		assert false
+		return
+	}
 	// 第二次 resolve — singleton 应缓存，返回同一实例
-	inst2 := c.resolve('FactoryProducedRepo') or { assert false; return }
+	inst2 := c.resolve('FactoryProducedRepo') or {
+		assert false
+		return
+	}
 
 	assert inst1 == inst2
 }
@@ -113,7 +122,10 @@ fn test_get_merged_definition_no_parent() {
 	def.init_method = 'init'
 	c.register(def) or { assert false }
 
-	merged := c.get_merged_definition('child_bean') or { assert false; return }
+	merged := c.get_merged_definition('child_bean') or {
+		assert false
+		return
+	}
 	assert merged.init_method == 'init'
 	assert merged.parent_name == ''
 }
@@ -133,7 +145,10 @@ fn test_get_merged_definition_inherits_parent() {
 	// child 不设 init_method → 应继承 parent 的
 	c.register(child_def) or { assert false }
 
-	merged := c.get_merged_definition('child_bean') or { assert false; return }
+	merged := c.get_merged_definition('child_bean') or {
+		assert false
+		return
+	}
 	assert merged.init_method == 'parent_init'
 	assert merged.destroy_method == 'parent_destroy'
 }
@@ -142,7 +157,7 @@ fn test_get_merged_definition_inherits_parent() {
 
 fn test_destroy_removes_instance() {
 	mut c := new_container()
-	repo := &EdgeMockRepo{id: 1}
+	repo := &EdgeMockRepo{ id: 1 }
 	c.register_instance('destroyable', unsafe { voidptr(repo) }) or { assert false }
 	assert c.has_instance('destroyable') == true
 
@@ -161,9 +176,9 @@ fn test_destroy_unknown_returns_error() {
 
 fn test_destroy_all_clears_instances() {
 	mut c := new_container()
-	c.register_instance('bean_a', unsafe { voidptr(&EdgeMockRepo{id: 1}) }) or { assert false }
-	c.register_instance('bean_b', unsafe { voidptr(&EdgeMockRepo{id: 2}) }) or { assert false }
-	c.register_instance('bean_c', unsafe { voidptr(&EdgeMockRepo{id: 3}) }) or { assert false }
+	c.register_instance('bean_a', unsafe { voidptr(&EdgeMockRepo{ id: 1 }) }) or { assert false }
+	c.register_instance('bean_b', unsafe { voidptr(&EdgeMockRepo{ id: 2 }) }) or { assert false }
+	c.register_instance('bean_c', unsafe { voidptr(&EdgeMockRepo{ id: 3 }) }) or { assert false }
 	assert c.singleton_count() == 3
 
 	c.destroy_all()
@@ -173,7 +188,7 @@ fn test_destroy_all_clears_instances() {
 
 fn test_destroy_invokes_disposable_callback() {
 	mut c := new_container()
-	repo := &EdgeMockRepo{id: 42}
+	repo := &EdgeMockRepo{ id: 42 }
 	c.register_instance('disposable_bean', unsafe { voidptr(repo) }) or { assert false }
 
 	c.register_destroy_callback('disposable_bean', fn (inst voidptr) ! {
@@ -191,7 +206,7 @@ fn test_destroy_invokes_disposable_callback() {
 
 fn test_register_alias_duplicate_returns_error() {
 	mut c := new_container()
-	c.register_instance('real_bean', unsafe { voidptr(&EdgeMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('real_bean', unsafe { voidptr(&EdgeMockRepo{ id: 1 }) }) or { assert false }
 	c.register_alias('Dup', 'real_bean') or { assert false }
 
 	c.register_alias('Dup', 'real_bean') or {
@@ -214,7 +229,7 @@ fn test_register_alias_nonexistent_canonical_returns_error() {
 
 fn test_remove_alias() {
 	mut c := new_container()
-	c.register_instance('bean', unsafe { voidptr(&EdgeMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('bean', unsafe { voidptr(&EdgeMockRepo{ id: 1 }) }) or { assert false }
 	c.register_alias('ToRemove', 'bean') or { assert false }
 	assert c.has_alias('ToRemove') == true
 
@@ -238,13 +253,16 @@ fn test_resolve_by_qualifier() {
 	mut def := new_bean_definition('qualified_bean')
 	def.qualifier = 'my_qualifier'
 	c.register(def) or { assert false }
-	repo := &EdgeMockRepo{id: 55}
+	repo := &EdgeMockRepo{ id: 55 }
 	c.register_instance('qualified_bean', unsafe { voidptr(repo) }) or { assert false }
 
 	assert c.has_qualifier('my_qualifier') == true
 	assert c.has_qualifier('nonexistent') == false
 
-	inst := c.resolve_by_qualifier('my_qualifier') or { assert false; return }
+	inst := c.resolve_by_qualifier('my_qualifier') or {
+		assert false
+		return
+	}
 	assert inst == unsafe { voidptr(repo) }
 }
 
@@ -261,10 +279,13 @@ fn test_resolve_by_qualifier_not_found() {
 
 fn test_resolve_all_by_type_exact_name_match() {
 	mut c := new_container()
-	repo := &EdgeMockRepo{id: 88}
+	repo := &EdgeMockRepo{ id: 88 }
 	c.register_instance('EdgeMockRepo', unsafe { voidptr(repo) }) or { assert false }
 
-	instances := c.resolve_all_by_type('EdgeMockRepo') or { assert false; return }
+	instances := c.resolve_all_by_type('EdgeMockRepo') or {
+		assert false
+		return
+	}
 	assert instances.len >= 1
 	assert instances[0] == unsafe { voidptr(repo) }
 }
@@ -275,10 +296,13 @@ fn test_resolve_all_by_type_interface_match() {
 	builder.add_interface('IRepo')
 	def := builder.build()
 	c.register(def) or { assert false }
-	repo := &EdgeMockRepo{id: 99}
+	repo := &EdgeMockRepo{ id: 99 }
 	c.register_instance('iface_impl', unsafe { voidptr(repo) }) or { assert false }
 
-	instances := c.resolve_all_by_type('IRepo') or { assert false; return }
+	instances := c.resolve_all_by_type('IRepo') or {
+		assert false
+		return
+	}
 	assert instances.len >= 1
 }
 
@@ -286,15 +310,21 @@ fn test_resolve_all_by_type_interface_match() {
 
 fn test_mutable_deferred_provider_no_cache() {
 	mut c := new_container()
-	repo := &EdgeMockRepo{id: 77}
+	repo := &EdgeMockRepo{ id: 77 }
 	c.register_instance('mock_repo', unsafe { voidptr(repo) }) or { assert false }
 
 	mut provider := c.create_mutable_deferred_provider('mock_repo')
 	assert provider.is_resolved() == false
 
-	inst1 := provider.get() or { assert false; return }
+	inst1 := provider.get() or {
+		assert false
+		return
+	}
 	// mutable provider 不缓存，但 singleton bean 本身缓存，所以返回同一实例
-	inst2 := provider.get() or { assert false; return }
+	inst2 := provider.get() or {
+		assert false
+		return
+	}
 	assert inst1 == inst2 // singleton bean 返回同一实例
 }
 
@@ -322,10 +352,13 @@ fn test_container_freeze_idempotent() {
 
 fn test_create_and_wire_injects_dependencies() {
 	mut ctx := new_application_context()
-	repo := &EdgeMockRepo{id: 10, label: 'wired'}
+	repo := &EdgeMockRepo{ id: 10, label: 'wired' }
 	ctx.register_instance('repo', unsafe { voidptr(repo) }) or { assert false }
 
-	svc := ctx.create_and_wire[EdgeMockService]() or { assert false; return }
+	svc := ctx.create_and_wire[EdgeMockService]() or {
+		assert false
+		return
+	}
 	assert !isnil(svc.repo)
 	assert svc.repo.id == 10
 	assert svc.repo.label == 'wired'
@@ -346,14 +379,14 @@ fn test_singleton_count_after_instance_registration() {
 	mut c := new_container()
 	assert c.singleton_count() == 0
 
-	c.register_instance('inst_a', unsafe { voidptr(&EdgeMockRepo{id: 1}) }) or { assert false }
-	c.register_instance('inst_b', unsafe { voidptr(&EdgeMockRepo{id: 2}) }) or { assert false }
+	c.register_instance('inst_a', unsafe { voidptr(&EdgeMockRepo{ id: 1 }) }) or { assert false }
+	c.register_instance('inst_b', unsafe { voidptr(&EdgeMockRepo{ id: 2 }) }) or { assert false }
 	assert c.singleton_count() == 2
 }
 
 fn test_alias_count() {
 	mut c := new_container()
-	c.register_instance('bean', unsafe { voidptr(&EdgeMockRepo{id: 1}) }) or { assert false }
+	c.register_instance('bean', unsafe { voidptr(&EdgeMockRepo{ id: 1 }) }) or { assert false }
 	assert c.alias_count() == 0
 
 	c.register_alias('A1', 'bean') or { assert false }
@@ -434,10 +467,16 @@ fn test_mark_ready_transitions_state() {
 	c.register(new_bean_definition('state_bean')) or { assert false }
 
 	// mark_ready 不报错即通过
-	c.mark_ready('state_bean') or { assert false; return }
+	c.mark_ready('state_bean') or {
+		assert false
+		return
+	}
 
 	// 再次 mark_ready 也不报错
-	c.mark_ready('state_bean') or { assert false; return }
+	c.mark_ready('state_bean') or {
+		assert false
+		return
+	}
 }
 
 fn test_mark_ready_unknown_returns_error() {
@@ -478,6 +517,9 @@ fn test_get_merged_definition_unknown_parent_uses_child_as_is() {
 	c.register(def) or { assert false }
 
 	// 父不存在时，返回 child 定义本身
-	merged := c.get_merged_definition('orphan_child') or { assert false; return }
+	merged := c.get_merged_definition('orphan_child') or {
+		assert false
+		return
+	}
 	assert merged.init_method == 'child_init'
 }

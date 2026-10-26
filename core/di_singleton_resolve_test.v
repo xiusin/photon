@@ -22,16 +22,16 @@ struct MockLogger {
 
 struct MockService {
 pub mut:
-	repo  &MockRepo   = unsafe { nil } @[autowired]
-	log   &MockLogger = unsafe { nil } @[autowired]
+	repo &MockRepo   = unsafe { nil } @[autowired]
+	log  &MockLogger = unsafe { nil } @[autowired]
 }
 
 // ── 1. snapshot_singletons 完整性 ──
 
 fn test_snapshot_singletons_captures_all_instances() {
 	mut c := new_container()
-	repo := &MockRepo{id: 1}
-	log := &MockLogger{level: 'info'}
+	repo := &MockRepo{ id: 1 }
+	log := &MockLogger{ level: 'info' }
 
 	c.register_instance('mock_repo', unsafe { voidptr(repo) }) or { assert false }
 	c.register_instance('log', unsafe { voidptr(log) }) or { assert false }
@@ -44,7 +44,7 @@ fn test_snapshot_singletons_captures_all_instances() {
 
 fn test_snapshot_singletons_captures_aliases() {
 	mut c := new_container()
-	repo := &MockRepo{id: 42}
+	repo := &MockRepo{ id: 42 }
 
 	c.register_instance('mock_repo', unsafe { voidptr(repo) }) or { assert false }
 	c.register_alias('MockRepo', 'mock_repo') or { assert false }
@@ -85,8 +85,8 @@ fn test_snapshot_singletons_alias_without_instance_skipped() {
 
 fn test_freeze_prewarms_cache_with_singletons() {
 	mut ctx := new_application_context()
-	repo := &MockRepo{id: 1}
-	log := &MockLogger{level: 'debug'}
+	repo := &MockRepo{ id: 1 }
+	log := &MockLogger{ level: 'debug' }
 
 	ctx.register_instance('mock_repo', unsafe { voidptr(repo) }) or { assert false }
 	ctx.register_instance_with_aliases('log', unsafe { voidptr(log) }, ['Logger']) or { assert false }
@@ -103,7 +103,7 @@ fn test_freeze_prewarms_cache_with_singletons() {
 
 fn test_freeze_idempotent() {
 	mut ctx := new_application_context()
-	ctx.register_instance('bean_a', unsafe { voidptr(&MockRepo{id: 1}) }) or { assert false }
+	ctx.register_instance('bean_a', unsafe { voidptr(&MockRepo{ id: 1 }) }) or { assert false }
 
 	ctx.freeze_bean_definitions()
 	size_after_first_freeze := ctx.cache_size()
@@ -118,7 +118,7 @@ fn test_freeze_idempotent() {
 
 fn test_resolve_after_freeze_hits_cache_canonical() {
 	mut ctx := new_application_context()
-	repo := &MockRepo{id: 99}
+	repo := &MockRepo{ id: 99 }
 
 	ctx.register_instance('mock_repo', unsafe { voidptr(repo) }) or { assert false }
 	ctx.freeze_bean_definitions()
@@ -139,16 +139,25 @@ fn test_resolve_after_freeze_hits_cache_canonical() {
 
 fn test_resolve_after_freeze_hits_cache_alias() {
 	mut ctx := new_application_context()
-	repo := &MockRepo{id: 77}
+	repo := &MockRepo{ id: 77 }
 
-	ctx.register_instance_with_aliases('mock_repo', unsafe { voidptr(repo) }, ['MockRepo', 'Repo']) or { assert false }
+	ctx.register_instance_with_aliases('mock_repo', unsafe { voidptr(repo) }, [
+		'MockRepo',
+		'Repo',
+	]) or { assert false }
 	ctx.freeze_bean_definitions()
 
 	misses_before := ctx.cache_miss_count()
 
 	// 通过别名解析
-	inst1 := ctx.resolve('MockRepo') or { assert false; return }
-	inst2 := ctx.resolve('Repo') or { assert false; return }
+	inst1 := ctx.resolve('MockRepo') or {
+		assert false
+		return
+	}
+	inst2 := ctx.resolve('Repo') or {
+		assert false
+		return
+	}
 
 	misses_after := ctx.cache_miss_count()
 
@@ -161,7 +170,7 @@ fn test_resolve_after_freeze_hits_cache_alias() {
 
 fn test_resolve_after_freeze_cache_miss_grows_for_unknown() {
 	mut ctx := new_application_context()
-	ctx.register_instance('known', unsafe { voidptr(&MockRepo{id: 1}) }) or { assert false }
+	ctx.register_instance('known', unsafe { voidptr(&MockRepo{ id: 1 }) }) or { assert false }
 	ctx.freeze_bean_definitions()
 
 	misses_before := ctx.cache_miss_count()
@@ -179,8 +188,8 @@ fn test_resolve_after_freeze_cache_miss_grows_for_unknown() {
 
 fn test_autowire_bean_resolves_by_field_name() {
 	mut ctx := new_application_context()
-	repo := &MockRepo{id: 10}
-	log := &MockLogger{level: 'warn'}
+	repo := &MockRepo{ id: 10 }
+	log := &MockLogger{ level: 'warn' }
 
 	// 注册名必须与字段名一致
 	ctx.register_instance('repo', unsafe { voidptr(repo) }) or { assert false }
@@ -197,7 +206,7 @@ fn test_autowire_bean_resolves_by_field_name() {
 
 fn test_autowire_bean_resolves_by_capitalized_field_name() {
 	mut ctx := new_application_context()
-	repo := &MockRepo{id: 20}
+	repo := &MockRepo{ id: 20 }
 
 	// 注册名为首字母大写形式
 	ctx.register_instance('Repo', unsafe { voidptr(repo) }) or { assert false }
@@ -212,7 +221,7 @@ fn test_autowire_bean_resolves_by_capitalized_field_name() {
 
 fn test_autowire_bean_field_name_mismatch_leaves_nil() {
 	mut ctx := new_application_context()
-	repo := &MockRepo{id: 30}
+	repo := &MockRepo{ id: 30 }
 
 	// 注册名与字段名不匹配
 	ctx.register_instance('different_repo', unsafe { voidptr(repo) }) or { assert false }
@@ -228,16 +237,32 @@ fn test_autowire_bean_field_name_mismatch_leaves_nil() {
 
 fn test_register_instance_with_aliases_full_resolve() {
 	mut ctx := new_application_context()
-	repo := &MockRepo{id: 55}
+	repo := &MockRepo{ id: 55 }
 
-	ctx.register_instance_with_aliases('primary_repo', unsafe { voidptr(repo) }, ['Alias1', 'Alias2', 'Alias3']) or { assert false }
+	ctx.register_instance_with_aliases('primary_repo', unsafe { voidptr(repo) }, [
+		'Alias1',
+		'Alias2',
+		'Alias3',
+	]) or { assert false }
 	ctx.freeze_bean_definitions()
 
 	// 所有名称都应解析到同一实例
-	inst_primary := ctx.resolve('primary_repo') or { assert false; return }
-	inst_a1 := ctx.resolve('Alias1') or { assert false; return }
-	inst_a2 := ctx.resolve('Alias2') or { assert false; return }
-	inst_a3 := ctx.resolve('Alias3') or { assert false; return }
+	inst_primary := ctx.resolve('primary_repo') or {
+		assert false
+		return
+	}
+	inst_a1 := ctx.resolve('Alias1') or {
+		assert false
+		return
+	}
+	inst_a2 := ctx.resolve('Alias2') or {
+		assert false
+		return
+	}
+	inst_a3 := ctx.resolve('Alias3') or {
+		assert false
+		return
+	}
 
 	assert inst_primary == unsafe { voidptr(repo) }
 	assert inst_a1 == inst_primary
@@ -249,7 +274,7 @@ fn test_register_instance_with_aliases_full_resolve() {
 
 fn test_repeated_resolve_after_freeze_all_cache_hits() {
 	mut ctx := new_application_context()
-	repo := &MockRepo{id: 66}
+	repo := &MockRepo{ id: 66 }
 	ctx.register_instance('mock_repo', unsafe { voidptr(repo) }) or { assert false }
 	ctx.freeze_bean_definitions()
 
@@ -257,7 +282,10 @@ fn test_repeated_resolve_after_freeze_all_cache_hits() {
 
 	// 连续解析 100 次
 	for i in 0 .. 100 {
-		inst := ctx.resolve('mock_repo') or { assert false; return }
+		inst := ctx.resolve('mock_repo') or {
+			assert false
+			return
+		}
 		assert inst == unsafe { voidptr(repo) }
 	}
 
@@ -270,7 +298,7 @@ fn test_repeated_resolve_after_freeze_all_cache_hits() {
 
 fn test_freeze_unfreeze_refreeze_cycle() {
 	mut ctx := new_application_context()
-	ctx.register_instance('bean_a', unsafe { voidptr(&MockRepo{id: 1}) }) or { assert false }
+	ctx.register_instance('bean_a', unsafe { voidptr(&MockRepo{ id: 1 }) }) or { assert false }
 	ctx.freeze_bean_definitions()
 	assert ctx.is_frozen_bean_definitions() == true
 
@@ -279,7 +307,7 @@ fn test_freeze_unfreeze_refreeze_cycle() {
 	assert ctx.cache_size() == 0 // unfreeze 清空缓存
 
 	// 重新注册并冻结
-	ctx.register_instance('bean_b', unsafe { voidptr(&MockRepo{id: 2}) }) or { assert false }
+	ctx.register_instance('bean_b', unsafe { voidptr(&MockRepo{ id: 2 }) }) or { assert false }
 	ctx.freeze_bean_definitions()
 	assert ctx.is_frozen_bean_definitions() == true
 	assert ctx.cache_size() >= 1
@@ -307,8 +335,8 @@ pub mut:
 
 fn test_field_name_prefix_prevents_cross_injection() {
 	mut ctx := new_application_context()
-	webos_repo := &WebosMockRepo{code: 'webos'}
-	blog_repo := &BlogMockRepo{code: 'blog'}
+	webos_repo := &WebosMockRepo{ code: 'webos' }
+	blog_repo := &BlogMockRepo{ code: 'blog' }
 
 	// 模拟 bootstrap 注册：两个不同前缀的 repo
 	ctx.register_instance('webos_repo', unsafe { voidptr(webos_repo) }) or { assert false }
@@ -331,8 +359,8 @@ fn test_field_name_prefix_prevents_cross_injection() {
 
 fn test_resolve_via_application_context_after_freeze() {
 	mut ctx := new_application_context()
-	repo := &MockRepo{id: 88}
-	log := &MockLogger{level: 'error'}
+	repo := &MockRepo{ id: 88 }
+	log := &MockLogger{ level: 'error' }
 
 	ctx.register_instance_with_aliases('mock_repo', unsafe { voidptr(repo) }, ['MockRepo']) or { assert false }
 	ctx.register_instance_with_aliases('log', unsafe { voidptr(log) }, ['Logger']) or { assert false }
@@ -340,10 +368,22 @@ fn test_resolve_via_application_context_after_freeze() {
 	ctx.freeze_bean_definitions()
 
 	// 通过 ApplicationContext.resolve() 解析（走 cache_mu 路径）
-	inst1 := ctx.resolve('mock_repo') or { assert false; return }
-	inst2 := ctx.resolve('MockRepo') or { assert false; return }
-	inst3 := ctx.resolve('log') or { assert false; return }
-	inst4 := ctx.resolve('Logger') or { assert false; return }
+	inst1 := ctx.resolve('mock_repo') or {
+		assert false
+		return
+	}
+	inst2 := ctx.resolve('MockRepo') or {
+		assert false
+		return
+	}
+	inst3 := ctx.resolve('log') or {
+		assert false
+		return
+	}
+	inst4 := ctx.resolve('Logger') or {
+		assert false
+		return
+	}
 
 	assert inst1 == unsafe { voidptr(repo) }
 	assert inst2 == unsafe { voidptr(repo) }
@@ -364,7 +404,7 @@ fn test_create_and_register_then_freeze_cache_complete() {
 	mut ctx := new_application_context()
 
 	// 注册一个基础设施 bean
-	repo := &MockRepo{id: 100}
+	repo := &MockRepo{ id: 100 }
 	ctx.register_instance_with_aliases('repo', unsafe { voidptr(repo) }, ['MockRepo']) or { assert false }
 
 	// create_and_register 会调用 autowire + register_instance_with_aliases
@@ -381,10 +421,22 @@ fn test_create_and_register_then_freeze_cache_complete() {
 
 	// 所有名称都能命中缓存
 	misses_before := ctx.cache_miss_count()
-	_ = ctx.resolve('repo') or { assert false; return }
-	_ = ctx.resolve('MockRepo') or { assert false; return }
-	_ = ctx.resolve('simple_component') or { assert false; return }
-	_ = ctx.resolve('SimpleComponent') or { assert false; return }
+	_ = ctx.resolve('repo') or {
+		assert false
+		return
+	}
+	_ = ctx.resolve('MockRepo') or {
+		assert false
+		return
+	}
+	_ = ctx.resolve('simple_component') or {
+		assert false
+		return
+	}
+	_ = ctx.resolve('SimpleComponent') or {
+		assert false
+		return
+	}
 	misses_after := ctx.cache_miss_count()
 	assert misses_after == misses_before
 }

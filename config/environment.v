@@ -195,7 +195,6 @@ fn (mut e Environment) resolve_placeholders_with_visited(text string, visited []
 // Handles nested ${...} by tracking brace depth.
 // Returns -1 if no matching brace is found.
 fn find_matching_brace(text string, open_pos int) int {
-
 	mut depth := 1
 	mut i := open_pos + 2 // skip past '${'
 	for i < text.len {

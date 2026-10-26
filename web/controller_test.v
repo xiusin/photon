@@ -54,19 +54,6 @@ fn test_get_query_param_only_question_mark() {
 	assert get_query_param(ctx, 'id') == ''
 }
 
-// -- get_path_param tests (deprecated) --
-
-fn test_get_path_param_returns_empty() {
-	ctx := ctx_with_url('/users/42')
-	assert get_path_param(ctx, 'id') == ''
-	assert get_path_param(ctx, 'name') == ''
-}
-
-fn test_get_path_param_deprecated_always_empty() {
-	ctx := ctx_with_url('/any/path/123')
-	assert get_path_param(ctx, 'any') == ''
-}
-
 // -- get_header_val tests --
 
 fn test_get_header_val_default() {

@@ -108,7 +108,7 @@ pub fn bind_json[T](ctx &veb.Context) !T {
 	if body == '' {
 		return error('empty request body')
 	}
-	return json2.decode[T]( body) or { error('invalid JSON: ${err}') }
+	return json2.decode[T](body) or { error('invalid JSON: ${err}') }
 }
 
 // bind_request_body binds a JSON request body to a struct T with validation.
@@ -138,7 +138,7 @@ pub fn bind_request_body[T](ctx &veb.Context) !T {
 	if body == '' {
 		return error('request body is empty / 请求体为空')
 	}
-	mut result := json2.decode[T]( body) or {
+	mut result := json2.decode[T](body) or {
 		return error('invalid JSON: ${err} / JSON 解析失败: ${err}')
 	}
 	// Run validation on the decoded struct
@@ -175,7 +175,7 @@ fn validate_struct[T](mut result T) ! {
 			}
 			if attr.starts_with('validate:') {
 				// Extract validation rules from @[validate: 'rule1; rule2']
-				rules_str := attr['validate:'.len..].trim_space().trim("'\"")
+				rules_str := attr['validate:'.len..].trim_space().trim('\'"')
 				for rule in rules_str.split(';') {
 					trimmed := rule.trim_space()
 					if trimmed.len > 0 {

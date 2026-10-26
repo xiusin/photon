@@ -43,8 +43,8 @@ fn test_where_group_propagates_inner_error() {
 			return g.where_eq('bad column!', 'x')
 		})
 		.build() or {
-			assert err.msg().contains('invalid column identifier')
-			return
-		}
+		assert err.msg().contains('invalid column identifier')
+		return
+	}
 	assert false, 'invalid inner column must fail the whole query'
 }

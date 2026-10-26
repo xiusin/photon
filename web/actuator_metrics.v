@@ -58,8 +58,8 @@ pub fn metrics_mock_handler(registry &metrics.InMemoryMeterRegistry) MockHandler
 	return fn [registry] (req MockRequest) !MockResult {
 		body, ct := serve_metrics(registry)
 		return MockResult{
-			status: 200
-			body:   body
+			status:  200
+			body:    body
 			headers: {
 				'Content-Type': ct
 			}

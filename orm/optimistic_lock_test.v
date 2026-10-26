@@ -512,7 +512,7 @@ fn test_ol_optimistic_lock_exception_is_typed() {
 
 fn test_ol_optimistic_lock_exception_code_method() {
 	mut repo := ol_mock_setup[OlVersionedUser]()!
-	repo.save(&OlVersionedUser{name: 'Alice', email: 'a@b.com'})!
+	repo.save(&OlVersionedUser{ name: 'Alice', email: 'a@b.com' })!
 	repo.update(&OlVersionedUser{
 		id:      1
 		name:    'Alice2'
@@ -766,8 +766,8 @@ fn test_ol_update_versioned_requires_affected_rows_fn() {
 	}
 	// Insert with id=0 so save() does an INSERT (not routed to update)
 	repo.save(&OlVersionedUser{
-		name:    'Alice'
-		email:   'a@b.com'
+		name:  'Alice'
+		email: 'a@b.com'
 	})!
 	// update() should fail because affected_rows_fn is not configured
 	if _ := repo.update(&OlVersionedUser{

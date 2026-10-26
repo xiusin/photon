@@ -163,16 +163,14 @@ fn test_criteria_not_empty() {
 }
 
 fn test_specification_executor_find() {
-	mut executor := new_specification_executor[User](
-		fn (criteria Criteria) ![]User {
-			assert criteria.conditions.len == 1
-			assert criteria.conditions[0].column == 'status'
-			return [User{ id: 1, name: 'Alice', status: 'active' }]
-		},
+	mut executor := new_specification_executor[User](fn (criteria Criteria) ![]User {
+		assert criteria.conditions.len == 1
+		assert criteria.conditions[0].column == 'status'
+		return [User{ id: 1, name: 'Alice', status: 'active' }]
+	},
 		fn (criteria Criteria) !int {
 			return 1
-		}
-	)
+		})
 
 	spec := where_eq('status', 'active')
 	// Specification-typed entry point (free function — see the V codegen
@@ -183,14 +181,12 @@ fn test_specification_executor_find() {
 }
 
 fn test_specification_executor_count() {
-	mut executor := new_specification_executor[User](
-		fn (criteria Criteria) ![]User {
-			return []
-		},
+	mut executor := new_specification_executor[User](fn (criteria Criteria) ![]User {
+		return []
+	},
 		fn (criteria Criteria) !int {
 			return 42
-		}
-	)
+		})
 
 	spec := where_eq('status', 'active')
 	count := count_with_specification[User](executor, spec)!
@@ -198,15 +194,13 @@ fn test_specification_executor_count() {
 }
 
 fn test_specification_executor_raw_conditions() {
-	mut executor := new_specification_executor[User](
-		fn (criteria Criteria) ![]User {
-			assert criteria.conditions.len == 1
-			return []
-		},
+	mut executor := new_specification_executor[User](fn (criteria Criteria) ![]User {
+		assert criteria.conditions.len == 1
+		return []
+	},
 		fn (criteria Criteria) !int {
 			return 7
-		}
-	)
+		})
 
 	// The generic methods accept plain conditions, sidestepping the
 	// &Specification codegen issue documented in specification.v.
@@ -216,14 +210,12 @@ fn test_specification_executor_raw_conditions() {
 }
 
 fn test_specification_executor_exists() {
-	mut executor := new_specification_executor[User](
-		fn (criteria Criteria) ![]User {
-			return []
-		},
+	mut executor := new_specification_executor[User](fn (criteria Criteria) ![]User {
+		return []
+	},
 		fn (criteria Criteria) !int {
 			return 1
-		}
-	)
+		})
 
 	spec := where_eq('status', 'active')
 	exists := exists_with_specification[User](mut executor, spec)!

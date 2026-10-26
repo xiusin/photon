@@ -234,7 +234,7 @@ fn split_top_level(s string, sep string) []string {
 		// Check if we're at the separator
 		if i + sep_bytes.len <= bytes_.len {
 			mut matches := true
-			for k in 0..sep_bytes.len {
+			for k in 0 .. sep_bytes.len {
 				if bytes_[i + k] != sep_bytes[k] {
 					matches = false
 					break

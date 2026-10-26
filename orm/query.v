@@ -88,7 +88,7 @@ pub fn parse_query_annotation(attr string) ?QueryAnnotation {
 		return none
 	}
 	return QueryAnnotation{
-		sql_text: sql_raw
+		sql_text:     sql_raw
 		named_params: extract_named_params(sql_raw)
 	}
 }

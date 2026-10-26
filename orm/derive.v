@@ -371,70 +371,70 @@ fn match_keyword(tokens []string, start int) (string, int) {
 	n := tokens.len
 
 	// GreaterThanOrEqual (4 tokens: Greater, Than, Or, Equal)
-	if start + 4 <= n &&
-		tokens[start] == 'Greater' &&
-		tokens[start + 1] == 'Than' &&
-		tokens[start + 2] == 'Or' &&
-		tokens[start + 3] == 'Equal' {
+	if start + 4 <= n
+		&& tokens[start] == 'Greater'
+		&& tokens[start + 1] == 'Than'
+		&& tokens[start + 2] == 'Or'
+		&& tokens[start + 3] == 'Equal' {
 		return 'GreaterThanOrEqual', 4
 	}
 
 	// LessThanOrEqual (4 tokens: Less, Than, Or, Equal)
-	if start + 4 <= n &&
-		tokens[start] == 'Less' &&
-		tokens[start + 1] == 'Than' &&
-		tokens[start + 2] == 'Or' &&
-		tokens[start + 3] == 'Equal' {
+	if start + 4 <= n
+		&& tokens[start] == 'Less'
+		&& tokens[start + 1] == 'Than'
+		&& tokens[start + 2] == 'Or'
+		&& tokens[start + 3] == 'Equal' {
 		return 'LessThanOrEqual', 4
 	}
 
 	// IsNotNull (3 tokens: Is, Not, Null)
-	if start + 3 <= n &&
-		tokens[start] == 'Is' &&
-		tokens[start + 1] == 'Not' &&
-		tokens[start + 2] == 'Null' {
+	if start + 3 <= n
+		&& tokens[start] == 'Is'
+		&& tokens[start + 1] == 'Not'
+		&& tokens[start + 2] == 'Null' {
 		return 'IsNotNull', 3
 	}
 
 	// GreaterThan (2 tokens: Greater, Than)
-	if start + 2 <= n &&
-		tokens[start] == 'Greater' &&
-		tokens[start + 1] == 'Than' {
+	if start + 2 <= n
+		&& tokens[start] == 'Greater'
+		&& tokens[start + 1] == 'Than' {
 		return 'GreaterThan', 2
 	}
 
 	// LessThan (2 tokens: Less, Than)
-	if start + 2 <= n &&
-		tokens[start] == 'Less' &&
-		tokens[start + 1] == 'Than' {
+	if start + 2 <= n
+		&& tokens[start] == 'Less'
+		&& tokens[start + 1] == 'Than' {
 		return 'LessThan', 2
 	}
 
 	// StartingWith (2 tokens: Starting, With)
-	if start + 2 <= n &&
-		tokens[start] == 'Starting' &&
-		tokens[start + 1] == 'With' {
+	if start + 2 <= n
+		&& tokens[start] == 'Starting'
+		&& tokens[start + 1] == 'With' {
 		return 'StartingWith', 2
 	}
 
 	// EndingWith (2 tokens: Ending, With)
-	if start + 2 <= n &&
-		tokens[start] == 'Ending' &&
-		tokens[start + 1] == 'With' {
+	if start + 2 <= n
+		&& tokens[start] == 'Ending'
+		&& tokens[start + 1] == 'With' {
 		return 'EndingWith', 2
 	}
 
 	// IsNull (2 tokens: Is, Null)
-	if start + 2 <= n &&
-		tokens[start] == 'Is' &&
-		tokens[start + 1] == 'Null' {
+	if start + 2 <= n
+		&& tokens[start] == 'Is'
+		&& tokens[start + 1] == 'Null' {
 		return 'IsNull', 2
 	}
 
 	// NotIn (2 tokens: Not, In)
-	if start + 2 <= n &&
-		tokens[start] == 'Not' &&
-		tokens[start + 1] == 'In' {
+	if start + 2 <= n
+		&& tokens[start] == 'Not'
+		&& tokens[start + 1] == 'In' {
 		return 'NotIn', 2
 	}
 

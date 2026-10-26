@@ -150,7 +150,7 @@ fn test_problem_detail_handler_http_exception() {
 
 fn test_field_error_struct() {
 	fe := FieldError{
-		field: 'username'
+		field:   'username'
 		message: 'already exists'
 	}
 	assert fe.field == 'username'

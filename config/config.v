@@ -19,7 +19,7 @@ pub mut:
 	profiles   []string
 	loaded     bool
 mut:
-	mu         sync.RwMutex
+	mu sync.RwMutex
 }
 
 // ConfigSource is a trait for configuration sources

@@ -234,7 +234,8 @@ fn (mut s MemorySessionStore) start_gc() {
 				_ := <-stop_sig {
 					should_stop = true
 				}
-				else {}
+				else {
+				}
 			}
 			if should_stop {
 				break
@@ -307,8 +308,10 @@ pub fn (mut s MemorySessionStore) close() {
 	s.mu.unlock()
 
 	select {
-		sig <- true {}
-		else {}
+		sig <- true {
+		}
+		else {
+		}
 	}
 	s.wg.wait()
 }
@@ -560,7 +563,8 @@ fn (mut s ShardedMemorySessionStore) start_sharded_gc() {
 				_ := <-stop_sig {
 					should_stop = true
 				}
-				else {}
+				else {
+				}
 			}
 			if should_stop {
 				break
@@ -632,8 +636,10 @@ pub fn (mut s ShardedMemorySessionStore) close() {
 	s.mu.unlock()
 
 	select {
-		sig <- true {}
-		else {}
+		sig <- true {
+		}
+		else {
+		}
 	}
 	s.wg.wait()
 }

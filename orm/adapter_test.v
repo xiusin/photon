@@ -146,8 +146,7 @@ fn test_adapter_wrap_methods_compile() {
 
 fn test_adapter_after_find_all_iterates_all() {
 	_, mut a := setup_adapter[AdapterTestEntity]()!
-	mut entities := [AdapterTestEntity{}, AdapterTestEntity{},
-		AdapterTestEntity{}]
+	mut entities := [AdapterTestEntity{}, AdapterTestEntity{}, AdapterTestEntity{}]
 
 	a.after_find_all(mut entities)!
 	// Method compiles and runs without error on a slice

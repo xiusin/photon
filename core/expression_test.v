@@ -5,7 +5,7 @@ module core
 
 fn test_resolve_placeholders_simple() {
 	props := {
-		'app.name': 'PhotonAPI'
+		'app.name':    'PhotonAPI'
 		'app.version': '2.0'
 	}
 
@@ -38,7 +38,7 @@ fn test_resolve_placeholders_no_default() {
 
 fn test_resolve_placeholders_nested() {
 	props := {
-		'prefix': 'app'
+		'prefix':   'app'
 		'app.name': 'PhotonAPI'
 	}
 
@@ -98,7 +98,7 @@ fn test_eval_condition_negation() {
 
 fn test_eval_condition_and() {
 	props := {
-		'app.env': 'prod'
+		'app.env':   'prod'
 		'feature.x': 'true'
 	}
 
@@ -117,7 +117,7 @@ fn test_eval_condition_or() {
 
 fn test_eval_condition_complex() {
 	props := {
-		'app.env': 'prod'
+		'app.env':   'prod'
 		'feature.x': 'true'
 		'feature.y': ''
 	}

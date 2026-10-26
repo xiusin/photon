@@ -61,7 +61,7 @@ pub fn run_with_routes[A, X](port int) {
 //   cfg.run[App, Context]()
 pub struct GracefulServerConfig {
 pub:
-	port             int = 8080
+	port             int           = 8080
 	shutdown_timeout time.Duration = default_graceful_shutdown_timeout
 	// on_shutdown is called after in-flight requests have drained (or the
 	// timeout has elapsed). Typically used to call ApplicationContext.shutdown().

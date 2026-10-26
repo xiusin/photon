@@ -196,7 +196,11 @@ fn test_chunk_manager_init_upload() {
 	upload_id := cm.init_upload('large_file.zip', 3, 1024000)
 	assert upload_id.len > 0
 	assert cm.chunks.len == 1
-	assert cm.chunks[upload_id].total_chunks == 3
+	entry := cm.chunks[upload_id] or {
+		assert false, 'chunk entry missing after init_upload'
+		return
+	}
+	assert entry.total_chunks == 3
 }
 
 fn test_chunk_manager_receive_and_complete() {

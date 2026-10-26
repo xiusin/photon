@@ -199,7 +199,7 @@ fn test_resolver_response_body_is_valid_json() {
 		HttpException: new_http_exception(404, 'gone')
 	})
 	_, body := resolver.resolve(err)!
-	parsed := json2.decode[ErrorResponse]( body) or {
+	parsed := json2.decode[ErrorResponse](body) or {
 		assert false, 'body should be valid JSON ErrorResponse'
 		return
 	}

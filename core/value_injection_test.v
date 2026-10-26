@@ -79,7 +79,7 @@ struct ValueTestMixedAnnotated {
 	title           string @[value: 'app.title']
 	version         int    @[value: 'app.version']
 	untouched_field string
-	untouched_count  int
+	untouched_count int
 }
 
 // ── String Injection Tests ──

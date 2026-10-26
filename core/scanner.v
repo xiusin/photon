@@ -120,8 +120,8 @@ pub:
 // any component-type annotation (component, service, repository, etc.).
 pub fn has_component_attr(attrs []string) bool {
 	for attr in attrs {
-		if attr in [attr_component, attr_service, attr_repository, attr_controller,
-			attr_configuration, attr_auto_configuration] {
+		if attr in [attr_component, attr_service, attr_repository, attr_controller, attr_configuration,
+			attr_auto_configuration] {
 			return true
 		}
 	}
@@ -645,10 +645,10 @@ pub fn extract_bean_methods[T]() []BeanMethod {
 		if has_bean {
 			bm := new_bean_method(method.name, method.attrs)
 			methods << BeanMethod{
-				method_name: bm.method_name
-				bean_name:   bm.bean_name
-				attrs:       bm.attrs.clone()
-				arg_count:   method.args.len
+				method_name:  bm.method_name
+				bean_name:    bm.bean_name
+				attrs:        bm.attrs.clone()
+				arg_count:    method.args.len
 				config_class: T.name
 			}
 		}
@@ -711,19 +711,19 @@ pub fn scan_and_register[T](mut ctx ApplicationContext) ! {
 			is_component = true
 		} $else $if attr.name == attr_scope {
 			$if attr.has_arg {
-				scope_val = scope_from_str(attr.arg.trim("'\""))
+				scope_val = scope_from_str(attr.arg.trim('\'"'))
 			}
 		} $else $if attr.name == attr_lazy {
 			is_lazy = true
 		} $else $if attr.name == attr_qualifier {
 			$if attr.has_arg {
-				qualifier_name = attr.arg.trim("'\"")
+				qualifier_name = attr.arg.trim('\'"')
 			}
 		} $else $if attr.name == attr_depends_on {
 			$if attr.has_arg {
-				parts := attr.arg.trim("'\"").split(',')
+				parts := attr.arg.trim('\'"').split(',')
 				for part in parts {
-					trimmed := part.trim_space().trim("'\"")
+					trimmed := part.trim_space().trim('\'"')
 					if trimmed.len > 0 {
 						depends_on_list << trimmed
 					}
@@ -757,8 +757,8 @@ pub fn scan_and_register[T](mut ctx ApplicationContext) ! {
 		}
 		if has_autowired {
 			dependencies << Dependency{
-				type_name: field.name
-				qualifier: field_qualifier
+				type_name:   field.name
+				qualifier:   field_qualifier
 				is_required: is_required_field
 			}
 		}
@@ -793,9 +793,9 @@ pub fn scan_and_register[T](mut ctx ApplicationContext) ! {
 	$for attr in T.attributes {
 		$if attr.name == attr_profile {
 			$if attr.has_arg {
-				profiles := attr.arg.trim("'\"").split(',')
+				profiles := attr.arg.trim('\'"').split(',')
 				for p in profiles {
-					trimmed := p.trim_space().trim("'\"")
+					trimmed := p.trim_space().trim('\'"')
 					if trimmed.len > 0 {
 						profile_conditions << &Condition(&OnProfileCondition{ profile: trimmed })
 					}
@@ -850,19 +850,19 @@ pub fn scan_component_info[T]() ScannedBean {
 			component_type = .controller
 		} $else $if attr.name == attr_scope {
 			$if attr.has_arg {
-				scope_val = scope_from_str(attr.arg.trim("'\""))
+				scope_val = scope_from_str(attr.arg.trim('\'"'))
 			}
 		} $else $if attr.name == attr_lazy {
 			is_lazy = true
 		} $else $if attr.name == attr_qualifier {
 			$if attr.has_arg {
-				qualifier_name = attr.arg.trim("'\"")
+				qualifier_name = attr.arg.trim('\'"')
 			}
 		} $else $if attr.name == attr_depends_on {
 			$if attr.has_arg {
-				parts := attr.arg.trim("'\"").split(',')
+				parts := attr.arg.trim('\'"').split(',')
 				for part in parts {
-					trimmed := part.trim_space().trim("'\"")
+					trimmed := part.trim_space().trim('\'"')
 					if trimmed.len > 0 {
 						depends_on_list << trimmed
 					}
@@ -893,8 +893,8 @@ pub fn scan_component_info[T]() ScannedBean {
 		}
 		if has_autowired {
 			dependencies << Dependency{
-				type_name: field.name
-				qualifier: field_qualifier
+				type_name:   field.name
+				qualifier:   field_qualifier
 				is_required: is_required_field
 			}
 		}

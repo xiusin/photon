@@ -31,7 +31,7 @@ struct TestDataSource {
 // TestUserService is a 1-arg bean — produced by TestConfig.user_service(ds).
 // It depends on TestDataSource, which is auto-injected by the container.
 struct TestUserService {
-	ds TestDataSource
+	ds   TestDataSource
 	name string
 }
 
@@ -56,12 +56,12 @@ struct TestConfig {
 
 @[bean]
 fn (c TestConfig) datasource() TestDataSource {
-	return TestDataSource{url: 'localhost:5432'}
+	return TestDataSource{ url: 'localhost:5432' }
 }
 
 @[bean]
 fn (c TestConfig) user_service(ds TestDataSource) TestUserService {
-	return TestUserService{ds: ds, name: 'primary'}
+	return TestUserService{ ds: ds, name: 'primary' }
 }
 
 // helper_method is NOT annotated with @[bean] — must be skipped by the scanner.
@@ -78,7 +78,7 @@ struct AnotherConfig {
 
 @[bean]
 fn (c AnotherConfig) cache() TestCache {
-	return TestCache{ttl: 300}
+	return TestCache{ ttl: 300 }
 }
 
 // PlainConfigNoAttr is NOT annotated with @[configuration] — used to verify
@@ -89,7 +89,7 @@ struct PlainConfigNoAttr {
 
 @[bean]
 fn (c PlainConfigNoAttr) should_not_register() TestDataSource {
-	return TestDataSource{url: 'unreachable'}
+	return TestDataSource{ url: 'unreachable' }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -132,9 +132,15 @@ fn test_extract_bean_methods_records_arg_count() {
 
 	for m in methods {
 		match m.method_name {
-			'datasource' { assert m.arg_count == 0 }
-			'user_service' { assert m.arg_count == 1 }
-			else { assert false } // unexpected method
+			'datasource' {
+				assert m.arg_count == 0
+			}
+			'user_service' {
+				assert m.arg_count == 1
+			}
+			else {
+				assert false
+			} // unexpected method
 		}
 	}
 }

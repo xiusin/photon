@@ -116,7 +116,7 @@ fn test_constraint_violation_exception_custom_code() {
 				message:    'x is required'
 			},
 		]
-		code: 422
+		code:       422
 	}
 	assert exc.code() == 422, 'custom code should be 422, got: ${exc.code()}'
 }

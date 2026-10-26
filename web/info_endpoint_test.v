@@ -56,11 +56,11 @@ fn test_serve_info_default_body_contains_commit_time() {
 
 fn test_serve_info_custom_values_reflected_in_body() {
 	info := core.BuildInfo{
-		version:    '1.2.3'
-		commit:     'deadbeef'
+		version:     '1.2.3'
+		commit:      'deadbeef'
 		commit_time: '2026-06-20T10:00:00Z'
-		build_time: '2026-06-20T10:30:00Z'
-		v_version:  '0.5.1'
+		build_time:  '2026-06-20T10:30:00Z'
+		v_version:   '0.5.1'
 	}
 	body, _, _ := serve_info(info)
 	assert body.contains('"version":"1.2.3"')
@@ -99,7 +99,7 @@ fn test_serve_info_default_commit_value() {
 // ── MockMvc endpoint tests ──
 
 fn test_info_endpoint_returns_200() {
-	info := core.BuildInfo{version: '0.1.0'}
+	info := core.BuildInfo{ version: '0.1.0' }
 
 	mut mvc := new_mockmvc()
 	mvc.get('/info', info_mock_handler(info))
@@ -119,7 +119,7 @@ fn test_info_endpoint_content_type_is_json() {
 }
 
 fn test_info_endpoint_body_contains_version() {
-	info := core.BuildInfo{version: '0.4.0'}
+	info := core.BuildInfo{ version: '0.4.0' }
 
 	mut mvc := new_mockmvc()
 	mvc.get('/info', info_mock_handler(info))
@@ -129,7 +129,7 @@ fn test_info_endpoint_body_contains_version() {
 }
 
 fn test_info_endpoint_body_contains_commit() {
-	info := core.BuildInfo{commit: 'abc123def'}
+	info := core.BuildInfo{ commit: 'abc123def' }
 
 	mut mvc := new_mockmvc()
 	mvc.get('/info', info_mock_handler(info))
@@ -139,7 +139,7 @@ fn test_info_endpoint_body_contains_commit() {
 }
 
 fn test_info_endpoint_body_contains_build_time() {
-	info := core.BuildInfo{build_time: '2026-06-20T10:30:00Z'}
+	info := core.BuildInfo{ build_time: '2026-06-20T10:30:00Z' }
 
 	mut mvc := new_mockmvc()
 	mvc.get('/info', info_mock_handler(info))
@@ -160,11 +160,11 @@ fn test_info_endpoint_body_contains_build_object() {
 
 fn test_info_endpoint_full_body_structure() {
 	info := core.BuildInfo{
-		version:    '0.1.0'
-		commit:     'abc123'
+		version:     '0.1.0'
+		commit:      'abc123'
 		commit_time: '2026-06-20T10:00:00Z'
-		build_time: '2026-06-20T10:30:00Z'
-		v_version:  '0.5.1'
+		build_time:  '2026-06-20T10:30:00Z'
+		v_version:   '0.5.1'
 	}
 
 	mut mvc := new_mockmvc()

@@ -175,8 +175,8 @@ fn qa_query(db voidptr, query string, args []string) ![][]string {
 }
 
 struct QaCondition {
-	col      string
-	op       string // '>', '<', '=', '>=', '<=', 'LIKE'
+	col string
+	op  string // '>', '<', '=', '>=', '<=', 'LIKE'
 }
 
 fn qa_parse_condition(s string) QaCondition {
@@ -200,10 +200,10 @@ fn qa_parse_condition(s string) QaCondition {
 		}
 	}
 	if op_idx == -1 {
-		return QaCondition{col: s, op: '='}
+		return QaCondition{ col: s, op: '=' }
 	}
 	col := s[..op_idx].trim_space()
-	return QaCondition{col: col, op: op}
+	return QaCondition{ col: col, op: op }
 }
 
 fn qa_row_matches(row QaRow, conditions []QaCondition, args []string) bool {
@@ -216,13 +216,27 @@ fn qa_row_matches(row QaRow, conditions []QaCondition, args []string) bool {
 		arg := args[arg_i]
 		arg_i++
 		match cond.op {
-			'>' { if cell.i64() <= arg.i64() { return false } }
-			'<' { if cell.i64() >= arg.i64() { return false } }
-			'>=' { if cell.i64() < arg.i64() { return false } }
-			'<=' { if cell.i64() > arg.i64() { return false } }
-			'=' { if cell != arg { return false } }
-			'LIKE' { if !qa_like_match(cell, arg) { return false } }
-			else { if cell != arg { return false } }
+			'>' {
+				if cell.i64() <= arg.i64() { return false }
+			}
+			'<' {
+				if cell.i64() >= arg.i64() { return false }
+			}
+			'>=' {
+				if cell.i64() < arg.i64() { return false }
+			}
+			'<=' {
+				if cell.i64() > arg.i64() { return false }
+			}
+			'=' {
+				if cell != arg { return false }
+			}
+			'LIKE' {
+				if !qa_like_match(cell, arg) { return false }
+			}
+			else {
+				if cell != arg { return false }
+			}
 		}
 	}
 	return true
@@ -447,7 +461,9 @@ fn test_execute_query_explicit_columns() {
 
 fn test_execute_named_query_single_param() {
 	mut repo := qa_setup()!
-	users := repo.execute_named_query('SELECT * FROM users WHERE age > :age', {'age': '25'})!
+	users := repo.execute_named_query('SELECT * FROM users WHERE age > :age', {
+		'age': '25'
+	})!
 	assert users.len == 2
 	mut names := users.map(it.name)
 	assert names.contains('Alice')
@@ -457,7 +473,10 @@ fn test_execute_named_query_single_param() {
 fn test_execute_named_query_multiple_params() {
 	mut repo := qa_setup()!
 	users := repo.execute_named_query('SELECT * FROM users WHERE age > :age AND name LIKE :name',
-		{'age': '20', 'name': 'J%'})!
+		{
+			'age':  '20'
+			'name': 'J%'
+		})!
 	// age > 20 AND name starts with 'J' → only Jane(22)
 	assert users.len == 1
 	assert users[0].name == 'Jane'
@@ -473,7 +492,9 @@ fn test_execute_named_query_missing_param_error() {
 	mut repo := qa_setup()!
 	// Missing 'name' param → bilingual error
 	if _ := repo.execute_named_query('SELECT * FROM users WHERE age > :age AND name LIKE :name',
-		{'age': '20'}) {
+		{
+			'age': '20'
+		}) {
 		assert false, 'expected error for missing named param'
 	} else {
 		// Verify the error message mentions the missing param
@@ -486,7 +507,10 @@ fn test_execute_named_query_param_order_preserved() {
 	// not in the map iteration order.
 	mut repo := qa_setup()!
 	users := repo.execute_named_query('SELECT * FROM users WHERE name = :name AND age = :age',
-		{'age': '30', 'name': 'Alice'})!
+		{
+			'age':  '30'
+			'name': 'Alice'
+		})!
 	assert users.len == 1
 	assert users[0].name == 'Alice'
 	assert users[0].age == 30
@@ -579,7 +603,9 @@ fn test_end_to_end_annotation_to_execution() {
 		return
 	}
 	// Execute the extracted SQL with named params
-	users := repo.execute_named_query(qa.sql_text, {'age': '25'})!
+	users := repo.execute_named_query(qa.sql_text, {
+		'age': '25'
+	})!
 	assert users.len == 2
 	mut names := users.map(it.name)
 	assert names.contains('Alice')
