@@ -298,6 +298,14 @@ pub fn (mut m AutoConfigurationManager) register_bean_methods[T](mut ctx Applica
 	return methods
 }
 
+// heap_clone copies a value into a fresh heap allocation and returns a pointer
+// to it. The container stores bean instances as raw pointers that outlive the
+// registering call, so a stack address would dangle.
+@[inline]
+fn heap_clone[T](value T) &T {
+	return &value
+}
+
 // register_bean_method_factory registers and instantiates all 0-arg @[bean]
 // methods of configuration class T that return type R. The method is called
 // at registration time (eager instantiation), and the result is stored as a
@@ -332,11 +340,12 @@ pub fn (mut ctx ApplicationContext) register_bean_method_factory[T, R]() ! {
 				if method.args.len == 0 {
 					t := T{}
 					result := t.$method()
-					// Take a typed reference so V's escape analysis heap-allocates
-					// `result` (the reference outlives the function via the
-					// container's instance map). Using `unsafe { &result }` would
-					// hide the escape from V, leaving a dangling stack pointer.
-					result_ptr := &result
+					// The instance outlives this call (the container keeps the
+					// pointer), so it must be a real heap allocation. Taking
+					// `&result` of a local does NOT make it escape in V 0.5.2 —
+					// that left a dangling stack pointer and crashed on the
+					// first resolve_typed() after returning.
+					result_ptr := heap_clone(result)
 					bm := new_bean_method(method.name, method.attrs)
 					ctx.register_instance(bm.bean_name, result_ptr) or {
 						return error('failed to register bean from method "${method.name}" of ${T.name}: ${err} / 注册 bean 失败: 方法 "${method.name}" 于 ${T.name}: ${err}')
@@ -400,10 +409,8 @@ pub fn (mut ctx ApplicationContext) register_bean_method_with_dep[T, R, D]() ! {
 						dep_value := *dep
 						t := T{}
 						result := t.$method(dep_value)
-						// Take a typed reference so V's escape analysis
-						// heap-allocates `result` — see note in
-						// register_bean_method_factory above.
-						result_ptr := &result
+						// See note in register_bean_method_factory above.
+						result_ptr := heap_clone(result)
 						bm := new_bean_method(method.name, method.attrs)
 						ctx.register_instance(bm.bean_name, result_ptr) or {
 							return error('failed to register bean from method "${method.name}" of ${T.name}: ${err} / 注册 bean 失败: 方法 "${method.name}" 于 ${T.name}: ${err}')

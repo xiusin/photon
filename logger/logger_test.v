@@ -344,15 +344,19 @@ fn test_console_encoder_basic() {
 
 fn test_console_encoder_with_context() {
 	ce := new_console_encoder()
-	mut fields := map[string]string{}
-	fields['user'] = 'admin'
+	// fields 通过引用与 LogEntry 共享，必须落在堆上：取局部 map 的地址会
+	// 在 entry 真正被读取前失效。
+	mut fields := &map[string]string{}
+	unsafe {
+		fields['user'] = 'admin'
+	}
 
 	entry := &LogEntry{
 		timestamp:   time.now()
 		level:       .info
 		message:     'user action'
 		logger_name: 'photon'
-		fields:      &fields
+		fields:      fields
 	}
 	output := ce.encode(entry)
 	assert output.contains('user=admin')

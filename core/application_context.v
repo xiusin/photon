@@ -1380,6 +1380,13 @@ pub fn (mut ctx ApplicationContext) prefix_count(prefix string) int {
 	return ctx.environment.prefix_count(prefix)
 }
 
+// bind_to_map binds all properties with a given prefix into a map.
+// The prefix is stripped from keys. Returns error if no properties match.
+// Spring equivalent: @ConfigurationProperties(prefix = "app.database")
+pub fn (mut ctx ApplicationContext) bind_to_map(prefix string) !map[string]string {
+	return ctx.environment.bind_to_map(prefix)
+}
+
 // bind_to binds all properties with a given prefix into a map.
 // The prefix is stripped from keys. Returns error if no properties match.
 // Spring equivalent: @ConfigurationProperties(prefix = "app.database")

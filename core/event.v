@@ -267,6 +267,11 @@ pub fn (mut bus EventBus) listener_count(event_name string) int {
 }
 
 // dispatch fires an event, calling all listeners in priority order.
+//
+// The receiver is immutable on purpose: new_event() already stamps the
+// timestamp, and writing through a `&Event` obtained from a `&Event`
+// parameter required an `unsafe` alias that silently mutated the caller's
+// (possibly shared, possibly const) object. Stamping is the constructor's job.
 // If a listener calls event.stop_propagation(), no further listeners are invoked.
 // Returns the number of listeners that were actually called.
 // 使用分片读锁：仅锁定事件名对应的分片，不同事件名可并发 dispatch。
@@ -277,14 +282,6 @@ pub fn (mut bus EventBus) listener_count(event_name string) int {
 // Note: V has no try-catch mechanism. If a listener triggers a runtime panic,
 // subsequent listeners will NOT be called. For listener isolation, use dispatch_async().
 pub fn (mut bus EventBus) dispatch(event &Event) int {
-	// Set timestamp if not already set
-	if event.timestamp == 0 {
-		unsafe {
-			mut e := event
-			e.timestamp = time.now().unix()
-		}
-	}
-
 	bus.sharded_mu.rlock(event.name)
 	listeners := bus.listeners[event.name] or { []RegisteredListener{} }
 	bus.sharded_mu.runlock(event.name)
@@ -316,13 +313,6 @@ pub fn (mut bus EventBus) dispatch(event &Event) int {
 // Goroutines are tracked via sync.WaitGroup so shutdown() can drain them.
 // 使用分片读锁：仅锁定事件名对应的分片，不同事件名可并发 dispatch。
 pub fn (mut bus EventBus) dispatch_async(event &Event) {
-	if event.timestamp == 0 {
-		unsafe {
-			mut e := event
-			e.timestamp = time.now().unix()
-		}
-	}
-
 	bus.sharded_mu.rlock(event.name)
 	listeners := bus.listeners[event.name] or { []RegisteredListener{} }
 	bus.sharded_mu.runlock(event.name)

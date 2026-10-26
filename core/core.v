@@ -1396,7 +1396,11 @@ pub fn (mut c Container) resolve_all_by_tag(tag string) ![]voidptr {
 //   cache := provider.get()!  // only resolved now
 pub fn (mut c Container) create_deferred_provider(type_name string) &DeferredProvider {
 	mut provider := new_deferred_provider(type_name)
-	provider.set_container(unsafe { c })
+	// `c` is a `mut` receiver: on V 0.5.2 the receiver is a by-value copy for
+	// non-reference types, so `&c` pointed at this frame and dangled as soon as
+	// the call returned — the first deferred get() then walked freed memory.
+	// Hand out the real heap object instead.
+	provider.set_container(unsafe { &Container(c) })
 	return provider
 }
 
@@ -1406,7 +1410,7 @@ pub fn (mut c Container) create_deferred_provider(type_name string) &DeferredPro
 pub fn (mut c Container) create_mutable_deferred_provider(type_name string) &DeferredProvider {
 	mut provider := new_deferred_provider(type_name)
 	provider.mutable = true
-	provider.set_container(unsafe { c })
+	provider.set_container(unsafe { &Container(c) })
 	return provider
 }
 

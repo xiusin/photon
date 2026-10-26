@@ -28,7 +28,7 @@ import crypto.sha512
 import encoding.hex
 import encoding.base64
 import json2
-import crypto.rand
+import crypto.rand as crand
 
 // ── AES-256-CBC Cipher ──
 
@@ -206,7 +206,7 @@ fn (c &AesCipher) aes_cbc_decrypt(data []u8, iv []u8) []u8 {
 // generate_random_bytes generates cryptographically secure random bytes.
 fn generate_random_bytes(n int) []u8 {
 	mut buf := []u8{len: n}
-	rand.read(mut buf) or {
+	crand.read(mut buf) or {
 		// crypto/rand failure is fatal — do NOT fall back to weak randomness.
 		// A predictable IV/salt would undermine the security of the cipher.
 		panic('crypto/rand failed: cannot generate secure random bytes')

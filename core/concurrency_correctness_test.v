@@ -23,6 +23,9 @@ import ticker
 // ConcurrentTestLifecycle is a minimal SmartLifecycle implementation used by
 // the concurrency tests. The `running` field controls is_running() so that
 // start_all/stop_all can be exercised deterministically.
+// @[heap]: instances are handed to the manager as pointers, so they must
+// never live on a goroutine's stack.
+@[heap]
 struct ConcurrentTestLifecycle {
 pub:
 	phase_val int
@@ -90,13 +93,14 @@ fn test_deferred_provider_concurrent_get() {
 	done := chan bool{cap: 50}
 
 	for _ in 0 .. 50 {
-		spawn fn (d &DeferredProvider, done_chan chan bool) {
+		// `mut p` instead of casting away constness: get() has a `mut` receiver
+		// and the copy shares the underlying provider (it is a heap pointer),
+		// so the concurrency under test is preserved without an unsafe alias.
+		spawn fn (mut p DeferredProvider, done_chan chan bool) {
 			mut ok := true
-			unsafe {
-				d.get() or { ok = false }
-			}
+			p.get() or { ok = false }
 			done_chan <- ok
-		}(dp, done)
+		}(mut dp, done)
 	}
 
 	mut successes := 0
@@ -125,11 +129,15 @@ fn test_smart_lifecycle_manager_concurrent_access() {
 	// Half the goroutines register lifecycles
 	for i in 0 .. 50 {
 		spawn fn (m &SmartLifecycleManager, idx int, d chan bool) {
+			// Both the lifecycle and its interface wrapper must be heap
+			// allocated: the manager keeps the interface pointer past this
+			// goroutine's lifetime.
 			tsl := &ConcurrentTestLifecycle{
 				phase_val: idx
 			}
+			iface := &SmartLifecycle(tsl)
 			unsafe {
-				m.register('lifecycle_${idx}', &SmartLifecycle(tsl))
+				m.register('lifecycle_${idx}', iface)
 			}
 			d <- true
 		}(mgr, i, done)

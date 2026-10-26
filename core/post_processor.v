@@ -168,7 +168,10 @@ pub fn (mut pp ValueAnnotationPostProcessor) inject_values[T](mut bean T, env &E
 			} $else $if field.typ is i64 {
 				bean.$(field.name) = raw_value.i64()
 			} $else $if field.typ is f32 {
-				bean.$(field.name) = f32(raw_value.f64())
+				// string.f32() instead of f32(f64(...)): under comptime $if the
+				// explicit narrowing cast is rejected by the checker
+				// ("cannot use f64 as f32").
+				bean.$(field.name) = raw_value.f32()
 			} $else $if field.typ is f64 {
 				bean.$(field.name) = raw_value.f64()
 			} $else $if field.typ is bool {
@@ -228,7 +231,10 @@ pub fn (mut pp ValueAnnotationPostProcessor) bind_values[T](mut bean T, props ma
 			} $else $if field.typ is u64 {
 				bean.$(field.name) = raw_value.u64()
 			} $else $if field.typ is f32 {
-				bean.$(field.name) = f32(raw_value.f64())
+				// string.f32() instead of f32(f64(...)): under comptime $if the
+				// explicit narrowing cast is rejected by the checker
+				// ("cannot use f64 as f32").
+				bean.$(field.name) = raw_value.f32()
 			} $else $if field.typ is f64 {
 				bean.$(field.name) = raw_value.f64()
 			} $else $if field.typ is bool {

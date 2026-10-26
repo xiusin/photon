@@ -18,9 +18,9 @@ fn test_where_group_keeps_nested_raw_values() {
 	// x = ? OR (y = ? AND z = ?)；关键断言是占位符数量与参数数量一致。
 	assert stmt == 'SELECT * FROM users WHERE (x = ? OR y = ? OR z = ?)'
 	assert args.len == 3
-	assert '${args[0]}' == "orm.ParamValue('X')"
-	assert '${args[1]}' == 'orm.ParamValue(1)'
-	assert '${args[2]}' == "orm.ParamValue('Z')"
+	assert '${args[0]}' == "ParamValue('X')"
+	assert '${args[1]}' == 'ParamValue(1)'
+	assert '${args[2]}' == "ParamValue('Z')"
 }
 
 fn test_where_group_without_raw_is_unchanged() {

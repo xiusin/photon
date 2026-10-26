@@ -43,13 +43,19 @@ pub fn (ce &ConsoleEncoder) encode(entry &LogEntry) string {
 		entry.level.str()
 	}
 
-	// Build context string from fields
+	// Build context string from fields.
+	// Keys are sorted so the output is stable: map iteration order is not
+	// defined, and tests (plus humans diffing logs) need determinism.
 	mut ctx_str := ''
 	if entry.fields.len > 0 {
-		mut pairs := []string{}
+		mut pairs := []string{cap: entry.fields.len}
 		for k, v in entry.fields {
-			pairs << '${k}=${v}'
+			// Bind through an explicit string local: interpolating the map
+			// iteration variable directly makes V render it as a pointer.
+			value := v
+			pairs << '${k}=${value}'
 		}
+		pairs.sort()
 		ctx_str = ' [${pairs.join(' ')}]'
 	}
 

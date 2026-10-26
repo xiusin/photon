@@ -103,7 +103,11 @@ pub:
 	level       Level
 	message     string
 	logger_name string
-	fields      &map[string]string = unsafe { nil }
+	// fields is a read-only snapshot of the MDC context. It is a value, not a
+	// pointer: assigning a map copies a header, so there is no allocation to
+	// save, while a pointer forced every caller to guarantee the map outlives
+	// the entry (and V 0.5.2 renders `&map` iteration values as addresses).
+	fields map[string]string
 }
 
 // Encoder is the trait for log entry serialization.
@@ -139,20 +143,43 @@ mut:
 
 // new creates a new Logger with default console encoder
 pub fn new() &Logger {
-	ctx := map[string]string{}
 	return &Logger{
 		encoder: new_console_encoder()
-		context: &ctx
+		context: new_context_map()
 	}
 }
 
 // new_with_encoder creates a Logger with a custom encoder (e.g., JSONEncoder)
 pub fn new_with_encoder(encoder &Encoder) &Logger {
-	ctx := map[string]string{}
 	return &Logger{
 		encoder: unsafe { encoder }
-		context: &ctx
+		context: new_context_map()
 	}
+}
+
+// new_context_map allocates the MDC context on the heap.
+//
+// The context is stored as `&map[string]string` and shared by reference with
+// every LogEntry that gets written out. Taking the address of a local map
+// (`ctx := map[string]string{}; context: &ctx`) hands out a pointer into the
+// constructor's stack frame: V 0.5.2 reuses that memory immediately, and the
+// first put() after construction writes into whatever now lives there —
+// observed as a hard crash inside VMapData__expand.
+fn new_context_map() &map[string]string {
+	mut ctx := map[string]string{}
+	return &ctx
+}
+
+// copy_ctx_to_heap re-homes a freshly built local map onto the heap.
+//
+// Same reason as new_context_map: `&new_ctx` on a local map is a pointer into
+// the caller's stack frame, which V reuses as soon as with_fields() returns.
+fn copy_ctx_to_heap(src map[string]string) &map[string]string {
+	mut out := map[string]string{}
+	for k, v in src {
+		out[k] = v
+	}
+	return &out
 }
 
 // new_with_level creates a new Logger with a specified level
@@ -247,7 +274,7 @@ pub fn (l &Logger) with_fields(fields map[string]string) &Logger {
 		output_label: l.output_label
 		encoder:      l.encoder
 		channels:     l.channels
-		context:      &new_ctx
+		context:      copy_ctx_to_heap(new_ctx)
 	}
 }
 
@@ -275,7 +302,7 @@ pub fn (l &Logger) log(level Level, msg string) {
 		level:       level
 		message:     msg
 		logger_name: l.output_label
-		fields:      l.context // share reference — no clone (COW: with_fields creates new maps)
+		fields:      unsafe { *l.context } // header copy; with_fields owns the map
 	}
 
 	output := l.encoder.encode(entry)

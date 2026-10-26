@@ -5,7 +5,7 @@ module security
 // Implements the Double-Submit Cookie pattern for CSRF protection.
 // A random token is set as a cookie and must be submitted as a header
 // (X-CSRF-TOKEN) or form field (_csrf) on state-changing requests.
-import crypto.rand
+import crypto.rand as crand
 
 // CsrfConfig configures CSRF protection behavior
 pub struct CsrfConfig {
@@ -58,7 +58,7 @@ pub fn (ctr &CookieCsrfTokenRepository) generate_token() string {
 	mut chars_used := 0
 	for chars_used < ctr.config.token_length {
 		mut buf := []u8{len: 1}
-		rand.read(mut buf) or {
+		crand.read(mut buf) or {
 			// crypto/rand failure is fatal — do NOT fall back to weak randomness.
 			// A predictable CSRF token would defeat CSRF protection.
 			panic('crypto/rand failed: cannot generate secure CSRF token')

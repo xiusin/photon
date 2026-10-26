@@ -1672,7 +1672,7 @@ fn test_environment_bind_to_with_dot_prefix() {
 	env.set_property('app.db.host', 'localhost')
 	env.set_property('app.db.port', '5432')
 
-	result := env.bind_to('app.db.') or {
+	result := env.bind_to_map('app.db.') or {
 		assert false
 		return
 	}
@@ -1687,7 +1687,7 @@ fn test_environment_bind_to_without_dot_prefix() {
 	env.set_property('app.db.port', '5432')
 
 	// 'app.db' without trailing dot should auto-match 'app.db.host'
-	result := env.bind_to('app.db') or {
+	result := env.bind_to_map('app.db') or {
 		assert false
 		return
 	}
@@ -1699,7 +1699,7 @@ fn test_environment_bind_to_no_match() {
 	mut env := new_environment()
 	env.set_property('app.name', 'MyApp')
 
-	env.bind_to('cache.') or {
+	env.bind_to_map('cache.') or {
 		assert err.msg().contains('no properties found')
 		return
 	}
@@ -1711,7 +1711,7 @@ fn test_environment_bind_to_empty_prefix() {
 	env.set_property('name', 'MyApp')
 	env.set_property('port', '8080')
 
-	result := env.bind_to('') or {
+	result := env.bind_to_map('') or {
 		assert false
 		return
 	}
@@ -1817,7 +1817,7 @@ fn test_application_context_bind_to() {
 	ctx.set_property('app.db.host', 'localhost')
 	ctx.set_property('app.db.port', '5432')
 
-	result := ctx.bind_to('app.db') or {
+	result := ctx.bind_to_map('app.db') or {
 		assert false
 		return
 	}
