@@ -65,7 +65,7 @@ fn test_mutex_double_lock() {
 
 fn test_new_lock_manager() {
 	mut lm := new_lock_manager()
-	assert lm.local_locks.len == 0
+	assert lm.lock_count() == 0
 }
 
 fn test_lock_manager_lock_unlock() {

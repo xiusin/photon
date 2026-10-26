@@ -321,15 +321,15 @@ fn test_bench_lock_manager_memory_retention() {
 		lm.lock('mem-key-${i}')
 	}
 
-	assert lm.local_locks.len == num_keys
+	assert lm.lock_count() == num_keys
 
 	for i in 0 .. num_keys {
 		lm.unlock('mem-key-${i}') or {}
 	}
 
 	// Mutexes are retained in map after unlock (cached for reuse)
-	assert lm.local_locks.len == num_keys
-	eprintln('  [BENCH] LockManager memory: ${num_keys} keys created, all ${lm.local_locks.len} retained after unlock')
+	assert lm.lock_count() == num_keys
+	eprintln('  [BENCH] LockManager memory: ${num_keys} keys created, all ${lm.lock_count()} retained after unlock')
 }
 
 // ============================================================
