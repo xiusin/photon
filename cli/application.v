@@ -73,7 +73,19 @@ pub fn (mut app CliApplication) run() ! {
 		}
 	}
 
-	mut input := new_input(raw_args.clone())
+	// 用命令声明的选项表解析参数：没有它，`--verbose build src/` 会把
+	// `build` 当成 `--verbose` 的值，子命令从此消失。
+	mut known := map[string]bool{}
+	declared := app.find_command(command_name)
+	if declared != unsafe { nil } {
+		if declared is AnnotatedCommand {
+			annotated := unsafe { &AnnotatedCommand(declared) }
+			for opt in annotated.info.options {
+				known[opt.param_name] = true
+			}
+		}
+	}
+	mut input := new_input_with_options(raw_args.clone(), known)
 	mut output := new_output()
 
 	// Handle global flags / 处理全局标志

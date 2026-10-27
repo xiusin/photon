@@ -37,7 +37,38 @@ pub fn slug(s string) string {
 	return buf[..end].bytestr()
 }
 
+// is_lower_char checks if a byte is a lowercase ASCII letter
+fn is_lower_char(ch u8) bool {
+	return ch >= `a` && ch <= `z`
+}
+
+// is_digit_char checks if a byte is an ASCII digit
+fn is_digit_char(ch u8) bool {
+	return ch >= `0` && ch <= `9`
+}
+
+// word_boundary_at reports whether a word boundary must be inserted before
+// s[i]. It also splits an acronym run when its last letter starts a new word
+// (`HTTPServer` → `HTTP|Server`).
+fn word_boundary_at(s string, i int) bool {
+	if i == 0 {
+		return false
+	}
+	if is_upper_char(s[i]) {
+		if is_lower_char(s[i - 1]) || is_digit_char(s[i - 1]) {
+			return true
+		}
+		if is_upper_char(s[i - 1]) && i + 1 < s.len && is_lower_char(s[i + 1]) {
+			return true
+		}
+	}
+	return is_lower_char(s[i]) && is_digit_char(s[i - 1])
+}
+
 // snake converts PascalCase or camelCase to snake_case.
+//
+// Acronyms stay together instead of being exploded one letter at a time:
+// `HTTPServer` → `http_server`, `getHTTPResponseCode` → `get_http_response_code`.
 // Uses a []u8 buffer to avoid O(n²) string concatenation.
 pub fn snake(s string) string {
 	if s.len == 0 {
@@ -45,7 +76,7 @@ pub fn snake(s string) string {
 	}
 	mut buf := []u8{cap: s.len * 2}
 	for i, ch in s {
-		if is_upper_char(ch) && i > 0 {
+		if word_boundary_at(s, i) {
 			buf << `_`
 		}
 		mut c := ch
@@ -65,16 +96,21 @@ pub fn camel(s string) string {
 	}
 	mut buf := []u8{cap: s.len}
 	mut next_upper := false
-	for i, ch in s {
+	mut emitted := false
+	for ch in s {
 		if ch == `_` || ch == `-` {
 			next_upper = true
 			continue
 		}
 		mut c := ch
-		if i == 0 {
+		if !emitted {
+			// 分隔符之后的第一个字母才是真正的首字母（`_user` → `user`），
+			// 只有它需要强制小写，其余字符保持原样（`HTTPServer` → `HTTPServer`）。
 			if c >= `A` && c <= `Z` {
 				c += 32
 			}
+			emitted = true
+			next_upper = false
 		} else if next_upper {
 			if c >= `a` && c <= `z` {
 				c -= 32
@@ -117,8 +153,8 @@ pub fn kebab(s string) string {
 	mut buf := []u8{cap: s.len * 2}
 	mut last_was_sep := false
 	for i, ch in s {
-		if is_upper_char(ch) && i > 0 {
-			if !last_was_sep {
+		if is_upper_char(ch) && (i > 0 || !last_was_sep) {
+			if word_boundary_at(s, i) && !last_was_sep {
 				buf << `-`
 			}
 		}
@@ -139,29 +175,46 @@ pub fn kebab(s string) string {
 	return buf.bytestr().trim_right('-')
 }
 
-// limit truncates a string to n characters and appends "..."
+// limit truncates a string to n characters and appends "...".
+//
+// n is the total length of the result, ellipsis included. When n is smaller
+// than the ellipsis itself a bare substring is returned (`limit('hello', 3)`
+// used to produce `"..."`, i.e. no payload left at all), and a negative n is
+// treated as 0 instead of panicking on the slice bounds.
 pub fn limit(s string, n int) string {
+	if n <= 0 {
+		return ''
+	}
 	if s.len <= n {
 		return s
 	}
-	if n < 3 {
+	if n <= 3 {
 		return s[..n]
 	}
 	return s[..n - 3] + '...'
 }
 
-// words returns the first n words of a string
+// words returns the first n words of a string.
+//
+// Any whitespace run separates words, and leading/trailing spaces do not
+// count as words — previously only `' '` was treated as a separator, so
+// `words("a\tb c", 2)` returned the whole string.
 pub fn words(s string, n int) string {
 	if n <= 0 {
 		return ''
 	}
 	mut count := 0
 	mut i := 0
+	mut in_word := false
 	for i < s.len {
-		if s[i] == ` ` {
+		c := s[i]
+		if c == ` ` || c == `\t` || c == `\n` || c == `\r` {
+			in_word = false
+		} else if !in_word {
+			in_word = true
 			count++
-			if count >= n {
-				return s[..i]
+			if count > n {
+				return s[..i].trim_right(' \t\n\r')
 			}
 		}
 		i++
@@ -292,23 +345,31 @@ pub fn upper(s string) string {
 
 // title converts to Title Case.
 // Uses a []u8 buffer to avoid O(n²) string concatenation.
+//
+// Word separators (`_`, `-`, whitespace) collapse to a single space, and only
+// the first letter of each word is forced to uppercase — the rest keeps its
+// original case, so `title('HELLO world')` stays `HELLO World` instead of
+// silently mangling acronyms.
 pub fn title(s string) string {
 	mut buf := []u8{cap: s.len}
 	mut capitalize := true
+	mut prev_sep := false
 	for ch in s {
-		if ch == ` ` || ch == `_` || ch == `-` {
-			buf << ` `
-			capitalize = true
-		} else if capitalize {
-			mut c := ch
-			if c >= `a` && c <= `z` {
-				c -= 32
+		if ch == ` ` || ch == `_` || ch == `-` || ch == `\t` || ch == `\n` || ch == `\r` {
+			if !prev_sep {
+				buf << ` `
 			}
-			buf << c
-			capitalize = false
-		} else {
-			buf << ch
+			prev_sep = true
+			capitalize = true
+			continue
 		}
+		prev_sep = false
+		mut c := ch
+		if capitalize && c >= `a` && c <= `z` {
+			c -= 32
+		}
+		buf << c
+		capitalize = false
 	}
 	return buf.bytestr()
 }

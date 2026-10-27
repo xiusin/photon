@@ -196,19 +196,55 @@ fn saturating_multiply(base time.Duration, factor i64) time.Duration {
 //
 // V's `err is Type` only works with compile-time types, so for runtime
 // string matching we use two strategies (same approach as orm.transaction):
-//   1. typeof(err).name — may return the dynamic type name for custom
-//      error structs (e.g. "NetworkError" or "retry.NetworkError").
-//   2. err.msg() — fallback: check if the error message contains the
-//      type name. This handles string errors and custom structs whose
-//      msg() includes the type name.
+//   1. typeof(err).name — the dynamic type name for custom error structs
+//      (e.g. "NetworkError" or "retry.NetworkError").
+//   2. err.msg() — fallback for string errors, matched as a whole word.
+//
+// The msg fallback deliberately requires a word boundary. V's `typeof()` on an
+// `IError` value collapses to "IError", so a plain `msg().contains(name)` test
+// made `retry_for:'error'` match every error in existence — and
+// `no_retry_for:'error'` silently disabled retries for all of them except
+// those whose message happened to contain "error". Matching "error" against a
+// message also produced false positives on words like "error_code".
 pub fn error_type_matches(err IError, type_name string) bool {
+	if type_name.len == 0 {
+		return false
+	}
 	// Strategy 1: typeof name (strip module prefix if present)
 	tn := typeof(err).name
 	if tn == type_name || tn.ends_with('.' + type_name) {
 		return true
 	}
-	// Strategy 2: error message contains the type name
-	return err.msg().contains(type_name)
+	// Strategy 2: error message contains the type name as a whole word
+	return contains_word(err.msg(), type_name)
+}
+
+// contains_word reports whether `word` occurs in `s` delimited by
+// non-identifier characters on both sides (ASCII only, which is what error
+// type names use).
+fn contains_word(s string, word string) bool {
+	if word.len == 0 || s.len < word.len {
+		return false
+	}
+	mut from := 0
+	for from + word.len <= s.len {
+		idx := s.index_after(word, from) or { return false }
+		before_ok := idx == 0 || !is_ident_char(s[idx - 1])
+		end := idx + word.len
+		after_ok := end == s.len || !is_ident_char(s[end])
+		if before_ok && after_ok {
+			return true
+		}
+		from = idx + 1
+	}
+	return false
+}
+
+// is_ident_char reports whether `c` may appear inside an identifier
+// (letters, digits, underscore or dot — matching how type names are written).
+fn is_ident_char(c u8) bool {
+	return (c >= `a` && c <= `z`) || (c >= `A` && c <= `Z`) || (c >= `0` && c <= `9`)
+		|| c == `_` || c == `.`
 }
 
 // should_retry decides whether an error should be retried given the config.

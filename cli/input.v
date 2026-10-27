@@ -14,9 +14,16 @@ pub mut:
 	raw_args     []string
 }
 
-// new_input parses os.args into a CommandInput
-// new_input 将 os.args 解析为 CommandInput
-pub fn new_input(raw_args []string) &CommandInput {
+// parse_options splits the raw argv into command_name / options / flags /
+// positional args.
+//
+// When `known` is non-empty the parser is schema-aware: a preceding `--name`
+// only consumes the next token when `name` is a declared option. Without a
+// schema the parser falls back to the historical greedy rule, except for the
+// unambiguous cases below.
+//
+// `--` always terminates option parsing (`-- --looks-like-flag`).
+pub fn new_input_with_options(raw_args []string, known map[string]bool) &CommandInput {
 	mut input := CommandInput{
 		args:     map[string]string{}
 		options:  map[string]string{}
@@ -35,44 +42,112 @@ pub fn new_input(raw_args []string) &CommandInput {
 	input.command_name = raw_args[0]
 
 	mut i := 1
+	mut only_positional := false
 	for i < raw_args.len {
 		arg := raw_args[i]
 
+		if only_positional {
+			input.args['arg_${input.args.len}'] = arg
+			i++
+			continue
+		}
+
+		if arg == '--' {
+			only_positional = true
+			i++
+			continue
+		}
+
+		next := if i + 1 < raw_args.len { raw_args[i + 1] } else { '' }
+		option_name := option_token_name(arg)
+		// 声明了选项表时，只有已知选项才吞下一个 token；否则 `--verbose build`
+		// 会把子命令当成布尔选项的值吃掉。没有 `--` 前缀的单字母短选项无法
+		// 从声明里查到（命令只声明长名），按声明了选项表处理时它仍然取值。
+		name_takes_value := known.len == 0 || option_name in known || is_short_option(arg)
+		next_is_value := i + 1 < raw_args.len && name_takes_value && is_value_token(next)
+
 		if arg.starts_with('--') {
 			rest := arg[2..]
+			if rest.len == 0 {
+				i++
+				continue
+			}
 			if rest.contains('=') {
 				parts := rest.split_nth('=', 2)
 				input.options[parts[0]] = parts[1]
+			} else if next_is_value {
+				input.options[rest] = next
+				i++
 			} else {
-				if i + 1 < raw_args.len && !raw_args[i + 1].starts_with('--') {
-					input.options[rest] = raw_args[i + 1]
-					i++
-				} else {
-					input.flags[rest] = true
-				}
+				input.flags[rest] = true
 			}
-		} else if arg.starts_with('-') {
+		} else if arg.starts_with('-') && arg.len > 1 {
 			rest := arg[1..]
-			if i + 1 < raw_args.len && !raw_args[i + 1].starts_with('-') {
-				input.options[rest] = raw_args[i + 1]
+			if rest.len > 1 && !rest.contains('=') && !next_is_value {
+				// `-abc` is the conventional bundling of boolean flags.
+				for ch in rest {
+					input.flags[ch.ascii_str()] = true
+				}
+			} else if next_is_value {
+				input.options[rest] = next
 				i++
 			} else {
 				input.flags[rest] = true
 			}
 		} else {
-			key := 'arg_${input.args.len}'
-			input.args[key] = arg
+			input.args['arg_${input.args.len}'] = arg
 		}
 		i++
 	}
 
-	return &CommandInput{
-		command_name: input.command_name
-		args:         input.args
-		options:      input.options
-		flags:        input.flags
-		raw_args:     input.raw_args
+	return &input
+}
+
+// is_short_option reports whether `arg` is a single-letter short option such
+// as `-o`. Command schemas only declare long names, so short options are
+// always assumed to take a value when one follows.
+fn is_short_option(arg string) bool {
+	return arg.len == 2 && arg.starts_with('-') && arg[1] != `-`
+}
+
+// option_token_name extracts the option name from a raw argv token:
+// `--output` → `output`, `--output=x` → `output`, `-o` → `o`. Returns '' for
+// positional tokens.
+fn option_token_name(arg string) string {
+	if arg.starts_with('--') {
+		rest := arg[2..]
+		if idx := rest.index('=') {
+			return rest[..idx]
+		}
+		return rest
 	}
+	if arg.starts_with('-') && arg.len > 1 {
+		return arg[1..]
+	}
+	return ''
+}
+
+// is_value_token reports whether `token` may be consumed as the value of the
+// preceding option.
+//
+//   - A negative number is always a value (`--offset -1`).
+//   - Any other dash-prefixed token starts a new option, never a value.
+//   - A bare token is a value; the ambiguity with subcommands is resolved by
+//     the caller through the declared option table before calling this.
+fn is_value_token(token string) bool {
+	if token.len == 0 {
+		return false
+	}
+	if token.starts_with('-') {
+		return token.len > 1 && (token[1] >= `0` && token[1] <= `9`)
+	}
+	return true
+}
+
+// new_input parses os.args into a CommandInput
+// new_input 将 os.args 解析为 CommandInput
+pub fn new_input(raw_args []string) &CommandInput {
+	return new_input_with_options(raw_args, map[string]bool{})
 }
 
 // get_arg returns a positional argument by index (0-based)

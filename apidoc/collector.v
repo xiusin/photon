@@ -106,12 +106,23 @@ pub fn (mut c Collector) collect_response(mut ctx veb.Context) {
 	}) or { return }
 }
 
+// normalize_path strips the query string and trailing slashes while keeping
+// the root path intact.
+//
+// `trim_right('/')` alone turns `/` into an empty string, so the root endpoint
+// used to be recorded under the id `GET::` and was then silently dropped from
+// export_openapi() (`if path_key.len == 0 { continue }`) — the home page never
+// showed up in the generated spec.
 fn normalize_path(path string) string {
 	mut p := path
 	if idx := p.index('?') {
 		p = p[..idx]
 	}
-	return p.trim_right('/')
+	p = p.trim_right('/')
+	if p.len == 0 {
+		return '/'
+	}
+	return p
 }
 
 fn parse_and_merge_params(mut entry ApiDocEntry, url string) {

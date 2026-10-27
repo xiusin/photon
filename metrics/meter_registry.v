@@ -413,6 +413,30 @@ pub fn (r &InMemoryMeterRegistry) list_meters() []MeterInfo {
 	return result
 }
 
+// compare_meters orders meters by name and then by their rendered tag set, so
+// the exposition is stable even when many series share one metric name.
+//
+// Sorting on the name alone left every `req{path="..."}` series in map
+// iteration order: the same registry produced a different byte layout on each
+// run, which breaks scraping diffing and makes golden tests flaky.
+fn compare_meters(a_name string, a_tags map[string]string, b_name string, b_tags map[string]string) int {
+	if a_name < b_name {
+		return -1
+	}
+	if a_name > b_name {
+		return 1
+	}
+	a_key := format_tags(a_tags)
+	b_key := format_tags(b_tags)
+	if a_key < b_key {
+		return -1
+	}
+	if a_key > b_key {
+		return 1
+	}
+	return 0
+}
+
 // format_prometheus emits all meters in Prometheus text exposition format
 // (version 0.0.4). Counters emit `counter` type, gauges emit `gauge` type,
 // and timers emit a `summary` with `_count` and `_sum` (in nanoseconds) lines.
@@ -445,13 +469,7 @@ pub fn (r &InMemoryMeterRegistry) format_prometheus() string {
 
 	// Format counters (sorted by name for deterministic output).
 	cs.sort_with_compare(fn (a &&InMemoryCounter, b &&InMemoryCounter) int {
-		if a.name_str < b.name_str {
-			return -1
-		}
-		if a.name_str > b.name_str {
-			return 1
-		}
-		return 0
+		return compare_meters(a.name_str, a.tags_str, b.name_str, b.tags_str)
 	})
 	for c in cs {
 		name_str := c.name_str
@@ -463,13 +481,7 @@ pub fn (r &InMemoryMeterRegistry) format_prometheus() string {
 
 	// Format gauges.
 	gs.sort_with_compare(fn (a &&InMemoryGauge, b &&InMemoryGauge) int {
-		if a.name_str < b.name_str {
-			return -1
-		}
-		if a.name_str > b.name_str {
-			return 1
-		}
-		return 0
+		return compare_meters(a.name_str, a.tags_str, b.name_str, b.tags_str)
 	})
 	for g in gs {
 		name_str := g.name_str
@@ -481,13 +493,7 @@ pub fn (r &InMemoryMeterRegistry) format_prometheus() string {
 
 	// Format timers as summaries.
 	ts.sort_with_compare(fn (a &&InMemoryTimer, b &&InMemoryTimer) int {
-		if a.name_str < b.name_str {
-			return -1
-		}
-		if a.name_str > b.name_str {
-			return 1
-		}
-		return 0
+		return compare_meters(a.name_str, a.tags_str, b.name_str, b.tags_str)
 	})
 	for t in ts {
 		name_str := t.name_str

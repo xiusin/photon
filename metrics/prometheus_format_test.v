@@ -51,3 +51,41 @@ fn test_each_sample_is_on_one_line() {
 		}
 	}
 }
+
+// ── 同名不同 tags 的系列顺序 ──
+
+fn test_prometheus_series_with_same_name_are_ordered() {
+	mut registry := new_in_memory_registry()
+	// 插入顺序刻意打乱：c, a, b
+	registry.counter('req', {
+		'path': '/c'
+	}).increment()
+	registry.counter('req', {
+		'path': '/a'
+	}).increment()
+	registry.counter('req', {
+		'path': '/b'
+	}).increment()
+
+	out := registry.format_prometheus()
+	a := out.index('req{path="/a"}') or { -1 }
+	b := out.index('req{path="/b"}') or { -1 }
+	c := out.index('req{path="/c"}') or { -1 }
+	assert a > -1 && b > -1 && c > -1
+	// 只按名字排序时三者相等，顺序就退化成 map 遍历顺序
+	assert a < b
+	assert b < c
+}
+
+fn test_prometheus_output_is_repeatable() {
+	mut registry := new_in_memory_registry()
+	for p in ['/z', '/a', '/m', '/b'] {
+		registry.counter('req', {
+			'path': p
+		}).increment()
+	}
+	first := registry.format_prometheus()
+	for _ in 0 .. 5 {
+		assert registry.format_prometheus() == first
+	}
+}

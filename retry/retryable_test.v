@@ -915,3 +915,41 @@ fn test_return_value_after_retry() {
 	assert result == 'recovered'
 	assert cc.count == 3
 }
+
+// ═══════════════════════════════════════════════════════════════
+// error_type_matches: 词边界
+//
+// typeof(IError) 在 V 里塌缩成 "IError"，所以 msg() 回退是唯一还
+// 活着的一条路径。它必须按整词匹配，否则 `retry_for:'error'` 会把
+// 所有错误都命中，`no_retry_for:'error'` 则会把重试整体关掉。
+// ═══════════════════════════════════════════════════════════════
+
+fn test_error_type_matches_requires_word_boundary() {
+	err := IError(error('NetworkError: connection refused'))
+	// 前缀不是整词
+	assert !error_type_matches(err, 'Network')
+	// 泛化的 'error' 不应命中具体的错误消息
+	assert !error_type_matches(err, 'error')
+	// 整词命中
+	assert error_type_matches(err, 'NetworkError')
+}
+
+fn test_error_type_matches_empty_name_is_false() {
+	err := IError(error('boom'))
+	assert !error_type_matches(err, '')
+}
+
+fn test_should_retry_generic_error_name_does_not_match_everything() {
+	// 之前 'error' 会命中所有错误：retry_for 变成空转，no_retry_for 变成全禁
+	retry_only_error := RetryConfig{
+		max_attempts: 3
+		retry_for:    ['error']
+	}
+	assert !should_retry(retry_only_error, IError(error('network down')))
+
+	no_retry_error := RetryConfig{
+		max_attempts: 3
+		no_retry_for: ['error']
+	}
+	assert should_retry(no_retry_error, IError(error('network down')))
+}
