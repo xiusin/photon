@@ -464,6 +464,43 @@ fn test_json_escape_plain_string_unchanged() {
 	assert json_escape('hello world') == 'hello world'
 }
 
+fn test_json_escape_tab_and_cr() {
+	assert json_escape('a\tb') == 'a\\tb'
+	assert json_escape('a\rb') == 'a\\rb'
+	assert json_escape('a\bb') == 'a\\bb'
+	assert json_escape('a\fb') == 'a\\fb'
+}
+
+fn test_json_escape_other_control_chars() {
+	// RFC 8259 requires every character < 0x20 to be escaped; a raw control
+	// byte would make the whole /health payload unparsable.
+	assert json_escape('\x01') == '\\u0001'
+	assert json_escape('a\x1fb') == 'a\\u001fb'
+	assert json_escape('\x00') == '\\u0000'
+	// Printable characters beyond ASCII pass through untouched.
+	assert json_escape('中文') == '中文'
+}
+
+fn test_format_health_json_with_control_chars_is_parsable() {
+	mut registry := new_health_registry()
+	registry.register(&AlwaysDownIndicator{
+		name_str:  'weird'
+		error_msg: 'boom\x01\n'
+	})
+	agg := registry.check_all()
+	out := format_health_json(agg)
+	assert !out.contains('\x01')
+	assert out.contains('\\u0001')
+}
+
+fn test_register_ignores_nil_indicator() {
+	mut registry := new_health_registry()
+	registry.register(&AlwaysUpIndicator{ name_str: 'real' })
+	registry.register(&HealthIndicator(unsafe { nil }))
+	assert registry.count() == 1
+	assert registry.check_all().components.len == 1
+}
+
 // ============================================================
 // Concurrency Tests
 // ============================================================

@@ -106,7 +106,9 @@ pub fn parse_retryable_attr(attr string) RetryConfig {
 			rc.max_attempts = p['max_attempts:'.len..].trim_space().int()
 		} else if p.starts_with('delay:') {
 			ms := p['delay:'.len..].trim_space().int()
-			rc.delay = ms * time.millisecond
+			// A negative delay would make time.sleep() a no-op; treat it as
+			// "no delay" instead of silently retrying with nonsense config.
+			rc.delay = if ms > 0 { ms * time.millisecond } else { time.Duration(0) }
 		} else if p.starts_with('backoff:') {
 			rc.backoff = backoff_from_str(p['backoff:'.len..].trim_space())
 		} else if p.starts_with('retry_for:') {
@@ -148,11 +150,43 @@ pub fn (rc RetryConfig) delay_for_attempt(attempt int) time.Duration {
 	if attempt <= 1 {
 		return rc.delay
 	}
-	return match rc.backoff {
-		.fixed { rc.delay }
-		.linear { rc.delay * attempt }
-		.exponential { rc.delay * (1 << (attempt - 1)) }
+	factor := match rc.backoff {
+		.fixed { i64(1) }
+		.linear { i64(attempt) }
+		.exponential { exp_factor(attempt) }
 	}
+	// Saturate instead of overflowing: at attempt 64 the shift no longer fits
+	// in i64 and wraps to 0/negative, silently turning a "wait longer" policy
+	// into "retry immediately". Sleeping longer than a day is already beyond
+	// any sane retry policy, so clamp there.
+	return saturating_multiply(rc.delay, factor)
+}
+
+// exp_factor returns 2^(attempt-1), saturating at max_retry_delay_ticks.
+fn exp_factor(attempt int) i64 {
+	shift := attempt - 1
+	if shift >= 33 {
+		return i64(max_retry_delay_ticks)
+	}
+	return i64(1) << u64(shift)
+}
+
+// max_retry_delay_ticks is the upper bound (in time.Duration ticks) applied to
+// computed backoff delays: 24h.
+const max_retry_delay_ticks = i64(24) * 3600 * 1_000_000_000
+
+// saturating_multiply multiplies a base delay by a factor, clamping the result
+// to [0, max_retry_delay_ticks] so no overflow can produce a negative or zero
+// delay for a non-zero base.
+fn saturating_multiply(base time.Duration, factor i64) time.Duration {
+	b := i64(base)
+	if b <= 0 || factor <= 0 {
+		return time.Duration(0)
+	}
+	if b > max_retry_delay_ticks / factor {
+		return time.Duration(max_retry_delay_ticks)
+	}
+	return time.Duration(b * factor)
 }
 
 // ── Error Type Matching ──

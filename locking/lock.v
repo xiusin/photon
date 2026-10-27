@@ -90,10 +90,10 @@ pub struct LockManager {
 mut:
 	shards []LockShard
 	// gc state — start/stop only ever happens once, guaranteed by sync.Once.
-	gc_once  sync.Once
-	stop_gc  chan bool
-	started  bool
-	wg       sync.WaitGroup
+	gc_once sync.Once
+	stop_gc chan bool
+	started bool
+	wg      sync.WaitGroup
 pub mut:
 	distributed &DistributedLock = unsafe { nil }
 }
@@ -212,11 +212,25 @@ pub fn (mut lm LockManager) lock_with_timeout(key string, timeout_ms int) !bool 
 	start := time.now().unix_milli()
 	mut poll_us := i64(100) // 100us → 200us → … → 1ms
 
-	for time.now().unix_milli() - start <= timeout_ms {
+	// Contract: `false` means the caller does NOT hold the lock, so failing
+	// only decrements the ref count. The loop therefore never leaves an
+	// acquisition pending at the deadline: on success it returns immediately
+	// with the mutex held, and once the deadline has passed it stops trying.
+	// (A separate "maybe held" probe at the end is unsound — under contention
+	// the probing try_lock/failed-unlock pair itself can drop another
+	// goroutine's lock.)
+	for {
+		remaining := i64(timeout_ms) - (time.now().unix_milli() - start)
+		if remaining < 0 {
+			break
+		}
 		if mu.try_lock() {
 			return true
 		}
-		time.sleep(poll_us * time.microsecond)
+		sleep_us := if poll_us < remaining * 1000 { poll_us } else { remaining * 1000 }
+		if sleep_us > 0 {
+			time.sleep(sleep_us * time.microsecond)
+		}
 		if poll_us < 1000 {
 			poll_us *= 2
 		}
@@ -354,7 +368,8 @@ pub fn (mut lm LockManager) start_gc() {
 					_ := <-stop_sig {
 						should_stop = true
 					}
-					else {}
+					else {
+					}
 				}
 				if should_stop {
 					return
@@ -380,8 +395,10 @@ pub fn (mut lm LockManager) close() {
 	}
 	sig := lm.stop_gc
 	select {
-		sig <- true {}
-		else {}
+		sig <- true {
+		}
+		else {
+		}
 	}
 	lm.wg.wait()
 }

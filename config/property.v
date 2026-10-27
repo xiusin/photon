@@ -114,11 +114,12 @@ pub fn extract_value_default(attrs []string) string {
 //   @[value: 'app.name:def']  → returns "app.name:def"
 pub fn extract_value_expr_full(attrs []string) string {
 	for attr in attrs {
-		if attr.starts_with('value:') || attr.starts_with('value(') {
-			mut val := attr
+		trimmed := attr.trim_space()
+		if trimmed.starts_with('value:') || trimmed.starts_with('value(') {
+			mut val := trimmed
 			if val.starts_with('value:') {
 				val = val['value:'.len..]
-			} else if val.starts_with('value(') {
+			} else {
 				val = val['value('.len..]
 				if val.ends_with(')') {
 					val = val[..val.len - 1]
@@ -177,12 +178,14 @@ pub fn (mut b PropertyBinder) bind_to_struct[T]() !T {
 	mut result := T{}
 
 	$for field in T.fields {
-		// Extract the @[value] expression
-		expr := extract_value_expr_full(field.attrs)
+		// V hands comptime attribute text through `field.attrs` as raw
+		// source fragments (e.g. "value: 'db.host:5432'"), so normalise
+		// each entry before pattern matching.
+		attrs := normalize_attrs(field.attrs)
 
 		mut key := ''
 		mut default_val := ''
-
+		expr := extract_value_expr_full(attrs)
 		if expr.len > 0 {
 			// Parse key:default from the expression
 			parts := expr.split_nth(':', 2)
@@ -190,25 +193,40 @@ pub fn (mut b PropertyBinder) bind_to_struct[T]() !T {
 			if parts.len > 1 {
 				default_val = parts[1]
 			}
-		} else {
-			// No @[value] attribute — use field name as key
+		}
+		if key.len == 0 {
+			// No @[value] attribute — fall back to @[config_field: 'key'],
+			// then to the field name as the key.
+			key = extract_config_field_key(attrs)
+		}
+		if key.len == 0 {
 			key = field.name
 		}
 
-		// Look up the property value
+		// Look up the property value. Both sources participate: an explicit
+		// Config entry wins, otherwise the Environment is consulted — passing
+		// an Environment used to shadow every Config value entirely.
+		mut found := b.config.has(key)
 		mut raw_value := b.config.get(key)
-		if raw_value.len == 0 && default_val.len > 0 {
+		if !isnil(b.env) {
+			mut env_ref := b.env
+			if !found && env_ref.has_property(key) {
+				raw_value = env_ref.get_property_or(key, '')
+				found = true
+			}
+			// Resolve placeholders in the value before defaulting.
+			if found && raw_value.contains('\${') {
+				raw_value = env_ref.resolve_placeholders(raw_value)
+			}
+		}
+		// An explicitly configured empty value must win over the default —
+		// `has()` decides, not `len`.
+		if !found && default_val.len > 0 {
 			raw_value = default_val
 		}
 
-		// If Environment is set, resolve placeholders in the value
-		if !isnil(b.env) && raw_value.contains('\${') {
-			mut env_ref := b.env
-			raw_value = env_ref.resolve_placeholders(raw_value)
-		}
-
 		// Only assign if we found a value (skip if key not found and no default)
-		if raw_value.len == 0 && !b.config.has(key) && default_val.len == 0 {
+		if !found && default_val.len == 0 {
 			// continue is not allowed in comptime $for loops
 			// so we just skip the assignment
 		} else {
@@ -243,6 +261,44 @@ pub fn (mut b PropertyBinder) bind_to_struct[T]() !T {
 }
 
 // ── @ConfigurationProperties Binding ──
+
+// normalize_attrs converts V's raw comptime attribute fragments into the
+// normalised "name: 'arg'" form the extract_* helpers expect.
+//
+// V exposes `field.attrs` / `method.attrs` as raw source slices, so a field
+// declared `@[value: 'db.host']` yields the literal string `value: 'db.host'`.
+// A plain `@[component]` yields `component`. Both are already in the expected
+// shape; this helper additionally accepts the call form `value('db.host')`
+// and rewritten spellings such as `value:db.host` so hand-built attribute
+// lists (tests, code generators) keep working.
+pub fn normalize_attrs(attrs []string) []string {
+	mut out := []string{cap: attrs.len}
+	for raw in attrs {
+		attr := raw.trim_space()
+		if attr.len == 0 {
+			continue
+		}
+		idx := attr.index(':') or { -1 }
+		paren := attr.index('(') or { -1 }
+		if idx > 0 && (paren < 0 || idx < paren) {
+			name := attr[..idx].trim_space()
+			arg := attr[idx + 1..].trim_space()
+			out << '${name}: ${arg}'
+			continue
+		}
+		if paren > 0 {
+			name := attr[..paren].trim_space()
+			mut rest := attr[paren + 1..].trim_space()
+			if rest.ends_with(')') {
+				rest = rest[..rest.len - 1].trim_space()
+			}
+			out << '${name}: ${rest}'
+			continue
+		}
+		out << attr
+	}
+	return out
+}
 
 // extract_config_field_key extracts the custom key from a @[config_field: 'key']
 // or @[config_field('key')] attribute. Returns empty string if not present.
@@ -311,99 +367,119 @@ fn bind_configuration_properties_impl[T](mut env Environment, prefix string, typ
 	mut config := T{}
 
 	$for field in T.fields {
-		// Determine the lookup key: use @[value] or @[config_field] custom key if present,
-		// otherwise use the field name.
-		field_key := extract_config_field_key(field.attrs)
-		if field_key.len == 0 {
-			field_key = extract_value_expr_full(field.attrs)
+		// V hands comptime attribute text through `field.attrs` as raw
+		// source fragments (e.g. "value: 'db.host:5432'"), so normalise
+		// each entry before pattern matching.
+		attrs := normalize_attrs(field.attrs)
+
+		// Determine the lookup key: use @[config_field] or @[value] custom key
+		// if present, otherwise use the field name.
+		mut explicit_key := extract_config_field_key(attrs)
+		// Both attribute forms accept a `key:default` payload; only the part
+		// before the first ':' is the property key.
+		if explicit_key.contains(':') {
+			explicit_key = explicit_key.split_nth(':', 2)[0]
+		}
+		mut value_key := ''
+		if explicit_key.len == 0 {
+			value_key = extract_value_expr_full(attrs)
 			// For @[value('key:default')], extract just the key part
-			if field_key.contains(':') {
-				parts := field_key.split_nth(':', 2)
-				field_key = parts[0]
+			if value_key.contains(':') {
+				value_key = value_key.split_nth(':', 2)[0]
 			}
 		}
-		effective_key := if field_key.len > 0 { field_key } else { field.name }
+		effective_key := if explicit_key.len > 0 {
+			explicit_key
+		} else if value_key.len > 0 {
+			value_key
+		} else {
+			field.name
+		}
 
 		// Build the full property key: prefix.effective_key (or just effective_key if no prefix)
 		full_key := if prefix.len > 0 { '${prefix}.${effective_key}' } else { effective_key }
+		// An @[value] key is an absolute property address, so it is also tried
+		// verbatim — bind_configuration_properties[Outer](env, 'app') with
+		// `@[value('app.db.host')]` must find app.db.host, not app.app.db.host.
+		alt_key := if value_key.len > 0 && full_key != value_key { value_key } else { '' }
+		found := env.has_property(full_key) || (alt_key.len > 0 && env.has_property(alt_key))
+		lookup_key := if env.has_property(full_key) { full_key } else { alt_key }
 
 		// Bind based on field type — primitive types first, then arrays, then nested structs
 		$if field.typ is string {
-			if env.has_property(full_key) {
-				config.$(field.name) = env.get_property_or(full_key, '')
+			if found {
+				config.$(field.name) = env.get_property_or(lookup_key, '')
 			}
 		} $else $if field.typ is int {
-			if env.has_property(full_key) {
-				config.$(field.name) = env.get_property_or(full_key, '0').int()
+			if found {
+				config.$(field.name) = env.get_property_or(lookup_key, '0').int()
 			}
 		} $else $if field.typ is i64 {
-			if env.has_property(full_key) {
-				config.$(field.name) = env.get_property_or(full_key, '0').i64()
+			if found {
+				config.$(field.name) = env.get_property_or(lookup_key, '0').i64()
 			}
 		} $else $if field.typ is f32 {
-			if env.has_property(full_key) {
-				config.$(field.name) = f32(env.get_property_or(full_key, '0').f64())
+			if found {
+				config.$(field.name) = f32(env.get_property_or(lookup_key, '0').f64())
 			}
 		} $else $if field.typ is f64 {
-			if env.has_property(full_key) {
-				config.$(field.name) = env.get_property_or(full_key, '0').f64()
+			if found {
+				config.$(field.name) = env.get_property_or(lookup_key, '0').f64()
 			}
 		} $else $if field.typ is bool {
-			if env.has_property(full_key) {
-				val := env.get_property_or(full_key, 'false')
+			if found {
+				val := env.get_property_or(lookup_key, 'false')
 				config.$(field.name) = val == 'true' || val == '1' || val == 'yes' || val == 'on'
 			}
 		} $else $if field.typ is []string {
-			if env.has_property(full_key) {
-				raw := env.get_property_or(full_key, '')
-				if raw.len > 0 {
-					mut arr := []string{}
-					for part in raw.split(',') {
-						arr << part.trim_space()
-					}
-					config.$(field.name) = arr
+			raw := env.get_property_or(lookup_key, '')
+			if raw.len > 0 {
+				mut arr := []string{}
+				for part in raw.split(',') {
+					arr << part.trim_space()
 				}
+				config.$(field.name) = arr
 			}
 		} $else $if field.typ is []int {
-			if env.has_property(full_key) {
-				raw := env.get_property_or(full_key, '')
-				if raw.len > 0 {
-					mut arr := []int{}
-					for part in raw.split(',') {
-						arr << part.trim_space().int()
-					}
-					config.$(field.name) = arr
+			raw := env.get_property_or(lookup_key, '')
+			if raw.len > 0 {
+				mut arr := []int{}
+				for part in raw.split(',') {
+					arr << part.trim_space().int()
 				}
+				config.$(field.name) = arr
 			}
 		} $else $if field.typ is []f64 {
-			if env.has_property(full_key) {
-				raw := env.get_property_or(full_key, '')
-				if raw.len > 0 {
-					mut arr := []f64{}
-					for part in raw.split(',') {
-						arr << part.trim_space().f64()
-					}
-					config.$(field.name) = arr
+			raw := env.get_property_or(lookup_key, '')
+			if raw.len > 0 {
+				mut arr := []f64{}
+				for part in raw.split(',') {
+					arr << part.trim_space().f64()
 				}
+				config.$(field.name) = arr
 			}
 		} $else $if field.typ is []bool {
-			if env.has_property(full_key) {
-				raw := env.get_property_or(full_key, '')
-				if raw.len > 0 {
-					mut arr := []bool{}
-					for part in raw.split(',') {
-						p := part.trim_space()
-						arr << p == 'true' || p == '1' || p == 'yes' || p == 'on'
-					}
-					config.$(field.name) = arr
+			raw := env.get_property_or(lookup_key, '')
+			if raw.len > 0 {
+				mut arr := []bool{}
+				for part in raw.split(',') {
+					p := part.trim_space()
+					arr << p == 'true' || p == '1' || p == 'yes' || p == 'on'
 				}
+				config.$(field.name) = arr
 			}
 		} $else $if field.is_struct {
 			// Recursively bind nested struct fields.
 			// The `typ.$(field.name)` trick provides V with the field's type
 			// for generic type inference of the recursive call.
+			//
+			// A nested struct is a namespace, not a value: its children live
+			// under the field address (prefix.inner.host), never under the
+			// @[value] key used for scalar overrides. Passing `full_key` here
+			// produced keys like "app.db.host.host".
 			typ_ := typ.$(field.name)
-			nested := bind_configuration_properties_impl(mut env, full_key, &typ_) or { typ_ }
+			child_prefix := if prefix.len > 0 { '${prefix}.${field.name}' } else { field.name }
+			nested := bind_configuration_properties_impl(mut env, child_prefix, &typ_) or { typ_ }
 			config.$(field.name) = nested
 		}
 	}
