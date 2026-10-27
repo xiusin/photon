@@ -423,7 +423,10 @@ pub fn validate_uuid(value string) bool {
 	return true
 }
 
-// validate_date checks basic date format (YYYY-MM-DD).
+// validate_date checks a calendar date in YYYY-MM-DD format.
+//
+// The check is calendar-aware: month length and leap years are honoured, so
+// '2023-02-29' and '2024-04-31' are rejected while '2024-02-29' passes.
 pub fn validate_date(value string) bool {
 	if value.len == 0 {
 		return true
@@ -434,22 +437,45 @@ pub fn validate_date(value string) bool {
 	if value[4] != `-` || value[7] != `-` {
 		return false
 	}
-	year_str := value[..4]
-	month_str := value[5..7]
-	day_str := value[8..10]
-	year := year_str.int()
-	month := month_str.int()
-	day := day_str.int()
+	for i in [0, 1, 2, 3, 5, 6, 8, 9] {
+		if value[i] < `0` || value[i] > `9` {
+			return false
+		}
+	}
+	year := value[..4].int()
+	month := value[5..7].int()
+	day := value[8..10].int()
 	if year < 1900 || year > 2100 {
 		return false
 	}
 	if month < 1 || month > 12 {
 		return false
 	}
-	if day < 1 || day > 31 {
+	if day < 1 {
 		return false
 	}
-	return true
+	return day <= days_in_month(year, month)
+}
+
+// days_in_month returns the number of days in the given month (calendar-aware).
+fn days_in_month(year int, month int) int {
+	return match month {
+		1, 3, 5, 7, 8, 10, 12 { 31 }
+		4, 6, 9, 11 { 30 }
+		2 {
+			if is_leap_year(year) {
+				29
+			} else {
+				28
+			}
+		}
+		else { 0 }
+	}
+}
+
+// is_leap_year reports whether year is a Gregorian leap year.
+fn is_leap_year(year int) bool {
+	return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
 // validate_timezone checks if value is a valid timezone identifier.
@@ -461,13 +487,54 @@ pub fn validate_timezone(value string) bool {
 	if value == 'UTC' || value == 'GMT' {
 		return true
 	}
-	if value.contains('/') {
-		parts := value.split('/')
-		if parts.len == 2 && parts[0].len > 0 && parts[1].len > 0 {
-			return true
+	if value in known_timezone_regions() {
+		return true
+	}
+	parts := value.split('/')
+	if parts.len != 2 {
+		return false
+	}
+	region := parts[0]
+	zone := parts[1]
+	if region !in known_timezone_regions() {
+		return false
+	}
+	// Zone segment: letters, digits, '_', '-' and '+' (e.g. Etc/GMT+8).
+	if zone.len == 0 {
+		return false
+	}
+	for ch in zone {
+		is_allowed := (ch >= `a` && ch <= `z`) || (ch >= `A` && ch <= `Z`)
+			|| (ch >= `0` && ch <= `9`) || ch == `_` || ch == `-` || ch == `+`
+		if !is_allowed {
+			return false
 		}
 	}
-	return false
+	return true
+}
+
+// known_timezone_regions lists the IANA tz database top-level regions.
+// Validating against this list keeps path-like garbage
+// (e.g. '../../../etc/passwd') from passing as a timezone identifier.
+fn known_timezone_regions() []string {
+	return [
+		'Africa',
+		'America',
+		'Antarctica',
+		'Arctic',
+		'Asia',
+		'Atlantic',
+		'Australia',
+		'Brazil',
+		'Canada',
+		'Chile',
+		'Etc',
+		'Europe',
+		'Indian',
+		'Mexico',
+		'Pacific',
+		'US',
+	]
 }
 
 // validate_phone checks basic phone number format (digits, spaces, dashes, +).
@@ -493,12 +560,14 @@ pub fn validate_password_strength(value string, arg string) bool {
 	if value.len == 0 {
 		return true
 	}
-	parts := arg.split(',')
-	min_len := if parts.len > 0 { parts[0].int() } else { 8 }
-	min_upper := if parts.len > 1 { parts[1].int() } else { 1 }
-	min_lower := if parts.len > 2 { parts[2].int() } else { 1 }
-	min_digit := if parts.len > 3 { parts[3].int() } else { 1 }
-	min_special := if parts.len > 4 { parts[4].int() } else { 0 }
+	// An empty arg means "use the defaults"; splitting '' would yield ['']
+	// whose .int() is 0, silently disabling every length/character requirement.
+	parts := if arg.len == 0 { []string{} } else { arg.split(',') }
+	min_len := arg_int_at(parts, 0, 8)
+	min_upper := arg_int_at(parts, 1, 1)
+	min_lower := arg_int_at(parts, 2, 1)
+	min_digit := arg_int_at(parts, 3, 1)
+	min_special := arg_int_at(parts, 4, 0)
 
 	if value.len < min_len {
 		return false
@@ -523,6 +592,37 @@ pub fn validate_password_strength(value string, arg string) bool {
 
 	return upper_count >= min_upper && lower_count >= min_lower && digit_count >= min_digit
 		&& special_count >= min_special
+}
+
+// arg_int_at parses the i-th comma-separated segment of a rule argument,
+// falling back to `default` when the segment is absent or not a number.
+fn arg_int_at(parts []string, index int, default_value int) int {
+	if index >= parts.len {
+		return default_value
+	}
+	raw := parts[index].trim_space()
+	if raw.len == 0 {
+		return default_value
+	}
+	mut sign := 1
+	mut start := 0
+	if raw[0] == `-` || raw[0] == `+` {
+		if raw[0] == `-` {
+			sign = -1
+		}
+		start = 1
+	}
+	if start >= raw.len {
+		return default_value
+	}
+	mut num := 0
+	for i in start .. raw.len {
+		if raw[i] < `0` || raw[i] > `9` {
+			return default_value
+		}
+		num = num * 10 + int(raw[i] - `0`)
+	}
+	return sign * num
 }
 
 // validate_confirmed checks if field has a matching {field}_confirmation value.
@@ -787,7 +887,11 @@ pub fn validate_digits(value string, arg string) bool {
 	return count == expected
 }
 
-// validate_ip checks basic IP address format.
+// validate_ip checks IPv4 dotted-quad format: four decimal octets in 0..255.
+//
+// Each octet must be pure ASCII digits (no sign, no letters) and must not have
+// a leading zero ('01' is rejected), so 'abc.2.3.4', '1.2.3.4.5' and
+// '1.2.3.256' all fail.
 pub fn validate_ip(value string) bool {
 	if value.len == 0 {
 		return true
@@ -797,8 +901,20 @@ pub fn validate_ip(value string) bool {
 		return false
 	}
 	for part in parts {
-		num := part.int()
-		if num < 0 || num > 255 {
+		if part.len == 0 || part.len > 3 {
+			return false
+		}
+		if part.len > 1 && part[0] == `0` {
+			return false
+		}
+		mut num := 0
+		for ch in part {
+			if ch < `0` || ch > `9` {
+				return false
+			}
+			num = num * 10 + int(ch - `0`)
+		}
+		if num > 255 {
 			return false
 		}
 	}

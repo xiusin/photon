@@ -172,7 +172,13 @@ pub fn new_health_registry() &HealthRegistry {
 }
 
 // register adds a HealthIndicator to the registry. Thread-safe.
+//
+// A nil indicator is ignored: check_all() would otherwise dereference the
+// nil interface and crash the whole probe endpoint.
 pub fn (mut r HealthRegistry) register(indicator &HealthIndicator) {
+	if isnil(indicator) {
+		return
+	}
 	r.mu.@lock()
 	r.indicators << indicator
 	r.mu.unlock()
@@ -383,8 +389,12 @@ pub fn format_health_json(agg AggregatedHealth) string {
 }
 
 // json_escape escapes a string for safe inclusion inside a JSON string
-// literal. Handles the required escapes: ", \, and control characters
-// (\n, \r, \t). Other characters are passed through unchanged.
+// literal.
+//
+// Per RFC 8259 every character below U+0020 must be escaped; emitting a raw
+// control byte produces a document that no JSON parser accepts. So in
+// addition to the named escapes (", \\, \n, \r, \t) any other control
+// character is written as a \\u00XX sequence.
 pub fn json_escape(s string) string {
 	if s.len == 0 {
 		return ''
@@ -397,7 +407,18 @@ pub fn json_escape(s string) string {
 			`\n` { sb.write_string('\\n') }
 			`\r` { sb.write_string('\\r') }
 			`\t` { sb.write_string('\\t') }
-			else { sb.write_u8(u8(ch)) }
+			`\b` { sb.write_string('\\b') }
+			`\f` { sb.write_string('\\f') }
+			else {
+				if u8(ch) < 0x20 {
+					sb.write_string('\\u00')
+					hex := '0123456789abcdef'
+					sb.write_u8(hex[(u8(ch) >> 4) & 0xF])
+					sb.write_u8(hex[u8(ch) & 0xF])
+				} else {
+					sb.write_u8(u8(ch))
+				}
+			}
 		}
 	}
 	return sb.str()

@@ -135,9 +135,18 @@ fn test_validate_digits() {
 fn test_validate_ip() {
 	assert validate_ip('192.168.1.1') == true
 	assert validate_ip('255.255.255.255') == true
+	assert validate_ip('0.0.0.0') == true
 	assert validate_ip('256.1.1.1') == false
 	assert validate_ip('1.2.3') == false
 	assert validate_ip('') == true
+	// Non-numeric octets used to slip through: 'abc'.int() == 0.
+	assert validate_ip('abc.2.3.4') == false
+	assert validate_ip('1.2.3.4.5') == false
+	assert validate_ip('1.2.3.-1') == false
+	assert validate_ip('1.2.3.+4') == false
+	assert validate_ip('01.2.3.4') == false
+	assert validate_ip('1.2.3.') == false
+	assert validate_ip(' 1.2.3.4') == false
 }
 
 fn test_validate_vjson() {
@@ -164,6 +173,15 @@ fn test_validate_date() {
 	assert validate_date('2024-01-32') == false
 	assert validate_date('24-01-15') == false
 	assert validate_date('') == true
+	// Calendar-aware: month length and leap years are honoured.
+	assert validate_date('2024-02-29') == true
+	assert validate_date('2023-02-29') == false
+	assert validate_date('1900-02-29') == false
+	assert validate_date('2000-02-29') == true
+	assert validate_date('2024-04-31') == false
+	assert validate_date('2024-06-31') == false
+	assert validate_date('2024-01-00') == false
+	assert validate_date('2024-1a-15') == false
 }
 
 fn test_validate_timezone() {
@@ -173,6 +191,13 @@ fn test_validate_timezone() {
 	assert validate_timezone('Europe/London') == true
 	assert validate_timezone('Invalid') == false
 	assert validate_timezone('') == true
+	// Region must come from the IANA list; path-like garbage must not pass.
+	assert validate_timezone('Foo/Bar') == false
+	assert validate_timezone('../../../etc/passwd') == false
+	assert validate_timezone('Asia/Shanghai') == true
+	assert validate_timezone('Etc/GMT+8') == true
+	assert validate_timezone('America/../x') == false
+	assert validate_timezone('Asia/') == false
 }
 
 fn test_validate_phone() {
@@ -191,6 +216,16 @@ fn test_validate_password_strength() {
 	assert validate_password_strength('Abcdef!@', '8,1,1,1,2') == false
 	assert validate_password_strength('Abcdef12', '8,1,1,1,2') == false
 	assert validate_password_strength('', '') == true
+	// Empty arg must fall back to defaults (8/lower=1/upper=1/digit=1),
+	// not to zero-length requirements for every rule.
+	assert validate_password_strength('Abcdef12', '') == true
+	assert validate_password_strength('abcdefgh', '') == false
+	assert validate_password_strength('ABCDEFGH', '') == false
+	assert validate_password_strength('Abcdefgh', '') == false
+	assert validate_password_strength('Ab1', '') == false
+	// Partially specified args inherit defaults for the missing segments.
+	assert validate_password_strength('Abcdef12', '8') == true
+	assert validate_password_strength('abcdefgh', '8,1') == false
 }
 
 // ── ValidationError Tests ──
