@@ -206,8 +206,13 @@ pub fn (mut h FailedJobHandler) handle(job_type string, payload string, exceptio
 pub fn (mut h FailedJobHandler) retry(id string) ! {
 	job := h.repository.find_by_id(id)!
 	h.repository.delete_by_id(id)!
-	// Re-dispatch the job
-	dispatch_later_by_type(job.job_type, 0)!
+	// Re-dispatch with the ORIGINAL payload — `{}` loses every argument.
+	job_type, data := split_delay_payload(job.payload)
+	if job_type.len == 0 {
+		dispatch_later_by_type(job.job_type, 0)!
+		return
+	}
+	dispatch_later_by_payload(job_type, data, 0)!
 }
 
 // retry_with_backoff replays a failed job with exponential backoff delay.
@@ -250,9 +255,14 @@ pub fn (mut h FailedJobHandler) retry_job_with_backoff(job FailedJob) ! {
 	h.repository.delete_by_id(job.id) or {}
 	h.repository.save(updated_job) or {}
 
-	// Re-dispatch with backoff delay
-	// 带退避延迟重新分发
-	dispatch_later_by_type(job.job_type, delay_secs)!
+	// Re-dispatch with backoff delay, keeping the original payload
+	// 带退避延迟重新分发，且保留原始 payload
+	job_type, data := split_delay_payload(job.payload)
+	if job_type.len == 0 {
+		dispatch_later_by_type(job.job_type, delay_secs)!
+	} else {
+		dispatch_later_by_payload(job_type, data, delay_secs)!
+	}
 
 	// Update retry stats
 	// 更新重试统计
@@ -283,17 +293,45 @@ pub fn (mut h FailedJobHandler) retry_all() ! {
 	all_jobs := h.repository.all()!
 	for job in all_jobs {
 		h.repository.delete_by_id(job.id)!
-		dispatch_later_by_type(job.job_type, 0)!
+		job_type, data := split_delay_payload(job.payload)
+		if job_type.len == 0 {
+			dispatch_later_by_type(job.job_type, 0)!
+		} else {
+			dispatch_later_by_payload(job_type, data, 0)!
+		}
 	}
 }
 
 // dispatch_later_by_type re-dispatches a job by type name
 // dispatch_later_by_type 通过类型名称重新分发任务
 fn dispatch_later_by_type(job_type string, delay_secs i64) ! {
-	// Reconstruct and push
-	payload := serialize_job(job_type, '{}')
+	dispatch_later_by_payload(job_type, '{}', delay_secs)
+}
+
+// dispatch_later_by_payload 用原始 payload 重新投递一条失败任务。
+//
+// 重放必须带原 payload：`{}` 会把任务的全部业务参数抹掉，被重试的任务
+// 于是跑在「参数全空」的状态下 —— 要么直接失败，要么做出错误的事。
+// 也计入 pending 统计（与 dispatch_later 一致）；退避延迟必须真的生效，
+// 原来收了参数却丢掉，传 0 进去，让「指数退避」在派发环节退化成立即重试。
+fn dispatch_later_by_payload(job_type string, data string, delay_secs i64) ! {
+	payload := serialize_job(job_type, data)
 	mut d := get_dispatcher()
-	// 退避延迟必须真的生效：原来收了参数却丢掉，传 0 进去，
-	// 于是「指数退避」在派发环节退化成立即重试。
-	d.driver.push_delayed(d.default_queue, payload, delay_secs)!
+	if delay_secs > 0 {
+		d.driver.push_delayed(d.default_queue, payload, delay_secs)!
+	} else {
+		d.driver.push(d.default_queue, payload)!
+	}
+	d.increment_stat(d.default_queue, .pending, 1)
+}
+
+// split_delay_payload 把失败记录的 payload 拆成 (job_type, data)。
+// payload 里可能自带 `<run_at>||` 前缀，先剥掉再按第一个 `||` 切分。
+fn split_delay_payload(payload string) (string, string) {
+	_, body := split_delay(payload)
+	parts := body.split_n('||', 2)
+	if parts.len < 2 {
+		return '', ''
+	}
+	return parts[0], parts[1]
 }

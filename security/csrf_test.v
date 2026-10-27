@@ -308,3 +308,25 @@ fn test_get_expected_token_without_create() {
 	expected := cm.get_expected_token()
 	assert expected == ''
 }
+
+// -- 定长比较 / 未签发 token --
+
+fn test_validate_no_issued_token_is_rejected() {
+	cm := new_csrf_manager(CsrfConfig{ enabled: true })
+	mut caught := false
+	if _ := cm.validate('anything', '') {
+	} else {
+		caught = true
+	}
+	assert caught, 'submitting a token when none was issued must fail'
+}
+
+fn test_constant_time_eq_semantics() {
+	assert constant_time_eq('abc', 'abc')
+	assert !constant_time_eq('abc', 'abd')
+	assert !constant_time_eq('abc', 'ab')
+	assert !constant_time_eq('', 'a')
+	assert constant_time_eq('', '')
+	// 长度相同、内容不同
+	assert !constant_time_eq('aaaaaaaa', 'aaaaaaab')
+}

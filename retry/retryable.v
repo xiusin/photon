@@ -282,7 +282,13 @@ pub fn should_retry(config RetryConfig, err IError) bool {
 // The operation is invoked up to `max_attempts` times. On error:
 //   - If should_retry() returns false, the error is returned immediately.
 //   - If this was the last attempt, the original error is returned.
-//   - Otherwise, the thread sleeps for delay_for_attempt(attempt) and retries.
+//   - Otherwise, the thread sleeps for delay_for_attempt(attempt + 1) and retries.
+//
+// 注意那个 `+ 1`。`delay_for_attempt(n)` 的语义是「第 n 次尝试之前等多久」，
+// 而 attempt 是刚失败的那一次。用 `delay_for_attempt(attempt)` 等于把
+// 第 1 次的「等 0」用在第一次重试上 → 固定退避的第一次重试完全不等，
+// 指数退避的第 1、2 次重试也整体偏早一档。测试里之所以没暴露，是因为
+// 断言只卡了「至少等过一次」的下界。
 //
 // On success, the result is returned immediately (no further attempts).
 //
@@ -310,8 +316,8 @@ pub fn execute_with_retry[T](config RetryConfig, operation fn () !T) !T {
 			if attempt >= attempts {
 				return err
 			}
-			// Wait before retrying (backoff delay for the attempt just failed)
-			time.sleep(config.delay_for_attempt(attempt))
+			// Wait before the NEXT attempt (attempt is the one that just failed)
+			time.sleep(config.delay_for_attempt(attempt + 1))
 			continue
 		}
 		// Success — return immediately

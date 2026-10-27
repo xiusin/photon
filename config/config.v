@@ -114,7 +114,7 @@ pub fn (c &Config) get_bool(key string) !bool {
 	cm.mu.@rlock()
 	defer { cm.mu.runlock() }
 	val := c.properties[key] or { return error('config key "${key}" not found') }
-	return val.bool()
+	return parse_config_bool(val)
 }
 
 // get_bool_or returns a configuration value as bool or default
@@ -123,7 +123,7 @@ pub fn (c &Config) get_bool_or(key string, default_val bool) bool {
 	cm.mu.@rlock()
 	defer { cm.mu.runlock() }
 	val := c.properties[key] or { return default_val }
-	return val.bool()
+	return parse_config_bool(val)
 }
 
 // get_f64 returns a configuration value as f64
@@ -133,6 +133,21 @@ pub fn (c &Config) get_f64(key string) !f64 {
 	defer { cm.mu.runlock() }
 	val := c.properties[key] or { return error('config key "${key}" not found') }
 	return val.f64()
+}
+
+// parse_config_bool 把配置里的布尔字面量解析成 bool。
+//
+// 不能用 `val.bool()`：V 的实现只认 `'true'` 和 `'t'`，于是
+// `debug = false` / `debug = 0` / `debug = off` / `debug = no` 全部被读成
+// **true** —— 生产配置里把开关关掉，程序反而打开了它，而且不报任何错。
+// 空值按「未设置」处理，沿用 V 的默认 false；无法识别的字面量同样为 false
+// （与 Spring 的 Boolean.parseBoolean 对齐）。
+pub fn parse_config_bool(val string) bool {
+	v := val.trim_space().to_lower()
+	return match v {
+		'true', 't', '1', 'yes', 'y', 'on' { true }
+		else { false }
+	}
 }
 
 // set sets a configuration value

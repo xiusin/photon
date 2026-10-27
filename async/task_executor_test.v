@@ -523,3 +523,30 @@ fn test_async_annotation_integration() {
 	// The comptime scan found the @[async] method.
 	assert has_async_method[AsyncEmailService]('send_welcome') == true
 }
+
+// ── shutdown 不能在「队列里还有排队任务」时死锁 ──
+
+// 队列容量远大于 worker 数，提交量也远大于队列容量：shutdown() 必须在
+// 有限时间内返回，并且所有已提交任务都已执行完。
+fn test_shutdown_with_pending_tasks_does_not_deadlock() {
+	mut te := new_task_executor(2, 4)
+	shared := new_counter()
+
+	for _ in 0 .. 32 {
+		te.submit(fn [shared] () {
+			shared.increment()
+		})!
+	}
+
+	te.shutdown()
+
+	assert shared.get() == 32, 'tasks were lost by shutdown(): got ${shared.get()}'
+}
+
+fn test_shutdown_is_idempotent() {
+	mut te := new_task_executor(2, 8)
+	te.submit(fn () {})!
+	te.shutdown()
+	te.shutdown()
+	assert te.is_stopped()
+}

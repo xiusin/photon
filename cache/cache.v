@@ -130,9 +130,13 @@ pub fn (mut cm CacheRegistry) chain() &CacheOperation {
 // if it's not present. Uses singleflight to deduplicate concurrent loads for the
 // same key — this is the peak-shaving (削峰) mechanism that prevents cache stampede.
 pub fn (mut cm CacheRegistry) get_or_load(key string, ttl_seconds int, loader fn () !string) !string {
-	// Fast path: value already in cache
-	if cm.default_cache.has(key) {
-		return cm.default_cache.get(key)
+	// Fast path: value already in cache.
+	//
+	// 用 `if v := get(key)` 而不是 `has(key)` + `get(key)`：后者是两次独立
+	// 取锁，中间那一瞬条目可能正好过期/被删，于是 `get` 报 miss 把整个
+	// get_or_load 变成错误 —— 明明该走 loader。
+	if cached := cm.default_cache.get(key) {
+		return cached
 	}
 
 	// Cache miss — use singleflight to coalesce concurrent loads for this key.

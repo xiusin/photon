@@ -107,3 +107,40 @@ fn test_simple_paginator_no_more() {
 	p := new_simple_paginator(['x'], 10, 1, false)
 	assert p.has_more == false
 }
+
+// ── Collection.pop 空集合 / Page 一致性 ──
+
+fn test_collection_pop_on_empty_returns_zero_value() {
+	mut c := new_collection[string]()
+	// 空集合上 pop 不能越界访问
+	assert c.pop() == ''
+	assert c.count() == 0
+
+	mut numbers := new_collection[int]()
+	assert numbers.pop() == 0
+}
+
+fn test_collection_pop_normal() {
+	mut c := collect(['a', 'b', 'c'])
+	assert c.pop() == 'c'
+	assert c.count() == 2
+	assert c.all() == ['a', 'b']
+}
+
+fn test_page_is_last_matches_has_next() {
+	// 空结果集：没有下一页，也就是最后一页
+	empty := new_page[string]([], 0, 1, 10)
+	assert empty.total_pages == 0
+	assert empty.has_next() == false
+	assert empty.is_last() == true
+
+	// 有下一页
+	mid := new_page[int]([1, 2], 25, 1, 10)
+	assert mid.has_next() == true
+	assert mid.is_last() == false
+
+	// 最后一页
+	last := new_page[int]([1], 21, 3, 10)
+	assert last.has_next() == false
+	assert last.is_last() == true
+}

@@ -150,9 +150,12 @@ pub fn (c &InMemoryCounter) name() string {
 	return c.name_str
 }
 
-// tags returns the meter tags.
+// tags returns a copy of the meter tags.
+//
+// 返回内部 map 等于把注册表的私有状态交出去：调用方一次 `delete()`
+// 就能让索引键与标签对不上，此后同名的 meter 再也查不到。
 pub fn (c &InMemoryCounter) tags() map[string]string {
-	return c.tags_str
+	return c.tags_str.clone()
 }
 
 // ============================================================
@@ -196,9 +199,9 @@ pub fn (g &InMemoryGauge) name() string {
 	return g.name_str
 }
 
-// tags returns the meter tags.
+// tags returns a copy of the meter tags.
 pub fn (g &InMemoryGauge) tags() map[string]string {
-	return g.tags_str
+	return g.tags_str.clone()
 }
 
 // ============================================================
@@ -271,9 +274,9 @@ pub fn (t &InMemoryTimer) name() string {
 	return t.name_str
 }
 
-// tags returns the meter tags.
+// tags returns a copy of the meter tags.
 pub fn (t &InMemoryTimer) tags() map[string]string {
-	return t.tags_str
+	return t.tags_str.clone()
 }
 
 // ============================================================
@@ -340,7 +343,7 @@ pub fn (r &InMemoryMeterRegistry) counter(name string, tags map[string]string) &
 	}
 	c := &InMemoryCounter{
 		name_str: name
-		tags_str: tags
+		tags_str: tags.clone()
 	}
 	unsafe { r.counters[key] = c }
 	return c
@@ -356,7 +359,7 @@ pub fn (r &InMemoryMeterRegistry) gauge(name string, tags map[string]string) &In
 	}
 	g := &InMemoryGauge{
 		name_str: name
-		tags_str: tags
+		tags_str: tags.clone()
 	}
 	unsafe { r.gauges[key] = g }
 	return g
@@ -372,7 +375,7 @@ pub fn (r &InMemoryMeterRegistry) timer(name string, tags map[string]string) &In
 	}
 	t := &InMemoryTimer{
 		name_str: name
-		tags_str: tags
+		tags_str: tags.clone()
 	}
 	unsafe { r.timers[key] = t }
 	return t
@@ -393,21 +396,21 @@ pub fn (r &InMemoryMeterRegistry) list_meters() []MeterInfo {
 		result << MeterInfo{
 			name: c.name_str
 			typ:  .counter
-			tags: c.tags_str
+			tags: c.tags_str.clone()
 		}
 	}
 	for _, g in r.gauges {
 		result << MeterInfo{
 			name: g.name_str
 			typ:  .gauge
-			tags: g.tags_str
+			tags: g.tags_str.clone()
 		}
 	}
 	for _, t in r.timers {
 		result << MeterInfo{
 			name: t.name_str
 			typ:  .timer
-			tags: t.tags_str
+			tags: t.tags_str.clone()
 		}
 	}
 	return result
@@ -472,7 +475,7 @@ pub fn (r &InMemoryMeterRegistry) format_prometheus() string {
 		return compare_meters(a.name_str, a.tags_str, b.name_str, b.tags_str)
 	})
 	for c in cs {
-		name_str := c.name_str
+		name_str := sanitize_metric_name(c.name_str)
 		tag_str := format_tags(c.tags_str)
 		sb.writeln('# HELP ${name_str} Counter')
 		sb.writeln('# TYPE ${name_str} counter')
@@ -484,7 +487,7 @@ pub fn (r &InMemoryMeterRegistry) format_prometheus() string {
 		return compare_meters(a.name_str, a.tags_str, b.name_str, b.tags_str)
 	})
 	for g in gs {
-		name_str := g.name_str
+		name_str := sanitize_metric_name(g.name_str)
 		tag_str := format_tags(g.tags_str)
 		sb.writeln('# HELP ${name_str} Gauge')
 		sb.writeln('# TYPE ${name_str} gauge')
@@ -496,7 +499,7 @@ pub fn (r &InMemoryMeterRegistry) format_prometheus() string {
 		return compare_meters(a.name_str, a.tags_str, b.name_str, b.tags_str)
 	})
 	for t in ts {
-		name_str := t.name_str
+		name_str := sanitize_metric_name(t.name_str)
 		tag_str := format_tags(t.tags_str)
 		sb.writeln('# HELP ${name_str} Timer')
 		sb.writeln('# TYPE ${name_str} summary')
@@ -505,6 +508,30 @@ pub fn (r &InMemoryMeterRegistry) format_prometheus() string {
 	}
 
 	return sb.str()
+}
+
+// sanitize_metric_name coerces a metric name into Prometheus' name grammar:
+// `[a-zA-Z_:][a-zA-Z0-9_:]*`.
+//
+// 名字来自用户代码（常常是路由模板或业务字符串）。一个空格、一个花括号
+// 就让整条 exposition 无法解析，而监控侧唯一的表现是「没有数据」——
+// 没有任何人会在日志里看到这个故障。非法字符统一替换成 `_`。
+fn sanitize_metric_name(name string) string {
+	if name.len == 0 {
+		return '_'
+	}
+	mut out := strings.new_builder(name.len)
+	for i, ch in name {
+		letter := (ch >= `a` && ch <= `z`) || (ch >= `A` && ch <= `Z`) || ch == `_` || ch == `:`
+		digit := ch >= `0` && ch <= `9`
+		// 首字符不允许是数字
+		if letter || (i > 0 && digit) {
+			out.write_u8(ch)
+		} else {
+			out.write_u8(`_`)
+		}
+	}
+	return out.str()
 }
 
 // format_tags renders tags in Prometheus label format: {key="value",...}.

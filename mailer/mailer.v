@@ -34,11 +34,25 @@ pub:
 }
 
 // str returns the formatted address string.
+//
+// CR/LF 会被剥离：地址最终要拼进 SMTP 头，一个换行就能注入额外的头
+// （Bcc、Content-Type）。display name 里的双引号同样要转义，否则
+// `"` 可以提前闭合引号，把后面的内容变成裸头字段。
 pub fn (a Address) str() string {
+	safe_email := sanitize_header_value(a.email)
 	if a.name.len > 0 {
-		return '"${a.name}" <${a.email}>'
+		safe_name := sanitize_header_value(a.name).replace('"', '\\"')
+		return '"${safe_name}" <${safe_email}>'
 	}
-	return a.email
+	return safe_email
+}
+
+// sanitize_header_value strips CR/LF from a value destined for a mail header.
+fn sanitize_header_value(v string) string {
+	if !v.contains('\r') && !v.contains('\n') {
+		return v
+	}
+	return v.replace('\r', '').replace('\n', '')
 }
 
 // parse_address parses an email address string into an Address struct.
@@ -468,7 +482,18 @@ pub fn reset_log_sent_count() {
 	log_sent_email_count = 0
 }
 
+// redact_address masks the local part of an address so log output stays
+// useful for debugging without writing recipients' full addresses to disk.
+fn redact_address(addr string) string {
+	at := addr.index('@') or { return '***' }
+	return '***' + addr[at..]
+}
+
 // send logs the email instead of sending it.
+//
+// Bcc 收件人只输出数量与打码后的地址：日志是把邮件内容写到磁盘/标准输出，
+// 密送名单一旦落盘就失去意义（GDPR 下更是直接违规）。To/Cc 是公开收件人，
+// 保持原样便于排查。
 pub fn (lt LogTransport) send(mail Email) ! {
 	mut sb := strings.new_builder(256)
 	sb.write_string('===========================================================\n')
@@ -480,7 +505,8 @@ pub fn (lt LogTransport) send(mail Email) ! {
 		sb.write_string('Cc: ${mail.cc.map(it.str()).join(', ')}\n')
 	}
 	if mail.bcc.len > 0 {
-		sb.write_string('Bcc: ${mail.bcc.map(it.str()).join(', ')}\n')
+		masked := mail.bcc.map(redact_address(it.email))
+		sb.write_string('Bcc: ${masked.join(', ')} (${mail.bcc.len} recipient(s), addresses redacted)\n')
 	}
 	if mail.reply_to.email.len > 0 {
 		sb.write_string('Reply-To: ${mail.reply_to.str()}\n')

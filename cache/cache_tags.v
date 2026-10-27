@@ -241,7 +241,14 @@ pub fn new_cache_lock(store &Cache, name string, ttl_sec int) &CacheLock {
 	}
 }
 
-// acquire attempts to acquire the lock (non-blocking)
+// acquire attempts to acquire the lock (non-blocking).
+//
+// `has()` 之后 `set()` 是 check-then-act：两个进程可以同时看到「没有」，
+// 然后各自写入 —— 分布式锁形同虚设。缓存后端没有 SET NX，退而求其次：
+// 写入后回读确认，谁的值被写进去谁才算拿到锁。窗口被压到「写入顺序」
+// 这一层，不再依赖前端检查的正确性。
+//
+// 回读失败（被别的持有者覆盖）时返回 false，不算异常。
 pub fn (mut cl CacheLock) acquire() !bool {
 	cl.mu.@lock()
 	defer { cl.mu.unlock() }
@@ -251,6 +258,12 @@ pub fn (mut cl CacheLock) acquire() !bool {
 	}
 
 	cl.store.set(cl.name, cl.owner, cl.ttl_sec)!
+
+	// 回读校验：只有写进去的是自己的 owner 才算真正持锁。
+	stored := cl.store.get(cl.name) or { '' }
+	if stored != cl.owner {
+		return false
+	}
 	cl.acquired = true
 	return true
 }

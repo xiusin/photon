@@ -566,3 +566,40 @@ fn test_validation_error_empty() {
 	// Should still return a proper response structure
 	assert resp.code == 422
 }
+
+// ── regex 规则：文档里有，实现里也必须有 ──
+
+fn test_validate_regex_basic() {
+	assert validate_regex('1234', '^[0-9]{4}$')
+	assert !validate_regex('12345', '^[0-9]{4}$')
+	assert !validate_regex('12a4', '^[0-9]{4}$')
+	assert validate_regex('abc-def', '^[a-z]+-[a-z]+$')
+}
+
+fn test_validate_regex_keeps_colons_in_pattern() {
+	// parse_rule 只按第一个 ':' 切分，模式里的冒号必须原样保留
+	assert validate_regex('12:30', '^[0-9]{2}:[0-9]{2}$')
+	assert !validate_regex('12-30', '^[0-9]{2}:[0-9]{2}$')
+}
+
+fn test_validate_regex_empty_value_passes() {
+	// 空值归 required 管，与其它规则一致
+	assert validate_regex('', '^[0-9]+$')
+}
+
+fn test_validate_regex_empty_pattern_passes() {
+	assert validate_regex('anything', '')
+}
+
+fn test_validate_regex_invalid_pattern_fails_closed() {
+	// 编译不过的模式不能放行数据
+	assert !validate_regex('anything', '^[unclosed')
+}
+
+fn test_apply_rule_dispatches_regex() {
+	ok, _ := check_rule('code', '1234', 'regex:^[0-9]{4}$')
+	assert ok
+	bad, msg := check_rule('code', 'abcd', 'regex:^[0-9]{4}$')
+	assert !bad
+	assert msg.contains('code')
+}

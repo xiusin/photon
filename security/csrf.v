@@ -130,9 +130,34 @@ pub fn (cm &CsrfManager) validate(actual_token string, expected_token string) ! 
 	if actual_token.len == 0 {
 		return error('CSRF token is missing')
 	}
-	if actual_token != expected_token {
+	if expected_token.len == 0 {
+		// 服务端还没签发过 token，任何提交都不可能匹配 —— 明确报错，
+		// 而不是依赖 `!=` 顺带兜住。
+		return error('CSRF token not issued for this session')
+	}
+	// 逐字节比较且不提前返回：`!=` 会在第一个不同的字节处短路，
+	// 攻击者据此可以一字节一字节地把 token 猜出来（经典时序侧信道）。
+	// token 只有 32 字节，定长比较的代价可以忽略。
+	if !constant_time_eq(actual_token, expected_token) {
 		return error('CSRF token mismatch')
 	}
+}
+
+// constant_time_eq compares two byte strings without an early exit.
+//
+// 长度差异本身无法隐藏（HTTP 层面的长度差异远大于这里的差），
+// 但内容比较必须是定长循环，否则第一个不同字节的位置会通过响应时间泄露。
+fn constant_time_eq(a string, b string) bool {
+	alen := a.len
+	blen := b.len
+	mut diff := alen ^ blen
+	max_len := if alen > blen { alen } else { blen }
+	for i in 0 .. max_len {
+		ac := if i < alen { a[i] } else { u8(0) }
+		bc := if i < blen { b[i] } else { u8(0) }
+		diff |= int(ac ^ bc)
+	}
+	return diff == 0
 }
 
 // is_csrf_required checks if CSRF validation is needed for this method

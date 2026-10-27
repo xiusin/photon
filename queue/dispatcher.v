@@ -149,33 +149,44 @@ pub fn dispatch_chain(jobs []Job) ! {
 // dispatch_chain_with_delay dispatches jobs sequentially with individual delays
 // dispatch_chain_with_delay 链式延迟分发，每个任务带有独立延迟
 pub fn dispatch_chain_with_delay(jobs []Job, delay_secs []int) ! {
-	mut d := get_dispatcher()
 	for i, job in jobs {
 		delay := if i < delay_secs.len { delay_secs[i] } else { 0 }
-		push(d.default_queue, job, i64(delay))!
-		d.increment_stat(d.default_queue, .pending, 1)
+		dispatch_later(job, i64(delay))!
 	}
 }
 
-// push pushes a serialized job to a specific queue
+// push pushes a serialized job to a specific queue.
+//
+// 延迟任务必须走 driver.push_delayed()，而不是自己往 payload 头上拼
+// 时间戳再调 push()：后者把延迟条目塞进「立即可见」的队列里，pop 时
+// MemoryDriver 只会在 promote 阶段看 delayed 表，永远看不到它 ——
+// 延迟任务不仅没有延迟，还会被立即执行。
 // push 将序列化的任务推入指定队列
 pub fn push(queue_name string, job Job, delay_secs i64) ! {
 	mut d := get_dispatcher()
-	mut payload := serialize_job(job.job_type(), job.data())
-
-	// Delayed jobs include a timestamp prefix
-	// 延迟任务包含时间戳前缀
+	payload := serialize_job(job.job_type(), job.data())
 	if delay_secs > 0 {
-		run_at := time.now().unix_nano() + delay_secs * 1_000_000_000
-		payload = '${run_at}||${payload}'
+		d.driver.push_delayed(queue_name, payload, delay_secs)!
+	} else {
+		d.driver.push(queue_name, payload)!
 	}
-	d.driver.push(queue_name, payload)!
 }
 
-// dispatch_later dispatches a job to run after a delay
+// dispatch_later dispatches a job to run after a delay.
+//
+// 走自己的驱动调用而不是 push()：push() 不更新统计，于是延迟任务在
+// queue_stats 里从来不计入 pending —— 监控面板上「队列长度」永远是 0，
+// 而任务确实排在那儿。
 // dispatch_later 延迟分发任务
 pub fn dispatch_later(job Job, delay_secs i64) ! {
-	push('default', job, delay_secs)!
+	mut d := get_dispatcher()
+	payload := serialize_job(job.job_type(), job.data())
+	if delay_secs > 0 {
+		d.driver.push_delayed(d.default_queue, payload, delay_secs)!
+	} else {
+		d.driver.push(d.default_queue, payload)!
+	}
+	d.increment_stat(d.default_queue, .pending, 1)
 }
 
 // dispatch_batch dispatches multiple jobs as a batch
@@ -207,15 +218,20 @@ fn inject_batch_id(data string, batch_id string) string {
 	return '{"batch_id":"${batch_id}"}'
 }
 
-// get_queue_stats returns statistics for a specific queue
+// get_queue_stats returns statistics for a specific queue.
+//
+// pending 以驱动里的实时计数为准；不过驱动计数只在 pop 时减少，而
+// dispatcher 的 pending 计数器在 pop 时不会递减。两者取「驱动实时值」，
+// 避免读到一个只增不减的历史累计值。
 // get_queue_stats 返回指定队列的统计信息
 pub fn get_queue_stats(queue_name string) QueueStats {
 	mut d := get_dispatcher()
 	d.stats_mu.@lock()
-	defer { d.stats_mu.unlock() }
 	mut s := d.stats[queue_name] or { QueueStats{} }
 	// Update pending count from driver / 从驱动更新等待数
-	s.pending = d.driver.count(queue_name)
+	live_pending := d.driver.count(queue_name)
+	d.stats_mu.unlock()
+	s.pending = live_pending
 	return s
 }
 

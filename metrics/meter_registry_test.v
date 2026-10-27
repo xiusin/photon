@@ -569,3 +569,37 @@ fn test_concurrent_format_prometheus_under_load() {
 	out := registry.format_prometheus()
 	assert out.contains('base_counter 10')
 }
+
+// ── 标签隔离：外部修改不能污染注册表内部状态 ──
+
+fn test_meter_tags_are_copied_on_creation() {
+	reg := new_in_memory_registry()
+	mut tags := {
+		'path': '/api'
+	}
+	c := reg.counter('req', tags)
+
+	// 调用方事后改自己那份 map，不能影响 meter
+	tags['path'] = '/hacked'
+	assert c.name() == 'req'
+	assert c.tags()['path'] == '/api'
+
+	// 注册表里查不到被污染的新 key
+	other := reg.counter('req', {'path': '/hacked'})
+	assert other.value() == 0
+	assert c.value() == 0
+}
+
+fn test_meter_tags_accessor_returns_copy() {
+	reg := new_in_memory_registry()
+	c := reg.counter('m', {'a': '1'})
+	mut exposed := c.tags()
+	exposed['a'] = 'tampered'
+	assert c.tags()['a'] == '1'
+
+	mut infos := reg.list_meters()
+	assert infos.len == 1
+	mut info_tags := infos[0].tags
+	info_tags['a'] = 'tampered'
+	assert reg.list_meters()[0].tags['a'] == '1'
+}

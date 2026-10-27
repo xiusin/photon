@@ -130,9 +130,14 @@ pub fn (mut co CacheOperation) get() !string {
 }
 
 // save writes a key-value pair to the cache. Use with .put().
+//
+// 空字符串是合法缓存值：把 `value == ''` 也判成「没设置」会让
+// `cache.put('k', '').save()` 直接报错，而 `.get()` 那边又用
+// `cached.len > 0` 当命中判据 —— 空值永远存不进去也读不出来。
+// 这里只校验 key。
 pub fn (mut co CacheOperation) save() ! {
-	if co.key == '' || co.value == '' {
-		return error('cache key or value not set — call .put(key, value) first')
+	if co.key == '' {
+		return error('cache key not set — call .put(key, value) first')
 	}
 	if !isnil(co.condition) && !co.condition() {
 		return
@@ -156,8 +161,9 @@ fn (mut co CacheOperation) get_with_tags() !string {
 	tag_prefix := co.tags.join(':')
 	tagged_key := 'tags:${tag_prefix}:${co.key}'
 
-	cached := co.cache_registry.get(tagged_key) or { '' }
-	if cached != '' {
+	// 用「命中与否」判断，而不是「值是否为空」：空字符串是合法缓存值，
+	// 用 `cached != ''` 当命中判据会让值为空的条目每次都重新加载。
+	if cached := co.cache_registry.get(tagged_key) {
 		return cached
 	}
 

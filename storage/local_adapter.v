@@ -227,19 +227,24 @@ pub fn (mut la LocalAdapter) set_visibility(path string, visibility Visibility) 
 		la.perm_access_order << path
 	}
 	la.permissions[path] = visibility.str()
-	// Bound the map: evict oldest entries if over threshold
+	// Bound the map: evict the oldest entries once the ceiling is exceeded.
+	//
+	// 这里必须用括号把 `max_permissions / 2` 分组。原来的
+	// `la.permissions.len - max_permissions / 2` 按优先级等价于
+	// `(len - max_permissions) / 2`，结果是 0 或负数：evict_count 恒为 0，
+	// 一个 key 都删不掉，permissions 无限增长 —— 正是这段代码要防的问题。
 	if la.permissions.len > max_permissions {
-		evict_count := la.permissions.len - max_permissions / 2
+		target := max_permissions / 2
+		evict_count := la.permissions.len - target
 		mut evicted := 0
-		mut new_order := []string{}
-		for i, p in la.perm_access_order {
+		mut new_order := []string{cap: la.perm_access_order.len}
+		for p in la.perm_access_order {
 			if evicted < evict_count && p in la.permissions && p != path {
 				la.permissions.delete(p)
 				evicted++
 			} else {
 				new_order << p
 			}
-			_ = i
 		}
 		la.perm_access_order = new_order
 	}

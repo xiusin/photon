@@ -123,6 +123,11 @@ pub fn detect_mime_type_from_filename(filename string) string {
 }
 
 // extract_extension returns the lowercase file extension without the dot
+//
+// 「隐藏文件」没有扩展名：`.gitignore`、`.env` 等名字里的那个点属于
+// 文件名本身，不是分隔符。旧实现会返回 `gitignore` / `env` 这样的伪扩展名，
+// 于是按扩展名做的类型判断（上传白名单、Content-Type 推断）在隐藏文件上
+// 得到的都是错答案。尾点（`archive.`）同理。
 pub fn extract_extension(path string) string {
 	// Get the last segment (filename) from the path
 	mut filename := path
@@ -131,12 +136,13 @@ pub fn extract_extension(path string) string {
 		filename = parts[parts.len - 1]
 	}
 
-	// Extract extension after the last dot
-	if filename.contains('.') {
-		parts := filename.split('.')
-		return parts[parts.len - 1].to_lower()
+	// Extract extension after the LAST dot, but only when that dot is not the
+	// first character of the name.
+	dot := filename.last_index('.') or { return '' }
+	if dot == 0 || dot == filename.len - 1 {
+		return ''
 	}
-	return ''
+	return filename[dot + 1..].to_lower()
 }
 
 // is_image checks if the MIME type is an image

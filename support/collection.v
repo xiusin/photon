@@ -339,8 +339,14 @@ pub fn (mut c Collection[T]) push(item T) &Collection[T] {
 	return c
 }
 
-// pop removes and returns the last item
+// pop removes and returns the last item.
+//
+// 空集合上 `items[-1]` 直接是越界访问 —— 编译期不拦，运行期要么崩要么
+// 读到垃圾值。空集合返回 T{}（与 first()/last() 的默认值语义一致）。
 pub fn (mut c Collection[T]) pop() T {
+	if c.items.len == 0 {
+		return T{}
+	}
 	last := c.items[c.items.len - 1]
 	c.items.delete(c.items.len - 1)
 	return last

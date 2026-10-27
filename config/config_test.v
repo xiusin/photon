@@ -570,3 +570,36 @@ fn test_extract_config_field_key_none() {
 	result := extract_config_field_key(attrs)
 	assert result == ''
 }
+
+// 布尔字面量：false/0/off/no 必须读成 false。
+// `'false'.bool()` 在 V 里是 true（只认 'true'/'t'），配置里关掉的开关
+// 会被静默打开 —— 这是最坏的一类缺陷：不报错，行为正好相反。
+fn test_config_get_bool_false_literals() {
+	mut cfg := new()
+	assert parse_config_bool('false') == false
+	assert parse_config_bool('FALSE') == false
+	assert parse_config_bool('0') == false
+	assert parse_config_bool('off') == false
+	assert parse_config_bool('no') == false
+	assert parse_config_bool('') == false
+	assert parse_config_bool('nonsense') == false
+
+	cfg.set('debug', 'false')
+	assert cfg.get_bool('debug')! == false
+	assert cfg.get_bool_or('debug', true) == false
+	cfg.set('feature', '0')
+	assert cfg.get_bool_or('feature', true) == false
+}
+
+fn test_config_get_bool_true_literals() {
+	mut cfg := new()
+	assert parse_config_bool('true') == true
+	assert parse_config_bool('TRUE') == true
+	assert parse_config_bool('1') == true
+	assert parse_config_bool('on') == true
+	assert parse_config_bool('yes') == true
+	assert parse_config_bool(' t ') == true
+
+	cfg.set('debug', 'yes')
+	assert cfg.get_bool('debug')! == true
+}

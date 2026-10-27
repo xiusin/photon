@@ -161,8 +161,8 @@ pub fn (mut te TaskExecutor) try_submit(task TaskFunc) !bool {
 
 // shutdown stops the executor gracefully. It:
 //   1. Marks the executor as stopped (rejects new submits).
-//   2. Waits for all already-submitted tasks to complete.
-//   3. Closes the task queue so workers exit.
+//   2. Pushes one nil sentinel per worker (queued behind pending tasks).
+//   3. Waits for all submitted tasks to complete.
 //   4. Waits for all worker goroutines to terminate.
 //
 // Idempotent: calling shutdown multiple times is safe.
@@ -175,20 +175,37 @@ pub fn (mut te TaskExecutor) shutdown() {
 	te.stopped = true
 	te.mu.unlock()
 
-	// Wait for all submitted tasks to finish before signalling the workers.
-	// This guarantees no submitted task is lost.
-	te.task_wg.wait()
-
-	// Wake every worker with a nil TaskFunc so it exits its loop.
+	// Wake every worker with a nil TaskFunc so it exits its loop, THEN wait
+	// for the in-flight tasks.
+	//
+	// 顺序不能反。`task_wg.wait()` 只等「已经在执行」的任务，而队列里可能
+	// 还排着没被取走的任务（队列容量大于 worker 数时很常见）。先 wait 的话
+	// wait 只看 in-flight，接着用无缓冲式阻塞发送塞 nil 信号 —— 但队列满时
+	// 发送会阻塞，而唯一能腾出位置的就是这些 worker，它们此刻正在等一个
+	// 永远不会到来的 nil 信号。整条链路死锁在 shutdown() 里。
+	//
+	// 先发信号则安全：worker 会把队列里剩余任务照常跑完再退出，nil 信号
+	// 只是排在它们后面；`task_wg.wait()` 随后就能正常等到全部完成。
+	//
 	// NB: `task_queue.close()` is deliberately NOT used — V's `chan fn ()`
 	// returns a corrupted zero value after close, which segfaults the
 	// worker on the nil check. Pushing explicit nils avoids that path.
-	for _ in 0 .. te.worker_count {
-		te.task_queue <- unsafe { TaskFunc(nil) }
-	}
+	te.wake_workers()
+
+	// Wait for all submitted tasks to finish; workers keep draining the queue
+	// while we wait, so this cannot starve.
+	te.task_wg.wait()
 
 	// Join all worker goroutines.
 	te.wg.wait()
+}
+
+// wake_workers pushes one nil sentinel per worker. Workers drain the queue in
+// order, so pending tasks still run before the sentinels are reached.
+fn (mut te TaskExecutor) wake_workers() {
+	for _ in 0 .. te.worker_count {
+		te.task_queue <- unsafe { TaskFunc(nil) }
+	}
 }
 
 // wait_all blocks until every submitted task has completed.

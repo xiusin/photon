@@ -372,9 +372,9 @@ fn test_fixed_backoff_timing() {
 	})!
 	elapsed := time.now() - start
 
-	// Fixed: 2 retries × 40ms = ~80ms minimum
-	// Allow generous margin for scheduler jitter (40ms to 400ms)
-	assert elapsed >= 40 * time.millisecond
+	// Fixed: 每次重试前都等一个完整 delay。共 2 次重试 → 至少 80ms。
+	// 允许调度抖动，但不允许「第一次重试不等」—— 那正是 old bug 的表现。
+	assert elapsed >= 70 * time.millisecond, 'first retry must also wait a full delay'
 	assert elapsed < 400 * time.millisecond
 }
 
@@ -395,9 +395,10 @@ fn test_exponential_backoff_timing() {
 	})!
 	elapsed := time.now() - start
 
-	// Exponential: attempt 1 fails → sleep 30ms, attempt 2 fails → sleep 60ms
-	// Total sleep = 30 + 60 = 90ms minimum
-	assert elapsed >= 60 * time.millisecond
+	// Exponential: 第 2 次尝试前 30ms，第 3 次尝试前 60ms → 合计 90ms。
+	// `delay_for_attempt(attempt)` 会让第一次重试等 0ms（合计只有 30ms），
+	// 所以下界卡在 80ms 才能抓住这个偏早一档的问题。
+	assert elapsed >= 80 * time.millisecond, 'exponential backoff slept too early: ${elapsed}'
 	assert elapsed < 500 * time.millisecond
 }
 

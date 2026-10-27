@@ -325,8 +325,9 @@ pub fn new_cacheable_interceptor(cm &CacheRegistry) &CacheableInterceptor {
 pub fn (mut ci CacheableInterceptor) get_or_compute(attr CacheableAttribute, method_name string, args []string, loader fn () !string) !string {
 	cache_key := build_cache_key(attr, method_name, ...args)
 
-	cached := ci.cache_manager.get(cache_key) or { '' }
-	if cached.len > 0 {
+	// 命中判据是「取到了」，不是「取到非空」：空字符串是合法返回值，
+	// `cached.len > 0` 会让返回空串的方法每次调用都穿透到 loader。
+	if cached := ci.cache_manager.get(cache_key) {
 		return cached
 	}
 

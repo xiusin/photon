@@ -115,3 +115,56 @@ fn test_retry_all_clears_repository() {
 	h.retry_all()!
 	assert repo.count() == 0
 }
+
+// ── 重放必须保留原始 payload ──
+
+// 旧实现用 `serialize_job(job_type, '{}')` 重新投递，任务的全部业务参数
+// 被抹成空对象 —— 重试跑在「参数全空」的状态下，要么直接失败，要么
+// 做出错误的事，而且日志里看不出异常。
+fn test_retry_preserves_original_payload() {
+	d := get_dispatcher()
+	d.driver.clear('default')!
+
+	repo := new_memory_failed_repo()
+	mut handler := new_failed_job_handler(repo)
+
+	// 原始 payload：job_type||data
+	original_data := '{"order_id":42,"amount":"9.99"}'
+	handler.handle('ChargeJob', serialize_job('ChargeJob', original_data), 'boom',
+		'default', 1)!
+
+	jobs := handler.repository.all()!
+	assert jobs.len == 1
+	handler.retry(jobs[0].id)!
+
+	// 重投的 payload 必须带着原 data
+	payload := d.driver.pop('default') or {
+		assert false, 'retried job was not enqueued'
+		return
+	}
+	job_type, data := split_delay_payload(payload)
+	assert job_type == 'ChargeJob'
+	assert data == original_data, 'payload lost on retry: ${data}'
+	clear_queue()!
+}
+
+fn test_retry_with_backoff_preserves_payload_and_delays() {
+	d := get_dispatcher()
+	d.driver.clear('default')!
+
+	repo := new_memory_failed_repo()
+	mut handler := new_failed_job_handler(repo)
+
+	original_data := '{"id":7}'
+	handler.handle('MailJob', serialize_job('MailJob', original_data), 'smtp down',
+		'default', 1)!
+	jobs := handler.repository.all()!
+	handler.retry_with_backoff(jobs[0].id)!
+
+	// 退避 1s → 还没到期，取不到
+	if _ := d.driver.pop('default') {
+		assert false, 'backoff delay was not applied'
+	}
+	assert d.driver.count('default') == 1
+	clear_queue()!
+}

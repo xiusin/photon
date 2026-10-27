@@ -89,6 +89,21 @@ pub fn (jm &JwtManager) parse_token(token string) !JwtClaims {
 	if claims.iss.len > 0 && claims.iss != jm.config.issuer {
 		return error('JWT issuer mismatch: expected ${jm.config.issuer}, got ${claims.iss}')
 	}
+	// Audience 校验：配置了 audience 就必须校验。
+	// 之前 `aud` 只写不读 —— 给 A 服务签发的 token 可以原样拿去访问 B 服务，
+	// 只要两边共享同一个 secret（多服务部署的常态），越权就这么发生了，
+	// 而且校验全绿。
+	if jm.config.audience.len > 0 {
+		if claims.aud != jm.config.audience {
+			return error('JWT audience mismatch: expected ${jm.config.audience}, got "${claims.aud}"')
+		}
+	}
+	// exp / iat 缺失（0）时上面的检查会失效：exp=0 永远小于 now → 拒绝，
+	// iat=0 也永远不大于 now → 放行。这里显式拒绝没有 exp 的令牌，
+	// 否则一个缺字段的 payload 就成了「永不过期的通行证」。
+	if claims.exp == 0 {
+		return error('JWT token has no expiration claim')
+	}
 
 	return claims
 }

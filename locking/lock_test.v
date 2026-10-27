@@ -329,3 +329,32 @@ fn test_with_lock_releases_on_error() {
 	lm.unlock('section') or {}
 }
 
+
+// ── with_lock 在 callback panic 时也必须释放 ──
+
+fn test_with_lock_releases_on_panic() {
+	mut lm := new_lock_manager()
+	mut caught := false
+	if _ := lm.with_lock('panic:key', fn () ! {
+		panic('boom')
+	}) {
+	} else {
+		caught = true
+	}
+	assert caught, 'panic should propagate'
+
+	// 锁必须已经释放：不阻塞地再拿一次
+	assert lm.try_lock('panic:key'), 'lock leaked after callback panic'
+	lm.unlock('panic:key') or { assert false, 'unlock after panic-recovery failed' }
+}
+
+fn test_with_lock_releases_on_error() {
+	mut lm := new_lock_manager()
+	if _ := lm.with_lock('err:key', fn () ! {
+		return error('nope')
+	}) {
+		assert false, 'error should propagate'
+	}
+	assert lm.try_lock('err:key')
+	lm.unlock('err:key') or {}
+}

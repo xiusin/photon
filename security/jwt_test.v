@@ -223,3 +223,51 @@ fn test_generate_jti_different_prefixes() {
 	assert jti1.contains('alice')
 	assert jti2.contains('bob')
 }
+
+// ── Audience / exp 校验 ──
+
+// 配了 audience 就必须校验：给 A 服务签的 token 不能拿去访问 B 服务。
+fn test_parse_token_rejects_wrong_audience() {
+	jm_issuer := new_jwt_manager(JwtConfig{
+		secret:   'shared-secret'
+		issuer:   'auth-service'
+		audience: 'service-a'
+	})
+	token := jm_issuer.create_token('alice', ['USER'])!
+
+	// 同 secret、同 issuer，但 audience 不同 —— 必须拒绝
+	jm_verifier := new_jwt_manager(JwtConfig{
+		secret:   'shared-secret'
+		issuer:   'auth-service'
+		audience: 'service-b'
+	})
+	if _ := jm_verifier.parse_token(token) {
+		assert false, 'token issued for service-a must not validate for service-b'
+	}
+}
+
+fn test_parse_token_accepts_matching_audience() {
+	jm := new_jwt_manager(JwtConfig{
+		secret:   'shared-secret'
+		audience: 'service-a'
+	})
+	token := jm.create_token('alice', ['USER'])!
+	assert jm.validate_token(token)! == 'alice'
+}
+
+// 没有 exp 的令牌不能当「永不过期通行证」。
+fn test_parse_token_rejects_missing_expiration() {
+	jm := new_jwt_manager(JwtConfig{
+		secret: 'test-secret'
+	})
+	// 直接构造一个 exp=0 的令牌（绕过 create_token）
+	token := jm.encode(JwtClaims{
+		sub: 'attacker'
+		iat: 1
+		exp: 0
+		iss: 'photon'
+	})!
+	if _ := jm.parse_token(token) {
+		assert false, 'token without exp must be rejected'
+	}
+}

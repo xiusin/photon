@@ -2,6 +2,7 @@ module web
 
 import veb
 import json2
+import regex
 
 // validation.v - Request Validation (Laravel FormRequest + Spring @Valid inspired)
 //
@@ -887,6 +888,28 @@ pub fn validate_digits(value string, arg string) bool {
 	return count == expected
 }
 
+// validate_regex checks that value matches the given regular expression.
+//
+// 这条规则此前只写在文档里，dispatch 里没有对应分支 —— 冒号后的模式被
+// 当成「未知规则」静默放行。于是写了 `regex:^[0-9]{4}$` 的字段任何输入
+// 都能通过校验，而且没有任何提示。
+//
+// `arg` 是规则冒号右侧的原文，`parse_rule` 只按第一个 `:` 切分，所以模式里
+// 可以继续用 `:`（时间格式之类）；首尾的单双引号会被剥掉。
+// 模式本身编译失败时按「校验失败」处理：错的规则不该放行数据。
+pub fn validate_regex(value string, arg string) bool {
+	pattern := arg.trim_space().trim("'").trim('"')
+	if pattern.len == 0 {
+		return true
+	}
+	if value.len == 0 {
+		// 空值交给 required 处理，与其它规则保持一致
+		return true
+	}
+	mut re := regex.regex_opt(pattern) or { return false }
+	return re.matches_string(value)
+}
+
 // validate_ip checks IPv4 dotted-quad format: four decimal octets in 0..255.
 //
 // Each octet must be pure ASCII digits (no sign, no letters) and must not have
@@ -1026,6 +1049,7 @@ pub fn apply_rule(field_name string, value string, rule string) !string {
 		'timezone' { validate_timezone(value) }
 		'phone' { validate_phone(value) }
 		'password_strength' { validate_password_strength(value, rule_arg) }
+		'regex' { validate_regex(value, rule_arg) }
 		else { true } // unknown rules pass
 	}
 

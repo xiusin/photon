@@ -3,7 +3,7 @@ module web
 // dispatcher.v — 路由匹配引擎
 //
 // 支持静态路径和 :param 路径参数的匹配。
-// 匹配优先级：静态路径 > 参数路径（按注册顺序）。
+// 匹配优先级：静态路径 > 参数路径（静态段多者优先，再按注册顺序）。
 // 线程安全：DispatchedRequest 是请求级对象，无共享状态。
 import veb
 
@@ -102,6 +102,17 @@ fn route_static_key(method string, host string, path string) string {
 	return method + ':' + host + ':' + key_path
 }
 
+// static_segment_score 统计路由里静态段的数量 —— 参数路由之间的具体程度排序依据。
+fn static_segment_score(route &RouteDef) int {
+	mut n := 0
+	for seg in route.segments {
+		if !seg.is_param {
+			n++
+		}
+	}
+	return n
+}
+
 // count_url_segments 统计 URL 路径的有效段数（跳过空段）
 fn count_url_segments(url_path string) int {
 	mut count := 0
@@ -117,6 +128,9 @@ fn count_url_segments(url_path string) int {
 // host 限定的路由优先于无限制路由；
 // 候选路径包含尾斜杠容错（与旧线性扫描的匹配语义一致）。
 fn find_static_route(rr &RouteRegistry, method string, url_path string, host string) ?&RouteDef {
+	// Host 大小写不敏感（文档里承诺过，但注册时已 to_lower，查询侧没归一 →
+	// `Host: Admin.Example.COM` 永远匹配不到 host 限定路由）。
+	req_host := host.to_lower()
 	mut candidates := [url_path]
 	if url_path.len > 1 && url_path.ends_with('/') {
 		candidates << url_path[..url_path.len - 1]
@@ -125,8 +139,8 @@ fn find_static_route(rr &RouteRegistry, method string, url_path string, host str
 	}
 
 	for path in candidates {
-		if host.len > 0 {
-			key := route_static_key(method, host, path)
+		if req_host.len > 0 {
+			key := route_static_key(method, req_host, path)
 			if route := rr.static_routes[key] {
 				return route
 			}
@@ -154,20 +168,40 @@ pub fn find_route(rr &RouteRegistry, method string, url_path string, host string
 		return route, map[string]string{}
 	}
 
-	// 第二级：参数路由按段数分桶匹配（仅比较段数相同的路由，桶内保持注册顺序）
+	// 第二级：参数路由按段数分桶匹配（仅比较段数相同的路由）
+	//
+	// 桶内不是简单「注册顺序优先」：同一段数下，静态段更多的路由更具体。
+	// `/files/:id/download`（2 个静态段）必须赢过 `/files/:id/:action`
+	// （1 个静态段），否则后者按注册顺序先落座，前者永远不可达 —— 不报错，
+	// 只是请求走进了别的 handler。
 	seg_count := count_url_segments(url_path)
+	req_host := host.to_lower()
 	bucket := rr.param_routes[seg_count] or { []&RouteDef{} }
+	mut best := unsafe { nil }
+	mut best_params := map[string]string{}
+	mut best_score := -1
 	for route in bucket {
 		if route.method != method {
 			continue
 		}
-		// Host 检查：如果路由有 host 限制，必须匹配
-		if route.host.len > 0 && route.host != host {
-			continue
+		// Host 检查：如果路由有 host 限制，必须匹配（大小写不敏感）
+		host_bonus := 0
+		if route.host.len > 0 {
+			if route.host != req_host {
+				continue
+			}
+			host_bonus = 1
 		}
-		if params := match_route(url_path, route) {
-			return route, params
+		params := match_route(url_path, route) or { continue }
+		score := static_segment_score(route) * 2 + host_bonus
+		if score > best_score {
+			best = route
+			best_params = params
+			best_score = score
 		}
+	}
+	if best_score >= 0 {
+		return best, best_params
 	}
 
 	// 第三级：全量线性回退（兜底非规范 URL，如缺失前导斜杠、重复斜杠等）
@@ -177,13 +211,14 @@ pub fn find_route(rr &RouteRegistry, method string, url_path string, host string
 // find_route_linear 旧版线性扫描匹配逻辑，作为 find_route 的最终兜底，
 // 保证对任意非规范 URL 的行为与优化前完全一致。
 fn find_route_linear(routes []&RouteDef, method string, url_path string, host string) ?(&RouteDef, map[string]string) {
+	req_host := host.to_lower()
 	// 第一轮：精确静态匹配（host 限定的路由优先）
 	for route in routes {
 		if route.method != method {
 			continue
 		}
 		// Host 检查：如果路由有 host 限制，必须匹配
-		if route.host.len > 0 && route.host != host {
+		if route.host.len > 0 && route.host != req_host {
 			continue
 		}
 		if route.segments.len == 0 && (url_path == '/' || url_path == '') {
@@ -211,18 +246,31 @@ fn find_route_linear(routes []&RouteDef, method string, url_path string, host st
 		}
 	}
 
-	// 第二轮：参数路径匹配
+	// 第二轮：参数路径匹配（同等条件下静态段多的优先，理由同 find_route）
+	mut best := unsafe { nil }
+	mut best_params := map[string]string{}
+	mut best_score := -1
 	for route in routes {
 		if route.method != method {
 			continue
 		}
-		// Host 检查
-		if route.host.len > 0 && route.host != host {
-			continue
+		host_bonus := 0
+		if route.host.len > 0 {
+			if route.host != req_host {
+				continue
+			}
+			host_bonus = 1
 		}
-		if params := match_route(url_path, route) {
-			return route, params
+		params := match_route(url_path, route) or { continue }
+		score := static_segment_score(route) * 2 + host_bonus
+		if score > best_score {
+			best = route
+			best_params = params
+			best_score = score
 		}
+	}
+	if best_score >= 0 {
+		return best, best_params
 	}
 
 	return none

@@ -52,3 +52,52 @@ fn test_raw_renderer_keeps_entities() {
 	})
 	assert out == 'Total: 1 < 2'
 }
+
+// ── 地址头注入 / Bcc 日志脱敏 ──
+
+fn test_address_str_strips_header_injection() {
+	// 换行能把额外的头（Bcc、Content-Type）塞进 SMTP 报文
+	a := Address{
+		email: 'a@b.com\r\nBcc: victim@evil.com'
+	}
+	s := a.str()
+	assert !s.contains('\r')
+	assert !s.contains('\n')
+	assert s.starts_with('a@b.com')
+}
+
+fn test_address_str_escapes_display_name_quote() {
+	a := Address{
+		email: 'a@b.com'
+		name:  'Evil" <x@evil.com>, "'
+	}
+	s := a.str()
+	// 名字里的引号必须被转义，否则可以提前闭合引号
+	assert s.contains('\\"')
+	// 并且只包裹一层引号
+	assert s.starts_with('"')
+	assert s.ends_with('<a@b.com>')
+}
+
+fn test_address_str_plain() {
+	assert Address{ email: 'a@b.com' }.str() == 'a@b.com'
+	assert Address{ email: 'a@b.com', name: 'Alice' }.str() == '"Alice" <a@b.com>'
+}
+
+fn test_log_transport_redacts_bcc() {
+	reset_log_sent_count()
+	lt := new_log_transport()
+	mail := Email{
+		from: Address{ email: 'sender@example.com' }
+		to:   [Address{ email: 'visible@example.com' }]
+		bcc:  [Address{ email: 'secret-bcc@example.com' }]
+		subject: 'hi'
+		body:    'hello'
+		headers: map[string]string{}
+	}
+	lt.send(mail)!
+	assert get_log_sent_count() == 1
+	// 打码函数本身的行为
+	assert redact_address('secret-bcc@example.com') == '***@example.com'
+	assert redact_address('no-at-sign') == '***'
+}

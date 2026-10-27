@@ -136,17 +136,25 @@ pub fn (mut lm LockManager) lock_guard_with_timeout(key string, timeout_ms int) 
 //   lm.with_lock('user:123', fn () ! {
 //       // Do work under lock — framework guarantees lock/unlock
 //   })!
+//
+// 释放放在 defer 里：`callback() or {...}` 只接住 error，panic 会直接
+// 展开栈帧，把本地锁留在已加锁状态 —— 这个 key 从此永久锁死，
+// 后续所有 lock() 全部挂住。
 pub fn (mut lm LockManager) with_lock(key string, callback fn () !) ! {
 	lm.lock(key)
-	callback() or {
+	defer {
 		lm.unlock(key) or {}
-		return err
 	}
-	lm.unlock(key) or {}
+	callback()!
 }
 
 // with_distributed_lock_guard executes a callback while holding a
 // distributed lock, guaranteeing release after the callback completes.
+//
+// Callback 是任意用户代码，其中可能 panic：`callback() or {...}` 只兜住
+// error 返回，兜不住 panic —— 一 panic 就带着分布式锁泄漏到 TTL 到期，
+// 那段时间整条业务链路都在等一把永远不会被释放的锁。
+// `defer` 在 panic 展开栈帧时同样会执行，用它保证释放。
 pub fn (mut lm LockManager) with_distributed_lock_guard(key string, ttl_ms int, callback fn () !) ! {
 	if isnil(lm.distributed) {
 		return error('no distributed lock backend configured / 未配置分布式锁后端')
@@ -155,9 +163,8 @@ pub fn (mut lm LockManager) with_distributed_lock_guard(key string, ttl_ms int, 
 	if !acquired {
 		return error('distributed lock "${key}" not acquired / 分布式锁 "${key}" 获取失败')
 	}
-	callback() or {
+	defer {
 		lm.distributed.release(key) or {}
-		return err
 	}
-	lm.distributed.release(key) or {}
+	callback()!
 }

@@ -107,3 +107,51 @@ fn test_worker_runs_ready_delayed_job() {
 	stats := get_queue_stats('default')
 	assert stats.completed >= 1
 }
+
+// ── dispatch_later 必须真的延迟，并且计入 pending ──
+
+fn test_dispatch_later_is_not_run_immediately() {
+	clear_queue()!
+	d := get_dispatcher()
+	d.driver.clear('default')!
+
+	dispatch_later(&DelayedProbe{}, 60)!
+
+	// 还没到期：pop 必须拿不到
+	if payload := d.driver.pop('default') {
+		assert false, 'delayed job became visible before its run_at: ${payload}'
+	}
+	// 但队列里确实有一条待处理
+	assert d.driver.count('default') == 1
+	clear_queue()!
+}
+
+fn test_dispatch_later_zero_delay_is_immediate() {
+	mut drv := new_memory_driver()
+	drv.push_delayed('q', 'Job||{}', 0)!
+	// delay=0 → run_at 就是当下，pop 立刻可见
+	assert drv.count('q') == 1
+	payload := drv.pop('q')!
+	assert payload.contains('Job')
+}
+
+fn test_dispatch_later_counts_pending_stat() {
+	d := get_dispatcher()
+	d.driver.clear('default')!
+	dispatch_later(&DelayedProbe{}, 30)!
+	stats := get_queue_stats('default')
+	assert stats.pending == 1
+	clear_queue()!
+}
+
+fn test_push_with_delay_uses_delayed_table() {
+	mut d := get_dispatcher()
+	d.driver.clear('default')!
+	push('default', &DelayedProbe{}, 45)!
+	// 未到期 → 取不到，但 count 里有它
+	if _ := d.driver.pop('default') {
+		assert false, 'delayed job must not be popped immediately'
+	}
+	assert d.driver.count('default') == 1
+	clear_queue()!
+}

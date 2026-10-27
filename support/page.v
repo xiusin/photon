@@ -81,8 +81,12 @@ pub fn (p Page[T]) is_first() bool {
 }
 
 // is_last returns true if this is the last page.
+//
+// total_pages == 0（空结果集）时任何页码都是最后一页；否则用「没有下一页」
+// 判断，保证 has_next()/is_last() 互为反面 —— 旧实现在 page_number 为 0 的
+// 空页上会同时返回 has_next()==false 和 is_last()==false。
 pub fn (p Page[T]) is_last() bool {
-	return p.page_number >= p.total_pages
+	return !p.has_next()
 }
 
 // get_number returns the current page number (1-based).

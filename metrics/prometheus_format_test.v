@@ -89,3 +89,41 @@ fn test_prometheus_output_is_repeatable() {
 		assert registry.format_prometheus() == first
 	}
 }
+
+// 指标名本身也必须符合 Prometheus 的名字语法（[a-zA-Z_:][a-zA-Z0-9_:]*）。
+// 名字里出现空格/花括号会让整条 exposition 解析失败，而 /metrics 出错
+// 在监控侧的表现只是「没数据」—— 没人看得到异常。
+fn test_invalid_metric_name_is_sanitized() {
+	reg := new_in_memory_registry()
+	c := reg.counter('my metric{broken}', {})
+	c.increment()
+	out := reg.format_prometheus()
+	for line in out.split_into_lines() {
+		if line.starts_with('#') || line.trim_space().len == 0 {
+			continue
+		}
+		name := line.split(' ')[0]
+		// 逐字符白名单：名字段（标签前）只允许 [a-zA-Z0-9_:]
+		mut name_part := name
+		if brace := name.index('{') {
+			name_part = name[..brace]
+		}
+		for ch in name_part {
+			is_letter := (ch >= `a` && ch <= `z`) || (ch >= `A` && ch <= `Z`)
+			is_digit := ch >= `0` && ch <= `9`
+			is_sep := ch == `_` || ch == `:`
+			assert is_letter || is_digit || is_sep,
+				'invalid character in metric name "${name_part}": ${line}'
+		}
+	}
+}
+
+fn test_sanitize_metric_name() {
+	assert sanitize_metric_name('http_requests_total') == 'http_requests_total'
+	assert sanitize_metric_name('my metric') == 'my_metric'
+	assert sanitize_metric_name('job{done}') == 'job_done_'
+	assert sanitize_metric_name('') == '_'
+	// 首字符不能是数字
+	assert sanitize_metric_name('1st') == '_st'
+	assert sanitize_metric_name('ns:metric') == 'ns:metric'
+}

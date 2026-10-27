@@ -212,3 +212,26 @@ fn test_file_metadata_new() {
 	assert meta.mime_type == 'text/plain'
 	assert meta.visibility == .private_
 }
+
+// ── 扩展名解析：隐藏文件没有扩展名 ──
+
+fn test_extract_extension_dotfiles_have_no_extension() {
+	// `.env` 的点属于文件名，不是分隔符
+	assert extract_extension('.env') == ''
+	assert extract_extension('.gitignore') == ''
+	assert extract_extension('/srv/app/.htaccess') == ''
+	// 尾点同样不是扩展名
+	assert extract_extension('archive.') == ''
+	// 正常文件照旧
+	assert extract_extension('photo.JPG') == 'jpg'
+	assert extract_extension('/srv/app/photo.tar.gz') == 'gz'
+	assert extract_extension('README') == ''
+}
+
+fn test_detect_mime_type_hidden_file_stays_binary() {
+	// 隐藏文件没有扩展名 → 二进制兜底；正常扩展名不受影响
+	assert detect_mime_type('.env') == 'application/octet-stream'
+	assert detect_mime_type('.gitignore') == 'application/octet-stream'
+	assert detect_mime_type('notes.txt') == 'text/plain'
+	assert detect_mime_type('photo.PNG') == 'image/png'
+}
