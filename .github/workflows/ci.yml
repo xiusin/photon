@@ -79,10 +79,13 @@ jobs:
           v doctor 2>&1 || true
 
       - name: Test ${{ matrix.module }}
+        timeout-minutes: 15
         run: |
           cd photon
-          v -enable-globals test src/${{ matrix.module }}/ -stats 2>&1 || {
-            echo "::error::Module ${{ matrix.module }} tests failed"
+          # 逐文件跑 + 每条命令 30s 熔断：单个用例死锁只会判 TIMEOUT 并强杀，
+          # 不会把整个 job 挂到 GitHub Actions 的 6h 上限。
+          sh scripts/run-tests.sh ${{ matrix.module }} || {
+            echo "::error::Module ${{ matrix.module }} tests failed or timed out"
             exit 1
           }
 
@@ -114,7 +117,18 @@ jobs:
         run: sh scripts/sync-vendor.sh
 
       - name: Test vendored vredis
-        run: v -enable-globals test -stats vendor/modules/xiusin/vredis/
+        timeout-minutes: 10
+        run: |
+          # Redis 不可达时用例会长时间重试，必须熔断。
+          timeout -k 5 30 v -enable-globals test -stats vendor/modules/xiusin/vredis/ || {
+            rc=$?
+            if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+              echo "::error::vendored vredis tests timed out (30s/file)"
+            else
+              echo "::error::vendored vredis tests failed (rc=$rc)"
+            fi
+            exit 1
+          }
 
   test-summary:
     name: 'All Tests Passed'
@@ -160,9 +174,14 @@ jobs:
           sh scripts/sync-vendor.sh
 
       - name: Build example
+        timeout-minutes: 15
         run: |
           cd photon
-          v -enable-globals -prod -o bin/${{ env.APP_NAME }} example/
+          # comptime 展开卡住时用 -k 10 300 强杀，避免占满整个 job。
+          timeout -k 10 300 v -enable-globals -prod -o bin/${{ env.APP_NAME }} example/ || {
+            echo "::error::example build failed or timed out"
+            exit 1
+          }
           echo "Binary: photon/bin/${{ env.APP_NAME }}"
           ls -lh photon/bin/
 

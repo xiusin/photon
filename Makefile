@@ -46,7 +46,7 @@ ORM_TESTS := $(ROOT_PREFIX)orm/orm_test.v \
 
 # ── Targets ──
 
-.PHONY: build run test verify test-core-tests test-all check clean help docs-serve doctor link-vmodules unlink-vmodules
+.PHONY: build run test verify test-core-tests test-all test-fast check clean help docs-serve doctor link-vmodules unlink-vmodules
 
 help:
 	@echo "Photon Framework Build & Test"
@@ -60,7 +60,8 @@ help:
 	@echo "  make test      - Run ORM test files (fast smoke test)"
 	@echo "  make vendor    - Link vendored deps into ~/.vmodules (run once)"
 	@echo "  make test-vendor - Test vendored xiusin.vredis (needs a Redis server)"
-	@echo "  make test-all  - Run all module tests"
+	@echo "  make test-all  - Run all module tests (per-file, 30s/file timeout)"
+	@echo "  make test-fast - Same, but 10s/file timeout (hunt down hangs)"
 	@echo "  make check     - Typecheck all modules + example"
 	@echo "  make service       - Build production binary for systemd deployment"
 	@echo "  make install-service - Build and install as systemd service (sudo)"
@@ -98,23 +99,14 @@ vendor:
 test-vendor: vendor
 	$(V) $(VFLAGS) test $(ROOT_PREFIX)vendor/modules/xiusin/vredis/
 
+# 逐文件跑，每条命令 30s 熔断。单个用例死锁 = 判 TIMEOUT 并强杀，
+# 不会把整条流水线挂到全局限时。超时时间用 PHOTON_TEST_TIMEOUT 覆盖。
 test-all: vendor
-	@echo "Running all module tests..."
-	@total=0; pass=0; fail=0; \
-	for dir in $(MODULES); do \
-		if [ -d "$$dir" ]; then \
-			if $(V) $(VFLAGS) test "$$dir" >/dev/null 2>&1; then \
-				echo "  [OK]   $$dir"; \
-				pass=$$((pass+1)); \
-			else \
-				echo "  [FAIL] $$dir"; \
-				fail=$$((fail+1)); \
-			fi; \
-			total=$$((total+1)); \
-		fi; \
-	done; \
-	echo "-----------------------------------"; \
-	echo "Total: $$total modules | Passed: $$pass | Failed: $$fail"
+	@V=$(V) VFLAGS="$(VFLAGS)" sh $(ROOT_PREFIX)scripts/run-tests.sh
+
+## test-fast — 同上，但超时压到 10s，用于快速筛查挂死用例
+test-fast: vendor
+	@V=$(V) PHOTON_TEST_TIMEOUT=10 sh $(ROOT_PREFIX)scripts/run-tests.sh
 
 check:
 	@mkdir -p /tmp/photon-check
