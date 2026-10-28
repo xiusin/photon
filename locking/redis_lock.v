@@ -6,14 +6,19 @@ module locking
 // acquiring locks and Lua scripts for safe release and renewal.
 //
 // Design (Redlock-inspired):
-//   - acquire:   SET <key> <token> NX EX <ttl_seconds>
+//   - acquire:   SET <key> <token> NX PX <ttl_ms>
 //   - release:   Lua script — delete only if token matches
-//   - renew:     Lua script — EXPIRE only if token matches
+//   - renew:     Lua script — PEXPIRE only if token matches
 //   - is_locked: EXISTS <key>
 //
-// The token is a random string generated per acquire, preventing the
-// classic "lock released by wrong client" bug.
+// 每个 key 由持有者自己记住本次 acquire 生成的 token。这是整套机制成立
+// 的前提：老实现的 release/renew 是「先 GET 出 token，再拿这个 token 去
+// 比对」—— 比对的两个值是同一个，永远相等。于是：
+//   * 任何客户端都能释放别人持有的锁；
+//   * 任何客户端都能续期别人持有的锁。
+// 现在 token 存在本实例的 owned 表里，只有真正 acquire 成功的那一方有。
 import rand
+import sync
 
 // ── Redis Client Interface ──
 
@@ -43,12 +48,59 @@ pub interface RedisClient {
 //   defer { lock.release('resource-key') or {} }
 pub struct RedisDistributedLock {
 	client RedisClient
+mut:
+	// owned 记录本实例持有的锁：key → 本次 acquire 生成的 token。
+	// 只有这里存在的 token 才代表「我持有」，释放与续期都以它为准。
+	owned map[string]string
+	mu    sync.Mutex
 }
 
 // new_redis_lock creates a Redis-backed distributed lock.
 pub fn new_redis_lock(client RedisClient) &RedisDistributedLock {
 	return &RedisDistributedLock{
 		client: client
+		owned:  map[string]string{}
+	}
+}
+
+// remember_token 记录本次 acquire 的 token。
+fn (r &RedisDistributedLock) remember_token(key string, token string) {
+	r.mu.@lock()
+	defer {
+		r.mu.unlock()
+	}
+	unsafe {
+		mut m := &r.owned
+		m[key] = token
+	}
+}
+
+// take_token 取出并移除某个 key 的 token；不存在时返回空串。
+fn (r &RedisDistributedLock) take_token(key string) string {
+	r.mu.@lock()
+	defer {
+		r.mu.unlock()
+	}
+	unsafe {
+		mut m := &r.owned
+		if key in m {
+			token := m[key]
+			m.delete(key)
+			return token
+		}
+	}
+	return ''
+}
+
+// peek_token 读取某个 key 的 token 但不移除。
+fn (r &RedisDistributedLock) peek_token(key string) string {
+	r.mu.@lock()
+	defer {
+		r.mu.unlock()
+	}
+	unsafe {
+		m := &r.owned
+		return m[key] or { '' }
 	}
 }
 
@@ -59,7 +111,11 @@ pub fn new_redis_lock(client RedisClient) &RedisDistributedLock {
 pub fn (r &RedisDistributedLock) acquire(key string, ttl_ms int) !bool {
 	token := generate_lock_token()
 	result := r.client.set(key, token, ttl_ms)!
-	return result == 'OK'
+	if result == 'OK' {
+		r.remember_token(key, token)
+		return true
+	}
+	return false
 }
 
 // release releases a distributed lock.
@@ -67,11 +123,12 @@ pub fn (r &RedisDistributedLock) acquire(key string, ttl_ms int) !bool {
 // (prevents the "lock released by wrong client" race condition).
 // Returns true if released, false if lock was already released or held by another client.
 pub fn (r &RedisDistributedLock) release(key string) !bool {
-	token := r.client.get(key)!
+	token := r.take_token(key)
 	if token == '' {
+		// 本实例没持有这把锁：不是错误，但也不该去删别人的键。
 		return false
 	}
-	// Lua: delete the key only if its value matches our token
+	// Lua: delete the key only if its value matches OUR token
 	script := 'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end'
 	result := r.client.eval(script, 1, [key], [token])!
 	return result == '1'
@@ -81,11 +138,11 @@ pub fn (r &RedisDistributedLock) release(key string) !bool {
 // Uses a Lua script to ensure only the lock holder can renew it.
 // Returns true if renewed, false if lock was released or held by another client.
 pub fn (r &RedisDistributedLock) renew(key string, ttl_ms int) !bool {
-	token := r.client.get(key)!
+	token := r.peek_token(key)
 	if token == '' {
 		return false
 	}
-	// Lua: EXPIRE the key only if its value matches our token
+	// Lua: PEXPIRE the key only if its value matches OUR token
 	script := 'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("pexpire", KEYS[1], ARGV[2]) else return 0 end'
 	result := r.client.eval(script, 1, [key], [token, ttl_ms.str()])!
 	return result == '1'

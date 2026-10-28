@@ -460,6 +460,18 @@ fn test_eval_and_script_cache() ! {
 
 	by_sha := r.evalsha(sha, 1, k, '5')!
 	assert by_sha.int() == 20
+
+	// 整数回复的**文本**也必须是它自己。
+	//
+	// 这条以前没人断言：所有测试只查 .int()，于是 int 对、str 是 "&20"
+	// 这种带地址前缀的文本，一路没人发现。凡是拿 eval 结果做字符串比较
+	// 的调用方（分布式锁的 Lua 脚本返回 1/0）都会静默判断失败。
+	assert reply.to_string() == '15'
+	assert by_sha.to_string() == '20'
+	assert r.send('DEL', k)!.to_string() == '1'
+	// @is 也要跟着走精确文本。
+	assert r.send('EXISTS', k)!.@is(0)
+
 	r.del(k)!
 }
 
@@ -627,4 +639,34 @@ fn test_build_cmd_resp_encoding() {
 
 	binary := build_cmd('SET', 'k', 'a\r\nb')
 	assert binary.contains('$4\r\na\r\nb\r\n'), 'bulk string must be binary safe: ${binary}'
+}
+
+// test_integer_reply_text_is_exact — 整数回复的文本不带任何前缀
+//
+// V 0.5.2 对 `&T` 上的 `str()` 有特殊插值路径：`'${p.str()}'` 会在返回值
+// 前面加一个 "&"，前缀长度还随指针地址变化。Reply 只能有一个插值入口，
+// 所以精确文本统一走 to_string()。这里把几种常见整数回复都钉住。
+fn test_integer_reply_text_is_exact() ! {
+	mut r := new_test_client()!
+	defer {
+		r.close() or {}
+	}
+	k := unique_key('int_text')
+	r.del(k)!
+
+	// SET → +OK
+	assert r.send('SET', k, 'v')!.to_string() == 'OK'
+	// EXISTS → :1
+	assert r.send('EXISTS', k)!.to_string() == '1'
+	assert r.send('EXISTS', k)!.to_string().len == 1
+	// INCR → :1（先要一个整数开头）
+	r.del(k)!
+	r.send('SET', k, '1')!
+	assert r.send('INCR', k)!.to_string() == '2'
+	// DEL → :1
+	assert r.send('DEL', k)!.to_string() == '1'
+	// EVAL 返回整数
+	assert r.eval('return 7', 0)!.to_string() == '7'
+	// EVAL 返回状态串
+	assert r.eval("return redis.status_reply('OK')", 0)!.to_string() == 'OK'
 }

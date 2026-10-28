@@ -61,6 +61,8 @@ sh scripts/sync-vendor.sh   # 或 make vendor
 | `Protocol.read_line()` | 新增 `read_exact_line()` | `TcpConn.read_line()` 在 `\r\n` 行尾会提前返回，导致订阅流错位 |
 | `pubsub()` | 返回 `&Reply` 而非 `string` | 数组回复被 `bytestr()` 读成空串 |
 | `subscribe_()` | 超时改 `24h` 而非 `0` | `net` 把 `read_timeout = 0` 当「立刻超时」，订阅一条消息都收不到 |
+| `Reply.str()` | 只作插值入口，精确文本走新增的 `to_string()` | 见下 |
+| `Reply.str()` 整数分支 | 文本取自解析时写入的 `str_val` | 见下 |
 
 ### 错误回复不再被静默丢掉
 
@@ -73,6 +75,31 @@ sh scripts/sync-vendor.sh   # 或 make vendor
 
 调用方拿到的都是「不报错但结果是错的答案」。现在所有 `!T` 命令包装都会先过
 `reply_or_err()`，把错误回复转成 Result error 再由 `!` 往上传。
+
+### 整数回复的文本会变成 `&1`
+
+V 0.5.2 对 `&T` 上的 `str()` 有一条特殊插值路径：不管接收器是值还是指针，
+`'${p.str()}'` 得到的是 `&` + 返回值，前缀长度还随指针地址变化。
+
+`send()` 返回 `&Reply`，而 `Reply.str()` 恰好叫 `str` —— 于是：
+
+```v
+r := redis.eval("return redis.call('del', KEYS[1])", 1, key)!
+r.int()          // 1        ✅ 数值一直是对的
+r.str()          // "&1"     ❌ 文本错了
+'${r.str()}'     // "&1"
+```
+
+没人发现是因为所有测试只断言 `.int()`。**凡是拿 eval 结果做字符串比较的调用方
+全部静默判断失败** —— 分布式锁的 Lua 脚本返回 `1`/`0`，比的是 `'1'`，于是
+「释放成功」被读成「释放失败」，锁一直挂到 TTL 到期。
+
+修法：精确文本走新增的 `to_string()`（普通方法名，不进那条特例路径），
+整数的十进制文本在解析时就写进 `str_val`；`str()` 保留给插值/调试。
+`bytestr()` / `@is()` / `strings()` / `data()` 内部全部改用 `to_string()`。
+
+回归用例：`vredis_test.v` 的 `test_integer_reply_text_is_exact`、
+`test_eval_and_script_cache`，以及 `locking/redis_lock_integration_test.v`。
 
 ## 测试
 

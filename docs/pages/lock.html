@@ -62,10 +62,18 @@ m.<span class="fn">unlock</span>()
           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
           <div class="code-body"><span class="kw">import</span> photon.locking
 
-<span class="cm">// 1. 创建 Redis 分布式锁（需要 Redis 客户端）</span>
-<span class="kw">mut</span> redis_lock := locking.<span class="fn">new_redis_lock</span>(redis_client)
+<span class="cm">// 1. 内建 Redis 客户端（vendored xiusin.vredis，开箱可用）</span>
+client := locking.<span class="fn">new_vredis_lock_client</span>(locking.VRedisLockOpt{
+    host: <span class="st">'127.0.0.1'</span>
+    port: <span class="nm">6379</span>
+    db: <span class="nm">0</span>
+})!
+<span class="kw">defer</span> { client.<span class="fn">close</span>() }
 
-<span class="cm">// 2. 获取锁（带 TTL 与持有者 ID）</span>
+<span class="cm">// 2. 创建 Redis 分布式锁</span>
+redis_lock := locking.<span class="fn">new_redis_lock</span>(client)
+
+<span class="cm">// 3. 获取锁（带 TTL 与持有者 ID）</span>
 locked := redis_lock.<span class="fn">acquire</span>(<span class="st">'resource-key'</span>, <span class="nm">30000</span>)!  <span class="cm">// 30 秒 TTL</span>
 <span class="kw">if</span> locked {
     <span class="kw">defer</span> { redis_lock.<span class="fn">release</span>(<span class="st">'resource-key'</span>) <span class="kw">or</span> {} }
@@ -74,10 +82,10 @@ locked := redis_lock.<span class="fn">acquire</span>(<span class="st">'resource-
     <span class="fn">process_order</span>()!
 }
 
-<span class="cm">// 3. 自动续期（防止业务执行时间超过 TTL）</span>
+<span class="cm">// 4. 自动续期（防止业务执行时间超过 TTL）</span>
 redis_lock.<span class="fn">renew</span>(<span class="st">'resource-key'</span>, <span class="nm">30000</span>)!
 
-<span class="cm">// 4. 检查锁状态</span>
+<span class="cm">// 5. 检查锁状态</span>
 <span class="kw">if</span> redis_lock.<span class="fn">is_locked</span>(<span class="st">'resource-key'</span>) {
     <span class="fn">println</span>(<span class="st">'Resource is locked'</span>)
 }
@@ -93,7 +101,7 @@ redis_lock.<span class="fn">renew</span>(<span class="st">'resource-key'</span>,
             <tr><td>加锁</td><td><code>SET key value NX PX ttl</code>（原子操作）</td></tr>
             <tr><td>解锁</td><td>Lua 脚本校验持有者 + 删除（防止误解锁）</td></tr>
             <tr><td>续期</td><td>Lua 脚本校验持有者 + 更新 TTL</td></tr>
-            <tr><td>持有者标识</td><td>UUID v4，确保只有锁持有者能释放</td></tr>
+            <tr><td>持有者标识</td><td>每次 acquire 生成随机 token，由持有方本地记住；只有持有方能释放/续期</td></tr>
           </tbody>
         </table>
       </div>

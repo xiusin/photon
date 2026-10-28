@@ -82,20 +82,57 @@ pub fn (r Reply) nil() bool {
 // command wrappers that return err_nil, such as get / hget / zscore).
 @[inline]
 pub fn (r Reply) str() string {
+	// 这是 Reply 在字符串插值里的唯一入口。
+	//
+	// 注意：V 0.5.2 对 `&T` 上的 `str()` 有特殊插值路径 —— 不管是不是
+	// 指针接收器，`'${p.str()}'` 都会在返回值前面加一个 "&"，长度也跟着
+	// 地址变化（见下方 to_string 的注释）。所以 `str()` 只保留给插值/调试，
+	// 需要精确文本的调用方请用 to_string()。
+	return r.to_string()
+}
+
+// to_string 返回回复的精确文本表示，全仓内部一律用它。
+//
+// 为什么不能只留 str()：`send()` 返回 &Reply，调用方写 `reply.str()`
+// 会命中 V 0.5.2 的 `&T` 插值特例，拿到 "&OK" 而不是 "OK" —— Lua 脚本
+// 返回的 1/0、SET 的 OK、INCR 的计数全部比对失败，而且不报错。
+// to_string 是个普通方法名，不进那条特例路径。
+pub fn (r Reply) to_string() string {
 	// 错误回复不能被当成普通值读出（见 check() 的注释）。
 	r.check() or { panic(err.msg()) }
-	return match r.kind {
-		.integer { r.int_val.str() }
-		.nil_reply { '' }
-		else { r.str_val }
+	if r.kind == .integer {
+		// 整数回复的文本在解析时就写进 str_val 了（见 protocol.v）。
+		//
+		// 不能在这里写 `r.int_val.str()`：V 0.5.2 把「通过 &Reply 读到的
+		// i64 字段」传给 builtin 的 str()/i64_str() 时，会产出 "&1" 而不
+		// 是 "1" —— 响应前缀是地址，长度还随地址变。所有拿 eval/incr 结果
+		// 做字符串比较的调用方（Lua 脚本返回 1/0、INCR 的计数）全部失准。
+		if r.str_val.len > 0 {
+			return r.str_val
+		}
+		return i64_str(r.int_val)
 	}
+	if r.kind == .nil_reply {
+		return ''
+	}
+	return r.str_val
+}
+
+// i64_str 把 i64 转成十进制文本。
+//
+// 这里不能直接写 `r.int_val.str()`：当 int_val 来自一个通过 &Reply 访问的
+// 字段时，V 0.5.2 会把它当成 i64 指针传进 builtin 的 str()，产出 "&1"
+// 而不是 "1"。显式按值传入即可绕开。
+@[inline]
+fn i64_str(v i64) string {
+	return '${v}'
 }
 
 // bytestr is kept for backwards compatibility; it returns the same value
 // as str().
 @[inline]
 pub fn (r Reply) bytestr() string {
-	return r.str()
+	return r.to_string()
 }
 
 // int returns the reply payload as a V int.
@@ -135,11 +172,11 @@ pub fn (r Reply) strings() []string {
 	if r.kind == .array {
 		mut out := []string{cap: r.arr.len}
 		for elem in r.arr {
-			out << elem.str()
+			out << elem.to_string()
 		}
 		return out
 	}
-	return [r.str()]
+	return [r.to_string()]
 }
 
 // array returns the nested reply elements for array replies.
@@ -155,12 +192,12 @@ pub fn (r Reply) array() []Reply {
 // `is` is a V keyword, so the method name is escaped with `@`.
 @[inline]
 pub fn (r Reply) @is[T](v T) bool {
-	return r.str() == v.str()
+	return r.to_string() == v.str()
 }
 
-// data returns the raw bytes of str(). It is kept for backwards
+// data returns the raw bytes of the reply payload. Kept for backwards
 // compatibility with callers that previously operated on []u8.
 @[inline]
 pub fn (r Reply) data() []u8 {
-	return r.str().bytes()
+	return r.to_string().bytes()
 }

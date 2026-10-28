@@ -195,6 +195,7 @@ photon/
 │   ├── queue.v           # JobPayload + Job 接口
 │   ├── driver.v          # QueueDriver 接口 + serialize/deserialize
 │   ├── memory_driver.v   # MemoryDriver（内存驱动）
+│   ├── redis_driver_client.v # VRedisQueueClient（vendored vredis 的 QueueRedisClient 实现）
 │   ├── redis_driver.v    # RedisDriver（Redis 队列驱动：LPUSH/RPOP）
 │   ├── dispatcher.v      # QueueDispatcher（全局单例 + dispatch/batch/chain/later）
 │   ├── worker.v          # QueueWorker（轮询执行器）
@@ -204,6 +205,7 @@ photon/
 ├── locking/              # [Beta] 锁模块
 │   ├── lock.v            # LockManager + LocalMutex + DistributedLock 接口 + LockGuard（RAII）
 │   ├── redis_lock.v      # RedisDistributedLock（Redis 分布式锁 + Lua 脚本原子操作）
+│   ├── redis_lock_client.v # VRedisLockClient（vendored vredis 的 RedisClient 实现）
 │   └── lock_test.v
 │
 ├── pool/                 # [Beta] 连接池
@@ -779,21 +781,32 @@ RedisDistributedLock（redis_lock.v）— Redis 分布式锁：
 ```
 RedisDistributedLock — 实现 DistributedLock 接口
   ├── acquire(key, ttl_ms) → bool
-  │     └── SET key value NX PX ttl_ms（Lua 脚本原子操作）
+  │     ├── SET key <random-token> NX PX ttl_ms
+  │     └── 成功后把 token 记进本实例的 owned 表
   ├── release(key) → bool
-  │     └── Lua 脚本：GET + DEL（仅 owner 可释放，防误删）
+  │     ├── 从 owned 表取出 token（没有 → 直接 false，绝不去删别人的键）
+  │     └── Lua 脚本：GET 比对 token → DEL
   ├── renew(key, ttl_ms) → bool
-  │     └── Lua 脚本：检查 owner + PEXPIRE 续期
+  │     ├── 读 owned 表里的 token（没有 → false）
+  │     └── Lua 脚本：GET 比对 token → PEXPIRE
   └── is_locked(key) → bool
-       └── EXISTS key
+       └── GET key != ''
 
-使用方式：
-  redis_lock := locking.new_redis_lock(redis_client)
+token 归属是整套机制的前提：老实现 release/renew 先 GET 出 token、
+再拿这个 token 去比对 —— 比的是同一个值，永远相等，任何客户端都能
+释放/续期别人的锁。现在只有真正 acquire 成功的那一方持有 token。
+
+使用方式（客户端开箱可用，无需自己写适配器）：
+  client := locking.new_vredis_lock_client(locking.VRedisLockOpt{ db: 0 })!
+  defer { client.close() }
+  redis_lock := locking.new_redis_lock(client)
   lm.with_distributed_lock(redis_lock)
   lm.dist_lock('resource', 30_000)!
   defer { lm.dist_unlock('resource')! }
 ```
-```
+
+> `VRedisLockClient` 是 `RedisClient` 接口的 vendored `xiusin.vredis` 实现（连接池
+> + NX/PX 语义），位于 `redis_lock_client.v`。保留接口是为了让用户换别的 Redis 客户端。
 
 ### 3.9 Storage 模块（storage/）
 
@@ -1085,9 +1098,16 @@ ticker:  零依赖（纯 V channel/goroutine）
 | web | 无 | veb 外部依赖 |
 | cli | 无 | 标准库 os |
 
-> **外部依赖**：`cache/redis_cache.v` 是唯一 import 第三方代码的文件，依赖仓库内
-> vendored 的 `xiusin.vredis`。其余模块（含 locking 的 `RedisDistributedLock`）通过
-> 接口解耦，不直接依赖具体 Redis 客户端。
+> **外部依赖**：唯一第三方代码是仓库内 vendored 的 `xiusin.vredis`（见 `vendor/README.md`）。
+> 直接 import 它的有 `cache/redis_cache.v`（`RedisStore`）、`locking/redis_lock_client.v`
+> （`VRedisLockClient`）、`queue/redis_driver_client.v`（`VRedisQueueClient`）三处。
+> 锁与队列仍然面向接口编程（`RedisClient` / `QueueRedisClient`），内建适配器只是
+> 让「开箱可用」成立，用户仍可换成自己的 Redis 客户端。
+>
+> **Redis 集成测试**：`cache/redis_cache_integration_test.v`、
+> `locking/redis_lock_integration_test.v`、`queue/redis_driver_integration_test.v`
+> 都真连真用（各占一个独立 db），Redis 不可达时整体 skip 并打印原因 ——
+> 不会把「本机没装 Redis」伪装成通过。
 
 > **关键限制**：由于 V 0.5.1 不允许同名模块 import，`photon/orm` (module orm) 无法 import V 标准 `orm`。ORM 通过 `OrmAdapter[T]` 包装 + 用户手动调用 V ORM 的方式实现。
 

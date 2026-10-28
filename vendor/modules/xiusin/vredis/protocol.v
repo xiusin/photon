@@ -152,8 +152,14 @@ pub fn (mut p Protocol) read_reply() !Reply {
 		}
 		`:` {
 			// Integer reply.
+			//
+			// str_val 也一并写上十进制文本：str() 直接返回它，不再
+			// 从 int_val 现场格式化。原因见 reply.v 里 str() 的注释 ——
+			// V 0.5.2 下把通过 &Reply 拿到的 i64 字段传给 str()，
+			// 会得到 "&1" 这种带地址前缀的文本。
 			return Reply{
 				kind:    .integer
+				str_val: payload
 				int_val: payload.i64()
 			}
 		}

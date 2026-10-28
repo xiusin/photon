@@ -29,8 +29,8 @@ photon/
 ├── cache/      # 缓存抽象：内存/Redis 多后端，Singleflight 削峰、CacheOperation 链式 API
 ├── security/   # 安全：JWT、RBAC、CSRF、bcrypt / argon2 真实密码哈希
 ├── log/        # 日���：分级输出、MDC 上下文追踪、结构化 JSON、Channel 多通道输出
-├── queue/      # 消息队列：任务调度、Worker、失败重试、RedisDriver
-├── locking/    # 锁：LocalMutex、分布式锁、RAII LockGuard、RedisDistributedLock
+├── queue/      # 消息队列：任务调度、Worker、失败重试、RedisDriver（内建 vredis 客户端）
+├── locking/    # 锁：LocalMutex、分布式锁、RAII LockGuard、RedisDistributedLock（内建 vredis 客户端）
 ├── pool/       # 对象/连接池：健康检查、闲置超时、acquire_with_timeout()
 ├── storage/    # 文件系统抽象：本地/S3 适配器
 ├── ticker/     # 高性能定时器：4-ary 堆、64 桶分片

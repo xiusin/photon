@@ -1100,15 +1100,38 @@ result := locking.guarded_lock[int](mut lm, 'my-lock', fn () !int {
 
 ### 8.4 分布式锁
 
+框架内置了连 Redis 的客户端（vendored `xiusin.vredis`），不需要自己写适配器：
+
 ```v
-lm.with_distributed_lock(&my_redis_lock)    // 注册分布式后端
+import photon.locking
+
+client := locking.new_vredis_lock_client(locking.VRedisLockOpt{
+    host: '127.0.0.1'
+    port: 6379
+    db: 0
+})!
+defer { client.close() }
+
+redis_lock := locking.new_redis_lock(client)
+
+mut lm := locking.new_lock_manager()
+lm.with_distributed_lock(redis_lock)        // 注册分布式后端
 
 lm.dist_lock('global_resource', 30_000)!    // 获取，30 秒 TTL
 // ... 分布式操作 ...
 lm.dist_unlock('global_resource')!          // 释放
 ```
 
-实现 `DistributedLock` 接口：
+只有真正 acquire 成功的那一方拿得到 token，所以别人释放不了、也续期不了你的锁。
+callback 里 panic 也不会把锁焊死 —— `with_distributed_lock_guard()` 用 `defer` 释放：
+
+```v
+lm.with_distributed_lock_guard('order:42', 10_000, fn () ! {
+    charge_card()!
+})!
+```
+
+换别的 Redis 客户端的话，实现 `DistributedLock` 接口即可：
 
 ```v
 pub interface DistributedLock {
@@ -1184,7 +1207,35 @@ w.stop()          // 停止
 w.is_running()    // bool
 ```
 
-### 9.4 失败任务处理
+### 9.4 Redis 后端（持久化队列）
+
+内建客户端，不需要自己写适配器：
+
+```v
+import photon.queue
+
+client := queue.new_vredis_queue_client(queue.VRedisQueueOpt{
+    host: '127.0.0.1'
+    port: 6379
+    db: 0
+})!
+defer { client.close() }
+
+mut driver := queue.new_redis_driver(client)
+driver.set_prefix('myapp:queue:')     // 命名空间隔离，多业务共用一个 Redis 也不串
+
+mut d := queue.new_dispatcher(queue.new_memory_driver())
+d.driver = driver                     // 换成 Redis 后端
+```
+
+存储结构：主列表是 `LPUSH` + `RPOP`（FIFO），延迟任务是另一个 zset
+（`<prefix><queue>:delayed`，score 为到期纳秒），`pop()` 之前自动把到期的
+搬进主列表 —— 所以延迟任务不占主列表、也不会挡着立即任务。
+
+`push()` 在延迟秒数 > 0 时自动走 `push_delayed()`，不会把延迟任务塞进
+「立即可见」的队列。
+
+### 9.5 失败任务处理
 
 ```v
 mut repo := queue.new_memory_failed_repo()
