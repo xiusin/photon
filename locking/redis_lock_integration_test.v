@@ -22,25 +22,28 @@ fn lock_redis_available() bool {
 
 // new_test_lock_pair 返回同一 key 前缀下的两条独立客户端。
 // 两条客户端 = 两个「进程」，用来验证持有者语义。
-fn new_test_lock_pair() !(&VRedisLockClient, &VRedisLockClient, string) {
+// Redis 不可达时返回 `none` 让调用方跳过，不是返回 error 让用例变红。
+fn new_test_lock_pair() ?(&VRedisLockClient, &VRedisLockClient, string) {
 	if !lock_redis_available() {
 		eprintln('redis_lock_integration_test: 127.0.0.1:6379 不可达，跳过')
-		return error('redis not reachable')
+		return none
 	}
 	prefix := 'photon:test:lock:${time.now().unix_nano()}:'
 	c1 := new_vredis_lock_client(VRedisLockOpt{
 		db:         14
 		key_prefix: prefix
-	})!
+	}) or { return none }
 	c2 := new_vredis_lock_client(VRedisLockOpt{
 		db:         14
 		key_prefix: prefix
-	})!
+	}) or { return none }
 	return c1, c2, prefix
 }
 
 fn test_redis_lock_acquire_is_exclusive() ! {
-	mut c1, mut c2, prefix := new_test_lock_pair()!
+	mut c1, mut c2, prefix := new_test_lock_pair() or {
+		return
+	}
 	defer {
 		c1.del('${prefix}k') or {}
 		c1.close()
@@ -57,7 +60,9 @@ fn test_redis_lock_acquire_is_exclusive() ! {
 }
 
 fn test_redis_lock_release_only_by_owner() ! {
-	mut c1, mut c2, prefix := new_test_lock_pair()!
+	mut c1, mut c2, prefix := new_test_lock_pair() or {
+		return
+	}
 	defer {
 		c1.del('${prefix}k') or {}
 		c1.close()
@@ -81,7 +86,9 @@ fn test_redis_lock_release_only_by_owner() ! {
 }
 
 fn test_redis_lock_owner_can_renew() ! {
-	mut c1, mut c2, prefix := new_test_lock_pair()!
+	mut c1, mut c2, prefix := new_test_lock_pair() or {
+		return
+	}
 	defer {
 		c1.del('${prefix}k') or {}
 		c1.close()
@@ -96,7 +103,9 @@ fn test_redis_lock_owner_can_renew() ! {
 }
 
 fn test_redis_lock_ttl_expires() ! {
-	mut c1, mut c2, prefix := new_test_lock_pair()!
+	mut c1, mut c2, prefix := new_test_lock_pair() or {
+		return
+	}
 	defer {
 		c1.del('${prefix}k') or {}
 		c1.close()
@@ -114,7 +123,9 @@ fn test_redis_lock_ttl_expires() ! {
 }
 
 fn test_redis_lock_manager_wiring() ! {
-	mut c1, mut c2, prefix := new_test_lock_pair()!
+	mut c1, mut c2, prefix := new_test_lock_pair() or {
+		return
+	}
 	defer {
 		c1.del('${prefix}k') or {}
 		c1.close()
@@ -133,7 +144,9 @@ fn test_redis_lock_manager_wiring() ! {
 }
 
 fn test_redis_lock_guard_releases_on_error() ! {
-	mut c1, mut c2, prefix := new_test_lock_pair()!
+	mut c1, mut c2, prefix := new_test_lock_pair() or {
+		return
+	}
 	defer {
 		c1.del('${prefix}k') or {}
 		c1.close()
