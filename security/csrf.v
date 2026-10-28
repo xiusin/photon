@@ -6,6 +6,7 @@ module security
 // A random token is set as a cookie and must be submitted as a header
 // (X-CSRF-TOKEN) or form field (_csrf) on state-changing requests.
 import crypto.rand as crand
+import sync
 
 // CsrfConfig configures CSRF protection behavior
 pub struct CsrfConfig {
@@ -91,6 +92,14 @@ pub struct CsrfManager {
 pub mut:
 	config     CsrfConfig
 	repository &CookieCsrfTokenRepository = unsafe { nil }
+mut:
+	mu sync.Mutex
+	// issued 保存仍然有效的 token（服务端会话侧的 token 集合）。
+	// 之前只有 repository 里那一个 cached_token：一旦用 create_token() 换了新
+	// token，旧 token 立刻失效 —— 同一用户的两个浏览器标签页互相把对方踢下线。
+	issued []string
+	// max_issued 限制同时有效的 token 数量，超出时淘汰最旧的一条。
+	max_issued int = 16
 }
 
 // new_csrf_manager creates a new CsrfManager
@@ -99,6 +108,14 @@ pub fn new_csrf_manager(config CsrfConfig) &CsrfManager {
 		config:     config
 		repository: new_cookie_token_repo(config)
 	}
+}
+
+// issued_token_limit 是 token 集合的硬上限，0 或负数时回落到 16。
+fn (cm CsrfManager) issued_token_limit() int {
+	if cm.max_issued > 0 {
+		return cm.max_issued
+	}
+	return 16
 }
 
 // generate generates a new CSRF token
@@ -110,8 +127,12 @@ pub fn (cm &CsrfManager) generate() string {
 }
 
 // create_token creates a CsrfToken for use in templates
+//
+// 新 token 会被记进服务端 token 集合，且在集合未满之前不会吊销旧 token：
+// 同一会话的多个标签页各自持有自己的 token，都能提交成功。
 pub fn (mut cm CsrfManager) create_token() !CsrfToken {
 	token := cm.generate()
+	cm.remember_token(token)
 	cm.repository.save_token(token)!
 
 	return CsrfToken{
@@ -119,6 +140,61 @@ pub fn (mut cm CsrfManager) create_token() !CsrfToken {
 		parameter: cm.config.form_field_name
 		header:    cm.config.header_name
 	}
+}
+
+// remember_token 把一个新 token 记进服务端 token 集合（调用方通常不需要直接用它）。
+pub fn (mut cm CsrfManager) remember_token(token string) {
+	if token.len == 0 {
+		return
+	}
+	cm.mu.@lock()
+	defer {
+		cm.mu.unlock()
+	}
+	cm.issued << token
+	limit := cm.issued_token_limit()
+	if cm.issued.len > limit {
+		cm.issued = cm.issued[cm.issued.len - limit..].clone()
+	}
+}
+
+// revoke_tokens 清空服务端 token 集合（登出 / 会话重建时调用）。
+pub fn (mut cm CsrfManager) revoke_tokens() {
+	cm.mu.@lock()
+	defer {
+		cm.mu.unlock()
+	}
+	cm.issued = []
+}
+
+// issued_token_count 返回当前有效的 token 数量（诊断用）。
+pub fn (mut cm CsrfManager) issued_token_count() int {
+	cm.mu.@lock()
+	defer {
+		cm.mu.unlock()
+	}
+	return cm.issued.len
+}
+
+// candidate_tokens 返回本次校验需要比对的全部期望值。
+//
+// 为什么是「集合」而不是「单个 token」：Double-Submit 把 token 同时放进
+// cookie 与表单/请求头。服务端在本次请求里读到的 cookie 值就是这一个请求
+// 的期望值；而会话级的 token 集合覆盖「上一个响应刚签发、cookie 还没回传」
+// 那个窗口。两边都试，才既不误杀并发请求，也不接受从未签发过的 token。
+pub fn (mut cm CsrfManager) candidate_tokens(expected_token string) []string {
+	mut candidates := []string{}
+	if expected_token.len > 0 {
+		candidates << expected_token
+	}
+	cm.mu.@lock()
+	for token in cm.issued {
+		if token !in candidates {
+			candidates << token
+		}
+	}
+	cm.mu.unlock()
+	return candidates
 }
 
 // validate validates a CSRF token from a request
@@ -140,6 +216,30 @@ pub fn (cm &CsrfManager) validate(actual_token string, expected_token string) ! 
 	if !constant_time_eq(actual_token, expected_token) {
 		return error('CSRF token mismatch')
 	}
+}
+
+// validate_any 依次用候选期望值校验提交的 token，任一匹配即通过。
+//
+// 空候选集合表示「服务端从未签发过 token」——直接报错，别静默放行。
+pub fn (cm &CsrfManager) validate_any(actual_token string, expected_tokens []string) ! {
+	if !cm.config.enabled {
+		return
+	}
+	if actual_token.len == 0 {
+		return error('CSRF token is missing')
+	}
+	if expected_tokens.len == 0 {
+		return error('CSRF token not issued for this session')
+	}
+	mut last_err := ''
+	for expected in expected_tokens {
+		if _ := cm.validate(actual_token, expected) {
+			return
+		} else {
+			last_err = err.msg()
+		}
+	}
+	return error(if last_err.len > 0 { last_err } else { 'CSRF token mismatch' })
 }
 
 // constant_time_eq compares two byte strings without an early exit.
@@ -175,6 +275,26 @@ pub fn (cm &CsrfManager) is_csrf_required(method string) bool {
 // get_expected_token retrieves the expected CSRF token from storage
 pub fn (mut cm CsrfManager) get_expected_token() string {
 	return cm.repository.load_token() or { '' }
+}
+
+// get_expected_tokens 返回校验时应当比对的全部期望 token。
+// 供 web 层直接使用，避免调用方自己拼「单值 + 集合」。
+pub fn (mut cm CsrfManager) get_expected_tokens() []string {
+	expected := cm.repository.load_token() or { '' }
+	return cm.candidate_tokens(expected)
+}
+
+// require_token 是「一个请求要过 CSRF 校验」的完整入口：
+// 判断该方法是否需要校验、取提交值、按候选集合校验。失败返回错误。
+//
+// 框架外接入（veb 过滤器、自定义中间件）都应当走这里，而不是只调 validate()
+// ——否则要么漏掉方法白名单，要么把并发标签页的合法 token 判成非法。
+pub fn (mut cm CsrfManager) require_token(method string, header_value string, form_value string) ! {
+	if !cm.is_csrf_required(method) {
+		return
+	}
+	actual := cm.get_actual_token(header_value, form_value)
+	cm.validate_any(actual, cm.get_expected_tokens())!
 }
 
 // get_actual_token extracts the submitted CSRF token from request

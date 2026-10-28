@@ -397,3 +397,47 @@ fn test_time_format_iso8601() {
 	result := fmt_time(now, .iso8601)
 	assert result.len > 0
 }
+
+// ============================================================
+// is_enabled — 热路径守卫
+// ============================================================
+
+fn test_is_enabled_matches_level_filter() {
+	mut log := new()
+	log.set_level(.warn)
+	assert !log.is_enabled(.trace)
+	assert !log.is_enabled(.debug)
+	assert !log.is_enabled(.info)
+	assert log.is_enabled(.warn)
+	assert log.is_enabled(.error)
+	assert log.is_enabled(.fatal)
+}
+
+fn test_is_enabled_after_level_change() {
+	mut log := new_with_level(.error)
+	assert !log.is_enabled(.info)
+	log.set_level(.debug)
+	assert log.is_enabled(.debug)
+	assert log.is_enabled(.info)
+}
+
+// ============================================================
+// FileChannel / 轮转的单元契约
+// ============================================================
+
+fn test_file_channel_name_default() {
+	ch := new_file_channel('/tmp/photon-name-check.log')
+	assert ch.name() == 'file'
+	assert ch.max_size_bytes == 0
+	assert ch.rotation_count() == 0
+}
+
+fn test_file_channel_custom_name() {
+	ch := new_rolling_file_channel(
+		name: 'audit'
+		filepath: '/tmp/photon-name-check.log'
+		max_size_bytes: 1024
+	)
+	assert ch.name() == 'audit'
+	assert ch.max_size_bytes == 1024
+}

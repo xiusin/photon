@@ -540,7 +540,7 @@ fn test_shutdown_with_pending_tasks_does_not_deadlock() {
 	assert counter.get() == 32, 'tasks were lost by shutdown(): got ${counter.get()}'
 }
 
-fn test_shutdown_is_idempotent() {
+fn test_shutdown_is_idempotent_repeated() {
 	mut te := new_task_executor(2, 8)
 	te.submit(fn () {})!
 	te.shutdown()

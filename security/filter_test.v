@@ -269,12 +269,12 @@ fn test_role_matches_without_prefix() {
 	assert role_matches(authorities, ['GUEST']) == false
 }
 
-fn test_role_matches_empty_required() {
+fn test_role_matches_empty_required_with_authorities() {
 	authorities := ['ADMIN']
 	assert role_matches(authorities, []) == true
 }
 
-fn test_role_matches_empty_user_roles() {
+fn test_role_matches_empty_user_roles_value() {
 	assert role_matches([], ['ADMIN']) == false
 }
 

@@ -330,3 +330,133 @@ fn test_constant_time_eq_semantics() {
 	// 长度相同、内容不同
 	assert !constant_time_eq('aaaaaaaa', 'aaaaaaab')
 }
+
+// -- 多标签页：旧 token 不应被新 token 立刻吊销 --
+
+fn test_create_token_keeps_previous_token_valid() {
+	mut cm := new_csrf_manager(CsrfConfig{ enabled: true, token_length: 32 })
+	first := cm.create_token() or { CsrfToken{} }
+	second := cm.create_token() or { CsrfToken{} }
+	assert first.token != second.token
+
+	// 第二个标签页提交它自己那份 token，仍然要过
+	cm.validate_any(first.token, cm.get_expected_tokens()) or {
+		assert false, 'the first tab token must still validate: ${err}'
+	}
+	cm.validate_any(second.token, cm.get_expected_tokens()) or {
+		assert false, 'the newest token must validate: ${err}'
+	}
+	assert cm.issued_token_count() == 2
+}
+
+fn test_validate_any_rejects_unissued_token() {
+	mut cm := new_csrf_manager(CsrfConfig{ enabled: true, token_length: 32 })
+	cm.create_token() or { CsrfToken{} }
+	mut caught := false
+	if _ := cm.validate_any('forged-token', cm.get_expected_tokens()) {
+	} else {
+		caught = true
+	}
+	assert caught, 'a token that was never issued must not validate'
+}
+
+fn test_validate_any_without_any_issued_token() {
+	mut cm := new_csrf_manager(CsrfConfig{ enabled: true, token_length: 32 })
+	mut caught := false
+	if _ := cm.validate_any('x', cm.get_expected_tokens()) {
+	} else {
+		caught = true
+	}
+	assert caught, 'no issued token + submitted token must fail'
+}
+
+fn test_validate_any_missing_submitted_token() {
+	mut cm := new_csrf_manager(CsrfConfig{ enabled: true, token_length: 32 })
+	t := cm.create_token() or { CsrfToken{} }
+	mut caught := false
+	if _ := cm.validate_any('', cm.get_expected_tokens()) {
+	} else {
+		caught = true
+	}
+	assert caught
+	assert t.token.len == 32
+}
+
+fn test_validate_any_respects_disabled() {
+	mut cm := new_csrf_manager(CsrfConfig{
+		enabled: false
+	})
+	cm.validate_any('a', ['b']) or { assert false, 'disabled CSRF must skip validation' }
+}
+
+fn test_revoke_tokens_clears_set() {
+	mut cm := new_csrf_manager(CsrfConfig{ enabled: true, token_length: 32 })
+	first := cm.create_token() or { CsrfToken{} }
+	cm.create_token() or { CsrfToken{} }
+	assert cm.issued_token_count() == 2
+
+	cm.revoke_tokens()
+	assert cm.issued_token_count() == 0
+
+	// 只剩 cookie 里最后签发的那一个期望值，被吊销的旧 token 不再能通过
+	mut caught := false
+	if _ := cm.validate_any(first.token, cm.get_expected_tokens()) {
+	} else {
+		caught = true
+	}
+	assert caught, 'a revoked token must no longer validate'
+}
+
+fn test_issued_tokens_are_bounded() {
+	mut cm := new_csrf_manager(CsrfConfig{ enabled: true, token_length: 16 })
+	for _ in 0 .. 40 {
+		cm.create_token() or { CsrfToken{} }
+	}
+	assert cm.issued_token_count() == 16, 'token set must stay bounded, got ${cm.issued_token_count()}'
+}
+
+// -- require_token：把「方法白名单 + 取值 + 校验」收成一个入口 --
+
+fn test_require_token_skips_ignored_method() {
+	mut cm := new_csrf_manager(CsrfConfig{ enabled: true, token_length: 16 })
+	// GET 不在校验范围内，没有 token 也要过
+	cm.require_token('GET', '', '') or { assert false, 'GET must not require a token: ${err}' }
+	cm.require_token('HEAD', '', '') or { assert false, 'HEAD must not require a token: ${err}' }
+}
+
+fn test_require_token_accepts_header() {
+	mut cm := new_csrf_manager(CsrfConfig{ enabled: true, token_length: 16 })
+	t := cm.create_token() or { CsrfToken{} }
+	cm.require_token('POST', t.token, '') or {
+		assert false, 'header token must be accepted: ${err}'
+	}
+}
+
+fn test_require_token_accepts_form_field() {
+	mut cm := new_csrf_manager(CsrfConfig{ enabled: true, token_length: 16 })
+	t := cm.create_token() or { CsrfToken{} }
+	cm.require_token('POST', '', t.token) or {
+		assert false, 'form token must be accepted: ${err}'
+	}
+}
+
+fn test_require_token_rejects_missing_on_post() {
+	mut cm := new_csrf_manager(CsrfConfig{ enabled: true, token_length: 16 })
+	cm.create_token() or { CsrfToken{} }
+	mut caught := false
+	if _ := cm.require_token('POST', '', '') {
+	} else {
+		caught = true
+	}
+	assert caught, 'POST without a token must be rejected'
+}
+
+fn test_require_token_rejects_when_nothing_issued() {
+	mut cm := new_csrf_manager(CsrfConfig{ enabled: true, token_length: 16 })
+	mut caught := false
+	if _ := cm.require_token('POST', 'guess', '') {
+	} else {
+		caught = true
+	}
+	assert caught, 'a POST before any token was issued must be rejected'
+}

@@ -40,13 +40,146 @@ pub fn (c &StderrChannel) write(level Level, msg string, context map[string]stri
 // suitable for high-throughput logging. Call close() on shutdown to
 // flush and release the handle; call reopen() after external log
 // rotation to re-acquire the file at the same path.
+//
+// Size-based rotation (opt-in):
+//   max_size_bytes > 0 时，单次写入会让文件超过该大小时先把当前文件
+//   改名为 <filepath>.1（旧的 .1 顺延为 .2，依此类推），再写新文件。
+//   max_backups 决定保留几份历史文件（默认 3），0 表示不保留 —— 轮转后
+//   直接 truncate 同一个文件。
+//
+// 为什么在 write() 里判断而不是起后台协程：日志量不均匀，后台轮询要么
+// 太慢（已超限很久还没切），要么空转。写入点本来就知道即将写多少字节，
+// 判断是 O(1) 的，不用额外状态。
 pub struct FileChannel {
 pub:
 	name_str string = 'file'
 	filepath string
+	// max_size_bytes 单文件大小上限，<= 0 表示不轮转
+	max_size_bytes i64
+	// max_backups 保留的历史文件份数（.1 .. .N），0 表示不保留
+	max_backups int = 3
 mut:
 	file os.File   // cached handle, kept open between writes
-	mu   sync.Mutex // guards file open/write/close
+	// written 是当前文件已写入的字节数，打开文件时按实际大小初始化
+	written i64
+	// rotations 累计轮转次数（诊断用），由 mu 保护
+	rotations int
+	mu        sync.Mutex // guards file open/write/close, written, rotations
+}
+
+// FileChannelConfig 配置带轮转的文件通道（@[params] 便于用命名参数构造）。
+@[params]
+pub struct FileChannelConfig {
+pub:
+	name     string = 'file'
+	filepath string
+	// max_size_bytes 单文件大小上限（字节），<= 0 表示不轮转
+	max_size_bytes i64
+	// max_backups 保留的历史文件份数
+	max_backups int = 3
+}
+
+// new_file_channel 创建文件通道（默认不轮转，与直接构造 FileChannel 等价）。
+pub fn new_file_channel(filepath string) &FileChannel {
+	return &FileChannel{
+		filepath: filepath
+	}
+}
+
+// new_rolling_file_channel 创建按大小轮转的文件通道。
+//
+//   rot := logger.new_rolling_file_channel(
+//       filepath:      '/var/log/app.log'
+//       max_size_bytes: 50 * 1024 * 1024  // 50MB
+//       max_backups:   7
+//   )
+//   mut log_ := logger.new()
+//   log_.add_sink(rot)
+pub fn new_rolling_file_channel(config FileChannelConfig) &FileChannel {
+	// 显式写全字段：V 的 @[params] 结构体会把缺省实参取成结构体默认值
+	// （max_backups 默认 3），所以「调用方没传」和「调用方传了 3」在这里
+	// 等价 —— 想要「不保留历史」必须显式写 max_backups: 0。
+	return &FileChannel{
+		name_str:       config.name
+		filepath:       config.filepath
+		max_size_bytes: config.max_size_bytes
+		max_backups:    config.max_backups
+	}
+}
+
+// should_rotate 判断再写入 incoming 字节是否会越过上限。
+fn (c &FileChannel) should_rotate(incoming i64) bool {
+	if c.max_size_bytes <= 0 || c.filepath.len == 0 {
+		return false
+	}
+	return c.written + incoming > c.max_size_bytes
+}
+
+// backup_path 返回第 index 份历史文件的路径（index 从 1 开始）。
+fn (c &FileChannel) backup_path(index int) string {
+	return '${c.filepath}.${index}'
+}
+
+// rotate_locked 把当前文件顺延成 .1，其余历史文件依次后移，然后丢弃缓存的
+// 文件句柄（下一次 write 会重建）。调用方必须已持有 mu，且最好先关闭句柄。
+fn (mut c FileChannel) rotate_locked() {
+	if c.max_backups <= 0 {
+		// 不留历史：直接清空当前文件，句柄照样需要重建。
+		if c.file.is_opened {
+			c.file.flush()
+			c.file.close()
+		}
+		if os.exists(c.filepath) {
+			os.rm(c.filepath) or {
+				eprintln('[LOG ERROR] Failed to truncate log file: ${c.filepath}')
+			}
+		}
+		c.written = 0
+		c.rotations++
+		return
+	}
+
+	if c.file.is_opened {
+		c.file.flush()
+		c.file.close()
+	}
+
+	// 最旧的一份直接删掉，否则改名会一路撞名。
+	oldest := c.backup_path(c.max_backups)
+	if os.exists(oldest) {
+		os.rm(oldest) or {
+			eprintln('[LOG ERROR] Failed to remove oldest log backup: ${oldest}')
+		}
+	}
+	// 从最旧的往里顺延：文件名里的序号是 int，不能拿字符串排序代替。
+	// V 的 for 条件只支持 `<`，倒序用 while 表达。
+	mut i := c.max_backups - 1
+	for i >= 1 {
+		src := c.backup_path(i)
+		if os.exists(src) {
+			os.mv(src, c.backup_path(i + 1)) or {
+				eprintln('[LOG ERROR] Failed to rotate log backup: ${src}')
+			}
+		}
+		i--
+	}
+	if os.exists(c.filepath) {
+		os.mv(c.filepath, c.backup_path(1)) or {
+			eprintln('[LOG ERROR] Failed to rotate log file: ${c.filepath}')
+		}
+	}
+	c.written = 0
+	c.rotations++
+}
+
+// rotation_count 返回本通道累计轮转次数（诊断用）。
+pub fn (c &FileChannel) rotation_count() int {
+	mut ch := unsafe { c }
+	ch.mu.@lock()
+	defer {
+		ch.mu.unlock()
+	}
+	return ch.rotations
 }
 
 pub fn (c &FileChannel) name() string {
@@ -70,7 +203,25 @@ pub fn (c &FileChannel) write(level Level, msg string, context map[string]string
 			eprintln('[LOG ERROR] Failed to open log file: ${c.filepath}')
 			return
 		}
+		// 打开时按文件实际大小初始化计数：进程重启后不能让计数器归零，
+		// 否则「已经写了 900MB 的文件」会被当成空文件继续追加。
+		ch.written = 0
+		if os.exists(c.filepath) {
+			ch.written = os.file_size(c.filepath)
+		}
 	}
+
+	// 轮转判断放在写入前：先切文件再写，避免单行日志被撕成两个文件。
+	// +1 是 writeln 追加的换行符。
+	if ch.should_rotate(i64(line.len) + 1) {
+		ch.rotate_locked()
+		ch.file = os.open_append(c.filepath) or {
+			eprintln('[LOG ERROR] Failed to reopen rotated log file: ${c.filepath}')
+			return
+		}
+		ch.written = 0
+	}
+
 	ch.file.writeln(line) or {
 		// Write failed (e.g., stale handle after rotation): close,
 		// reopen once, and retry.
@@ -79,10 +230,13 @@ pub fn (c &FileChannel) write(level Level, msg string, context map[string]string
 			eprintln('[LOG ERROR] Failed to reopen log file: ${c.filepath}')
 			return
 		}
+		ch.written = 0
 		ch.file.writeln(line) or {
 			eprintln('[LOG ERROR] Failed to write to log file: ${c.filepath}')
+			return
 		}
 	}
+	ch.written += i64(line.len) + 1
 	// Flush after every write so log lines are immediately durable and
 	// visible to external readers (same semantics as the old
 	// open/write/close-per-line implementation).
@@ -100,6 +254,7 @@ pub fn (c &FileChannel) close() {
 	if ch.file.is_opened {
 		ch.file.flush()
 		ch.file.close()
+		ch.written = 0
 	}
 }
 
@@ -113,6 +268,7 @@ pub fn (c &FileChannel) reopen() {
 	}
 	if ch.file.is_opened {
 		ch.file.close()
+		ch.written = 0
 	}
 }
 

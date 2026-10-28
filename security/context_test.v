@@ -118,7 +118,7 @@ fn test_has_role_exact_match() {
 	assert sc.has_role('USER') == true
 }
 
-fn test_has_role_no_match() {
+fn test_has_role_no_match_in_context() {
 	mut sc := new_security_context()
 	mut auth := new_authentication('lisa', 'pass')
 	auth.mark_authenticated(['USER'])
@@ -131,7 +131,7 @@ fn test_has_role_empty_context() {
 	assert sc.has_role('ADMIN') == false
 }
 
-fn test_has_role_case_sensitive() {
+fn test_has_role_case_sensitive_in_context() {
 	mut sc := new_security_context()
 	mut auth := new_authentication('mike', 'pass')
 	auth.mark_authenticated(['USER'])
@@ -147,7 +147,7 @@ fn test_has_any_role_match_found() {
 	assert sc.has_any_role(['ADMIN', 'USER', 'MANAGER']) == true
 }
 
-fn test_has_any_role_no_match() {
+fn test_has_any_role_no_match_in_context() {
 	mut sc := new_security_context()
 	mut auth := new_authentication('oscar', 'pass')
 	auth.mark_authenticated(['USER'])

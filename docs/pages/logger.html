@@ -14,25 +14,28 @@
           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
           <div class="code-body"><span class="kw">import</span> photon.logger
 
-<span class="cm">// 1. 创建 Logger</span>
-<span class="kw">mut</span> log := logger.<span class="fn">new_logger</span>()
+<span class="cm">// 1. 创建 Logger（new() 是模块级构造函数）</span>
+<span class="kw">mut</span> log_ := logger.<span class="fn">new</span>()
 
 <span class="cm">// 2. 五级日志</span>
-log.<span class="fn">debug</span>(<span class="st">'Cache miss'</span>)
-log.<span class="fn">info</span>(<span class="st">'Server started'</span>)
-log.<span class="fn">warn</span>(<span class="st">'Slow query detected'</span>)
-log.<span class="fn">error</span>(<span class="st">'Connection failed'</span>)
-log.<span class="fn">fatal</span>(<span class="st">'Out of memory'</span>)  <span class="cm">// 输出后调用 exit(1)</span>
+log_.<span class="fn">debug</span>(<span class="st">'Cache miss'</span>)
+log_.<span class="fn">info</span>(<span class="st">'Server started'</span>)
+log_.<span class="fn">warn</span>(<span class="st">'Slow query detected'</span>)
+log_.<span class="fn">error</span>(<span class="st">'Connection failed'</span>)
+log_.<span class="fn">fatal</span>(<span class="st">'Out of memory'</span>)
 
-<span class="cm">// 3. 带字段的日志</span>
-log.<span class="fn">info_with</span>(<span class="st">'User logged in'</span>, {
-    <span class="st">'user_id'</span>:  <span class="st">'42'</span>
-    <span class="st">'ip'</span>:       <span class="st">'192.168.1.1'</span>
-    <span class="st">'method'</span>:   <span class="st">'oauth'</span>
-})
+<span class="cm">// 3. 带字段的日志：字段走 MDC 上下文，一次性 put，后续自动携带</span>
+log_.<span class="fn">put</span>(<span class="st">'user_id'</span>, <span class="st">'42'</span>)
+log_.<span class="fn">put</span>(<span class="st">'ip'</span>, <span class="st">'192.168.1.1'</span>)
+log_.<span class="fn">info</span>(<span class="st">'User logged in'</span>)
 
 <span class="cm">// 4. 设置日志级别（过滤低于此级别的日志）</span>
-log.<span class="fn">set_level</span>(.info)  <span class="cm">// 只输出 info/warn/error/fatal</span></div>
+log_.<span class="fn">set_level</span>(.info)  <span class="cm">// 只输出 info/warn/error/fatal</span>
+
+<span class="cm">// 5. 热路径先问再拼：避免为被过滤掉的日志付出字符串拼接代价</span>
+<span class="kw">if</span> log_.<span class="fn">is_enabled</span>(.debug) {
+    log_.<span class="fn">debug</span>(<span class="st">'state='</span> + expensive_dump())
+}</div>
         </div>
       </div>
 
@@ -43,7 +46,7 @@ log.<span class="fn">set_level</span>(.info)  <span class="cm">// 只输出 info
         <div class="code-block">
           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
           <div class="code-body"><span class="cm">// JSON 编码器 — 生产环境推荐（便于 ELK/Grafana 解析）</span>
-<span class="kw">mut</span> json_enc := logger.<span class="fn">new_json_encoder</span>(logger.<span class="tp">EncoderConfig</span>{
+<span class="kw">mut</span> json_enc := logger.<span class="fn">new_json_encoder_with_config</span>(logger.<span class="tp">EncoderConfig</span>{
     time_key:    <span class="st">'ts'</span>
     level_key:   <span class="st">'level'</span>
     message_key: <span class="st">'msg'</span>
@@ -55,7 +58,7 @@ log.<span class="fn">set_encoder</span>(json_enc)
 <span class="cm">// {"ts":"2025-01-15T10:30:00Z","level":"info","msg":"Server started"}</span>
 
 <span class="cm">// Console 编码器 — 开发环境（可读性强）</span>
-<span class="kw">mut</span> console_enc := logger.<span class="fn">new_console_encoder</span>(logger.<span class="tp">EncoderConfig</span>{
+<span class="kw">mut</span> console_enc := logger.<span class="fn">new_console_encoder_with_config</span>(logger.<span class="tp">EncoderConfig</span>{
     time_format: .iso8601
 })
 log.<span class="fn">set_encoder</span>(console_enc)
@@ -74,16 +77,16 @@ log.<span class="fn">set_encoder</span>(console_enc)
         <div class="code-block">
           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
           <div class="code-body"><span class="cm">// 在中间件中注入 Request-ID</span>
-log.<span class="fn">put</span>(<span class="st">'request_id'</span>, <span class="st">'req-abc123'</span>)
-log.<span class="fn">put</span>(<span class="st">'user_id'</span>, <span class="st">'42'</span>)
+log_.<span class="fn">put</span>(<span class="st">'request_id'</span>, <span class="st">'req-abc123'</span>)
+log_.<span class="fn">put</span>(<span class="st">'user_id'</span>, <span class="st">'42'</span>)
 
 <span class="cm">// 后续所有日志自动携带 request_id 和 user_id</span>
-log.<span class="fn">info</span>(<span class="st">'Processing order'</span>)
+log_.<span class="fn">info</span>(<span class="st">'Processing order'</span>)
 <span class="cm">// {"ts":"...","level":"info","msg":"Processing order","request_id":"req-abc123","user_id":"42"}</span>
 
 <span class="cm">// 请求结束后清理</span>
-log.<span class="fn">remove</span>(<span class="st">'request_id'</span>)
-log.<span class="fn">remove</span>(<span class="st">'user_id'</span>)
+log_.<span class="fn">remove</span>(<span class="st">'request_id'</span>)
+log_.<span class="fn">remove</span>(<span class="st">'user_id'</span>)
 
 <span class="cm">// Spring 等价：MDC.put("requestId", "req-abc123")</span>
 <span class="cm">// Go Zap 等价：logger.With(zap.String("request_id", "req-abc123"))</span></div>
@@ -237,39 +240,56 @@ multi.<span class="fn">error</span>(<span class="st">'Connection failed'</span>)
           <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
           <div class="code-body"><span class="kw">import</span> photon.logger
 
-<span class="kw">mut</span> log_ := logger.<span class="fn">new_logger</span>()
+<span class="kw">mut</span> log_ := logger.<span class="fn">new</span>()
 
 <span class="cm">// 1. 添加 FileChannel sink — 日志同时输出到控制台和文件</span>
-log_.<span class="fn">add_sink</span>(logger.<span class="tp">FileChannel</span>{
-    filepath: <span class="st">'/var/log/app.log'</span>
-})
+log_.<span class="fn">add_sink</span>(logger.<span class="fn">new_file_channel</span>(<span class="st">'/var/log/app.log'</span>))
 
 <span class="cm">// 2. 添加多个 sink（可叠加）</span>
-log_.<span class="fn">add_sink</span>(logger.<span class="tp">FileChannel</span>{
-    filepath: <span class="st">'/var/log/error.log'</span>
-}).<span class="fn">add_sink</span>(logger.<span class="tp">FileChannel</span>{
-    filepath: <span class="st">'/var/log/access.log'</span>
-})
+log_.<span class="fn">add_sink</span>(logger.<span class="fn">new_file_channel</span>(<span class="st">'/var/log/error.log'</span>))
+log_.<span class="fn">add_sink</span>(logger.<span class="fn">new_file_channel</span>(<span class="st">'/var/log/access.log'</span>))
 
-<span class="cm">// 3. 日志同时输出到 Console + 2 个文件</span>
+<span class="cm">// 3. 日志同时输出到 Console + 3 个文件</span>
 log_.<span class="fn">info</span>(<span class="st">'Server started'</span>)
-<span class="cm">// → stdout: {"ts":"...","level":"info","msg":"Server started"}</span>
-<span class="cm">// → /var/log/app.log: {"ts":"...","level":"info","msg":"Server started"}</span>
-<span class="cm">// → /var/log/access.log: {"ts":"...","level":"info","msg":"Server started"}</span></div>
+<span class="cm">// → stderr: encoder 输出（Console / JSON 视 encoder 而定）</span>
+<span class="cm">// → 每个文件: [ts] [INFO] [photon] Server started（敏感字段已脱敏）</span>
+
+<span class="cm">// 4. 按大小轮转（生产必备，避免日志写满磁盘）</span>
+rot := logger.<span class="fn">new_rolling_file_channel</span>(
+    filepath:       <span class="st">'/var/log/app.log'</span>
+    max_size_bytes: <span class="st">50 * 1024 * 1024</span>   <span class="cm">// 50MB 切一个文件</span>
+    max_backups:    <span class="st">7</span>                     <span class="cm">// 保留 app.log.1 .. app.log.7</span>
+)
+log_.<span class="fn">add_sink</span>(rot)
+
+<span class="cm">// 进程退出前 flush 并释放句柄</span>
+<span class="kw">defer</span> { rot.<span class="fn">close</span>() }</div>
         </div>
 
-        <h3>⚠️ ChannelLogger 已弃用</h3>
+        <h3>日志轮转（RollingPolicy）</h3>
+        <table class="doc-table">
+          <thead><tr><th>字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>max_size_bytes</code></td><td>单文件大小上限，<code>&lt;= 0</code> 表示不轮转（默认）</td></tr>
+            <tr><td><code>max_backups</code></td><td>保留的历史文件份数（<code>.1 .. .N</code>），默认 3；<code>0</code> 表示不保留历史、轮转时直接清空</td></tr>
+          </tbody>
+        </table>
+        <p>轮转发生在写入前：即将写入的这一行会让文件超过上限时，先把当前文件改名为 <code>.1</code>（旧的 <code>.1</code> 顺延为 <code>.2</code>，依此类推），再写新文件 —— 单行日志不会被撕成两个文件。进程重启后按文件实际大小继续计数，不会把已有的大文件当成空文件。</p>
+        <p>外部工具（logrotate / systemd）接管轮转时，仍可调 <code>reopen()</code> 让通道重新打开同一个路径。</p>
+
+        <h3>ChannelLogger 的状态</h3>
         <div class="info-box info-warn">
-          ⚠️ <strong>ChannelLogger 已弃用</strong>。使用 <code>Logger.add_sink(Channel)</code> 替代。旧的 ChannelLogger 通过包装方式实现多输出，新方案直接向 Logger 添加 sink，更简洁灵活。<code>add_sink()</code> 返回 <code>&Logger</code>（mut self），支持链式调用。
+          <strong>ChannelLogger 仍然完全可用</strong>，只是被列为「后续合并进 <code>Logger.add_sink()</code>」的候选。新代码建议直接用 <code>add_sink(Channel)</code>：sink 与 Logger 自身输出独立工作，多路输出更直观。注意 <code>add_sink()</code> 是 <code>&Logger</code> 上的 mut 方法，返回 <code>void</code>，不参与链式调用。
         </div>
 
         <h3>支持的 Channel 类型</h3>
         <table class="doc-table">
           <thead><tr><th>Channel</th><th>说明</th></tr></thead>
           <tbody>
-            <tr><td><code>FileChannel</code></td><td>写入指定文件路径（支持追加模式）</td></tr>
-            <tr><td><code>StorageChannel</code></td><td>写入 Storage 适配器（LocalAdapter / 自定义）</td></tr>
-            <tr><td>自定义 Channel</td><td>实现 <code>Channel</code> 接口即可（<code>write(msg string) !</code>）</td></tr>
+            <tr><td><code>StderrChannel</code></td><td>写 stderr（默认通道，带脱敏）</td></tr>
+            <tr><td><code>FileChannel</code></td><td>写指定文件，句柄常驻；可选按大小轮转 + 保留份数</td></tr>
+            <tr><td><code>SyslogChannel</code></td><td>syslog 通道（当前回落到 stderr）</td></tr>
+            <tr><td>自定义 Channel</td><td>实现 <code>Channel</code> 接口即可：<code>write(level Level, msg string, context map[string]string)</code> + <code>name() string</code></td></tr>
           </tbody>
         </table>
       </div>
