@@ -34,34 +34,30 @@ v fmt -check . || echo "  Format warnings (non-blocking)"
 echo ""
 
 # Step 3: Run all module tests
-echo "→ Step 3: Module Tests"
-PASS=0
-FAIL=0
-for mod in $MODULES; do
-    if v $VFLAGS test "$mod/" >/dev/null 2>&1; then
-        echo "  [OK]   $mod/"
-        PASS=$((PASS + 1))
-    else
-        echo "  [FAIL] $mod/"
-        FAIL=$((FAIL + 1))
-    fi
-done
-echo ""
-echo "  Total: $((PASS + FAIL)) | Passed: $PASS | Failed: $FAIL"
-echo ""
-
-if [ $FAIL -gt 0 ]; then
-    echo "❌ CI FAILED: $FAIL module(s) failed"
-    exit 1
+# 逐文件跑 + 每条命令 30s 熔断（scripts/run-tests.sh）。
+# 单个用例死锁只会被判为 TIMEOUT 并强杀，不会拖垮整条流水线。
+echo "→ Step 3: Module Tests (per-file, ${PHOTON_TEST_TIMEOUT:-30}s timeout)"
+if sh scripts/run-tests.sh; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
 fi
+echo ""
 
 # Step 3b: Vendored dependency tests (needs a reachable Redis; skipped otherwise)
-echo "→ Step 3b: Vendored module tests"
+# 同样走 30s 熔断：Redis 不可达时用例会长时间重试，不能让它挂住流水线。
+echo "→ Step 3b: Vendored module tests (${PHOTON_TEST_TIMEOUT:-30}s timeout)"
 for mod in $VENDOR_MODULES; do
-    if v $VFLAGS test "$mod/" >/dev/null 2>&1; then
+    log="/tmp/photon-vendor-$(echo "$mod" | tr '/' '_').log"
+    if timeout -k 5 "${PHOTON_TEST_TIMEOUT:-30}" v $VFLAGS test "$mod/" >"$log" 2>&1; then
         echo "  [OK]   $mod/"
     else
-        echo "  [FAIL] $mod/"
+        rc=$?
+        if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+            echo "  [TIMEOUT] $mod/ (> ${PHOTON_TEST_TIMEOUT:-30}s, 已强杀) 日志: $log"
+        else
+            echo "  [FAIL] $mod/ (rc=$rc) 日志: $log"
+        fi
         FAIL=$((FAIL + 1))
     fi
 done
@@ -69,8 +65,14 @@ echo ""
 
 # Step 4: Build example
 echo "→ Step 4: Build Example"
+# 全量编译本身也可能卡在 comptime 展开上，给一个更宽的熔断（默认 300s）。
 mkdir -p bin
-v $VFLAGS -prod -o bin/photon-app example/
+BUILD_TIMEOUT="${PHOTON_BUILD_TIMEOUT:-300}"
+timeout -k 10 "$BUILD_TIMEOUT" v $VFLAGS -prod -o bin/photon-app example/ || {
+    rc=$?
+    echo "  ❌ example 编译失败 (rc=$rc$([ "$rc" -eq 124 ] && echo ", 超 ${BUILD_TIMEOUT}s 已强杀"))"
+    exit 1
+}
 echo "  Binary: bin/photon-app ($(ls -lh bin/photon-app | awk '{print $5}'))"
 echo ""
 
