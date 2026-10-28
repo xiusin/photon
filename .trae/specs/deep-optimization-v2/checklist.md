@@ -61,15 +61,18 @@
 - [ ] 所有新增测试通过: `v test config/`
 
 ## Phase 8: 日志系统增强
-- [ ] Appender 接口 + Console/File/Composite 实现
+- [x] 多路输出：`Logger.add_sink(Channel)` + `FileChannel` / `StderrChannel` / `SyslogChannel`
+      （未新增 `Appender` 接口：`Channel` 已经是同一层抽象，再加一层只增加心智成本）
 - [ ] AsyncAppender 异步日志
-- [ ] 日志轮转 (大小/时间)
-- [ ] 运行时级别调整 + /actuator/loggers
-- [ ] with_field() 结构化字段 API
-- [ ] 所有新增测试通过: `v test logger/`
+- [x] 日志轮转（按大小）：`new_rolling_file_channel()` + `max_size_bytes` / `max_backups`
+      （按时间轮转未做：`logrotate`/systemd 已覆盖，框架内再实现一遍会与外部轮转打架）
+- [x] 运行时级别调整 + `/actuator/loggers`（`web/actuator_loggers.v`）
+- [x] 结构化字段 API：`Logger.put/with_fields/named` + `LogContext`
+- [x] `Logger.is_enabled(level)` 热路径守卫
+- [x] 所有新增测试通过: `v test logger/`（`logger/rolling_test.v` 覆盖轮转与保留份数）
 
 ## Phase 9: 异常处理统一
-- [ ] ProblemDetail (RFC 7807)
+- [x] ProblemDetail (RFC 7807) — `web/problem_detail.v`
 - [ ] @[status_code] 注解
 - [ ] 方法级 @[exception_handler]
 - [ ] 异常处理链优先级
@@ -92,6 +95,14 @@
 - [ ] ClientInterceptor 拦截器
 - [ ] get_typed[T]() 类型化响应
 - [ ] 所有新增测试通过: `v test http/`
+
+## 跨模块契约修复（2026-07 补）
+- [x] `security.CsrfManager`：token 收敛成集合，多标签页不再互相踢下线；
+      `validate_any()` / `require_token()` 收掉「方法白名单 + 取值 + 校验」三件事；
+      过滤器不再硬编码 `_csrf` 字段名
+- [x] `queue.MemoryDriver.push_delayed()`：run_at 不再混进 payload，
+      到期出队的 payload 与 `RedisDriver` 完全一致
+- [x] 各模块测试文件重名用例（同模块内重复定义会导致整包编译失败）
 
 ## 全局验收
 - [ ] `v test . -stats` 全部通过

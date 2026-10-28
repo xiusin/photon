@@ -2,22 +2,22 @@ module orm
 
 // derive_test.v - Tests for derived query method name parsing
 
-fn test_parse_find_by() {
+fn test_parse_find_by_operation_only() {
 	parts := parse_method_name('findByName') or { panic(err) }
 	assert parts.operation == .find
 }
 
-fn test_parse_count_by() {
+fn test_parse_count_by_derive() {
 	parts := parse_method_name('countByStatus') or { panic(err) }
 	assert parts.operation == .count
 }
 
-fn test_parse_exists_by() {
+fn test_parse_exists_by_derive() {
 	parts := parse_method_name('existsByEmail') or { panic(err) }
 	assert parts.operation == .exists
 }
 
-fn test_parse_delete_by() {
+fn test_parse_delete_by_derive() {
 	parts := parse_method_name('deleteByExpired') or { panic(err) }
 	assert parts.operation == .delete_all
 }

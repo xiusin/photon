@@ -54,13 +54,16 @@ pub fn (mut sfc SecurityFilterChain) filter(mut ctx veb.Context) !bool {
 	}
 
 	// Step 3: CSRF check for state-changing methods
-	if sfc.csrf_manager.is_csrf_required(method) {
-		expected := unsafe { sfc.csrf_manager.get_expected_token() }
-		actual_header := ctx.get_custom_header(sfc.csrf_manager.config.header_name) or { '' }
-		actual_form := ctx.get_custom_header('_csrf') or { '' }
-		actual := sfc.csrf_manager.get_actual_token(actual_header, actual_form)
+	//
+	// 表单字段名与忽略方法都从配置读：之前 `_csrf` 是硬编码的，改了
+	// config.form_field_name 之后表单照旧提交不上，而报错只说 token 无效。
+	mut csrf_mgr := unsafe { sfc.csrf_manager }
+	if csrf_mgr.is_csrf_required(method) {
+		actual_header := ctx.get_custom_header(csrf_mgr.config.header_name) or { '' }
+		actual_form := ctx.get_custom_header(csrf_mgr.config.form_field_name) or { '' }
+		actual := csrf_mgr.get_actual_token(actual_header, actual_form)
 
-		sfc.csrf_manager.validate(actual, expected) or {
+		csrf_mgr.validate_any(actual, csrf_mgr.get_expected_tokens()) or {
 			ctx.send_response_to_client('application/json',
 				'{"error":"CSRF token invalid","code":403}')
 			return false
@@ -161,11 +164,11 @@ pub fn csrf_middleware(mgr &CsrfManager) fn (ctx &veb.Context) !bool {
 		if !mgr.is_csrf_required(method) {
 			return true
 		}
-		expected := unsafe { mgr.get_expected_token() }
-		actual := mgr.get_actual_token(ctx.get_custom_header(mgr.config.header_name) or { '' }, ctx.get_custom_header('_csrf') or {
+		mut csrf_mgr := unsafe { mgr }
+		actual := csrf_mgr.get_actual_token(ctx.get_custom_header(csrf_mgr.config.header_name) or { '' }, ctx.get_custom_header(csrf_mgr.config.form_field_name) or {
 			''
 		})
-		mgr.validate(actual, expected) or { return false }
+		csrf_mgr.validate_any(actual, csrf_mgr.get_expected_tokens()) or { return false }
 		return true
 	}
 }

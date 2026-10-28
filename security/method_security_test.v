@@ -24,7 +24,7 @@ fn test_has_role_with_role_prefix() {
 	assert allowed == true
 }
 
-fn test_has_role_no_match() {
+fn test_has_role_no_match_in_expression() {
 	ctx := MethodSecurityContext{
 		user_roles: ['USER']
 	}
@@ -42,7 +42,7 @@ fn test_has_any_role_match() {
 	assert allowed == true
 }
 
-fn test_has_any_role_no_match() {
+fn test_has_any_role_no_match_in_expression() {
 	ctx := MethodSecurityContext{
 		user_roles: ['GUEST']
 	}
@@ -293,7 +293,7 @@ fn test_multiple_roles_none_match() {
 	assert allowed == false
 }
 
-fn test_has_role_case_sensitive() {
+fn test_has_role_case_sensitive_in_expression() {
 	// Role matching is case-sensitive by default.
 	ctx := MethodSecurityContext{
 		user_roles: ['admin']

@@ -91,12 +91,25 @@ pub fn (mut d MemoryDriver) push(queue_name string, payload string) ! {
 }
 
 // push_delayed adds a job that must not be popped before `delay_secs` from now.
-// 延迟任务把 run_at（unix 纳秒）写进 payload 头部，与「立即任务」共用一条
-// 逻辑队列；pop 只在到期后可见。
+//
+// run_at 只存在于本驱动的 delayed 表里，**不**混进 payload。原因有两个：
+//   * 混进去就得靠「首段是否全数字」来识别，job_type 恰好是数字前缀
+//     （或 data 里带 '||'）时会被误判；
+//   * MemoryDriver 与 RedisDriver 的语义必须一致 —— Redis 版把 run_at
+//     放在 zset 的 score 里，出队时 payload 是干净的。两边不一致的话，
+//     换驱动就等于换了一套 payload 约定，跨驱动的重放/迁移全都会错。
 pub fn (mut d MemoryDriver) push_delayed(queue_name string, payload string, delay_secs i64) ! {
-	run_at := time.now().unix_nano() + delay_secs * 1_000_000_000
 	d.mu.@lock()
 	defer { d.mu.unlock() }
+	// 延迟 <= 0 就是「不等」：直接进主队列。让它绕一趟 delayed 表没有意义，
+	// 只是多一次 pop 时的搬运。
+	if delay_secs <= 0 {
+		mut qb := d.jobs[queue_name] or { QueueBuffer{} }
+		qb.push(payload)
+		d.jobs[queue_name] = qb
+		return
+	}
+	run_at := time.now().unix_nano() + delay_secs * 1_000_000_000
 	// 延迟任务单独存放：与立即任务混在同一个 ring buffer 里，头部堵塞
 	// 会让后面的立即任务也取不出来。
 	mut list := d.delayed[queue_name] or { []string{} }
@@ -142,7 +155,11 @@ fn (mut d MemoryDriver) promote_ready_delayed(queue_name string) {
 	}
 	mut qb := d.jobs[queue_name] or { QueueBuffer{} }
 	for p in ready {
-		qb.push(p)
+		// 进主队列前剥掉 run_at 前缀：延迟信息只在 delayed 表里有效，
+		// 一旦到期，它就成了 payload 里的一段垃圾数据，会让
+		// deserialize_job 把 job_type 解析成那串纳秒时间戳。
+		_, body := split_delay(p)
+		qb.push(body)
 	}
 	d.jobs[queue_name] = qb
 	if still_waiting.len == 0 {

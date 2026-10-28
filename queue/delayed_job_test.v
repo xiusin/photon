@@ -1,15 +1,20 @@
 module queue
 
-// delayed_job_test.v — 延迟任务确实会「延迟」
+// delayed_job_test.v — 延迟任务确实会「延迟」，且出队 payload 是干净的
 //
-// push() 会给延迟任务的 payload 加上 `<run_at_ns>||` 前缀，但此前没有任何
-// 代码消费这个前缀：
-//   - worker 的 deserialize_job 按第一个 '||' 切分，拿到的 job_type 是那串
-//     纳秒时间戳，按类型找不到工厂 → 任务被记成 "unregistered job type"
-//   - 退避重试 / dispatch_later 全走这条路，等于延迟语义整体失效
+// 历史包袱：早期 push_delayed() 会把 `<run_at_ns>||` 前缀拼进 payload，
+// 而没有任何代码消费这个前缀 —— worker 的 deserialize_job 按第一个 '||'
+// 切分，拿到的 job_type 是那串纳秒时间戳，按类型找不到工厂，任务被记成
+// "unregistered job type"。
 //
-// 这组测试锁住三件事：前缀确实写入了、到期的任务会执行、没到期的不执行。
-import time
+// 现在的契约：
+//   * MemoryDriver 把 run_at 只存在自己的 delayed 表里，**不**写进 payload；
+//   * 到期搬进主队列时再剥一次前缀（兼容历史数据）；
+//   * RedisDriver 把 run_at 放在 zset 的 score 里 —— 两个驱动出队的
+//     payload 形态因此完全一致，换驱动不需要换约定。
+//
+// 这组测试锁住四件事：未到期不可见、到期可执行、出队 payload 无前缀、
+// 延迟任务不挡立即任务。
 
 @[heap]
 struct DelayedProbe {
@@ -42,27 +47,25 @@ fn make_delayed_probe() &Job {
 	return &j
 }
 
-fn test_delayed_push_prefixes_run_at() {
+fn test_delayed_push_is_held_back_until_due() {
 	mut d := new_memory_driver()
-	before := time.now().unix_nano()
 	d.push_delayed('delayed', serialize_job('delayed_probe', '{}'), 2)!
+	// 延迟项计入队列长度，但 pop 取不到
 	assert d.count('delayed') == 1
-
-	// 未到期：pop 不出来
 	if _ := d.pop('delayed') {
 		assert false, 'not-yet-due job must not be visible'
 	}
-	_ = before
 }
 
 fn test_push_delayed_is_visible_after_due() {
 	mut d := new_memory_driver()
+	// 负延迟 = 已到期：应立刻出队，并且 payload 是干净的（不带 run_at 前缀）
 	d.push_delayed('q', serialize_job('delayed_probe', '{}'), -1)!
 	payload := d.pop('q')!
-	assert payload.contains('||')
+	assert payload == serialize_job('delayed_probe', '{}')
 	run_at, inner := split_delay(payload)
-	assert run_at > 0
-	assert inner == serialize_job('delayed_probe', '{}')
+	assert run_at == 0, 'popped payload must not carry a run_at prefix'
+	assert inner == payload
 }
 
 fn test_run_at_prefix_is_parsed() {
@@ -90,6 +93,24 @@ fn test_delayed_job_does_not_block_immediate_job() {
 	d.push_delayed('q', 'future', 3600)!
 	// 延迟任务不能挡住后面的立即任务
 	assert d.pop('q')! == 'immediate'
+	// 未到期的仍然留在延迟表里
+	assert d.count('q') == 1
+}
+
+fn test_expired_delayed_payload_has_no_prefix() {
+	// 到期搬运进主队列时，run_at 前缀必须已经剥掉：
+	// 否则 worker 会把纳秒时间戳当成 job_type，任务被记成
+	// 「unregistered job type」—— 不报错，但任务根本没执行。
+	mut d := new_memory_driver()
+	d.push_delayed('q', 'DelayedJob||{"id":1}', -1)!
+	payload := d.pop('q')!
+	assert payload == 'DelayedJob||{"id":1}'
+}
+
+fn test_zero_delay_payload_is_clean() {
+	mut d := new_memory_driver()
+	d.push_delayed('q', 'DelayedJob||{}', 0)!
+	assert d.pop('q')! == 'DelayedJob||{}'
 }
 
 fn test_worker_runs_ready_delayed_job() {
@@ -128,10 +149,10 @@ fn test_dispatch_later_is_not_run_immediately() {
 fn test_dispatch_later_zero_delay_is_immediate() {
 	mut drv := new_memory_driver()
 	drv.push_delayed('q', 'Job||{}', 0)!
-	// delay=0 → run_at 就是当下，pop 立刻可见
+	// delay=0 → 直接进主队列，pop 立刻可见且 payload 干净
 	assert drv.count('q') == 1
 	payload := drv.pop('q')!
-	assert payload.contains('Job')
+	assert payload == 'Job||{}'
 }
 
 fn test_dispatch_later_counts_pending_stat() {

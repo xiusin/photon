@@ -610,7 +610,7 @@ fn test_resolve_before_freeze_populates_cache() {
 
 // ── PP. register_instance 自动创建 definition ──
 
-fn test_register_instance_auto_creates_definition() {
+fn test_register_instance_auto_creates_definition_in_di() {
 	mut c := new_container()
 	c.register_instance('auto_def_bean', unsafe { voidptr(&CoreMockRepo{ id: 1 }) }) or { assert false }
 

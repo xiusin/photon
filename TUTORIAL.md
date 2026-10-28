@@ -33,7 +33,7 @@
 ```v
 import photon.cli
 import photon.config
-import photon.log
+import photon.logger
 
 fn main() {
     mut app := cli.new_application('myapp', '1.0.0')
@@ -160,25 +160,30 @@ binder.resolve_value('missing.key:localhost')           // key:default 格式
 ### 3.1 基础日志
 
 ```v
-import photon.log
+import photon.logger
 
-mut logger := log.new()              // 默认 INFO 级别
-logger.set_level(.debug)             // 显示所有级别
-logger.set_colored(true)             // 彩色输出
-logger.set_output_label('my-app')    // 标签名
+mut log_ := logger.new()              // 默认 INFO 级别
+log_.set_level(.debug)                  // 显示所有级别
+log_.set_colored(true)                  // Console 编码器彩色输出
+log_.set_output_label('my-app')         // 标签名
 
-logger.debug('调试信息')
-logger.info('应用启动')
-logger.warn('内存不足')
-logger.error('连接失败')
-logger.fatal('系统崩溃')
+log_.debug('调试信息')
+log_.info('应用启动')
+log_.warn('内存不足')
+log_.error('连接失败')
+log_.fatal('系统崩溃')
+
+// 热路径守卫：被过滤的日志不该付出拼接字符串的代价
+if log_.is_enabled(.debug) {
+	log_.debug('payload=' + expensive_serialize())
+}
 ```
 
 格式化输出：
 
 ```v
-logger.infof('用户 {} 登录成功', username)
-logger.errorf('连接 {}:{} 超时', host, port)
+log_.infof('用户 {} 登录成功', username)
+log_.errorf('连接 {}:{} 超时', host, port)
 ```
 
 ### 3.2 日志级别
@@ -190,53 +195,85 @@ debug < info < warn < error < fatal
 设置 `.warn` 级别后，`debug` 和 `info` 静默丢弃。
 
 ```v
-logger := log.new_with_level(.warn)  // 只输出 warn/error/fatal
+log_ := logger.new_with_level(.warn)  // 只输出 warn/error/fatal
 ```
 
 ### 3.3 MDC（上下文追踪）
 
 ```v
-mut logger := log.new()
-logger.put('request_id', 'abc-123')
-logger.put('user_id', '42')
-logger.info('处理请求')            // 携带 MDC 上下文
-logger.get('request_id')          // 'abc-123'
-logger.remove('user_id')
-logger.clear_context()            // 清空所有 MDC
+mut log_ := logger.new()
+log_.put('request_id', 'abc-123')
+log_.put('user_id', '42')
+log_.info('处理请求')            // 携带 MDC 上下文
+log_.get('request_id')          // 'abc-123'
+log_.remove('user_id')
+log_.clear_context()            // 清空所有 MDC
 ```
 
 ### 3.4 结构化 JSON 日志
 
 ```v
-mut logger := log.new()
-logger.set_structured(true)        // 输出 JSON 格式
-logger.put('trace_id', 'xyz')
-logger.info('structured log')      // {"level":"info","msg":"structured log","trace_id":"xyz",...}
+mut log_ := logger.new()
+log_.set_encoder(logger.new_json_encoder())  // 切换到 JSON 编码器
+log_.put('trace_id', 'xyz')
+log_.info('structured log')      // {"timestamp":"...","level":"INFO","logger":"photon","message":"structured log","trace_id":"xyz"}
+```
+
+Console 编码器（开发环境更易读）：
+
+```v
+log_.set_encoder(logger.new_console_encoder())
 ```
 
 ### 3.5 多通道日志
 
 ```v
-mut cl := log.new_channel_logger()
-cl.add_channel(&log.StderrChannel{})
-cl.add_channel(&log.FileChannel{filepath: '/var/log/app.log'})
-cl.level = .info
-cl.put('env', 'production')
-cl.info('多通道输出')              // 同时写 stderr + 文件
+mut log_ := logger.new()
+log_.add_sink(logger.new_file_channel('/var/log/app.log'))
+log_.put('env', 'production')
+log_.info('多通道输出')          // 编码器输出 + 文件各一份
 
-// 链式上下文（不修改原始实例）
-cl2 := cl.with_context('job', 'import').with_request_id('req-001')
-cl2.info('任务开始')
+// 带上下文的子 logger（不修改原始实例）
+child := log_.with_fields({'job': 'import'})
+child.info('任务开始')
+
+// 独立的多通道 logger（ChannelLogger，仍可用）
+mut cl := logger.new_channel_logger()
+cl.add_channel(logger.new_file_channel('/var/log/app.log'))
+cl.level = .info
+cl.info('同时写 stderr + 文件')
 ```
 
 ### 3.6 敏感信息脱敏
 
 ```v
-log.mask_sensitive_data('password=admin123&token=xyz')
-// 'password=********&token=********'
+logger.mask_sensitive_data('password=admin123&token=xyz')
+// 'password=***&token=***'
 ```
 
 自动脱敏的 key：`password`、`token`、`secret`、`api_key`、`authorization`、`credit_card` 等。
+框架内建的 `StderrChannel` / `FileChannel` 写盘前都会自动过一遍脱敏，业务代码不用手动调用。
+
+### 3.7 日志轮转
+
+长跑服务必须给日志设上限，否则迟早写满磁盘。
+
+```v
+rot := logger.new_rolling_file_channel(
+    filepath:       '/var/log/app.log',
+    max_size_bytes: 50 * 1024 * 1024,  // 50MB 切一个文件
+    max_backups:    7,                 // 保留 app.log.1 .. app.log.7
+)
+log_.add_sink(rot)
+defer { rot.close() }
+```
+
+轮转发生在写入前：即将写入的这一行会让文件超过上限时，当前文件改名为
+`.1`（旧的 `.1` 顺延为 `.2`，依此类推），随后写新文件 —— 单行日志不会被
+撕成两个文件。进程重启后按文件实际大小继续计数，不会把已有的大文件当成
+空文件。`max_backups: 0` 表示不留历史（轮转时直接清空）。
+
+外部 logrotate / systemd 接管轮转时，调 `rot.reopen()` 让通道重新打开同一路径。
 
 ---
 
@@ -251,7 +288,7 @@ import photon.web
 pub struct App {
     veb.Context
 pub mut:
-    logger &log.Logger = log.new()
+    log_ &logger.Logger = logger.new()
 }
 
 // 首页
@@ -1889,25 +1926,31 @@ cfg.set('app.name', 'MyApp')
     .add_profile('debug')
 ```
 
-### 16.5 Logger Channel 多通道输出
+### 16.5 Logger Channel 多通道输出与日志轮转
 
 ```v
-import photon.log
+import photon.logger
 
-mut logger := log.new()
-// 链式添加输出通道
-logger.add_sink(&log.FileChannel{filepath: '/var/log/app.log'})
-    .add_sink(&log.StderrChannel{})
-    .with_context('env', 'production')
-    .with_context('service', 'api')
-    .info('多通道日志记录')
+mut log_ := logger.new()
+// 多路输出：编码器写 stderr，sink 各自写文件
+log_.add_sink(logger.new_file_channel('/var/log/app.log'))
+log_.put('env', 'production')
+log_.put('service', 'api')
+log_.info('多通道日志记录')
 
-// 通道日志器
-mut cl := log.new_channel_logger()
-cl.add_sink(&log.StderrChannel{})
-    .add_sink(&log.FileChannel{filepath: '/var/log/app.log'})
-cl.info('同时输出到多个通道')
+// 生产必备：按大小轮转，避免日志写满磁盘
+rot := logger.new_rolling_file_channel(
+    filepath:       '/var/log/app.log'
+    max_size_bytes: 50 * 1024 * 1024  // 50MB 切一个文件
+    max_backups:    7                 // 保留 app.log.1 .. app.log.7
+)
+log_.add_sink(rot)
+defer { rot.close() }
 ```
+
+`max_backups: 0` 表示不保留历史：轮转时直接清空当前文件（容器里挂 stdout
+采集、不关心历史文件的场景）。外部 logrotate 接管轮转时，仍可调
+`rot.reopen()` 让通道重新打开同一路径。
 
 ### 16.6 Pool 超时获取
 
@@ -1971,7 +2014,7 @@ conn2 := p.acquire()!
 import veb
 import photon.core
 import photon.config
-import photon.log
+import photon.logger
 import photon.security
 import photon.cli
 import photon.web
@@ -2001,10 +2044,10 @@ fn start_server() {
     cfg.load()!
 
     // 日志
-    mut logger := log.new()
-    logger.set_level(.debug)
-    logger.set_colored(true)
-    logger.put('app', cfg.get('app.name'))
+    mut log_ := logger.new()
+    log_.set_level(.debug)
+    log_.set_colored(true)
+    log_.put('app', cfg.get('app.name'))
 
     // 安全
     jwt_cfg := security.JwtConfig{
@@ -2047,7 +2090,7 @@ fn start_server() {
     mut om := orm.new_orm_manager()
     om.register_connection('default', .sqlite, voidptr(0))!
 
-    logger.info('应用初始化完成')
+    log_.info('应用初始化完成')
 
     port := cfg.get_int_or('server.port', 8080)
     veb.run[App](port)
@@ -2056,7 +2099,7 @@ fn start_server() {
 pub struct App {
     veb.Context
 pub mut:
-    logger   &log.Logger = log.new()
+    log_ &logger.Logger = logger.new()
     jwt_mgr  &security.JwtManager
     csrf_mgr &security.CsrfManager
 }

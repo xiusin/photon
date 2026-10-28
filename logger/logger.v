@@ -289,6 +289,15 @@ pub fn (l &Logger) named(name string) &Logger {
 // Core log writing
 // ============================================================
 
+// is_enabled reports whether a message at `level` would actually be written.
+//
+// 热路径先问一句再拼字符串：`log.debug('x=' + expensive())` 即使 debug 被
+// 过滤，字符串拼接的代价也已经付了。文档与 TUTORIAL 里一直写着这个用法，
+// 但方法本身并不存在 —— 照着文档写会直接编译失败。
+pub fn (l &Logger) is_enabled(level Level) bool {
+	return int(level) >= int(l.level)
+}
+
 // log writes a log message at the given level
 pub fn (l &Logger) log(level Level, msg string) {
 	if int(level) < int(l.level) {

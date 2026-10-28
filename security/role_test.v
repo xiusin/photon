@@ -143,7 +143,7 @@ fn test_has_any_role_inherited_match() {
 	assert rh.has_any_role(['ADMIN'], ['GUEST', 'SUPERADMIN']) == true
 }
 
-fn test_has_any_role_no_match() {
+fn test_has_any_role_no_match_in_hierarchy() {
 	rh := build_default_hierarchy()
 	assert rh.has_any_role(['GUEST'], ['ADMIN', 'MODERATOR']) == false
 }

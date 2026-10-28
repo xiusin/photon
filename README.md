@@ -1058,11 +1058,22 @@ config.add_source(file_source)
 ### Logger Channel 多通道输出
 
 ```v
-// 链式添加输出通道
-logger.add_sink(&log.FileChannel{filepath: '/var/log/app.log'})
-    .add_sink(&log.StderrChannel{})
-    .with_context('env', 'production')
-    .info('多通道日志输出')
+mut log_ := logger.new()
+
+// 多通道：编码器输出走 stderr，sink 各自写文件
+log_.add_sink(logger.new_file_channel('/var/log/app.log'))
+log_.add_sink(logger.new_file_channel('/var/log/error.log'))
+log_.put('env', 'production')
+log_.info('多通道日志输出')
+
+// 按大小轮转：50MB 切文件，保留 7 份历史
+rot := logger.new_rolling_file_channel(
+    filepath:       '/var/log/app.log'
+    max_size_bytes: 50 * 1024 * 1024
+    max_backups:    7
+)
+log_.add_sink(rot)
+defer { rot.close() }
 ```
 
 ### Pool 超时获取

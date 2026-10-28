@@ -216,7 +216,6 @@ photon/
 ├── storage/              # [Beta] 文件存储
 │   ├── storage.v         # Storage 接口 + StorageManager + FileMetadata + Visibility
 │   ├── local_adapter.v   # LocalAdapter（本地文件系统）
-│   ├── s3_adapter.v      # S3Adapter（S3 兼容云存储，stub）
 │   ├── mime.v            # MIME 类型检测
 │   └── storage_test.v
 │
@@ -831,11 +830,11 @@ StorageManager — 多磁盘管理
     ├── chmod 权限控制（public=0o644, private=0o600）
     ├── MIME 类型检测
     └── 完整目录操作
-    
-  S3Adapter — S3 兼容云存储（stub）
-    ├── 支持 AWS S3 + MinIO + DigitalOcean Spaces + Cloudflare R2
-    ├── 路径风格兼容（use_path_style）
-    └── 预签名 URL 生成
+
+> 云存储适配器（S3 / GCS / Azure Blob）**不在仓库内**：这些实现要么是 stub，
+> 要么需要 AWS Signature V4 与 XML 解析，仓库里没有可信的测试路径，留着只会
+> 让调用方以为能用。`Storage` 接口本身就是扩展点，用户在自己的项目里实现
+> 后 `manager.register('s3', my_adapter)` 即可。
 
 FileMetadata — 文件元数据
   ├── path / size / mime_type / etag
@@ -949,25 +948,35 @@ PageRequest: {page, size, sort}
 
 ### 3.12 HTTP 客户端（http/）
 
-```
-HttpClient — Fluent API
-  ├── with_base_url(url)
-  ├── with_header(key, value)
-  ├── with_token(token) — Bearer auth
-  ├── with_basic_auth(user, pass)
-  ├── with_timeout(sec)
-  ├── with_retry(times, delay_ms)
-  ├── get(path) → HttpResponse
-  ├── post(path, body) → HttpResponse
-  ├── put/patch/delete
-  └── base64_encode (内置)
+真实调用 V 标准库 `net.http`（`vhttp.fetch`），Spring RestTemplate 形态：
 
-HttpResponse:
-  ├── status_code / body / headers
-  ├── is_success() / is_client_error() / is_server_error()
-  └── json() / header(name)
 ```
-> 当前为 stub 状态，需要 V `net.http` 做实际网络调用。
+RestTemplate — 不可变配置，线程安全，可当单例复用
+  ├── new_rest_template()
+  ├── set_base_url / set_default_header(s)
+  ├── set_connect_timeout / set_read_timeout（记录，V 的 FetchConfig 尚未暴露）
+  ├── set_retry(max_retries, base_delay_ms) — 只对幂等方法重试（GET/HEAD/OPTIONS/PUT/DELETE）
+  ├── set_error_handler(ResponseErrorHandler) — 错误响应策略
+  ├── add_interceptor(ClientHttpRequestInterceptor) — 拦截器链（正向包裹）
+  ├── set_uri_template_handler / set_ssl_config / set_proxy
+  └── exchange(RequestEntity) → ResponseEntity
+
+RequestEntity — 链式构建
+  ├── request_entity(method, url)
+  ├── .header(k, v) / .headers_from(map) / .body_str(s) / .body_json[T](v)
+  └── .uri_var(k, v) / .uri_vars_from(map) — /users/{id} → /users/42
+
+ResponseEntity:
+  ├── status_code / status_text / headers / body
+  ├── is_2xx() / is_4xx() / is_5xx()
+  └── body_as[T]() / header_value(name)
+
+便捷方法: get_for_object[T] / get_for_entity / post_for_object[T] /
+          post_for_entity / put / delete / patch_for_entity /
+          head_for_headers / options_for_allow
+```
+> 未覆盖：真实 TLS 校验开关与代理转发 —— V 的 `net.http.FetchConfig` 目前没有
+> 对应字段，配置会被记录并打日志，但不会生效。
 
 ### 3.13 CLI 模块（cli/）
 
@@ -1091,7 +1100,7 @@ ticker:  零依赖（纯 V channel/goroutine）
 | locking | 无 | cache 可选（分布式锁后端） |
 | queue | 无 | 无外部依赖 |
 | storage | 无 | 标准库 os |
-| http | 无 | stub 状态 |
+| http | 无 | 依赖 V 标准库 net.http |
 | tracing | 无 | 零外部依赖 |
 | security | 无 | web/filter 可选集成 |
 | orm | 无 | V 标准 orm 不可用（同名冲突） |
@@ -1534,11 +1543,11 @@ docker   — Docker 镜像构建
 | queue | Beta | 中 | 低 | 开发 |
 | pool | Beta | 中 | 低 | 部分 |
 | locking | Beta | 中 | 中 | 部分 |
-| storage | Beta | 高 | 中 | 部分（s3 stub）|
+| storage | Beta | 高 | 中 | 是（仅本地磁盘；云存储留作扩展点）|
 | ticker | Beta | 高 | 中 | 是 |
 | support | Beta | 高 | 高 | 是 |
 | cli | Beta | 高 | 低 | 是 |
-| http | Alpha | 低 | 低 | 否（stub）|
+| http | Beta | 高 | 中 | 部分（TLS/代理配置未生效）|
 | tracing | Alpha | 中 | 低 | 否（新模块）|
 | core | Beta | ApplicationContext + Container + Environment + EventBus + Lifecycle + BeanPostProcessor + FactoryBean + ServiceLocator + AutoConfiguration | 37 | 是 |
 
@@ -1604,7 +1613,7 @@ docker   — Docker 镜像构建
 | pool/db_pool.v | 61 | DbPool |
 | storage/storage.v | 204 | Storage + StorageManager + FileMetadata |
 | storage/local_adapter.v | 291 | LocalAdapter（完整文件系统操作）|
-| storage/s3_adapter.v | 233 | S3Adapter（stub）|
+
 | ticker/timer.v | 196 | Timer/Ticker（Go 兼容 API）|
 | ticker/heap.v | 173 | 4-ary min-heap |
 | ticker/bucket.v | 134 | 64 桶调度器 |
@@ -1622,7 +1631,7 @@ docker   — Docker 镜像构建
 | cli/interactive.v | ~80 | ask/confirm/secret/choice |
 | cli/progress.v | ~40 | ProgressBar |
 | cli/builtin.v | 132 | list/help/serve 命令 |
-| http/client.v | 179 | HttpClient fluent API |
+| http/client.v | 650 | RestTemplate + RequestEntity/ResponseEntity + 拦截器 |
 | example/main.v | 373 | 全功能演示 |
 | AGENTS.md | 172 | 开发规范宪法 |
 | Makefile | 148 | 构建/测试/部署自动化 |
@@ -1631,12 +1640,11 @@ docker   — Docker 镜像构建
 ### B. 当前架构缺口
 
 1. **core/** DI 容器已实现 — ApplicationContext + Container + Environment + EventBus + Lifecycle + BeanPostProcessor + FactoryBean + ServiceLocator + AutoConfiguration 均已就绪
-2. **http client** 为 stub — 缺少真实 HTTP 网络调用
-3. **orm 迁移** 为 stub — 需要真实数据库连接才能运行
-4. **S3 adapter** 为 stub — 缺少 AWS Signature V4 签名
-5. **加密** 为 XOR（非 AES）— 生产环境需要真实 AES/ChaCha20
-6. **密码哈希** 为 FNV-1a（非 bcrypt/argon2）— 生产环境需要 C 库绑定或 V 原生实现
-7. **web filter 链** 未完全集成到 server.v 中
+2. **http client** — 依赖 V `net.http`；TLS 校验开关 / 代理配置尚未生效（V 侧无对应字段）
+3. **orm 迁移** — SQL 路径需要外部注入 `exec_fn`/`query_fn`（photon/orm 无法 import V 的 db 驱动）
+4. **云存储** — 仓库内只有 `LocalAdapter`；S3 等由用户在 `Storage` 接口上自行实现
+5. **Encrypter（XOR）** 已标 `@[deprecated]`，迁移到 `security.AesCipher`（AES-256-CBC + HMAC）
+6. **web filter 链** 未完全集成到 server.v 中
 
 ### C. 为 AI Agent 准备的快速启动提示词
 
