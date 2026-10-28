@@ -69,6 +69,7 @@ function photonApp() {
         { label: 'Tracing · 分布式追踪', page: 'tracing', icon: '🔍', badge: 'Alpha' },
       ]},
       { title: '指南', items: [
+        { label: '依赖与 Vendor', page: 'vendor', icon: '📦', badge: '' },
         { label: '框架对比', page: 'comparison', icon: '📊', badge: '' },
         { label: '生产实践', page: 'production', icon: '🚀', badge: '' },
         { label: '文档宪法', page: 'constitution', icon: '📜', badge: '' },

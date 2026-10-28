@@ -27,7 +27,7 @@ module web
 //   app.WebModule.register(&UserController{ user_service: svc })
 import veb
 import net.http
-import json2
+import x.json2
 
 // 注意：Controller 接口定义在 router.v（闭包式 register_routes 契约），此处不再重复声明。
 

@@ -55,7 +55,8 @@ photon/
 
 ### 前置要求
 
-- [V 语言](https://vlang.io) 0.4.x 或以上
+- [V 语言](https://vlang.io) 0.5.2
+- Redis 7+（可选，只在使用 Redis 缓存 / 队列 / 分布式锁时需要）
 
 ### 安装
 
@@ -64,12 +65,23 @@ photon/
 git clone https://github.com/photon-framework/photon.git
 cd photon
 
+# 一次性：把仓库内 vendored 的 Redis 客户端接进 V 的模块搜索路径
+sh scripts/sync-vendor.sh    # 或 make vendor
+
 # 运行测试
-v test .
+make test-all                # 全部 23 个模块
+make test-vendor             # vendored vredis（需要本机 Redis）
 
 # 构建示例应用
-v -o example/example example/
+v -enable-globals -prod -o bin/photon example/
 ```
+
+### 依赖策略：唯一第三方代码 vendor 在仓库内
+
+`xiusin.vredis`（Redis 客户端）放在 `vendor/modules/xiusin/vredis/`，由本仓库维护。
+`v.mod` 里没有任何外部依赖，因此不需要 `v install`，也不会出现「补丁未生效」的漂移。
+
+详见 [vendor/README.md](vendor/README.md)。
 
 ### 在项目中使用
 
@@ -587,16 +599,54 @@ val := cm.get_or_load('expensive_key', 300, fn () !string {
 })!
 ```
 
+### 内建 Redis 后端
+
+```v
+mut store := cache.new_redis_cache(cache.RedisCacheConfig{
+    host: '127.0.0.1'
+    port: 6379
+    db: 0
+    key_prefix: 'myapp:'   // 多实例共享一个库时靠它隔离
+    max_active: 20         // 连接池上限
+})!
+
+// 构造时已 ping 过：连不上直接返回 error，不会把坏连接留到运行期
+store.set('user:42', '{"name":"Alice"}', 300)!
+val := store.get('user:42')!
+
+// 未命中返回 error（不是空串）—— 这样才能区分「值就是空串」
+if v := store.get('missing') {
+    // 命中
+} else {
+    // err.msg() 以 "cache miss" 开头
+}
+
+store.close()
+```
+
+`RedisStore` 满足 `Cache` 接口，注册后链式 API 会真正落到 Redis 上：
+
+```v
+mut reg := cache.new_cache_registry()
+mut as_cache := cache.Cache(store)
+reg.register('redis', as_cache)
+
+reg.chain().cache('redis').put('k', 'v').ttl(60).save()!
+```
+
 ### 注册自定义缓存后端
 
 ```v
 // 实现 Cache 接口
-pub struct RedisCache {
-    cache.Cache
-    // Redis 连接逻辑
+pub struct MyRedisCache {
+pub mut:
+    client voidptr
 }
 
-cm.register('redis', &RedisCache{})
+pub fn (mut c MyRedisCache) get(key string) !string { /* ... */ }
+// ... 其余 Cache 方法
+
+cm.register('mine', &MyRedisCache{})
 ```
 
 ---

@@ -8,7 +8,7 @@ module security
 import crypto.hmac
 import crypto.sha256
 import encoding.base64
-import json2
+import x.json2
 import time
 
 // JwtConfig configures JWT token behavior
@@ -177,7 +177,7 @@ fn (jm &JwtManager) decode(token string) !JwtClaims {
 	payload_bytes := base64.url_decode(payload_b64)
 	payload_str := payload_bytes.bytestr()
 
-	return json2.decode[JwtClaims]( payload_str)!
+	return json2.decode[JwtClaims](payload_str)!
 }
 
 // hmac_sign creates an HMAC-SHA256 signature

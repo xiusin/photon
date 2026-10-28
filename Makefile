@@ -58,6 +58,8 @@ help:
 	@echo "  make build     - Compile the full server example"
 	@echo "  make run       - Compile and run the full server example"
 	@echo "  make test      - Run ORM test files (fast smoke test)"
+	@echo "  make vendor    - Link vendored deps into ~/.vmodules (run once)"
+	@echo "  make test-vendor - Test vendored xiusin.vredis (needs a Redis server)"
 	@echo "  make test-all  - Run all module tests"
 	@echo "  make check     - Typecheck all modules + example"
 	@echo "  make service       - Build production binary for systemd deployment"
@@ -88,7 +90,15 @@ verify:
 test-core-tests:
 	$(V) $(VFLAGS) test $(ROOT_PREFIX)core/tests/
 
-test-all:
+## vendor — 把仓库内 vendored 依赖接进 V 的模块搜索路径
+vendor:
+	@sh $(ROOT_PREFIX)scripts/sync-vendor.sh
+
+## test-vendor — vendored 依赖（xiusin.vredis）的功能覆盖测试，需要真实 Redis
+test-vendor: vendor
+	$(V) $(VFLAGS) test $(ROOT_PREFIX)vendor/modules/xiusin/vredis/
+
+test-all: vendor
 	@echo "Running all module tests..."
 	@total=0; pass=0; fail=0; \
 	for dir in $(MODULES); do \

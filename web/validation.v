@@ -1,7 +1,7 @@
 module web
 
 import veb
-import json2
+import x.json2
 import regex
 
 // validation.v - Request Validation (Laravel FormRequest + Spring @Valid inspired)
@@ -461,8 +461,12 @@ pub fn validate_date(value string) bool {
 // days_in_month returns the number of days in the given month (calendar-aware).
 fn days_in_month(year int, month int) int {
 	return match month {
-		1, 3, 5, 7, 8, 10, 12 { 31 }
-		4, 6, 9, 11 { 30 }
+		1, 3, 5, 7, 8, 10, 12 {
+			31
+		}
+		4, 6, 9, 11 {
+			30
+		}
 		2 {
 			if is_leap_year(year) {
 				29
@@ -470,7 +474,9 @@ fn days_in_month(year int, month int) int {
 				28
 			}
 		}
-		else { 0 }
+		else {
+			0
+		}
 	}
 }
 
@@ -1196,11 +1202,13 @@ pub fn validate_body[T](ctx &veb.Context) (T, ValidationErrors) {
 	result = json2.decode[T](body) or {
 		// If JSON decode fails, try to validate individual fields
 		mut decode_errors := map[string][]ValidationError{}
-		decode_errors['_body'] = [ValidationError{
-			field:   '_body'
-			rule:    'json'
-			message: 'invalid JSON body'
-		}]
+		decode_errors['_body'] = [
+			ValidationError{
+				field:   '_body'
+				rule:    'json'
+				message: 'invalid JSON body'
+			},
+		]
 		return result, decode_errors
 	}
 
@@ -1407,7 +1415,9 @@ pub fn validate_params(constraints string, params map[string]string) ! {
 		violations << validate_field(param_name, value, rules)
 	}
 	if violations.len > 0 {
-		return ConstraintViolationException{ violations: violations }
+		return ConstraintViolationException{
+			violations: violations
+		}
 	}
 }
 
@@ -1471,7 +1481,6 @@ pub fn validate_method_params[T](method_name string, params map[string]string) !
 			}
 		}
 	}
-
 	// No @[valid] annotation → skip validation
 	if !found_valid {
 		return
@@ -1487,7 +1496,9 @@ pub fn validate_method_params[T](method_name string, params map[string]string) !
 	}
 
 	if violations.len > 0 {
-		return ConstraintViolationException{ violations: violations }
+		return ConstraintViolationException{
+			violations: violations
+		}
 	}
 }
 

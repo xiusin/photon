@@ -185,7 +185,7 @@ pub fn find_route(rr &RouteRegistry, method string, url_path string, host string
 			continue
 		}
 		// Host 检查：如果路由有 host 限制，必须匹配（大小写不敏感）
-		host_bonus := 0
+		mut host_bonus := 0
 		if route.host.len > 0 {
 			if route.host != req_host {
 				continue
@@ -196,7 +196,7 @@ pub fn find_route(rr &RouteRegistry, method string, url_path string, host string
 		score := static_segment_score(route) * 2 + host_bonus
 		if score > best_score {
 			best = route
-			best_params = params
+			best_params = params.clone()
 			best_score = score
 		}
 	}
@@ -240,7 +240,8 @@ fn find_route_linear(routes []&RouteDef, method string, url_path string, host st
 				route_path = '/'
 			}
 			// Match exact path, or either side having a trailing slash
-			if route_path == url_path || route_path + '/' == url_path || route_path == url_path + '/' {
+			if route_path == url_path || route_path + '/' == url_path
+				|| route_path == url_path + '/' {
 				return route, map[string]string{}
 			}
 		}
@@ -254,7 +255,7 @@ fn find_route_linear(routes []&RouteDef, method string, url_path string, host st
 		if route.method != method {
 			continue
 		}
-		host_bonus := 0
+		mut host_bonus := 0
 		if route.host.len > 0 {
 			if route.host != req_host {
 				continue
@@ -265,7 +266,7 @@ fn find_route_linear(routes []&RouteDef, method string, url_path string, host st
 		score := static_segment_score(route) * 2 + host_bonus
 		if score > best_score {
 			best = route
-			best_params = params
+			best_params = params.clone()
 			best_score = score
 		}
 	}

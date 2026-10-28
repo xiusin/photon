@@ -305,7 +305,7 @@ pub fn (mut h FailedJobHandler) retry_all() ! {
 // dispatch_later_by_type re-dispatches a job by type name
 // dispatch_later_by_type 通过类型名称重新分发任务
 fn dispatch_later_by_type(job_type string, delay_secs i64) ! {
-	dispatch_later_by_payload(job_type, '{}', delay_secs)
+	dispatch_later_by_payload(job_type, '{}', delay_secs)!
 }
 
 // dispatch_later_by_payload 用原始 payload 重新投递一条失败任务。

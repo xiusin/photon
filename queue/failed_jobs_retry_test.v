@@ -8,7 +8,6 @@ module queue
 //   2. 退避延迟只写进 FailedJob.next_retry，真正派发时被丢掉（传 0）
 //   3. id 用 unix_nano 生成，同一纳秒内批量失败会撞 id，save 后 find 取
 //      到错误的条目
-
 import time
 
 fn seed_repo(mut h FailedJobHandler, job_type string) !string {
@@ -122,7 +121,7 @@ fn test_retry_all_clears_repository() {
 // 被抹成空对象 —— 重试跑在「参数全空」的状态下，要么直接失败，要么
 // 做出错误的事，而且日志里看不出异常。
 fn test_retry_preserves_original_payload() {
-	d := get_dispatcher()
+	mut d := get_dispatcher()
 	d.driver.clear('default')!
 
 	repo := new_memory_failed_repo()
@@ -130,8 +129,7 @@ fn test_retry_preserves_original_payload() {
 
 	// 原始 payload：job_type||data
 	original_data := '{"order_id":42,"amount":"9.99"}'
-	handler.handle('ChargeJob', serialize_job('ChargeJob', original_data), 'boom',
-		'default', 1)!
+	handler.handle('ChargeJob', serialize_job('ChargeJob', original_data), 'boom', 'default', 1)!
 
 	jobs := handler.repository.all()!
 	assert jobs.len == 1
@@ -149,15 +147,14 @@ fn test_retry_preserves_original_payload() {
 }
 
 fn test_retry_with_backoff_preserves_payload_and_delays() {
-	d := get_dispatcher()
+	mut d := get_dispatcher()
 	d.driver.clear('default')!
 
 	repo := new_memory_failed_repo()
 	mut handler := new_failed_job_handler(repo)
 
 	original_data := '{"id":7}'
-	handler.handle('MailJob', serialize_job('MailJob', original_data), 'smtp down',
-		'default', 1)!
+	handler.handle('MailJob', serialize_job('MailJob', original_data), 'smtp down', 'default', 1)!
 	jobs := handler.repository.all()!
 	handler.retry_with_backoff(jobs[0].id)!
 

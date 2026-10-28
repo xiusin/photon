@@ -6,9 +6,9 @@ module async
 // V 的 sync.WaitGroup 在「计数归零后再次 add」这条路径上依赖内部 waiter
 // 清理完成，如果 add 抢在 wait 返回之前，会踩到已释放的 waiter。
 // 这里用多轮 + 多协程并发 submit 把窗口放大。
-
 import sync
 
+@[heap]
 struct AtomicCounter {
 mut:
 	mu sync.Mutex
@@ -32,7 +32,7 @@ fn test_repeated_barrier_cycles() {
 	mut counter := &AtomicCounter{}
 	for round in 0 .. 20 {
 		for _ in 0 .. 16 {
-			te.submit(fn [counter] () {
+			te.submit(fn [mut counter] () {
 				counter.inc()
 			})!
 		}
@@ -47,9 +47,9 @@ fn test_concurrent_producers() {
 	mut counter := &AtomicCounter{}
 	mut producers := []thread{}
 	for _ in 0 .. 4 {
-		producers << spawn fn [mut te, counter] () {
+		producers << spawn fn [mut te, mut counter] () {
 			for _ in 0 .. 50 {
-				te.submit(fn [counter] () {
+				te.submit(fn [mut counter] () {
 					counter.inc()
 				}) or { return }
 			}

@@ -329,30 +329,34 @@ fn test_with_lock_releases_on_error() {
 	lm.unlock('section') or {}
 }
 
+// ── with_lock 在 callback 失败时也必须释放 ──
+//
+// 注意：V 0.5.2 的 `or {}` / `!` 只接住 Result error，接不住 panic
+// （`if _ := f() {} else {}` 对 panic 无效，进程照崩）。所以这里用
+// 「返回 error」覆盖失败路径；该路径正是历史 bug 的现场 —— 释放写在
+// `callback()!` 之后而没走 defer，一次失败就把锁永久留在持有状态。
+// 回归点在下面的 try_lock：失败返回后锁必须是空闲的。
 
-// ── with_lock 在 callback panic 时也必须释放 ──
-
-fn test_with_lock_releases_on_panic() {
+fn test_with_lock_releases_when_callback_fails() {
 	mut lm := new_lock_manager()
-	mut caught := false
-	if _ := lm.with_lock('panic:key', fn () ! {
-		panic('boom')
-	}) {
-	} else {
-		caught = true
+	if _ := lm.with_lock('fail:key', fn () ! {
+		return error('boom')
+	})
+	{
+		assert false, 'error should propagate'
 	}
-	assert caught, 'panic should propagate'
-
-	// 锁必须已经释放：不阻塞地再拿一次
-	assert lm.try_lock('panic:key'), 'lock leaked after callback panic'
-	lm.unlock('panic:key') or { assert false, 'unlock after panic-recovery failed' }
+	assert lm.try_lock('fail:key'), 'lock leaked after callback returned an error'
+	lm.unlock('fail:key') or {}
+	assert lm.try_lock('fail:key'), 'lock unusable after unlock'
+	lm.unlock('fail:key') or {}
 }
 
-fn test_with_lock_releases_on_error() {
+fn test_with_lock_releases_on_error_and_propagates() {
 	mut lm := new_lock_manager()
 	if _ := lm.with_lock('err:key', fn () ! {
 		return error('nope')
-	}) {
+	})
+	{
 		assert false, 'error should propagate'
 	}
 	assert lm.try_lock('err:key')

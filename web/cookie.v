@@ -102,6 +102,7 @@ pub fn (b &CookieBuilder) build() http.Cookie {
 		.lax { http.SameSite.same_site_lax_mode }
 		.none { http.SameSite.same_site_none_mode }
 	}
+
 	return http.Cookie{
 		name:      b.name
 		value:     b.value
@@ -275,8 +276,7 @@ pub fn (mut cm CookieManager) encrypt(plaintext string) !string {
 	// Reusing a nonce with the same key completely breaks security.
 	// 生成随机 12 字节 nonce（IV）——每次加密必须唯一。
 	// 在相同密钥下复用 nonce 会完全破坏安全性。
-	mut nonce := []u8{len: 12}
-	crand.read(mut nonce) or { return error('nonce generation failed / nonce 生成失败') }
+	nonce := crand.read(12) or { return error('nonce generation failed / nonce 生成失败') }
 
 	// Placeholder: XOR-based obfuscation with the encryption key and nonce.
 	// This is NOT secure encryption — it only provides basic obfuscation.

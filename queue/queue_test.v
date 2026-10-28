@@ -1,7 +1,7 @@
 module queue
 
 // queue_test.v - Tests for the Queue module
-import json2
+import x.json2
 
 @[heap]
 struct TestJob {

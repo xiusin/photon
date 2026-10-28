@@ -234,8 +234,7 @@ fn (mut s MemorySessionStore) start_gc() {
 				_ := <-stop_sig {
 					should_stop = true
 				}
-				else {
-				}
+				else {}
 			}
 			if should_stop {
 				break
@@ -308,10 +307,8 @@ pub fn (mut s MemorySessionStore) close() {
 	s.mu.unlock()
 
 	select {
-		sig <- true {
-		}
-		else {
-		}
+		sig <- true {}
+		else {}
 	}
 	s.wg.wait()
 }
@@ -563,8 +560,7 @@ fn (mut s ShardedMemorySessionStore) start_sharded_gc() {
 				_ := <-stop_sig {
 					should_stop = true
 				}
-				else {
-				}
+				else {}
 			}
 			if should_stop {
 				break
@@ -636,10 +632,8 @@ pub fn (mut s ShardedMemorySessionStore) close() {
 	s.mu.unlock()
 
 	select {
-		sig <- true {
-		}
-		else {
-		}
+		sig <- true {}
+		else {}
 	}
 	s.wg.wait()
 }
@@ -788,8 +782,7 @@ pub fn session_middleware(mut ctx MiddlewareContext) !bool {
 // ⚠️ 如果 crypto/rand 失败，函数会 panic — 非随机的 Session ID
 // 比没有 Session ID 更糟（session fixation 风险）。
 fn generate_session_id() string {
-	mut bytes := []u8{len: 32}
-	crand.read(mut bytes) or {
+	bytes := crand.read(32) or {
 		// crypto/rand failure is fatal — do NOT fall back to time-based bytes.
 		// A predictable session ID enables session fixation attacks.
 		// crypto/rand 失败是致命的 — 不要回退到基于时间的字节。

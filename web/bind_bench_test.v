@@ -5,7 +5,7 @@ module web
 // Measures throughput for struct binding (query/form), JSON body binding,
 // and raw JSON decoding — the core paths exercised by bind[T] and bind_json[T].
 import veb
-import json2
+import x.json2
 import time
 
 struct BenchLoginDto {

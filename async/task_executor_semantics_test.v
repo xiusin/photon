@@ -8,7 +8,6 @@ module async
 //      被调到？SHUTDOWN 会不会永久挂起？
 //   2. wait_all() 之后提交的新任务不应该被之前的 barrier 影响
 //   3. shutdown 声明是幂等的，连调三次不应挂起或崩
-
 import sync
 import time
 
@@ -17,7 +16,7 @@ fn test_wait_all_reusable_across_rounds() {
 	mut counter := &Counter{}
 	for round in 0 .. 3 {
 		for _ in 0 .. 5 {
-			te.submit(fn [counter] () {
+			te.submit(fn [mut counter] () {
 				counter.inc()
 			})!
 		}
@@ -87,14 +86,14 @@ fn test_wait_all_returns_when_no_tasks() {
 		_ := <-done {
 			finished = true
 		}
-		_ := <-watchdog {
-		}
+		_ := <-watchdog {}
 	}
 	assert finished, 'wait_all() with no tasks must not block'
 	te.shutdown()
 }
 
 // Counter 是跨协程共享的计数器
+@[heap]
 struct Counter {
 mut:
 	mu sync.Mutex

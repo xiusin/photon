@@ -174,7 +174,7 @@ pub fn bind_field_value(attrs []string, config_val string) string {
 //       port int    @[value('db.port:5432')]
 //   }
 //   config := config.bind_to_struct[DbConfig](binder)!
-pub fn (mut b PropertyBinder) bind_to_struct[T]() !T {
+pub fn (b &PropertyBinder) bind_to_struct[T]() !T {
 	mut result := T{}
 
 	$for field in T.fields {
@@ -256,7 +256,6 @@ pub fn (mut b PropertyBinder) bind_to_struct[T]() !T {
 			}
 		}
 	}
-
 	return result
 }
 
@@ -364,7 +363,7 @@ pub fn bind_configuration_properties[T](mut env Environment, prefix string) !T {
 // bind_configuration_properties_impl is the internal helper that carries a `&T` dummy
 // instance for recursive type inference of nested struct fields.
 fn bind_configuration_properties_impl[T](mut env Environment, prefix string, typ &T) !T {
-	mut config := T{}
+	mut bound := T{}
 
 	$for field in T.fields {
 		// V hands comptime attribute text through `field.attrs` as raw
@@ -408,28 +407,28 @@ fn bind_configuration_properties_impl[T](mut env Environment, prefix string, typ
 		// Bind based on field type — primitive types first, then arrays, then nested structs
 		$if field.typ is string {
 			if found {
-				config.$(field.name) = env.get_property_or(lookup_key, '')
+				bound.$(field.name) = env.get_property_or(lookup_key, '')
 			}
 		} $else $if field.typ is int {
 			if found {
-				config.$(field.name) = env.get_property_or(lookup_key, '0').int()
+				bound.$(field.name) = env.get_property_or(lookup_key, '0').int()
 			}
 		} $else $if field.typ is i64 {
 			if found {
-				config.$(field.name) = env.get_property_or(lookup_key, '0').i64()
+				bound.$(field.name) = env.get_property_or(lookup_key, '0').i64()
 			}
 		} $else $if field.typ is f32 {
 			if found {
-				config.$(field.name) = f32(env.get_property_or(lookup_key, '0').f64())
+				bound.$(field.name) = f32(env.get_property_or(lookup_key, '0').f64())
 			}
 		} $else $if field.typ is f64 {
 			if found {
-				config.$(field.name) = env.get_property_or(lookup_key, '0').f64()
+				bound.$(field.name) = env.get_property_or(lookup_key, '0').f64()
 			}
 		} $else $if field.typ is bool {
 			if found {
 				val := env.get_property_or(lookup_key, 'false')
-				config.$(field.name) = val == 'true' || val == '1' || val == 'yes' || val == 'on'
+				bound.$(field.name) = val == 'true' || val == '1' || val == 'yes' || val == 'on'
 			}
 		} $else $if field.typ is []string {
 			raw := env.get_property_or(lookup_key, '')
@@ -438,7 +437,7 @@ fn bind_configuration_properties_impl[T](mut env Environment, prefix string, typ
 				for part in raw.split(',') {
 					arr << part.trim_space()
 				}
-				config.$(field.name) = arr
+				bound.$(field.name) = arr
 			}
 		} $else $if field.typ is []int {
 			raw := env.get_property_or(lookup_key, '')
@@ -447,7 +446,7 @@ fn bind_configuration_properties_impl[T](mut env Environment, prefix string, typ
 				for part in raw.split(',') {
 					arr << part.trim_space().int()
 				}
-				config.$(field.name) = arr
+				bound.$(field.name) = arr
 			}
 		} $else $if field.typ is []f64 {
 			raw := env.get_property_or(lookup_key, '')
@@ -456,7 +455,7 @@ fn bind_configuration_properties_impl[T](mut env Environment, prefix string, typ
 				for part in raw.split(',') {
 					arr << part.trim_space().f64()
 				}
-				config.$(field.name) = arr
+				bound.$(field.name) = arr
 			}
 		} $else $if field.typ is []bool {
 			raw := env.get_property_or(lookup_key, '')
@@ -466,7 +465,7 @@ fn bind_configuration_properties_impl[T](mut env Environment, prefix string, typ
 					p := part.trim_space()
 					arr << p == 'true' || p == '1' || p == 'yes' || p == 'on'
 				}
-				config.$(field.name) = arr
+				bound.$(field.name) = arr
 			}
 		} $else $if field.is_struct {
 			// Recursively bind nested struct fields.
@@ -480,9 +479,8 @@ fn bind_configuration_properties_impl[T](mut env Environment, prefix string, typ
 			typ_ := typ.$(field.name)
 			child_prefix := if prefix.len > 0 { '${prefix}.${field.name}' } else { field.name }
 			nested := bind_configuration_properties_impl(mut env, child_prefix, &typ_) or { typ_ }
-			config.$(field.name) = nested
+			bound.$(field.name) = nested
 		}
 	}
-
-	return config
+	return bound
 }

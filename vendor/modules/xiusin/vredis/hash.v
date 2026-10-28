@@ -1,0 +1,127 @@
+module vredis
+
+import x.json2
+
+pub fn (mut r Redis) hdel(key string, field string, fields ...string) !bool {
+	mut args := [CmdArg(key), CmdArg(field)]
+	for it in fields {
+		args << it
+	}
+
+	return reply_or_err(r.send('HDEL', ...args)!)!.int() != 0
+}
+
+pub fn (mut r Redis) hexists(key string, field string) !bool {
+	return reply_or_err(r.send('HEXISTS', key, field)!)!.@is(1)
+}
+
+// hget returns the value associated with `field` in the hash at `key`.
+// Returns err_nil when the key or field does not exist.
+pub fn (mut r Redis) hget(key string, field string) !string {
+	reply := reply_or_err(r.send('HGET', key, field)!)!
+	if reply.kind == .nil_reply {
+		return err_nil
+	}
+	return reply.bytestr()
+}
+
+pub fn (mut r Redis) hgetall(key string) !map[string]string {
+	res := reply_or_err(r.send('HGETALL', key)!)!.strings()
+	mut data := map[string]string{}
+	for i := 0; i < res.len; i += 2 {
+		data[res[i]] = res[i + 1]
+	}
+	return data
+}
+
+pub fn (mut r Redis) hincrby(key string, field string, incr_num int) !i64 {
+	return reply_or_err(r.send('HINCRBY', key, field, incr_num)!)!.i64()
+}
+
+pub fn (mut r Redis) hincrbyfloat(key string, field string, incr_num f64) !f64 {
+	return reply_or_err(r.send('HINCRBYFLOAT', key, field, incr_num)!)!.f64()
+}
+
+pub fn (mut r Redis) hsetnx(key string, field string, value string) !bool {
+	return reply_or_err(r.send('HSETNX', key, field, value)!)!.@is(1)
+}
+
+pub fn (mut r Redis) hset(key string, field string, value string) !bool {
+	res := reply_or_err(r.send('HSET', key, field, value)!)!.int()
+	return res in [0, 1]
+}
+
+pub fn (mut r Redis) hkeys(key string) ![]string {
+	return reply_or_err(r.send('HKEYS', key)!)!.strings()
+}
+
+pub fn (mut r Redis) hlen(key string) !int {
+	return reply_or_err(r.send('HLEN', key)!)!.int()
+}
+
+pub fn (mut r Redis) hvals(key string) ![]string {
+	return reply_or_err(r.send('HVALS', key)!)!.strings()
+}
+
+pub fn (mut r Redis) hmget(key string, field string, fields ...string) ![]string {
+	mut args := [CmdArg(key), CmdArg(field)]
+	for it in fields {
+		args << it
+	}
+
+	return reply_or_err(r.send('HMGET', ...args)!)!.strings()
+}
+
+pub fn (mut r Redis) hmset(key string, field string, value string, fvs ...string) !bool {
+	if fvs.len % 2 != 0 {
+		return error('Fields and values must appear in pairs')
+	}
+	mut args := [CmdArg(key), CmdArg(field), CmdArg(value)]
+	for it in fvs {
+		args << it
+	}
+	return reply_or_err(r.send('HMSET', ...args)!)!.ok()
+}
+
+// hscan iterates hash field/value pairs using the cursor-based HSCAN command.
+pub fn (mut r Redis) hscan(key string, opts ScanOpts) !ScanReply {
+	mut args := [CmdArg(key), CmdArg(opts.cursor)]
+	if opts.pattern.len > 0 {
+		args << 'MATCH'
+		args << opts.pattern
+	}
+	if opts.count > 0 {
+		args << 'COUNT'
+		args << opts.count
+	}
+	reply := r.send('HSCAN', ...args)!
+	return parse_scan_reply(reply)
+}
+
+// ---------------------------------------------------------------------------
+// JSON convenience wrappers for hash fields.
+//
+// A Redis hash maps field→string; storing structured data per field is a
+// common pattern (e.g. one field per object). These helpers serialise
+// the value to JSON transparently.
+//
+// Example:
+//   r.hset_json('users', 'u1', User{'alice', 30})!
+//   u := r.hget_json[User]('users', 'u1')!
+// ---------------------------------------------------------------------------
+
+// hset_json serialises `val` to JSON and stores it at `field` in the
+// hash at `key`. Returns true on success.
+pub fn (mut r Redis) hset_json[T](key string, field string, val T) !bool {
+	return r.hset(key, field, json2.encode(val))!
+}
+
+// hget_json retrieves the value at `field` and decodes it into T.
+// Returns err_nil when the key or field does not exist, or an error if
+// the stored value is not valid JSON for T.
+pub fn (mut r Redis) hget_json[T](key string, field string) !T {
+	raw := r.hget(key, field) or { return err_nil }
+	return json2.decode[T](raw) or {
+		error('redis: json decode failed for key "${key}" field "${field}"')
+	}
+}

@@ -585,21 +585,25 @@ fn test_meter_tags_are_copied_on_creation() {
 	assert c.tags()['path'] == '/api'
 
 	// 注册表里查不到被污染的新 key
-	other := reg.counter('req', {'path': '/hacked'})
+	other := reg.counter('req', {
+		'path': '/hacked'
+	})
 	assert other.value() == 0
 	assert c.value() == 0
 }
 
 fn test_meter_tags_accessor_returns_copy() {
 	reg := new_in_memory_registry()
-	c := reg.counter('m', {'a': '1'})
+	c := reg.counter('m', {
+		'a': '1'
+	})
 	mut exposed := c.tags()
 	exposed['a'] = 'tampered'
 	assert c.tags()['a'] == '1'
 
 	mut infos := reg.list_meters()
 	assert infos.len == 1
-	mut info_tags := infos[0].tags
+	mut info_tags := infos[0].tags.clone()
 	info_tags['a'] = 'tampered'
 	assert reg.list_meters()[0].tags['a'] == '1'
 }

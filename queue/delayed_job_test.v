@@ -9,7 +9,6 @@ module queue
 //   - 退避重试 / dispatch_later 全走这条路，等于延迟语义整体失效
 //
 // 这组测试锁住三件事：前缀确实写入了、到期的任务会执行、没到期的不执行。
-
 import time
 
 @[heap]
@@ -112,7 +111,7 @@ fn test_worker_runs_ready_delayed_job() {
 
 fn test_dispatch_later_is_not_run_immediately() {
 	clear_queue()!
-	d := get_dispatcher()
+	mut d := get_dispatcher()
 	d.driver.clear('default')!
 
 	dispatch_later(&DelayedProbe{}, 60)!
@@ -136,7 +135,7 @@ fn test_dispatch_later_zero_delay_is_immediate() {
 }
 
 fn test_dispatch_later_counts_pending_stat() {
-	d := get_dispatcher()
+	mut d := get_dispatcher()
 	d.driver.clear('default')!
 	dispatch_later(&DelayedProbe{}, 30)!
 	stats := get_queue_stats('default')

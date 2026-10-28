@@ -5,7 +5,7 @@ module config
 // Provides a unified configuration system supporting multiple sources
 // (files, environment variables, command-line flags) with property binding
 // and profile-based configuration.
-import json2
+import x.json2
 import sync
 
 // Config manages application configuration from multiple sources

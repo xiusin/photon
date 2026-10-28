@@ -16,7 +16,7 @@ module web
 //       ...
 //   }
 import veb
-import json2
+import x.json2
 
 // Input wraps veb.Context with Laravel-style access methods.
 // Create with: web.input(ctx)

@@ -148,8 +148,8 @@ $RECYCLE.BIN/
 # ──────────────────────────────────────────────
 
 # V module dependencies (user-global cache is ~/.vmodules)
-# Only include if you vendor dependencies
-vendor/
+# Photon 明确 vendor 了唯一第三方依赖（vendor/modules/），必须入库 —— 见 vendor/README.md
+# vendor/ 不在此忽略
 v.mod.lock
 
 # Generic dependency directories

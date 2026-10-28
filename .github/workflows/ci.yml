@@ -67,13 +67,11 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends libargon2-dev
 
-      - name: Install v dependencies
+      - name: Link vendored dependencies
         run: |
-          # v.mod declares xiusin.vredis; cache/redis_cache.v imports it.
-          # 上游 vredis 仍用已删除的 `json` 模块 + 旧 select mut 语义，
-          # 在 V 0.5.2 下直接编译失败，这里打补丁后再装。
-          v install --force xiusin.vredis
-          sh scripts/patch-vredis.sh
+          # 唯一的第三方代码（xiusin.vredis）vendor 在 vendor/modules/ 下。
+          # 不再 `v install`，也不再给上游打补丁 —— CI 跑的就是仓库里这份源码。
+          sh scripts/sync-vendor.sh
 
       - name: Verify V
         run: |
@@ -88,16 +86,46 @@ jobs:
             exit 1
           }
 
+  # ──────────────────────────────────────────────
+  # Stage 1b: Vendored dependency (xiusin.vredis) — 真连真用
+  # ──────────────────────────────────────────────
+  test-vendor:
+    name: 'Test (vendored xiusin.vredis)'
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup V
+        uses: alexesprit/setup-v@v1
+        with:
+          v-version: '0.5.2'
+
+      - name: Link vendored dependencies
+        run: sh scripts/sync-vendor.sh
+
+      - name: Test vendored vredis
+        run: v -enable-globals test -stats vendor/modules/xiusin/vredis/
+
   test-summary:
     name: 'All Tests Passed'
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, test-vendor]
     if: always()
     steps:
       - name: Check status
         run: |
           echo "All module tests completed"
-          if [[ "${{ needs.test.result }}" == "success" ]]; then
+          if [[ "${{ needs.test.result }}" == "success" && "${{ needs.test-vendor.result }}" == "success" ]]; then
             echo "::notice::✅ All tests passed"
           elif [[ "${{ needs.test.result }}" == "failure" ]]; then
             echo "::error::❌ Some tests failed"
@@ -127,10 +155,9 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends libargon2-dev
 
-      - name: Install v dependencies
+      - name: Link vendored dependencies
         run: |
-          v install --force xiusin.vredis
-          sh scripts/patch-vredis.sh
+          sh scripts/sync-vendor.sh
 
       - name: Build example
         run: |

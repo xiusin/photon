@@ -7,6 +7,7 @@ module pool
 //   2. release() 通过反向索引 O(1) 命中，重复释放不会撑爆 active_count
 //   3. 并发 acquire/release 不丢对象、不超上限
 import sync
+import sync.stdatomic
 import time
 
 // slow_valid_factory is_valid() 故意睡眠，用来观察它是否阻塞别的协程。
@@ -32,7 +33,9 @@ mut:
 }
 
 fn test_pool_is_valid_runs_outside_pool_lock() {
-	mut f := &SlowValidFactory{valid_sleep_us: 20000} // 20ms per check
+	mut f := &SlowValidFactory{
+		valid_sleep_us: 20000
+	} // 20ms per check
 	mut p := new_pool_with_factory('slow-valid', f, 1, 4)
 	p.initialize()!
 
@@ -45,13 +48,13 @@ fn test_pool_is_valid_runs_outside_pool_lock() {
 
 	mut wg := sync.new_waitgroup()
 	wg.add(1)
-	mut checked_done := false
-	spawn fn (mut pp Pool, mut done bool, mut wg sync.WaitGroup) {
+	mut checked_done := stdatomic.new_atomic(false)
+	spawn fn (mut pp Pool, mut done stdatomic.AtomicVal[bool], mut wg sync.WaitGroup) {
 		defer {
 			wg.done()
 		}
 		_ := pp.acquire() or { return }
-		done = true
+		done.store(true)
 	}(mut p, mut checked_done, mut wg)
 
 	// 校验路径在睡 20ms，但 stats() 必须能立刻拿到锁
@@ -62,7 +65,7 @@ fn test_pool_is_valid_runs_outside_pool_lock() {
 	assert elapsed < 15
 
 	wg.wait()
-	assert checked_done
+	assert checked_done.load()
 	p.release(held)
 	p.close()!
 }

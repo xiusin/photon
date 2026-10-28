@@ -1,0 +1,375 @@
+module vredis
+
+import x.json2
+import net
+import sync
+import time
+
+// err_nil is returned by helpers that explicitly need to signal "no value".
+pub const err_nil = error('redis: nil reply')
+
+// ConnOpts configures a new Redis client connection. All fields have
+// sensible defaults so callers can use `new_client()` for a localhost
+// connection on the default port.
+@[params]
+pub struct ConnOpts {
+pub:
+	read_timeout  time.Duration = time.second * 10
+	write_timeout time.Duration = time.second * 10
+	name          string
+	port          int = 6379
+	db            u32
+	host          string = '127.0.0.1'
+	username      string
+	requirepass   string
+}
+
+// Redis is a single, thread-safe connection to a Redis server.
+//
+// Concurrency model: a sync.Mutex serialises command send/recv pairs so
+// that a reply is always matched to the command that produced it. Callers
+// that need parallelism should use a Pool.
+pub struct Redis {
+	sync.Mutex
+mut:
+	is_active bool         = true
+	socket    &net.TcpConn = unsafe { nil }
+	prev_cmd  string
+	debug     bool
+	protocol  &Protocol = unsafe { nil }
+}
+
+// SetOpts carries the optional flags accepted by the SET command.
+// The sentinel -4 means "unset"; it is chosen to be distinct from any
+// legitimate expiry value (which must be positive).
+pub struct SetOpts {
+pub:
+	ex       int = -4
+	px       int = -4
+	nx       bool
+	xx       bool
+	keep_ttl bool
+}
+
+// set_debug enables printing of the raw RESP traffic to stdout.
+pub fn (mut r Redis) set_debug(debug bool) {
+	r.debug = debug
+}
+
+fn (r &Redis) str() string {
+	return 'Redis{prev_cmd: "${r.prev_cmd}"}'
+}
+
+// send serialises a command + arguments, writes them to the socket,
+// and returns the parsed Reply.
+//
+// The mutex guarantees that a reply is always paired with the command
+// that produced it, even when multiple goroutines share the same
+// connection (though a Pool is the recommended way to parallelise).
+//
+// Performance: build_cmd() constructs the RESP wire format in a single
+// pass without allocating an intermediate []CmdArg — the command name
+// and variadic params are converted to strings exactly once and written
+// to a pre-sized builder.
+pub fn (mut r Redis) send(cmd string, params ...CmdArg) !&Reply {
+	r.@lock()
+	defer {
+		r.unlock()
+	}
+
+	if !r.is_active {
+		return err_conn_no_active
+	}
+
+	r.write_cmd(build_cmd(cmd, ...params))!
+
+	reply := r.protocol.read_reply()!
+	return &reply
+}
+
+// write_cmd writes a pre-serialised RESP command to the socket. It is
+// kept public so that pub/sub code can reuse the same write path
+// without going through the locked send() method.
+pub fn (mut r Redis) write_cmd(cmd string) ! {
+	r.prev_cmd = cmd
+	if r.debug {
+		println('-> ${cmd}')
+	}
+	r.socket.write_string(cmd)!
+}
+
+// write_string_to_socket is retained for backwards compatibility with
+// callers that build their own command strings.
+@[deprecated: 'use write_cmd instead']
+pub fn (mut r Redis) write_string_to_socket(cmd string) ! {
+	r.write_cmd(cmd)!
+}
+
+// new_client dials a Redis server, applies timeouts, authenticates,
+// optionally sets a client name, and selects the requested database.
+//
+// On any configuration failure the underlying socket is closed so that
+// no file descriptor is leaked.
+pub fn new_client(opts ConnOpts) !&Redis {
+	mut client := &Redis{
+		socket: net.dial_tcp('${opts.host}:${opts.port}')!
+	}
+	client.protocol = new_protocol(client)
+
+	if opts.read_timeout > 0 {
+		client.socket.set_read_timeout(opts.read_timeout)
+	}
+	if opts.write_timeout > 0 {
+		client.socket.set_write_timeout(opts.write_timeout)
+	}
+
+	// Authentication — Redis 6+ supports AUTH with username + password.
+	if opts.requirepass.len > 0 {
+		auth_ok := if opts.username.len > 0 {
+			client.send('AUTH', opts.username, opts.requirepass)!.ok()
+		} else {
+			client.send('AUTH', opts.requirepass)!.ok()
+		}
+		if !auth_ok {
+			client.socket.close() or {}
+			return error('redis: auth failed')
+		}
+	}
+
+	// Optional CLIENT SETNAME.
+	if opts.name != '' {
+		if !client.send('CLIENT', 'SETNAME', opts.name)!.ok() {
+			client.socket.close() or {}
+			return error('redis: set client name failed')
+		}
+	}
+
+	// SELECT database.
+	if !client.@select(opts.db) or { false } {
+		client.socket.close() or {}
+		return error('redis: select db failed')
+	}
+
+	return client
+}
+
+// close sends QUIT and closes the underlying socket. It is safe to
+// call multiple times.
+pub fn (mut r Redis) close() ! {
+	r.@lock()
+	defer {
+		r.unlock()
+	}
+	if !r.is_active {
+		return
+	}
+	r.is_active = false
+
+	// Best-effort QUIT; ignore write errors on a broken connection.
+	// Use the RESP serialiser for protocol consistency.
+	if r.debug {
+		println('-> QUIT')
+	}
+	r.socket.write_string(build_cmd('QUIT')) or {}
+	r.socket.close() or {}
+}
+
+// ---------------------------------------------------------------------------
+// Inline command wrappers — each maps 1:1 to a Redis command.
+// ---------------------------------------------------------------------------
+
+@[inline]
+pub fn (mut r Redis) ping() !bool {
+	return reply_or_err(r.send('PING')!)!.@is('PONG')
+}
+
+@[inline]
+pub fn (mut r Redis) @type(key string) !string {
+	return reply_or_err(r.send('TYPE', key)!)!.bytestr()
+}
+
+@[inline]
+pub fn (mut r Redis) expire(key string, seconds int) !bool {
+	return reply_or_err(r.send('EXPIRE', key, seconds)!)!.@is(1)
+}
+
+@[inline]
+pub fn (mut r Redis) pexpire(key string, millis int) !bool {
+	return reply_or_err(r.send('PEXPIRE', key, millis)!)!.@is(1)
+}
+
+@[inline]
+pub fn (mut r Redis) expireat(key string, timestamp int) !bool {
+	return reply_or_err(r.send('EXPIREAT', key, timestamp)!)!.@is(1)
+}
+
+@[inline]
+pub fn (mut r Redis) pexpireat(key string, millistimestamp int) !bool {
+	return reply_or_err(r.send('PEXPIREAT', key, millistimestamp)!)!.@is(1)
+}
+
+@[inline]
+pub fn (mut r Redis) persist(key string) !int {
+	return reply_or_err(r.send('PERSIST', key)!)!.int()
+}
+
+// randomkey returns a random key from the current database. Returns
+// err_nil when the database is empty.
+pub fn (mut r Redis) randomkey() !string {
+	reply := reply_or_err(r.send('RANDOMKEY')!)!
+	if reply.kind == .nil_reply {
+		return err_nil
+	}
+	return reply.bytestr()
+}
+
+@[inline]
+pub fn (mut r Redis) ttl(key string) !int {
+	return reply_or_err(r.send('TTL', key)!)!.int()
+}
+
+@[inline]
+pub fn (mut r Redis) pttl(key string) !int {
+	return reply_or_err(r.send('PTTL', key)!)!.int()
+}
+
+@[inline]
+pub fn (mut r Redis) exists(key string) !bool {
+	return reply_or_err(r.send('EXISTS', key)!)!.@is(1)
+}
+
+@[inline]
+pub fn (mut r Redis) del(key string) !bool {
+	return reply_or_err(r.send('DEL', key)!)!.@is(1)
+}
+
+@[inline]
+pub fn (mut r Redis) unlink(key string) !bool {
+	return reply_or_err(r.send('UNLINK', key)!)!.@is(1)
+}
+
+@[inline]
+pub fn (mut r Redis) rename(key string, newkey string) !bool {
+	return reply_or_err(r.send('RENAME', key, newkey)!)!.ok()
+}
+
+@[inline]
+pub fn (mut r Redis) renamenx(key string, newkey string) !bool {
+	return reply_or_err(r.send('RENAMENX', key, newkey)!)!.@is(1)
+}
+
+@[inline]
+pub fn (mut r Redis) flushall() !bool {
+	return reply_or_err(r.send('FLUSHALL')!)!.ok()
+}
+
+@[inline]
+pub fn (mut r Redis) flushdb() !bool {
+	return reply_or_err(r.send('FLUSHDB')!)!.ok()
+}
+
+@[inline]
+pub fn (mut r Redis) @select(db u32) !bool {
+	return reply_or_err(r.send('SELECT', int(db))!)!.ok()
+}
+
+@[inline]
+pub fn (mut r Redis) dbsize() !int {
+	return reply_or_err(r.send('DBSIZE')!)!.int()
+}
+
+@[inline]
+pub fn (mut r Redis) move(key string, db u32) !bool {
+	return reply_or_err(r.send('MOVE', key, int(db))!)!.ok()
+}
+
+// scan iterates the key space using the cursor-based SCAN command.
+// The reply is a two-element array: [cursor, [keys...]].
+pub fn (mut r Redis) scan(opts ScanOpts) !ScanReply {
+	mut args := [CmdArg(opts.cursor)]
+	if opts.pattern.len > 0 {
+		args << 'MATCH'
+		args << opts.pattern
+	}
+	if opts.count > 0 {
+		args << 'COUNT'
+		args << opts.count
+	}
+
+	reply := r.send('SCAN', ...args)!
+	return parse_scan_reply(reply)
+}
+
+// parse_scan_reply extracts the cursor and key list from a SCAN/SSCAN/ZSCAN
+// reply. The reply is always a 2-element array: [cursor-bulk, keys-array].
+// Centralising this logic avoids duplication across scan/sscan/zscan.
+@[inline]
+fn parse_scan_reply(reply &Reply) !ScanReply {
+	if reply.kind != .array || reply.arr.len < 2 {
+		return error('redis: invalid scan reply')
+	}
+	cursor_str := reply.arr[0].str_val
+	mut result := []string{}
+	if reply.arr[1].kind == .array {
+		result = []string{cap: reply.arr[1].arr.len}
+		for elem in reply.arr[1].arr {
+			result << elem.str_val
+		}
+	}
+	return ScanReply{
+		cursor: cursor_str.u64()
+		result: result
+	}
+}
+
+// ---------------------------------------------------------------------------
+// JSON convenience wrappers for structured data.
+//
+// Redis stores strings; structs/maps must be serialised before storage.
+// These generic helpers encode/decode JSON transparently so callers can
+// treat Redis as a typed key-value store without manual json.encode /
+// json.decode at every call site.
+//
+// Example:
+//   struct User { name string; age int }
+//   r.set_json('user:1', User{'alice', 30})!
+//   u := r.get_json[User]('user:1')!
+// ---------------------------------------------------------------------------
+
+// set_json serialises `val` to JSON and stores it at `key`. Returns true
+// on success. The JSON encoding follows V's standard json module rules
+// (struct field names lowercased by default; @[json: 'name'] tags
+// respected).
+pub fn (mut r Redis) set_json[T](key string, val T) !bool {
+	return r.set(key, json2.encode(val))!
+}
+
+// get_json retrieves the string at `key` and decodes it into T. Returns
+// err_nil when the key does not exist, or an error if the stored value
+// is not valid JSON for T.
+pub fn (mut r Redis) get_json[T](key string) !T {
+	raw := r.get(key) or { return err_nil }
+	return json2.decode[T](raw) or { error('redis: json decode failed for key "${key}"') }
+}
+
+// encode serialises `val` to a JSON string. It is the building block for
+// storing structured data in Redis types other than plain strings (e.g.
+// list elements, set members, zset members) where a dedicated _json
+// wrapper is not provided.
+//
+// Example:
+//   r.rpush('logs', r.encode(LogEntry{...}))!
+//   log := r.decode[LogEntry](r.lindex('logs', 0)!)!
+@[inline]
+pub fn (mut r Redis) encode[T](val T) string {
+	return json2.encode(val)
+}
+
+// decode parses a JSON string into T. It is the symmetric partner of
+// encode(). Unlike get_json, it does not consult Redis — use it to
+// decode values fetched via non-string commands (lindex, srandmember,
+// etc.).
+@[inline]
+pub fn (mut r Redis) decode[T](raw string) !T {
+	return json2.decode[T](raw) or { error('redis: json decode failed') }
+}

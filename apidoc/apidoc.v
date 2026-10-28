@@ -4,7 +4,7 @@ module apidoc
 //
 // init(), encode_response(), api_error() for the example application.
 import os
-import json2
+import x.json2
 
 // init initializes the API documentation module.
 pub fn init(storage_path string) !(&ApiDocStore, &Collector) {

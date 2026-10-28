@@ -156,7 +156,10 @@ pub fn new_manager() &StorageManager {
 
 // register adds a named storage disk
 pub fn (mut sm StorageManager) register(name string, adapter &Storage) {
-	sm.disks[name] = adapter
+	// 存进 map 的接口引用可能指向调用方栈帧上的对象，V 要求显式承认这一点。
+	unsafe {
+		sm.disks[name] = adapter
+	}
 	if sm.default_disk.len == 0 {
 		sm.default_disk = name
 	}

@@ -1,7 +1,7 @@
 module queue
 
 // queue_lifecycle_test.v - Lifecycle tests for Queue Worker and FailedJobs
-import json2
+import x.json2
 
 //
 // Verifies fixes for:

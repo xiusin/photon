@@ -57,8 +57,7 @@ pub fn (ctr &CookieCsrfTokenRepository) generate_token() string {
 	mut token := ''
 	mut chars_used := 0
 	for chars_used < ctr.config.token_length {
-		mut buf := []u8{len: 1}
-		crand.read(mut buf) or {
+		buf := crand.read(1) or {
 			// crypto/rand failure is fatal — do NOT fall back to weak randomness.
 			// A predictable CSRF token would defeat CSRF protection.
 			panic('crypto/rand failed: cannot generate secure CSRF token')

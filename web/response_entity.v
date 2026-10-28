@@ -31,9 +31,8 @@ module web
 //   // Error response:
 //   entity := web.not_found[string]()
 //   return entity.to_result(ctx)
-
 import veb
-import json2
+import x.json2
 import net.http
 
 // ── ResponseEntity ──

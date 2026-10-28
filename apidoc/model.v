@@ -3,7 +3,7 @@ module apidoc
 // model.v — API Documentation Data Model
 //
 // Types: ApiDocEntry, ApiDocParam, ApiDocHeader, ApiDocResponseProp
-import json2
+import x.json2
 
 // ApiDocParam represents a request parameter
 pub struct ApiDocParam {

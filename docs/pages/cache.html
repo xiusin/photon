@@ -72,6 +72,68 @@ users_cache.<span class="fn">set</span>(<span class="st">'list'</span>, <span cl
         </div>
       </div>
 
+      <!-- ═══ 2b. Redis 后端 ═══ -->
+      <div class="doc-section" id="redis-backend">
+        <div class="section-header"><div class="section-icon icon-cache">🔴</div><div><div class="section-title">Redis 后端</div><div class="section-subtitle">内建 RedisStore · 连接池 · 前缀隔离</div></div></div>
+
+        <p>框架内建 <code>RedisStore</code>，无需自己实现 <code>Cache</code> 接口。它基于仓库内
+          vendored 的 Redis 客户端（<code>xiusin.vredis</code>），用连接池扛并发。</p>
+
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">import</span> photon.cache
+
+<span class="kw">mut</span> store := cache.<span class="fn">new_redis_cache</span>(cache.<span class="tp">RedisCacheConfig</span>{
+    host: <span class="st">'127.0.0.1'</span>
+    port: <span class="nm">6379</span>
+    db: <span class="nm">0</span>
+    password: <span class="st">''</span>
+    key_prefix: <span class="st">'myapp:'</span> <span class="cm">// 多实例共享一个库时靠它隔离</span>
+    max_active: <span class="nm">20</span>       <span class="cm">// 连接池上限</span>
+})!
+
+<span class="cm">// 构造时已经 ping 过一次；连不上直接返回 error，不会把坏连接留到运行期</span>
+store.<span class="fn">set</span>(<span class="st">'user:42'</span>, <span class="st">'{"name":"Alice"}'</span>, <span class="nm">300</span>)!
+val := store.<span class="fn">get</span>(<span class="st">'user:42'</span>)!
+
+<span class="cm">// 未命中返回 error（不是空串）—— 这样才能区分「值就是空串」</span>
+<span class="kw">if</span> v := store.<span class="fn">get</span>(<span class="st">'missing'</span>) {
+    <span class="cm">// 命中</span>
+} <span class="kw">else</span> {
+    <span class="cm">// err.msg() 以 "cache miss" 开头</span>
+}
+
+store.<span class="fn">close</span>() <span class="cm">// 关闭连接池</span></div>
+        </div>
+
+        <div class="info-box info-tip">
+          <strong>接入 CacheRegistry</strong><br>
+          <code>RedisStore</code> 满足 <code>Cache</code> 接口，注册后链式 API 会真正落到 Redis 上：
+        </div>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="kw">mut</span> reg := cache.<span class="fn">new_cache_registry</span>()
+<span class="kw">mut</span> as_cache := cache.<span class="tp">Cache</span>(store)
+reg.<span class="fn">register</span>(<span class="st">'redis'</span>, as_cache)
+
+<span class="cm">// .cache('redis') 会按名字选中 RedisStore，而不是默认内存缓存</span>
+op := reg.<span class="fn">chain</span>().<span class="fn">cache</span>(<span class="st">'redis'</span>).<span class="fn">put</span>(<span class="st">'k'</span>, <span class="st">'v'</span>).<span class="fn">ttl</span>(<span class="nm">60</span>)
+op.<span class="fn">save</span>()!</div>
+        </div>
+
+        <h3>Redis 客户端为什么在仓库里</h3>
+        <p>Redis 客户端（<code>xiusin.vredis</code>）是本项目唯一的第三方依赖，已经
+          vendor 进 <code>vendor/modules/xiusin/vredis/</code> 由本仓库维护：</p>
+        <ul>
+          <li><strong>一份源码</strong>：本地、CI、Docker 用的是同一个目录，不再有「补丁未生效」的漂移</li>
+          <li><strong>真测试</strong>：<code>vredis_test.v</code> 覆盖协议、连接池、各数据类型、发布订阅（需要真实 Redis）</li>
+          <li><strong>修了上游的真缺陷</strong>：错误回复被静默丢掉、订阅流因 <code>read_line()</code> 提前返回而错位、
+            <code>PUBSUB</code> 的数组回复被读成空串、<code>SetOpts</code> 字段不可从模块外设置</li>
+        </ul>
+        <p>本地第一次使用：<code>sh scripts/sync-vendor.sh</code>（或 <code>make vendor</code>），
+          它把 <code>~/.vmodules/xiusin/vredis</code> 链接到仓库内目录。</p>
+      </div>
+
       <!-- ═══ 3. Singleflight ═══ -->
       <div class="doc-section" id="singleflight">
         <div class="section-header"><div class="section-icon icon-cache">🛡️</div><div><div class="section-title">Singleflight 防击穿</div><div class="section-subtitle">合并并发请求 · 防止缓存雪崩</div></div></div>

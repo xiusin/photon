@@ -9,7 +9,7 @@ module web
 //   - Specific handler takes priority over global
 //   - Default status mapping via err.code() (extract_status)
 //   - Last-resort 500 fallback for unknown errors
-import json2
+import x.json2
 
 // ── Custom error type ──
 

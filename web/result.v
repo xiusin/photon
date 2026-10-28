@@ -5,7 +5,7 @@ module web
 // Provides a standardized API response format with status codes,
 // messages, data payloads, and pagination support.
 // Designed for consistent REST API responses.
-import json2
+import x.json2
 import time
 
 // Result is the standard API response wrapper

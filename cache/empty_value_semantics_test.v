@@ -75,7 +75,7 @@ fn test_cacheable_interceptor_caches_empty_result() {
 	empty_semantics_loader_calls = 0
 
 	attr := CacheableAttribute{
-		cache_name: 'default'
+		cache_name:  'default'
 		ttl_seconds: 60
 	}
 	r1 := ci.get_or_compute(attr, 'find_nothing', [], fn () !string {
@@ -111,7 +111,7 @@ fn test_cache_lock_acquire_and_release() {
 }
 
 fn test_cache_lock_owner_identity_guard() {
-	cm := new_cache_registry()
+	mut cm := new_cache_registry()
 	mut l1 := new_cache_lock(cm.default_cache, 'res', 30)
 	assert l1.acquire()!
 

@@ -68,6 +68,30 @@ Module {
 }
 ```
 
+### 1.5 第三方依赖：vendor 在仓库内
+
+框架唯一的第三方代码是 Redis 客户端 `xiusin.vredis`，它被 vendor 进
+`vendor/modules/xiusin/vredis/` 由本仓库维护，`v.mod` 的 `dependencies` 因此是空的。
+
+| 项 | 说明 |
+| --- | --- |
+| 位置 | `vendor/modules/xiusin/vredis/`（module 名保持 `vredis`） |
+| 消费者 | `cache/redis_cache.v`（`import xiusin.vredis`） |
+| 接入 | `sh scripts/sync-vendor.sh` 把它链接进 `~/.vmodules/xiusin/vredis` |
+| 测试 | `vendor/modules/xiusin/vredis/vredis_test.v`（27 用例 / 135 断言，需真实 Redis） |
+
+目录布局为什么是 `vendor/modules/<owner>/<mod>`：V 的模块搜索只认
+`<project>/` 与 `<project>/modules/`，且只认一层目录名。`modules/` 让 V 把
+`vendor/` 当成模块根，`xiusin/vredis` 让 `import xiusin.vredis` 的模块名原样命中。
+单目录测试模式（`v test vendor/modules/.../`）只拿文件所在目录当搜索根、找不到
+`x.json2`，所以统一走符号链接把两边搜索根对齐。
+
+**为什么不继续 `v install` + 补丁脚本**：三处（本地 / CI / Docker）各自打补丁，
+上游一次静默改动就能让补丁失配，而失配时报的错离真因很远。vendor 之后一份源码、
+一处修改、一套测试。
+
+详见 [vendor/README.md](vendor/README.md)。
+
 ---
 
 ## 2. 模块拓扑
@@ -1049,7 +1073,7 @@ ticker:  零依赖（纯 V channel/goroutine）
 | config | 无 | 纯标准库 |
 | support | 无 | 纯标准库 |
 | ticker | 无 | 纯 V channel |
-| cache | 无 | support 可选 |
+| cache | xiusin.vredis（vendored） | 仅 RedisStore 需要；内存后端零依赖 |
 | pool | orm (db_pool) | 仅 DbPool 依赖 orm.DriverType |
 | locking | 无 | cache 可选（分布式锁后端） |
 | queue | 无 | 无外部依赖 |
@@ -1060,6 +1084,10 @@ ticker:  零依赖（纯 V channel/goroutine）
 | orm | 无 | V 标准 orm 不可用（同名冲突） |
 | web | 无 | veb 外部依赖 |
 | cli | 无 | 标准库 os |
+
+> **外部依赖**：`cache/redis_cache.v` 是唯一 import 第三方代码的文件，依赖仓库内
+> vendored 的 `xiusin.vredis`。其余模块（含 locking 的 `RedisDistributedLock`）通过
+> 接口解耦，不直接依赖具体 Redis 客户端。
 
 > **关键限制**：由于 V 0.5.1 不允许同名模块 import，`photon/orm` (module orm) 无法 import V 标准 `orm`。ORM 通过 `OrmAdapter[T]` 包装 + 用户手动调用 V ORM 的方式实现。
 

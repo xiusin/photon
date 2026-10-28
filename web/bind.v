@@ -18,7 +18,7 @@ module web
 //   dto := web.bind[LoginDto](ctx) or { return app.text('invalid') }
 //   dto_json := web.bind_json[CreateUserDto](ctx) or { ... }
 import veb
-import json2
+import x.json2
 
 // ============================================================
 // Query/Form Binding (like Spring @ModelAttribute)
@@ -256,7 +256,6 @@ fn validate_struct[T](mut result T) ! {
 			}
 		}
 	}
-
 	if errors.len > 0 {
 		return error(errors.join('; '))
 	}

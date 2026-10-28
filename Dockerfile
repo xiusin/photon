@@ -20,8 +20,7 @@ WORKDIR /app/photon
 # example/ is a single `main` module spread over several files, so the whole
 # directory must be compiled — pointing v at example/main.v alone loses every
 # type declared in its siblings.
-RUN v install xiusin.vredis && \
-    sh scripts/patch-vredis.sh && \
+RUN sh scripts/sync-vendor.sh && \
     mkdir -p bin && \
     v -enable-globals -prod -o bin/photon example/ && \
     ls -lh bin/

@@ -47,7 +47,9 @@ pub fn new_cache_registry() &CacheRegistry {
 pub fn (mut cm CacheRegistry) register(name string, c &Cache) {
 	cm.mu.@lock()
 	defer { cm.mu.unlock() }
-	cm.caches[name] = c
+	unsafe {
+		cm.caches[name] = c
+	}
 }
 
 // unregister removes a named cache from the registry under write lock.
@@ -86,6 +88,42 @@ pub fn (cm &CacheRegistry) has_immutable(key string) bool {
 	unsafe {
 		return cm.default_cache.has(key)
 	}
+}
+
+// get_from 从指定名字的缓存取值，名字不存在时回落到默认缓存。
+//
+// `get()`/`set()` 系列永远打默认缓存，链式 CacheOperation 的 `.cache(name)`
+// 此前就挂在这里：名字记下来了，但终端方法仍然打默认缓存，于是
+// `reg.chain().cache('redis').put(...)` 写到了内存缓存上，而
+// `store.get(...)` 永远未命中 —— 不报错，但写错了地方。
+pub fn (mut cm CacheRegistry) get_from(name string, key string) !string {
+	mut c := cm.get_cache(name)
+	return c.get(key)
+}
+
+// set_to 向指定名字的缓存写值，名字不存在时回落到默认缓存。
+pub fn (mut cm CacheRegistry) set_to(name string, key string, value string, ttl_seconds int) ! {
+	mut c := cm.get_cache(name)
+	c.set(key, value, ttl_seconds)!
+}
+
+// delete_from 从指定名字的缓存删除键。
+pub fn (mut cm CacheRegistry) delete_from(name string, key string) ! {
+	mut c := cm.get_cache(name)
+	c.delete(key)!
+}
+
+// get_or_load_from 是 get_or_load 的指定缓存版本。
+pub fn (mut cm CacheRegistry) get_or_load_from(name string, key string, ttl_seconds int, loader fn () !string) !string {
+	// 命中的判定必须是「取到了」而非「值非空」：空串是合法缓存值。
+	mut c := cm.get_cache(name)
+	if cached := c.get(key) {
+		return cached
+	}
+	loaded := loader()!
+	mut w := cm.get_cache(name)
+	w.set(key, loaded, ttl_seconds)!
+	return loaded
 }
 
 // get retrieves a value from the default cache

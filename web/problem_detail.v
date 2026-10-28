@@ -35,9 +35,8 @@ module web
 //   return detail.to_result(mut ctx)
 //
 // Spring equivalent: org.springframework.http.ProblemDetail
-
 import veb
-import json2
+import x.json2
 import net.http
 
 // ── ProblemDetail ──
@@ -153,7 +152,10 @@ pub fn (mut pd ProblemDetail) set_instance(instance string) ProblemDetail {
 
 // add_error adds a field-level validation error. Returns self for chaining.
 pub fn (mut pd ProblemDetail) add_error(field string, message string) ProblemDetail {
-	pd.errors << FieldError{ field: field, message: message }
+	pd.errors << FieldError{
+		field:   field
+		message: message
+	}
 	return *pd
 }
 

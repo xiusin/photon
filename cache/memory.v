@@ -374,8 +374,7 @@ fn (mut mc MemoryCache) start_gc() {
 				_ := <-mc.gc_ch {
 					return
 				}
-				else {
-				}
+				else {}
 			}
 			unsafe { mc.evict_expired() }
 			// Retire once the cache is empty AND untouched since the previous
@@ -429,10 +428,8 @@ fn (mut mc MemoryCache) is_empty() bool {
 // automatically (a later set() restarts the sweeper).
 pub fn (mut mc MemoryCache) close() {
 	select {
-		mc.gc_ch <- true {
-		}
-		else {
-		}
+		mc.gc_ch <- true {}
+		else {}
 	}
 }
 

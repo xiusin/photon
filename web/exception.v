@@ -40,7 +40,7 @@ module web
 //   mut resolver := new_exception_resolver()
 //   resolver.register_handler('NotFoundError', NotFoundAdvice{})
 //   status, body := resolver.resolve(err)!
-import json2
+import x.json2
 import sync
 
 // ── HttpException ──

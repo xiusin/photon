@@ -19,7 +19,7 @@ module security
 //       // 处理错误
 //       ''
 //   }
-import json2
+import x.json2
 import net.http
 
 // TokenPostType token 交换的请求格式

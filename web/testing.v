@@ -24,7 +24,7 @@ module web
 //   web.response_with_headers(302, '', {'Location': '/login'})
 //       .assert_redirect('/login')
 //       .dump()
-import json2
+import x.json2
 import math
 
 // TestResponse wraps an HTTP response for fluent assertions.

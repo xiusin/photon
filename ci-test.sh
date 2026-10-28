@@ -9,6 +9,7 @@ set -e
 
 VFLAGS="-enable-globals"
 MODULES="core config logger security cli web orm http queue support ticker cache pool locking async photon_i18n health metrics mailer retry storage tracing apidoc"
+VENDOR_MODULES="vendor/modules/xiusin/vredis"
 
 echo ""
 echo "=============================================="
@@ -21,12 +22,10 @@ echo "→ Step 1: V version"
 v --version
 echo ""
 
-echo "→ Step 1b: Module dependencies"
-# v.mod 声明 xiusin.vredis；上游版本在 V 0.5.2 下编不过，装完打补丁。
-if [ ! -d "$HOME/.vmodules/xiusin/vredis" ]; then
-    v install xiusin.vredis
-fi
-sh scripts/patch-vredis.sh
+echo "→ Step 1b: Vendored dependencies"
+# 唯一的第三方代码 vendor 在仓库内（vendor/modules/xiusin/vredis）。
+# 这一步把它链接进 V 的模块搜索路径，本地与 CI 用的是同一份源码。
+sh scripts/sync-vendor.sh
 echo ""
 
 # Step 2: Check formatting (non-blocking)
@@ -55,6 +54,18 @@ if [ $FAIL -gt 0 ]; then
     echo "❌ CI FAILED: $FAIL module(s) failed"
     exit 1
 fi
+
+# Step 3b: Vendored dependency tests (needs a reachable Redis; skipped otherwise)
+echo "→ Step 3b: Vendored module tests"
+for mod in $VENDOR_MODULES; do
+    if v $VFLAGS test "$mod/" >/dev/null 2>&1; then
+        echo "  [OK]   $mod/"
+    else
+        echo "  [FAIL] $mod/"
+        FAIL=$((FAIL + 1))
+    fi
+done
+echo ""
 
 # Step 4: Build example
 echo "→ Step 4: Build Example"

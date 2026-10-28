@@ -1,0 +1,143 @@
+<!-- title: 依赖与 Vendor · Photon Framework -->
+<!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>依赖与 Vendor -->
+<div class="hero">
+  <h1>依赖与 Vendor</h1>
+  <p>Photon 唯一的第三方依赖是 Redis 客户端，它被 vendor 进仓库由本仓库维护 —— 一份源码、一处修改、一套测试。</p>
+  <div class="hero-tags"><span class="hero-tag">📦 零外部依赖</span><span class="hero-tag">vendor/modules/xiusin/vredis</span><span class="hero-tag">functional coverage</span></div>
+</div>
+
+<!-- ═══ 1. 现状 ═══ -->
+<div class="doc-section" id="overview">
+  <div class="section-header"><div class="section-icon icon-core">📦</div><div><div class="section-title">依赖现状</div><div class="section-subtitle">框架本体不依赖任何外部模块</div></div></div>
+
+  <table class="doc-table">
+    <tr><th>依赖</th><th>位置</th><th>角色</th><th>维护方式</th></tr>
+    <tr><td><code>xiusin.vredis</code></td><td><code>vendor/modules/xiusin/vredis/</code></td><td>Redis 客户端（缓存 / 队列 / 分布式锁后端）</td><td>本仓库维护</td></tr>
+  </table>
+
+  <p><code>v.mod</code> 里的 <code>dependencies</code> 现在是空的 —— 唯一曾经的外部依赖已经进仓库了。
+    其余 23 个模块（core / config / web / orm / cache / locking / queue …）只用 V 标准库。</p>
+
+  <div class="info-box info-tip">
+    <strong>为什么不再用 <code>v install</code></strong><br>
+    上游 vredis 写于更早的 V 版本，在 V 0.5.2 上需要打补丁才能编译。补丁脚本意味着
+    CI、本地、Docker 三处各自打补丁，上游一次静默改动就能让补丁失配 —— 而失配时报的错
+    离真因很远。vendor 进仓库后，这些都不再存在。
+  </div>
+</div>
+
+<!-- ═══ 2. 接入方式 ═══ -->
+<div class="doc-section" id="setup">
+  <div class="section-header"><div class="section-icon icon-core">🔗</div><div><div class="section-title">本地接入</div><div class="section-subtitle">一条命令，幂等</div></div></div>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">sh</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+    <div class="code-body"><span class="cm"># 把 ~/.vmodules/xiusin/vredis 链接到仓库内目录</span>
+sh scripts/sync-vendor.sh
+<span class="cm"># 等价于</span>
+make vendor</div>
+  </div>
+
+  <p>之后 <code>v test cache/</code>、<code>v test vendor/modules/xiusin/vredis/</code>、
+    <code>v -prod example/</code> 都能正常工作。CI、Dockerfile、<code>ci-test.sh</code> 用的是同一条命令。</p>
+
+  <h3>为什么需要这一步</h3>
+  <p>V 的模块搜索只认 <code>&lt;project&gt;/</code> 与 <code>&lt;project&gt;/modules/</code>，而且只认一层目录名。
+    <code>vendor/modules/xiusin/vredis</code> 满足了目录布局（<code>modules/</code> 让 V 把它当模块根），
+    但 <code>v test vendor/modules/xiusin/vredis/</code> 这种单目录模式只把文件所在目录当搜索根，
+    找不到 <code>x.json2</code>。符号链接把两边的搜索根对齐。</p>
+
+  <table class="doc-table">
+    <tr><th>命令</th><th>结果</th></tr>
+    <tr><td><code>make test</code> / <code>v test cache/</code></td><td>通过 <code>~/.vmodules</code> 找到 vredis 与 x.json2</td></tr>
+    <tr><td><code>make test-vendor</code></td><td>对真实 Redis 跑 vredis 的功能覆盖测试</td></tr>
+    <tr><td><code>make test-all</code></td><td>先 <code>make vendor</code>，再跑全部 23 个模块</td></tr>
+  </table>
+</div>
+
+<!-- ═══ 3. 修了什么 ═══ -->
+<div class="doc-section" id="fixes">
+  <div class="section-header"><div class="section-icon icon-core">🔧</div><div><div class="section-title">为 V 0.5.2 与新语义做的修改</div><div class="section-subtitle">每一处都在源码里有注释</div></div></div>
+
+  <table class="doc-table">
+    <tr><th>位置</th><th>改动</th><th>原因</th></tr>
+    <tr><td><code>import json</code></td><td>→ <code>import x.json2</code></td><td>V 0.5.2 的 JSON 模块挂在 <code>x.json2</code></td></tr>
+    <tr><td><code>Reply</code> 读取器</td><td>错误回复转成 Result error</td><td>见下：错误被静默丢掉</td></tr>
+    <tr><td><code>SetOpts</code></td><td>字段加 <code>pub:</code></td><td>模块外根本无法构造 <code>SetOpts{nx: true}</code></td></tr>
+    <tr><td><code>Pool.get()</code></td><td><code>select</code> 分支改用 <code>ClientHandle</code></td><td>V 0.5.2 的 select 分支变量不可变</td></tr>
+    <tr><td><code>Protocol</code></td><td>新增 <code>read_exact_line()</code></td><td><code>TcpConn.read_line()</code> 在 <code>\r\n</code> 行尾会提前返回</td></tr>
+    <tr><td><code>pubsub()</code></td><td>返回 <code>&amp;Reply</code> 而非 <code>string</code></td><td>数组回复被 <code>bytestr()</code> 读成空串</td></tr>
+    <tr><td><code>subscribe_()</code></td><td>超时改 24h 而非 0</td><td><code>net</code> 把 <code>read_timeout = 0</code> 当「立刻超时」</td></tr>
+  </table>
+
+  <h3>「不报错但结果是错的」四连</h3>
+  <p>上游把 <code>-ERR ...</code> 解析成 <code>Reply.kind == .error</code> 之后就不再处理。
+    所有返回值型命令都用 <code>.ok()</code> / <code>.int()</code> / <code>.str()</code> 判读，于是：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+    <div class="code-body"><span class="cm">// 1. INCR 打在非数字值上 → Redis 回 -ERR，上游 .int() 把错误文本读成 0</span>
+<span class="cm">// 2. SET k v NX 撞上已存在的键 → nil 回复，.ok() = false，看着像「业务不满足」</span>
+<span class="cm">// 3. RENAME 目标不存在 → -ERR，.ok() = false</span>
+<span class="cm">// 4. 订阅循环 read_line() 提前返回 → 订阅成功但一条消息都收不到</span>
+
+<span class="cm">// 现在所有 !T 命令包装都先过 reply_or_err()：</span>
+<span class="kw">if</span> v := client.<span class="fn">incr</span>(<span class="st">'not-a-number'</span>) {
+  <span class="cm">// 不会走到这里</span>
+} <span class="kw">else</span> {
+  <span class="cm">// err.msg() 以 "redis: ERR value is not an integer" 开头</span>
+}</div>
+  </div>
+</div>
+
+<!-- ═══ 4. 测试 ═══ -->
+<div class="doc-section" id="testing">
+  <div class="section-header"><div class="section-icon icon-core">🧪</div><div><div class="section-title">功能覆盖测试</div><div class="section-subtitle">27 个用例 / 135 断言 / 真连真用</div></div></div>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">sh</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+    <div class="code-body"><span class="cm"># 需要本机 127.0.0.1:6379 的 Redis（CI 用 service 容器）</span>
+make test-vendor
+
+<span class="cm"># 只测 vredis</span>
+v -enable-globals test -stats vendor/modules/xiusin/vredis/
+
+<span class="cm"># cache 模块的 Redis 集成测试（含并发、TTL、前缀隔离、链式接线）</span>
+v -enable-globals test cache/</div>
+  </div>
+
+  <table class="doc-table">
+    <tr><th>覆盖范围</th><th>要点</th></tr>
+    <tr><td>协议</td><td>RESP 数组编码、二进制安全的 bulk string、CRLF 边界值往返</td></tr>
+    <tr><td>字符串 / 数值</td><td>SET/GET/GETSET/APPEND/SETRANGE、INCR 系列、位操作、SET NX/XX、MGET</td></tr>
+    <tr><td>哈希 / 列表 / 集合 / 有序集合</td><td>全命令族 + JSON 帮工（<code>hset_json</code> / <code>hget_json</code>）</td></tr>
+    <tr><td>键空间</td><td>KEYS / SCAN 游标、TTL 生命周期、RENAME、TYPE、DBSIZE</td></tr>
+    <tr><td>Lua</td><td>EVAL / SCRIPT LOAD / EVALSHA / SCRIPT EXISTS</td></tr>
+    <tr><td>发布订阅</td><td>订阅注册、消息投递、超时语义</td></tr>
+    <tr><td>连接池</td><td>借用/归还、max_active 上限、连接复用、关闭后拒绝</td></tr>
+    <tr><td>缓存集成</td><td>未命中报 error、空串往返、TTL 过期、前缀隔离、8 协程并发不串数据</td></tr>
+  </table>
+
+  <div class="info-box info-tip">
+    <strong>Redis 不可达时整体 skip</strong><br>
+    测试会明确打印「127.0.0.1:6379 不可达，跳过」，不会把「本机没装 Redis」伪装成通过。
+  </div>
+</div>
+
+<!-- ═══ 5. 升级 ═══ -->
+<div class="doc-section" id="upgrade">
+  <div class="section-header"><div class="section-icon icon-core">⬆️</div><div><div class="section-title">升级上游</div><div class="section-subtitle">三步，然后看测试</div></div></div>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">sh</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+    <div class="code-body"><span class="cm"># 1. 拉上游，只取 .v 源码</span>
+git clone --depth 1 https://github.com/xiusin/vredis /tmp/vredis-upstream
+cp /tmp/vredis-upstream/*.v vendor/modules/xiusin/vredis/
+
+<span class="cm"># 2. 重新应用「修了什么」表格里的差异（源码里都有注释标记）</span>
+<span class="cm"># 3. 验证</span>
+make test-vendor && make test-all</div>
+  </div>
+
+  <p>详细说明见 <code>vendor/README.md</code>。</p>
+</div>

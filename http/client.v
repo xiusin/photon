@@ -11,7 +11,7 @@
 // ============================================================
 module http
 
-import json2
+import x.json2
 import time
 import net.http as vhttp
 import strings
@@ -183,7 +183,7 @@ pub fn (r ResponseEntity) is_5xx() bool {
 
 // body_as deserialises the response body into T (Spring's getBody())
 pub fn (r ResponseEntity) body_as[T]() !T {
-	return json2.decode[T]( r.body)
+	return json2.decode[T](r.body)
 }
 
 // header_value returns a single header value (Spring's getHeaders().getFirst())
@@ -303,7 +303,7 @@ pub fn (rt RestTemplate) set_default_header(key string, value string) RestTempla
 	mut r := rt
 	mut headers := r.default_headers.clone()
 	headers[key] = value
-	r.default_headers = headers
+	r.default_headers = headers.move()
 	return r
 }
 
@@ -313,7 +313,7 @@ pub fn (rt RestTemplate) set_default_headers(h map[string]string) RestTemplate {
 	for k, v in h {
 		headers[k] = v
 	}
-	r.default_headers = headers
+	r.default_headers = headers.move()
 	return r
 }
 
@@ -512,10 +512,10 @@ fn (rt RestTemplate) execute_http(entity RequestEntity) !ResponseEntity {
 	}
 
 	config := vhttp.FetchConfig{
-		method:      method_from_string(entity.method)
-		url:         entity.url
-		header:      header_from_map(entity.headers)
-		data:        entity.body
+		method: method_from_string(entity.method)
+		url:    entity.url
+		header: header_from_map(entity.headers)
+		data:   entity.body
 		// NOTE: net.http.FetchConfig (V 0.5.1) does not expose read/write
 		// timeout fields, so rt.read_timeout / rt.connect_timeout cannot be
 		// applied here. Retained in RequestTemplate for future API support.
@@ -637,8 +637,7 @@ fn execute_with_retry(config vhttp.FetchConfig, max_retries int, base_delay int)
 		}
 		// Response received: retry only on 5xx server errors.
 		// 4xx client errors (and everything else) are returned as-is.
-		if retryable && resp.status_code >= 500 && resp.status_code < 600
-			&& attempt < max_retries {
+		if retryable && resp.status_code >= 500 && resp.status_code < 600 && attempt < max_retries {
 			attempt++
 			delay := base_delay * (1 << u32(attempt - 1))
 			time.sleep(i64(delay) * time.millisecond)

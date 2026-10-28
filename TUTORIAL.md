@@ -912,11 +912,51 @@ mc.stats()                         // CacheStats{total_entries, expired_entries,
 mut mc := cache.new_memory_cache_with_max('limited', 100)  // 最多 100 条
 ```
 
-### 7.3 自定义缓存后端
+### 7.3 内建 Redis 后端
+
+生产上一般直接换 Redis，而不是自己实现后端：
 
 ```v
-cm.register('redis', &my_redis_cache)     // 注册命名缓存
-cm.get_cache('redis')                      // 获取命名缓存
+mut store := cache.new_redis_cache(cache.RedisCacheConfig{
+    host: '127.0.0.1'
+    port: 6379
+    db: 0
+    key_prefix: 'myapp:'   // 多实例共享一个库时靠它隔离
+    max_active: 20         // 连接池上限
+})!
+
+// 构造时已经 ping 过：连不上直接返回 error
+store.set('user:42', '{"name":"Alice"}', 300)!
+store.get('user:42')!
+
+// 未命中返回 error，而不是空串 —— 否则「值为空串」和「键不存在」分不开
+if v := store.get('missing') {
+    // 命中
+} else {
+    // err.msg() 以 "cache miss" 开头
+}
+
+store.close()
+```
+
+注册进 registry 后，链式 API 会真正落到 Redis（`.cache(name)` 会按名字选后端）：
+
+```v
+mut reg := cache.new_cache_registry()
+mut as_cache := cache.Cache(store)
+reg.register('redis', as_cache)
+
+reg.chain().cache('redis').put('k', 'v').ttl(60).save()!
+```
+
+> Redis 客户端 vendor 在 `vendor/modules/xiusin/vredis/`，由本仓库维护；本地第一次用
+> 先跑 `sh scripts/sync-vendor.sh`。详见 [vendor/README.md](vendor/README.md)。
+
+### 7.4 自定义缓存后端
+
+```v
+cm.register('mine', &my_cache)            // 注册命名缓存
+cm.get_cache('mine')                       // 获取命名缓存
 cm.get_cache('nonexistent')               // 回退到 default
 ```
 
@@ -935,7 +975,7 @@ mut:
 }
 ```
 
-### 7.4 缓存标签
+### 7.5 缓存标签
 
 标签缓存可以按组批量失效：
 
@@ -946,7 +986,7 @@ tc.set('user:2', '{"name":"Bob"}', 3600)!
 tc.flush()!    // 使 'users' 标签下的所有缓存失效
 ```
 
-### 7.5 缓存锁
+### 7.6 缓存锁
 
 ```v
 mut cl := cache.new_cache_lock(my_cache, 'import-lock', 10)  // name, TTL 秒
@@ -959,7 +999,7 @@ cl.release()!                   // 释放（只有 owner 能释放）
 cl.force_release()!             // 强制释放
 ```
 
-### 7.6 get_or_load（缓存穿透削峰）
+### 7.7 get_or_load（缓存穿透削峰）
 
 高并发下只执行一次加载，其他请求等待结果：
 
@@ -980,7 +1020,7 @@ sf.has_inflight('key')      // 是否正在执行
 sf.inflight_count()          // 当前并发数
 ```
 
-### 7.7 辅助函数
+### 7.8 辅助函数
 
 ```v
 // 记住（缓存不存在就加载）

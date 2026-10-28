@@ -1,6 +1,6 @@
 module apidoc
 
-import json2
+import x.json2
 
 // apidoc_test.v — apidoc 模块的行为契约
 //

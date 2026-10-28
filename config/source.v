@@ -10,7 +10,7 @@ module config
 // Both interfaces use mut receivers for their methods to support
 // lazy loading of property data from external sources.
 import os
-import json2
+import x.json2
 
 // FileConfigSource loads configuration from a file (JSON or properties format)
 pub struct FileConfigSource {
@@ -66,7 +66,9 @@ pub fn (mut s FileConfigSource) load() !map[string]string {
 // ensure_loaded lazily loads the config data if not already loaded.
 fn (mut s FileConfigSource) ensure_loaded() {
 	if !s.loaded {
-		s.cached = s.load() or { map[string]string{} }
+		s.cached = s.load() or {
+			map[string]string{}
+		}
 		s.loaded = true
 	}
 }

@@ -33,6 +33,7 @@ import time
 
 // Counter is a thread-safe counter for verifying task execution.
 // Must be heap-allocated (&Counter) when shared with closures.
+@[heap]
 struct Counter {
 mut:
 	mu    sync.Mutex
@@ -150,10 +151,8 @@ fn test_try_submit_returns_false_when_full() {
 	// to prevent the worker from blocking shutdown's task_wg.wait() forever.
 	defer {
 		select {
-			barrier <- true {
-			}
-			else {
-			}
+			barrier <- true {}
+			else {}
 		}
 		te.shutdown()
 	}
@@ -177,10 +176,8 @@ fn test_try_submit_returns_false_when_full() {
 
 	// Release the worker and let everything drain.
 	select {
-		barrier <- true {
-		}
-		else {
-		}
+		barrier <- true {}
+		else {}
 	}
 	te.wait_all()
 }
@@ -530,17 +527,17 @@ fn test_async_annotation_integration() {
 // 有限时间内返回，并且所有已提交任务都已执行完。
 fn test_shutdown_with_pending_tasks_does_not_deadlock() {
 	mut te := new_task_executor(2, 4)
-	shared := new_counter()
+	mut counter := new_counter()
 
 	for _ in 0 .. 32 {
-		te.submit(fn [shared] () {
-			shared.increment()
+		te.submit(fn [mut counter] () {
+			counter.increment()
 		})!
 	}
 
 	te.shutdown()
 
-	assert shared.get() == 32, 'tasks were lost by shutdown(): got ${shared.get()}'
+	assert counter.get() == 32, 'tasks were lost by shutdown(): got ${counter.get()}'
 }
 
 fn test_shutdown_is_idempotent() {
