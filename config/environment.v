@@ -174,7 +174,7 @@ fn (mut e Environment) resolve_placeholders_with_visited(text string, visited []
 		}
 
 		resolved_raw := e.get_property_or(key, default_val)
-		// Recursively resolve if the value itself contains placeholders
+		// Recursively resolve if the value itself contains placeholders.
 		mut resolved := resolved_raw
 		if resolved_raw.contains(open_pattern) {
 			mut new_visited := visited.clone()
@@ -182,11 +182,21 @@ fn (mut e Environment) resolve_placeholders_with_visited(text string, visited []
 			resolved = e.resolve_placeholders_with_visited(resolved_raw, new_visited)
 		}
 
+		// Scan position is a property of the *text being scanned*, not of the
+		// rebuilt string. The previous version advanced `start` by the length
+		// of the resolved value, which only stayed correct when the placeholder
+		// sat at offset 0 — otherwise the next placeholder could be skipped (or
+		// the same one re-resolved) as soon as a substitution changed the length
+		// of the text in front of it.
+		//
+		// Typed as i64 so V's smartcast machinery keeps rejecting a possibly
+		// negative value instead of converting it to an array index.
+		next_start := i64(open_pos) + i64(resolved.len)
 		result = result[..open_pos] + resolved + result[close_pos + 1..]
-		start = open_pos + resolved.len
-		if start >= result.len {
+		if next_start >= i64(result.len) {
 			break
 		}
+		start = int(next_start)
 	}
 	return result
 }

@@ -30,10 +30,13 @@ pub type RouteHandler = fn (ctx_ptr voidptr, params map[string]string) veb.Resul
 @[heap]
 pub struct RouteDef {
 pub:
-	method            string // GET / POST / PUT / DELETE / PATCH
-	path              string // 原始路径，如 /api/v1/users/:id
-	handler           RouteHandler = unsafe { nil } // 处理器闭包
-	segments          []RouteSegment   // 编译后的路径段
+	method   string // GET / POST / PUT / DELETE / PATCH
+	path     string // 原始路径，如 /api/v1/users/:id
+	handler  RouteHandler = unsafe { nil } // 处理器闭包
+	segments []RouteSegment // 编译后的路径段
+	// static_count 是 segments 里静态段的数量，注册期算好。
+	// 参数路由之间的「谁更具体」排序要用它，见 find_route()。
+	static_count      int
 	middlewares       []MiddlewareFunc // 路由级前置中间件
 	after_middlewares []MiddlewareFunc // 路由级后置中间件
 	host              string           // 路由级 host 限制（空 = 不限制）
@@ -68,13 +71,7 @@ pub fn parse_path(path string) []RouteSegment {
 
 // match_route 检查 URL 是否匹配路由定义，若匹配返回路径参数
 pub fn match_route(url_path string, route &RouteDef) ?map[string]string {
-	url_parts := url_path.split('/')
-	mut url_words := []string{}
-	for part in url_parts {
-		if part.len > 0 {
-			url_words << part
-		}
-	}
+	url_words := split_url_words(url_path)
 	route_words := route.segments
 
 	// 段数必须一致
@@ -102,10 +99,12 @@ fn route_static_key(method string, host string, path string) string {
 	return method + ':' + host + ':' + key_path
 }
 
-// static_segment_score 统计路由里静态段的数量 —— 参数路由之间的具体程度排序依据。
-fn static_segment_score(route &RouteDef) int {
+// static_segment_score_of 数一段路由里「静态段」的个数。
+// 只在注册期调用一次（见 RouteRegistry.add_route），结果存进
+// RouteDef.static_count —— 匹配路径上不再重复遍历 segments。
+fn static_segment_score_of(segments []RouteSegment) int {
 	mut n := 0
-	for seg in route.segments {
+	for seg in segments {
 		if !seg.is_param {
 			n++
 		}
@@ -113,11 +112,46 @@ fn static_segment_score(route &RouteDef) int {
 	return n
 }
 
-// count_url_segments 统计 URL 路径的有效段数（跳过空段）
-fn count_url_segments(url_path string) int {
+// static_segment_score 读注册期算好的静态段数量 —— 参数路由之间的具体程度
+// 排序依据。O(1)。
+@[inline]
+fn static_segment_score(route &RouteDef) int {
+	return route.static_count
+}
+
+// split_url_words 按 '/' 切分 URL 并丢掉空段（'/a//b/' → ['a','b']）。
+//
+// 单次扫描：旧实现先 split 出一个容器再逐个 push 到第二个容器，每个请求
+// 多一次分配 + 一次拷贝。
+fn split_url_words(url_path string) []string {
+	mut words := []string{cap: 4}
+	mut start := 0
+	for i in 0 .. url_path.len {
+		if url_path[i] == `/` {
+			if i > start {
+				words << url_path[start..i]
+			}
+			start = i + 1
+		}
+	}
+	if start < url_path.len {
+		words << url_path[start..]
+	}
+	return words
+}
+
+// count_url_words 返回 URL 路径的有效段数（跳过空段）。
+// 与 split_url_words().len 同语义，但不分配切片。
+fn count_url_words(url_path string) int {
 	mut count := 0
-	for part in url_path.split('/') {
-		if part.len > 0 {
+	mut in_word := false
+	for i in 0 .. url_path.len {
+		if url_path[i] == `/` {
+			in_word = false
+			continue
+		}
+		if !in_word {
+			in_word = true
 			count++
 		}
 	}
@@ -174,7 +208,7 @@ pub fn find_route(rr &RouteRegistry, method string, url_path string, host string
 	// `/files/:id/download`（2 个静态段）必须赢过 `/files/:id/:action`
 	// （1 个静态段），否则后者按注册顺序先落座，前者永远不可达 —— 不报错，
 	// 只是请求走进了别的 handler。
-	seg_count := count_url_segments(url_path)
+	seg_count := count_url_words(url_path)
 	req_host := host.to_lower()
 	bucket := rr.param_routes[seg_count] or { []&RouteDef{} }
 	mut best := unsafe { nil }

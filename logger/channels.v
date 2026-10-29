@@ -59,7 +59,7 @@ pub:
 	// max_backups 保留的历史文件份数（.1 .. .N），0 表示不保留
 	max_backups int = 3
 mut:
-	file os.File   // cached handle, kept open between writes
+	file os.File // cached handle, kept open between writes
 	// written 是当前文件已写入的字节数，打开文件时按实际大小初始化
 	written i64
 	// rotations 累计轮转次数（诊断用），由 mu 保护
@@ -147,9 +147,7 @@ fn (mut c FileChannel) rotate_locked() {
 	// 最旧的一份直接删掉，否则改名会一路撞名。
 	oldest := c.backup_path(c.max_backups)
 	if os.exists(oldest) {
-		os.rm(oldest) or {
-			eprintln('[LOG ERROR] Failed to remove oldest log backup: ${oldest}')
-		}
+		os.rm(oldest) or { eprintln('[LOG ERROR] Failed to remove oldest log backup: ${oldest}') }
 	}
 	// 从最旧的往里顺延：文件名里的序号是 int，不能拿字符串排序代替。
 	// V 的 for 条件只支持 `<`，倒序用 while 表达。
@@ -434,6 +432,39 @@ const sensitive_patterns = [
 	'private_key',
 ]
 
+// may_contain_sensitive_key reports whether `msg` has any chance of containing
+// a redactable pair, matching case-insensitively and without allocating the
+// lowercased copy the slow path would build (`AUTHORIZATION:` is a header just
+// as much as `authorization:` is).
+//
+// It is a filter, not a decision: a hit only means "worth running the full
+// scan", which then validates the key/separator shape.
+fn may_contain_sensitive_key(msg string) bool {
+	for pattern in sensitive_patterns {
+		if contains_ignore_ascii_case(msg, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// contains_ignore_ascii_case reports whether `haystack` contains `needle`,
+// comparing ASCII letters case-insensitively. Allocation-free.
+fn contains_ignore_ascii_case(haystack string, needle string) bool {
+	if needle.len == 0 {
+		return true
+	}
+	if haystack.len < needle.len {
+		return false
+	}
+	for i in 0 .. haystack.len - needle.len + 1 {
+		if eq_ignore_ascii_case(haystack, i, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 // mask_separator_index returns the offset of the separator that sits between a
 // sensitive key and its value, or -1 when the text right after the key is not
 // a `key<sep>value` shape.
@@ -542,13 +573,31 @@ const mask_value_separators = [' ', ',', '\n', '&', ';', '"', "'"]
 // overlapping masks collapse into one. `pos` only ever moves past the key that
 // was just matched, so the loop always terminates.
 pub fn mask_sensitive_data(msg string) string {
-	lower := msg.to_lower()
-	if lower.len == 0 {
+	if msg.len == 0 {
 		return msg
 	}
 
+	// Fast path: most lines carry no sensitive key at all. Scanning the raw
+	// message for the needles before lowercasing it means the common case
+	// allocates nothing and runs ~1 memchr pass per pattern.
+	//
+	// The lowercase pass below is unavoidable in general (a header can arrive
+	// as `AUTHORIZATION:`), but it is only worth paying when there is
+	// something to mask.
+	//
+	// `bearer <token>` is the one shape this filter must not gate: it carries
+	// no key/separator pair, so it is detected on its own below.
+	lower := if may_contain_sensitive_key(msg) { msg.to_lower() } else { '' }
+
 	// Byte ranges to replace with '***'.
 	mut spans := [][]int{}
+	if lower.len == 0 {
+		// Nothing key-shaped in this line; only the bearer scan may apply.
+		if has_bearer_credential(msg) {
+			return mask_bearer_tokens(msg)
+		}
+		return msg
+	}
 	for pattern in sensitive_patterns {
 		mut pos := 0
 		for {
@@ -600,26 +649,83 @@ pub fn mask_sensitive_data(msg string) string {
 
 	mut result := if spans.len == 0 { msg } else { apply_mask_spans(msg, spans) }
 
-	if result.to_lower().contains('bearer ') {
-		mut masked := ''
-		mut i := 0
-		for i < result.len {
-			rest := result[i..].to_lower()
-			if rest.starts_with('bearer ') {
-				token_start := i + 7
-				mut token_end := token_start
-				for token_end < result.len && result[token_end] != ` ` && result[token_end] != `\n` {
-					token_end++
-				}
-				masked += result[i..token_start] + '***'
-				i = token_end
-			} else {
-				masked += result[i].ascii_str()
-				i++
-			}
-		}
-		result = masked
+	// `Bearer <token>` is the one shape the key/value scan cannot see (there is
+	// no separator). Detect it on the already-lowercased snapshot instead of
+	// lowercasing the line a second time, then rebuild in one pass.
+	//
+	// A line whose key scan found nothing (`lower.len == 0`) took the early
+	// return above, so a fresh `lower` is never needed here.
+	if lower.contains('bearer ') {
+		result = mask_bearer_tokens(result)
 	}
 
 	return result
+}
+
+// has_bearer_credential reports whether `text` contains a `bearer ` credential,
+// case-insensitively and without allocating a lowercased copy of the line.
+//
+// This gate is what keeps `Bearer ...` masking off the hot path: the previous
+// version lowercased the entire log line just to run `.contains('bearer ')`.
+fn has_bearer_credential(text string) bool {
+	needle := 'bearer '
+	if text.len < needle.len {
+		return false
+	}
+	for i in 0 .. text.len - needle.len + 1 {
+		if !eq_ignore_ascii_case(text, i, needle) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// eq_ignore_ascii_case reports whether text[pos..] starts with `needle`,
+// comparing ASCII letters case-insensitively.
+fn eq_ignore_ascii_case(text string, pos int, needle string) bool {
+	if pos + needle.len > text.len {
+		return false
+	}
+	for k in 0 .. needle.len {
+		a := text[pos + k]
+		b := needle[k]
+		la := if a >= `A` && a <= `Z` { a + 32 } else { a }
+		lb := if b >= `A` && b <= `Z` { b + 32 } else { b }
+		if la != lb {
+			return false
+		}
+	}
+	return true
+}
+
+// mask_bearer_tokens replaces `Bearer <token>` credentials with `Bearer ***`.
+//
+// Byte scan instead of a substring-per-character rebuild: it works on a single
+// lowercased copy (allocation-free lookahead for the `bearer ` needle) and
+// writes whole runs into one builder.
+fn mask_bearer_tokens(text string) string {
+	mut out := strings.new_builder(text.len)
+	mut i := 0
+	mut copy_from := 0
+	for i + 7 <= text.len {
+		if !eq_ignore_ascii_case(text, i, 'bearer ') {
+			i++
+			continue
+		}
+		token_start := i + 7
+		if token_start >= text.len {
+			break
+		}
+		mut token_end := token_start
+		for token_end < text.len && text[token_end] != ` ` && text[token_end] != `\n` {
+			token_end++
+		}
+		out.write_string(text[copy_from..token_start])
+		out.write_string(mask_placeholder)
+		copy_from = token_end
+		i = token_end
+	}
+	out.write_string(text[copy_from..])
+	return out.str()
 }

@@ -398,7 +398,22 @@ fn (qb &QueryBuilder) build_select() (string, []string) {
 	// WHERE — consecutive OR-joined conditions are wrapped in parentheses so
 	// `a AND b OR c` cannot silently flip the intended precedence.
 	if qb.wheres.len > 0 {
-		mut where_sql := ''
+		// The WHERE clause is written straight into the statement builder
+		// instead of into a throwaway `where_sql` string that gets copied in
+		// afterwards — that cost one extra allocation plus a full copy per
+		// query.
+		//
+		// The parenthesisation rule is unchanged and subtle enough to spell
+		// out: an OR-run is wrapped as a whole, `(... OR ...)`, including every
+		// condition that came before it in the same run. That means the `(`
+		// sometimes has to go in front of text already written — which is
+		// exactly what the old `where_sql = '(' + where_sql + ' OR ' + cond`
+		// did. Here the WHERE prefix is still the tail of the builder when the
+		// run opens, so the `(` is emitted by re-writing that prefix. Once any
+		// condition follows the prefix this branch is no longer taken (a run
+		// only ever opens right after the previous AND), so the argument holds.
+		sb.write_string(' WHERE ')
+		mut pending := ''
 		mut in_or_run := false
 		for i, cond in qb.wheres {
 			logic := if i == 0 {
@@ -408,29 +423,42 @@ fn (qb &QueryBuilder) build_select() (string, []string) {
 			} else {
 				'AND'
 			}
-			if i == 0 {
-				where_sql = cond
-				continue
-			}
 			if logic == 'OR' {
-				if in_or_run {
-					where_sql += ' OR ${cond}'
-				} else {
-					where_sql = '(${where_sql} OR ${cond}'
+				if !in_or_run {
+					// Opening a run: wrap everything from its first condition.
+					// `pending` is that condition, already written right after
+					// the `" WHERE "` prefix. Nothing has been written after it
+					// (a run only opens on the condition right after it), so
+					// the `(` can still be spliced in — the equivalent of the
+					// old `where_sql = '(' + where_sql + ' OR ' + cond`.
+					if pending.len > 0 {
+						sb.go_back(pending.len)
+					}
+					// `" WHERE "` is still the tail of the builder here — the
+					// `(` has to sit in front of it, not behind it.
+					sb.go_back(7)
+					sb.write_string(' WHERE (')
+					sb.write_string(pending)
+					pending = ''
 					in_or_run = true
 				}
+				sb.write_string(' OR ')
+				sb.write_string(cond)
 				continue
 			}
 			if in_or_run {
-				where_sql += ')'
+				sb.write_u8(`)`)
 				in_or_run = false
 			}
-			where_sql += ' AND ${cond}'
+			if i > 0 {
+				sb.write_string(' AND ')
+			}
+			sb.write_string(cond)
+			pending = cond
 		}
 		if in_or_run {
-			where_sql += ')'
+			sb.write_u8(`)`)
 		}
-		sb.write_string(' WHERE ${where_sql}')
 	}
 
 	// GROUP BY

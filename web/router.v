@@ -144,26 +144,32 @@ pub fn new_route_registry() &RouteRegistry {
 // 全静态路由进入 static_routes 哈希表（O(1) 查找）；
 // 含 :param 的路由按段数进入 param_routes 分桶列表（桶内保持注册顺序）。
 fn (mut rr RouteRegistry) add_route(def &RouteDef) {
-	rr.routes << def
-
+	// static_count 是参数路由之间的「具体程度」排序依据，只在注册期算一次，
+	// 匹配路径上不再重复遍历 segments（见 static_segment_score）。
 	mut has_params := false
-	for seg in def.segments {
+	route := &RouteDef{
+		...def
+		static_count: static_segment_score_of(def.segments)
+	}
+	for seg in route.segments {
 		if seg.is_param {
 			has_params = true
 			break
 		}
 	}
 
+	rr.routes << route
+
 	if has_params {
-		n := def.segments.len
+		n := route.segments.len
 		mut bucket := rr.param_routes[n] or { []&RouteDef{} }
-		bucket << def
+		bucket << route
 		rr.param_routes[n] = bucket
 	} else {
-		key := route_static_key(def.method, def.host, def.path)
+		key := route_static_key(route.method, route.host, route.path)
 		// 先注册者优先（与旧线性扫描的首匹配语义一致）
 		if key !in rr.static_routes {
-			rr.static_routes[key] = def
+			rr.static_routes[key] = route
 		}
 	}
 }
@@ -259,11 +265,25 @@ pub fn (mut rr RouteRegistry) patch(path string, handler RouteHandler) &RouteReg
 // ============================================================
 
 // group 创建共享前缀的路由组。返回 &RouteRegistry 支持链式调用。
+//
+// 组内路由是整体搬进父注册表的，不是重新 register() 一遍：
+// register() 只认识 method/path/handler，会把 register_with_middleware()
+// 挂上的路由级中间件和 register_with_host() 的 host 限制一起丢掉 ——
+// 组里的鉴权中间件就此静默失效，请求照常打进 handler。
 pub fn (mut rr RouteRegistry) group(prefix string, cb fn (mut sub RouteRegistry)) &RouteRegistry {
 	mut sub := new_route_registry()
 	cb(mut sub)
 	for route in sub.routes {
-		rr.register(route.method, prefix + route.path, route.handler)
+		path := prefix + route.path
+		rr.add_route(&RouteDef{
+			method:            route.method
+			path:              path
+			handler:           route.handler
+			segments:          parse_path(path)
+			middlewares:       route.middlewares
+			after_middlewares: route.after_middlewares
+			host:              route.host
+		})
 	}
 	return rr
 }
@@ -309,9 +329,7 @@ pub interface Controller {
 // 注意：此方法不执行中间件。如需中间件支持，请使用 dispatch_with_chain()。
 // host 参数用于 host 级路由隔离（空字符串 = 不限制）。
 pub fn (rr &RouteRegistry) dispatch(method string, url_path string, host string, ctx_ptr voidptr) bool {
-	route, params := find_route(rr, method, url_path, host) or {
-		return false
-	}
+	route, params := find_route(rr, method, url_path, host) or { return false }
 	route.handler(ctx_ptr, params)
 	return true
 }
@@ -334,9 +352,7 @@ pub fn (rr &RouteRegistry) dispatch(method string, url_path string, host string,
 // 用法：
 //   wm.router.dispatch_with_chain(method, path, host, ctx_ptr, wm.chain)
 pub fn (rr &RouteRegistry) dispatch_with_chain(method string, url_path string, host string, ctx_ptr voidptr, chain &MiddlewareChain) bool {
-	route, params := find_route(rr, method, url_path, host) or {
-		return false
-	}
+	route, params := find_route(rr, method, url_path, host) or { return false }
 
 	mut mctx := new_middleware_context(unsafe { &veb.Context(ctx_ptr) })
 	mctx.route_path = url_path
@@ -377,9 +393,7 @@ pub fn (rr &RouteRegistry) dispatch_with_chain(method string, url_path string, h
 
 	// 5. 执行全局后置中间件
 	if chain.after_len() > 0 {
-		chain.execute_after(mctx) or {
-			eprintln('[middleware] after-chain error: ${err}')
-		}
+		chain.execute_after(mctx) or { eprintln('[middleware] after-chain error: ${err}') }
 	}
 
 	return true

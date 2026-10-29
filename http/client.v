@@ -446,8 +446,15 @@ pub fn (rt RestTemplate) exchange(entity RequestEntity) !ResponseEntity {
 	// 2. Resolve full URL
 	final_url := resolve_url(rt.base_url, expanded_url)
 
-	// 3. Merge headers: entity.headers overlay default_headers
-	mut merged_headers := rt.default_headers.clone()
+	// 3. Merge headers: entity.headers overlay default_headers.
+	//
+	// The merge is built once and shared by reference through the rest of the
+	// call (interceptor chain → RequestEntity → header_from_map). Cloning
+	// `default_headers` first only added a full map copy per request.
+	mut merged_headers := map[string]string{}
+	for k, v in rt.default_headers {
+		merged_headers[k] = v
+	}
 	for k, v in entity.headers {
 		merged_headers[k] = v
 	}
