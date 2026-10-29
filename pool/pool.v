@@ -526,6 +526,20 @@ pub fn (mut p Pool) release(obj voidptr) {
 	p.mu.@lock()
 	if p.closed {
 		// Pool is closed: destroy the object directly to avoid a leak.
+		//
+		// Only objects this pool still owns may be destroyed. A pool that is
+		// closed while an object is checked out keeps that object in `objects`
+		// (so it can still be found here); an object that is *not* in `objects`
+		// was never handed out by this pool — or was already released — and the
+		// caller has nothing to give back. Destroying it anyway calls
+		// factory.destroy() twice for one object: the double free deletes the
+		// heap pointer under an API that still points at it, which is exactly
+		// how a pool turns into a use-after-free.
+		if !p.owns(obj) {
+			p.mu.unlock()
+			return
+		}
+		p.forget(obj)
 		p.mu.unlock()
 		p.factory.destroy(obj)
 		return
@@ -546,6 +560,32 @@ pub fn (mut p Pool) release(obj voidptr) {
 		p.wake_waiters_unsafe()
 	}
 	p.mu.unlock()
+}
+
+// owns reports whether `obj` is still tracked by this pool's ledger.
+// Caller must hold `mu`.
+fn (p &Pool) owns(obj voidptr) bool {
+	if obj in p.obj_index {
+		return true
+	}
+	// The index is only rebuilt by initialize / gc_sweep / close, and the
+	// ledger is compacted there too — so a miss means "not ours".
+	return false
+}
+
+// forget drops `obj` from the ledger without destroying it. Caller must hold
+// `mu`. Used on the closed-pool path so a second release() of the same
+// pointer cannot reach destroy() again.
+fn (mut p Pool) forget(obj voidptr) {
+	if obj !in p.obj_index {
+		return
+	}
+	idx := p.obj_index[obj]
+	p.obj_index.delete(obj)
+	if idx >= 0 && idx < p.objects.len {
+		p.objects[idx].object = unsafe { nil }
+		p.objects[idx].in_use = false
+	}
 }
 
 // close drains and closes all idle pooled objects.
