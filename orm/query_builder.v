@@ -141,8 +141,16 @@ pub fn (mut qb QueryBuilder) where_and(parts ...string) &QueryBuilder {
 // where_in adds a WHERE ... IN (...) clause.
 //
 //   qb.where_in("status", ["active", "pending"])
+//
+// An empty list emits `1 = 0`, not nothing. Dropping the clause turned
+// "nothing matches the filter" into "the filter does not exist": a caller that
+// builds the list from user input silently got every row in the table.
 pub fn (mut qb QueryBuilder) where_in(column string, values []string) &QueryBuilder {
 	if values.len == 0 {
+		if qb.wheres.len > 0 {
+			qb.where_logic << 'AND'
+		}
+		qb.wheres << '1 = 0'
 		return qb
 	}
 	if qb.wheres.len > 0 {
@@ -333,8 +341,27 @@ pub fn (qb &QueryBuilder) clone() &QueryBuilder {
 // count executes a SELECT COUNT(*) and returns the count.
 //
 //   n := qb.where_("status = ?", "active").count()!
+//
+// GROUP BY / HAVING are wrapped in a subquery instead of being dropped.
+// `SELECT COUNT(*) ... GROUP BY user_id` counts rows per group — the driver
+// hands back the first group's size, not the number of groups. And feeding a
+// HAVING that names a projection alias into a COUNT query is a SQL error at
+// best; dropping it silently answers a different question than the one asked.
+// A paged query asks "how many rows in total", so that is what this returns.
 pub fn (mut qb QueryBuilder) count() !i64 {
 	mut qb_copy := qb.clone()
+
+	if qb_copy.groups.len > 0 || qb_copy.havings.len > 0 {
+		inner, inner_args := qb_copy.build_select()
+		query := 'SELECT COUNT(*) AS cnt FROM (${inner}) AS photon_count'
+		db := qb.orm_manager.get_conn(qb.db_name)!
+		rows := qb.query_fn(db, query, inner_args)!
+		if rows.len == 0 || rows[0].len == 0 {
+			return 0
+		}
+		return rows[0][0].i64()
+	}
+
 	qb_copy.columns = ['COUNT(*) AS cnt']
 	qb_copy.orders = []string{}
 	qb_copy.limit_val = 0
