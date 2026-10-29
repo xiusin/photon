@@ -40,10 +40,50 @@ pub mut:
 	config JwtConfig
 }
 
-// new_jwt_manager creates a new JwtManager
+// new_jwt_manager creates a new JwtManager.
+//
+// An empty secret is accepted here and rejected at sign/verify time
+// (see check_secret) — refusing the constructor outright would break the
+// common "configure the manager in a struct literal, fill the secret from
+// config in @[post_construct]" flow, but a manager that silently signs with
+// an empty key is an open door: anyone can forge an admin token with
+// `hmac.new('', ...)` and it validates cleanly.
 pub fn new_jwt_manager(config JwtConfig) &JwtManager {
 	return &JwtManager{
 		config: config
+	}
+}
+
+// check_secret refuses to sign or verify with an empty secret.
+//
+// An empty HMAC key is not a weak key, it is a *public* key: `hmac.new('',
+// payload, sha256.sum, ...)` is one line of code. A manager built from a
+// config that forgot to fill `secret` therefore validated any token an
+// attacker cared to write — including `{"sub":"admin"}`.
+//
+// Only emptiness is rejected here on purpose. A short secret is a
+// configuration weakness that belongs in a startup check with a warning, not
+// in a hard failure on every request; rejecting it here would turn an
+// existing deployment's short key into a total outage.
+fn (jm &JwtManager) check_secret() ! {
+	if jm.config.secret.len == 0 {
+		return error('JWT secret is empty: refusing to sign or verify tokens / JWT 密钥为空，拒绝签发或校验令牌')
+	}
+}
+
+// min_recommended_jwt_secret_len is the length reported by
+// check_secret_strength(): HMAC-SHA256 gains nothing from a key shorter than
+// its own 32-byte output, and a short key is brute-forceable offline against a
+// single captured token.
+pub const min_recommended_jwt_secret_len = 32
+
+// check_secret_strength reports a weak secret without failing the caller.
+// Call it once at startup (application context / @[post_construct]) and log
+// the result.
+pub fn (jm &JwtManager) check_secret_strength() ! {
+	jm.check_secret()!
+	if jm.config.secret.len < min_recommended_jwt_secret_len {
+		return error('JWT secret is short (${jm.config.secret.len} < ${min_recommended_jwt_secret_len} bytes); use a random 32+ byte key in production / JWT 密钥过短，生产环境请使用 32 字节以上的随机密钥')
 	}
 }
 
@@ -140,6 +180,7 @@ pub fn (jm &JwtManager) has_any_role(token string, roles []string) bool {
 
 // encode encodes claims into a JWT token string (header.payload.signature)
 fn (jm &JwtManager) encode(claims JwtClaims) !string {
+	jm.check_secret()!
 	header := '{"alg":"HS256","typ":"JWT"}'
 	header_b64 := base64.url_encode(header.bytes())
 
@@ -155,6 +196,7 @@ fn (jm &JwtManager) encode(claims JwtClaims) !string {
 
 // decode decodes a JWT token string into claims
 fn (jm &JwtManager) decode(token string) !JwtClaims {
+	jm.check_secret()!
 	parts := token.split('.')
 	if parts.len != 3 {
 		return error('invalid JWT format: expected 3 parts, got ${parts.len}')
