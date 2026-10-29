@@ -48,11 +48,16 @@ fn test_mask_bearer_token() {
 	assert mask_sensitive_data('x Bearer abc123 y') == 'x Bearer *** y'
 }
 
-// `authorization` is itself a sensitive key, so `Authorization: Bearer abc`
-// masks the value `Bearer` first and the bearer pass then sees nothing left.
-// Documented here because it is easy to mistake for a leak.
+// `authorization` 是敏感键，所以 `Authorization:` 之后的值先被键值扫描命中。
+// 那条路径过去只遮住了字面量 "Bearer"，把真正的凭据留在 `***` 后面 ——
+// 看起来像已经脱敏，其实一字未遮。现在按键值路径识别 scheme + 凭据形态，
+// 把整段（含 scheme）一起遮掉。
 fn test_mask_authorization_header_masks_whole_value() {
-	assert mask_sensitive_data('Authorization: Bearer abc123') == 'Authorization: *** abc123'
+	assert mask_sensitive_data('Authorization: Bearer abc123') == 'Authorization: ***'
+	assert mask_sensitive_data('authorization:bearer abc123') == 'authorization:***'
+	// Basic 认证的凭据本身就是 base64 的 user:pass —— 只遮 scheme 词没有意义，
+	// 后续的 `bearer` 检测会单独处理 Bearer 形态。
+	assert mask_sensitive_data('Authorization: Basic dXNlcjpwYXNz') == 'Authorization: *** dXNlcjpwYXNz'
 }
 
 fn test_mask_leaves_clean_messages_untouched() {

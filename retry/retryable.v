@@ -168,7 +168,7 @@ fn exp_factor(attempt int) i64 {
 	if shift >= 33 {
 		return i64(max_retry_delay_ticks)
 	}
-	return i64(1) << u64(shift)
+	return i64(u64(1) << u64(shift))
 }
 
 // max_retry_delay_ticks is the upper bound (in time.Duration ticks) applied to

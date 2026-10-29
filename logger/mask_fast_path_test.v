@@ -29,7 +29,9 @@ fn test_sensitive_key_is_still_masked() {
 fn test_bearer_token_is_still_masked() {
 	assert mask_sensitive_data('Bearer abc def') == 'Bearer *** def'
 	assert mask_sensitive_data('x Bearer abc123 y') == 'x Bearer *** y'
-	assert mask_sensitive_data('Authorization: Bearer abc123') == 'Authorization: *** abc123'
+	// 键值路径先命中 `Authorization:`，这时必须把整个凭据一起遮掉，
+	// 只遮 scheme 词等于没遮。
+	assert mask_sensitive_data('Authorization: Bearer abc123') == 'Authorization: ***'
 }
 
 fn test_bearer_masking_keeps_surrounding_text() {

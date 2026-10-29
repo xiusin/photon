@@ -419,17 +419,25 @@ fn format_log_line(level Level, msg string, context map[string]string) string {
 // ============================================================
 
 // Sensitive patterns that should be redacted from log output
+// Keys are matched as case-insensitive substrings; the separator must follow
+// the key (see mask_separator_index). Header spellings are listed explicitly:
+// an HTTP header is written `X-Api-Key`, and the underscore form alone never
+// matched it — the most common way an API key reaches a log line went through
+// unredacted.
 const sensitive_patterns = [
 	'password',
 	'passwd',
 	'secret',
 	'token',
 	'api_key',
+	'api-key',
 	'apikey',
 	'authorization',
 	'credit_card',
+	'credit-card',
 	'ssn',
 	'private_key',
+	'private-key',
 ]
 
 // may_contain_sensitive_key reports whether `msg` has any chance of containing
@@ -465,6 +473,58 @@ fn contains_ignore_ascii_case(haystack string, needle string) bool {
 	return false
 }
 
+// bearer_token_end_after returns the end offset of a `Bearer <token>` value
+// that starts exactly at `value_start`, or none.
+//
+// Only the credential that follows the scheme word is masked; the scheme word
+// itself carries no secret, and masking it produced the misleading
+// `Authorization: *** abc.def.ghi`.
+fn bearer_token_end_after(text string, value_start int) ?int {
+	scheme := 'bearer '
+	if value_start + scheme.len > text.len {
+		return none
+	}
+	if !eq_ignore_ascii_case(text, value_start, scheme) {
+		return none
+	}
+	mut end := value_start + scheme.len
+	for end < text.len && text[end] != ` ` && text[end] != `\t` && text[end] != `\n` {
+		end++
+	}
+	if end <= value_start + scheme.len {
+		return none
+	}
+	return end
+}
+
+// mask_quoted_value_span handles `"value"` / 'value' shaped values.
+//
+// Log lines are frequently JSON: `{"password":"s3cret"}`. The generic value
+// scan stops at the first separator, and the opening quote would terminate it
+// immediately — an empty span means "nothing to redact", so the secret stayed
+// in the output verbatim. Returns the span INSIDE the quotes, or none when the
+// value is not quoted.
+fn mask_quoted_value_span(text string, value_start int) ?[]int {
+	if value_start >= text.len {
+		return none
+	}
+	quote := text[value_start]
+	if quote != `"` && quote != `'` {
+		return none
+	}
+	mut i := value_start + 1
+	for i < text.len {
+		if text[i] == quote {
+			if i > value_start + 1 {
+				return [value_start + 1, i]
+			}
+			return none
+		}
+		i++
+	}
+	return none
+}
+
 // mask_separator_index returns the offset of the separator that sits between a
 // sensitive key and its value, or -1 when the text right after the key is not
 // a `key<sep>value` shape.
@@ -475,9 +535,21 @@ fn contains_ignore_ascii_case(haystack string, needle string) bool {
 // are considered, whichever comes first, so `token=x` and `token: x` behave
 // the same.
 fn mask_separator_index(after_key string) int {
+	// A quote right after the key is the shape structured output takes
+	// (`"password":"s3cret"`); step over it the same way, so the separator
+	// search starts where the separator actually is.
+	mut skip := 0
+	for skip < after_key.len && skip < 40 {
+		ch := after_key[skip]
+		if ch == `-` || ch == `_` || ch == `.` || ch == `"` || ch == `'` {
+			skip++
+			continue
+		}
+		break
+	}
 	mut best := -1
 	for sep in [mask_eq_sep, mask_colon_sep] {
-		sep_idx := after_key.index(sep) or { continue }
+		sep_idx := after_key.index_after(sep, skip) or { continue }
 		if best < 0 || sep_idx < best {
 			best = sep_idx
 		}
@@ -485,8 +557,9 @@ fn mask_separator_index(after_key string) int {
 	if best < 0 {
 		return -1
 	}
-	// Only whitespace may sit between the key and its separator.
-	for ch in after_key[..best] {
+	// Only the skipped glue characters plus whitespace may sit between the key
+	// and its separator.
+	for ch in after_key[skip..best] {
 		if ch != ` ` && ch != `\t` {
 			return -1
 		}
@@ -552,7 +625,12 @@ fn apply_mask_spans(text string, spans [][]int) string {
 const mask_placeholder = '***'
 
 // mask_value_separators terminate a sensitive value.
-const mask_value_separators = [' ', ',', '\n', '&', ';', '"', "'"]
+//
+// Quotes are deliberately NOT separators: JSON log output wraps the value in
+// quotes (`{"password":"p@ss word"}`), and stopping at the opening quote made
+// the span empty — "nothing to redact" — so the whole secret stayed in the
+// output. Quoted values are unwrapped by mask_quoted_value_span() instead.
+const mask_value_separators = [' ', '\t', ',', '\n', '\r', '&', ';']
 
 // mask_sensitive_data redacts passwords, tokens, and other sensitive info
 // 脱敏密码、令牌等敏感信息。
@@ -636,6 +714,23 @@ pub fn mask_sensitive_data(msg string) string {
 						end_idx = sep_idx
 					}
 				}
+			}
+			// A quoted value is unwrapped before the generic scan: the quote
+			// itself terminates a plain value span, which would leave the
+			// secret unredacted right after a `"password":` key.
+			if quoted := mask_quoted_value_span(msg, value_start) {
+				spans << quoted
+				pos = quoted[1] + 1
+				continue
+			}
+			// `Authorization: Bearer <token>`: the generic scan redacts the
+			// literal word "Bearer" and leaves the credential right behind a
+			// `***`. That reads as redacted and is not — extend the span over
+			// the token itself.
+			if bearer_end := bearer_token_end_after(msg, value_start) {
+				spans << [value_start, bearer_end]
+				pos = bearer_end
+				continue
 			}
 			// An empty value has nothing to redact.
 			if end_idx > 0 {
