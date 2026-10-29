@@ -65,14 +65,30 @@ pub:
 
 // parse_cron parses a 5-field cron expression (minute hour day month weekday).
 // Supports: *, ranges (1-5), steps (*/5, 1-5/2), lists (1,3,5).
+//
+// Every token must be a real number inside the field's range: `'a'.int()` in V
+// yields 0, so unvalidated parsing silently turns typos into "minute 0".
+// Likewise an inverted range (5-1) yields an empty value set, and a matcher
+// against an empty set never fires — a scheduled task that simply never runs,
+// with no error anywhere.
 pub fn parse_cron(expr string) ![]CronField {
-	fields := expr.split(' ')
+	// Split on any whitespace run, not on a single space: a hand-written
+	// "0  9 * * *" must parse, and it must not report "6 fields".
+	mut fields := []string{}
+	for f in expr.split_any(' \t') {
+		if f.len > 0 {
+			fields << f
+		}
+	}
 	if fields.len != 5 {
 		return error('cron expression must have 5 fields, got ${fields.len}: "${expr}"')
 	}
 	mut result := []CronField{}
 	range_mins := [0, 0, 1, 1, 0]
-	range_maxs := [59, 23, 31, 12, 6]
+	// Weekday accepts 0-7 (both 0 and 7 are Sunday, the conventional crontab
+	// semantics). day_of_week() returns 1..7, so 7 must be accepted here or
+	// "0 9 * * 7" would name a day that can never be matched.
+	range_maxs := [59, 23, 31, 12, 7]
 	for i in 0 .. 5 {
 		parsed := parse_cron_field(fields[i], range_mins[i], range_maxs[i]) or {
 			return error('cron field ${i + 1} parse error: ${err}')
@@ -80,6 +96,24 @@ pub fn parse_cron(expr string) ![]CronField {
 		result << parsed
 	}
 	return result
+}
+
+// parse_cron_int parses a cron number, requiring it to be all digits and to
+// land inside [min, max]. `.int()` alone silently maps garbage to 0.
+fn parse_cron_int(token string, min int, max int) !int {
+	if token.len == 0 {
+		return error('empty value')
+	}
+	for c in token {
+		if c < `0` || c > `9` {
+			return error('"${token}" is not a number')
+		}
+	}
+	value := token.int()
+	if value < min || value > max {
+		return error('value ${value} out of range ${min}-${max}')
+	}
+	return value
 }
 
 // parse_cron_field parses a single cron field.
@@ -98,19 +132,19 @@ fn parse_cron_field(field string, min int, max int) !CronField {
 			if parts.len != 2 {
 				return error('invalid step expression: "${part}"')
 			}
-			step := parts[1].int()
-			if step <= 0 {
-				return error('step must be positive: "${part}"')
-			}
+			step := parse_cron_int(parts[1], 1, max)!
 			mut range_min := min
 			mut range_max := max
 			if parts[0] != '*' {
 				range_parts := parts[0].split('-')
 				if range_parts.len == 2 {
-					range_min = range_parts[0].int()
-					range_max = range_parts[1].int()
+					range_min = parse_cron_int(range_parts[0], min, max)!
+					range_max = parse_cron_int(range_parts[1], min, max)!
+					if range_min > range_max {
+						return error('inverted range ${range_min}-${range_max}')
+					}
 				} else {
-					range_min = parts[0].int()
+					range_min = parse_cron_int(parts[0], min, max)!
 				}
 			}
 			mut v := range_min
@@ -124,15 +158,34 @@ fn parse_cron_field(field string, min int, max int) !CronField {
 			if parts.len != 2 {
 				return error('invalid range expression: "${part}"')
 			}
-			start := parts[0].int()
-			end := parts[1].int()
+			start := parse_cron_int(parts[0], min, max)!
+			end := parse_cron_int(parts[1], min, max)!
+			if start > end {
+				return error('inverted range ${start}-${end}')
+			}
 			for v in start .. end + 1 {
 				values << v
 			}
 		} else {
 			// Single value
-			values << part.int()
+			values << parse_cron_int(part, min, max)!
 		}
+	}
+
+	// Weekday 7 and 0 both mean Sunday; normalise so cron_matches() only has to
+	// look for the single value day_of_week() returns (1..7).
+	if min == 0 && max == 7 {
+		mut normalised := []int{}
+		mut seen := map[int]bool{}
+		for v in values {
+			nv := if v == 0 { 7 } else { v }
+			if nv !in seen {
+				seen[nv] = true
+				normalised << nv
+			}
+		}
+		normalised.sort()
+		values = normalised.clone()
 	}
 
 	return CronField{
@@ -374,28 +427,45 @@ pub fn (mut s Scheduler) tick() {
 	}
 	s.mu.runlock()
 
-	// Phase 2: under write lock, execute due tasks and update their fields.
-	s.mu.@lock()
-	defer {
-		s.mu.unlock()
-	}
+	// Phase 2: run the due tasks with NO lock held.
+	//
+	// The previous version held the scheduler's write lock across
+	// `task_fn()`. A task that calls back into the scheduler — task_count(),
+	// register(), and most naturally stop() — self-deadlocks, and every other
+	// goroutine (including stop()) blocks for the whole duration of the task.
+	// A lock is never a place to run user code.
+	//
+	// `is_running` is set under the write lock and cleared afterwards, so
+	// status readers still observe a task as running while it runs.
+	mut ran := []&ScheduledTask{}
 	for mut task in due_tasks {
+		s.mu.@lock()
 		if !task.enabled {
+			s.mu.unlock()
 			continue
 		}
 		task.is_running = true
-		// Copy the fn out first: calling a `fn () !` field directly on a
-		// `mut` range variable trips a V cgen bug (`task->task_fn()`).
+		s.mu.unlock()
+
+		// Copy the fn out: calling a `fn () !` field directly on a `mut`
+		// range variable trips a V cgen bug (`task->task_fn()`).
 		task_fn := task.task_fn
 		task_fn() or { eprintln('[Scheduler] task "${task.name}" failed: ${err}') }
-		task.last_run = now.unix_nano()
-		task.run_count++
-		task.is_running = false
+		ran << task
+	}
 
-		// Disable one-shot tasks after execution
-		if task.schedule_type in [.one_shot_at, .one_shot_delay] {
-			task.enabled = false
+	if ran.len > 0 {
+		s.mu.@lock()
+		for mut task in ran {
+			task.last_run = now.unix_nano()
+			task.run_count++
+			task.is_running = false
+			// Disable one-shot tasks after execution
+			if task.schedule_type in [.one_shot_at, .one_shot_delay] {
+				task.enabled = false
+			}
 		}
+		s.mu.unlock()
 	}
 }
 
