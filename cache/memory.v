@@ -66,6 +66,11 @@ pub:
 	key        string
 	value      string
 	expires_at i64
+	// created_at doubles as the entry's LRU sequence number: set() and
+	// promote() stamp it with the shard's monotonic `seq`, so the read path
+	// derives a key's recency from the value it already fetched instead of
+	// walking the LRU link list. Existing readers that treat it as a wall
+	// clock still get a monotonically increasing number.
 	created_at i64
 pub mut:
 	accessed_at i64
@@ -106,6 +111,14 @@ mut:
 	// the sweeper (stdatomic) and by the capacity check. A slightly stale read
 	// can only postpone an eviction or a retirement by one round, both harmless.
 	counter u64
+	// seq is the LRU sequence number: it is bumped under mu by every insert and
+	// by every promotion, and stamped into the entry as `created_at`. The read
+	// path uses `seq - entry.created_at` as the key's distance from the head,
+	// so it can decide "is this key hot?" without walking the link list.
+	// Loaded with a plain atomic read — a stale value only makes a read look
+	// slightly further from the head, which at worst triggers one extra (and
+	// harmless) promotion.
+	seq u64
 }
 
 // MemoryCache is an in-memory cache with sharded, read-optimised concurrency.
@@ -325,11 +338,17 @@ fn (mut sh CacheShard) evict_one_unsafe() bool {
 }
 
 // lru_clear_unsafe drops all recency state.
+//
+// The sequence number is reset as well, so the next write stamps
+// `created_at = 1` — exactly the state a fresh shard is in. Leaving `seq`
+// pointing at the old magnitude would make every new entry look "near the
+// head" (or not) compared to a list that no longer exists.
 fn (mut sh CacheShard) lru_clear_unsafe() {
 	sh.lru_head = ''
 	sh.lru_tail = ''
 	sh.lru_prev.clear()
 	sh.lru_next.clear()
+	sh.seq = 0
 }
 
 // ── Background sweeper ──
@@ -464,7 +483,22 @@ pub fn (mut mc MemoryCache) get(key string) !string {
 		return error('cache miss: key "${key}" expired')
 	}
 	value := entry.value
-	near_front := sh.lru_head == key || is_near_front(sh, key, promote_distance)
+	// Recency hint from the map value: `created_at` is the LRU sequence number
+	// (see `seq` in CacheShard), so `seq - entry.created_at` is how many writes
+	// and promotions have happened since this key was last the head —
+	// i.e. exactly what `is_near_front()` used to compute by hop-walking up to
+	// 8 LRU links under the read lock, on every single read.
+	//
+	// The comparison is a plain `>=`, so a stale (smaller) `seq` can only make
+	// a key look further from the head, which at worst costs one extra
+	// promotion. A concurrent insert can also slip in after we read the entry
+	// and make it look one step colder, which again only costs a promotion.
+	// Neither can make a hot key get promoted forever: promote() re-stamps
+	// `created_at` with a fresh sequence number.
+	seq := unsafe { stdatomic.load_u64(&sh.seq) }
+	stamp := u64(entry.created_at)
+	age := if seq > stamp { seq - stamp } else { u64(0) }
+	near_front := age <= u64(promote_distance)
 	sh.mu.unlock()
 
 	// Hit counter: one atomic increment, no lock in the read path.
@@ -489,25 +523,18 @@ fn (mut mc MemoryCache) promote(mut sh CacheShard, key string) {
 	sh.mu.@lock()
 	if key in sh.entries {
 		sh.lru_push_front_unsafe(key)
+		// A promotion makes the key the most recent one, so it gets the
+		// newest sequence number — otherwise get() would keep seeing it as
+		// cold and keep re-promoting it on every sampled read.
+		sh.seq++
+		entry := sh.entries[key] or { MemCacheEntry{} }
+		sh.entries[key] = MemCacheEntry{
+			...entry
+			created_at: i64(sh.seq)
+		}
 	}
 	sh.mu.unlock()
 	sh.lru_mu.unlock()
-}
-
-// is_near_front reports whether `key` sits within `limit` hops of the head.
-// Caller must hold the shard read lock. The walk is bounded and short; it is
-// still cheaper than taking lru_mu plus the write lock for a hot key.
-fn is_near_front(sh &CacheShard, key string, limit int) bool {
-	mut cur := sh.lru_head
-	mut hops := 0
-	for cur.len > 0 && hops < limit {
-		if cur == key {
-			return true
-		}
-		cur = sh.lru_next[cur] or { '' }
-		hops++
-	}
-	return false
 }
 
 // remove_if_expired deletes `key` if it is still expired. Takes the write lock
@@ -551,13 +578,18 @@ pub fn (mut mc MemoryCache) set(key string, value string, ttl_seconds int) ! {
 	if key !in sh.entries {
 		sh.counter++
 	}
+	sh.lru_push_front_unsafe(key)
+	// Stamp the entry as the most recent one (largest sequence number).
+	// `seq` is monotonic, so get()'s `seq - created_at` distance is always
+	// non-negative; a wrap is far beyond any realistic write count, and the
+	// only consequence would be one extra promotion per key.
+	sh.seq++
 	sh.entries[key] = MemCacheEntry{
 		key:        key
 		value:      value
 		expires_at: if ttl_seconds > 0 { now + ttl_seconds } else { i64(0) }
-		created_at: now
+		created_at: i64(sh.seq)
 	}
-	sh.lru_push_front_unsafe(key)
 	sh.mu.unlock()
 
 	// Record the mutation for the sweeper's idle detection, then make sure a
@@ -670,6 +702,11 @@ pub fn (mut mc MemoryCache) evict_expired() int {
 	for i in 0 .. mc.shards.len {
 		mut sh := unsafe { &mc.shards[i] }
 		sh.mu.@lock()
+		// Several keys can be expired in one shard, so the sweep has to collect
+		// them first — mutating a map while ranging over it is not defined. The
+		// collection is capped by the shard size and only reused within this
+		// iteration; a sweep that finds nothing allocates an empty slice, which
+		// V hands out without a heap allocation.
 		mut expired := []string{}
 		for key, entry in sh.entries {
 			if entry.expires_at != 0 && now > entry.expires_at {

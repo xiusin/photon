@@ -322,11 +322,21 @@ fn meter_key(name string, tags map[string]string) string {
 		keys << k
 	}
 	keys.sort()
-	mut parts := []string{cap: keys.len}
-	for k in keys {
-		parts << '${k}=${tags[k]}'
+	// One builder instead of a []string plus join(): meter lookup happens on
+	// every increment in user code, so this allocates 2 containers instead of 3.
+	mut sb := strings.new_builder(name.len + 8 + tags.len * 8)
+	sb.write_string(name)
+	sb.write_u8(`{`)
+	for i, k in keys {
+		if i > 0 {
+			sb.write_u8(`,`)
+		}
+		sb.write_string(k)
+		sb.write_u8(`=`)
+		sb.write_string(tags[k])
 	}
-	return '${name}{${parts.join(',')}}'
+	sb.write_u8(`}`)
+	return sb.str()
 }
 
 // counter returns (creating if necessary) the Counter registered under name+tags.
@@ -345,7 +355,9 @@ pub fn (r &InMemoryMeterRegistry) counter(name string, tags map[string]string) &
 		name_str: name
 		tags_str: tags.clone()
 	}
-	unsafe { r.counters[key] = c }
+	unsafe {
+		r.counters[key] = c
+	}
 	return c
 }
 
@@ -361,7 +373,9 @@ pub fn (r &InMemoryMeterRegistry) gauge(name string, tags map[string]string) &In
 		name_str: name
 		tags_str: tags.clone()
 	}
-	unsafe { r.gauges[key] = g }
+	unsafe {
+		r.gauges[key] = g
+	}
 	return g
 }
 
@@ -377,7 +391,9 @@ pub fn (r &InMemoryMeterRegistry) timer(name string, tags map[string]string) &In
 		name_str: name
 		tags_str: tags.clone()
 	}
-	unsafe { r.timers[key] = t }
+	unsafe {
+		r.timers[key] = t
+	}
 	return t
 }
 
@@ -545,11 +561,19 @@ fn format_tags(tags map[string]string) string {
 		keys << k
 	}
 	keys.sort()
-	mut parts := []string{cap: keys.len}
-	for k in keys {
-		parts << '${k}="${escape_label_value(tags[k])}"'
+	mut sb := strings.new_builder(16 + tags.len * 16)
+	sb.write_u8(`{`)
+	for i, k in keys {
+		if i > 0 {
+			sb.write_u8(`,`)
+		}
+		sb.write_string(k)
+		sb.write_string('="')
+		sb.write_string(escape_label_value(tags[k]))
+		sb.write_u8(`"`)
 	}
-	return '{${parts.join(',')}}'
+	sb.write_u8(`}`)
+	return sb.str()
 }
 
 // escape_label_value 按 Prometheus 文本格式转义标签值。
