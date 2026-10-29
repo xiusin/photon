@@ -223,14 +223,12 @@ fn check_old_hash(password string, hash string) bool {
 	}
 	// Extract salt from old format
 	mut salt := ''
-	mut expected_idx := 3
 	if hash.starts_with('\$argon2id\$') {
 		// Old argon2 format: $argon2id$v=19$params$<salt>$<hash>
 		if parts.len < 6 {
 			return false
 		}
 		salt = parts[4]
-		expected_idx = 5
 	} else {
 		// Old bcrypt format: $2y$<rounds>$<salt><hash>
 		salt = parts[3][..if parts[3].len >= 22 { 22 } else { parts[3].len }]

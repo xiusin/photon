@@ -52,14 +52,18 @@ fn queue_redis_available() bool {
 }
 
 // new_test_redis_driver 返回一个连到 13 号库、带独立前缀的驱动。
-fn new_test_redis_driver() !(&RedisDriver, &VRedisQueueClient, string) {
+//
+// Redis 不可达时返回 `none`，调用方直接 `return` —— 这是「跳过」，
+// 不是「失败」。之前这里返回 error，调用方用 `!` 传播，于是没装 Redis 的
+// 机器上这 9 个用例全变红色，看起来像框架坏了。
+fn new_test_redis_driver() ?(&RedisDriver, &VRedisQueueClient, string) {
 	if !queue_redis_available() {
 		eprintln('redis_driver_integration_test: 127.0.0.1:6379 不可达，跳过')
-		return error('redis not reachable')
+		return none
 	}
 	client := new_vredis_queue_client(VRedisQueueOpt{
 		db: 13
-	})!
+	}) or { return none }
 	prefix := 'photon:test:queue:${time.now().unix_nano()}:'
 	mut d := new_redis_driver(client)
 	d.set_prefix(prefix)
@@ -67,7 +71,9 @@ fn new_test_redis_driver() !(&RedisDriver, &VRedisQueueClient, string) {
 }
 
 fn test_redis_driver_fifo_order() ! {
-	mut d, mut c, prefix := new_test_redis_driver()!
+	mut d, mut c, prefix := new_test_redis_driver() or {
+		return
+	}
 	defer {
 		d.clear('emails') or {}
 		c.close()
@@ -86,7 +92,9 @@ fn test_redis_driver_fifo_order() ! {
 }
 
 fn test_redis_driver_pop_empty_is_error() ! {
-	mut d, mut c, prefix := new_test_redis_driver()!
+	mut d, mut c, prefix := new_test_redis_driver() or {
+		return
+	}
 	defer {
 		d.clear('empty-q') or {}
 		c.close()
@@ -101,7 +109,9 @@ fn test_redis_driver_pop_empty_is_error() ! {
 }
 
 fn test_redis_driver_clear() ! {
-	mut d, mut c, prefix := new_test_redis_driver()!
+	mut d, mut c, prefix := new_test_redis_driver() or {
+		return
+	}
 	defer {
 		d.clear('to-clear') or {}
 		c.close()
@@ -115,7 +125,9 @@ fn test_redis_driver_clear() ! {
 }
 
 fn test_redis_driver_prefix_isolation() ! {
-	mut d1, mut c, prefix := new_test_redis_driver()!
+	mut d1, mut c, prefix := new_test_redis_driver() or {
+		return
+	}
 	defer {
 		d1.clear('shared') or {}
 		c.close()
@@ -137,7 +149,9 @@ fn test_redis_driver_prefix_isolation() ! {
 }
 
 fn test_redis_driver_delayed_not_visible_before_run_at() ! {
-	mut d, mut c, prefix := new_test_redis_driver()!
+	mut d, mut c, prefix := new_test_redis_driver() or {
+		return
+	}
 	defer {
 		d.clear('delayed') or {}
 		c.close()
@@ -155,7 +169,9 @@ fn test_redis_driver_delayed_not_visible_before_run_at() ! {
 }
 
 fn test_redis_driver_delayed_becomes_visible() ! {
-	mut d, mut c, prefix := new_test_redis_driver()!
+	mut d, mut c, prefix := new_test_redis_driver() or {
+		return
+	}
 	defer {
 		d.clear('delayed-due') or {}
 		c.close()
@@ -168,7 +184,9 @@ fn test_redis_driver_delayed_becomes_visible() ! {
 }
 
 fn test_redis_driver_delayed_queue_cleared() ! {
-	mut d, mut c, prefix := new_test_redis_driver()!
+	mut d, mut c, prefix := new_test_redis_driver() or {
+		return
+	}
 	defer {
 		d.clear('delayed-clear') or {}
 		c.close()
@@ -185,7 +203,9 @@ fn test_redis_driver_delayed_queue_cleared() ! {
 // ── 与 Dispatcher 的接线 ──
 
 fn test_redis_driver_with_dispatcher() ! {
-	mut d, mut c, prefix := new_test_redis_driver()!
+	mut d, mut c, prefix := new_test_redis_driver() or {
+		return
+	}
 	defer {
 		d.clear('dispatch-q') or {}
 		d.clear('photon:queue:') or {}
@@ -213,7 +233,9 @@ fn test_redis_driver_with_dispatcher() ! {
 }
 
 fn test_redis_driver_dispatcher_delayed_goes_to_zset() ! {
-	mut d, mut c, prefix := new_test_redis_driver()!
+	mut d, mut c, prefix := new_test_redis_driver() or {
+		return
+	}
 	defer {
 		d.clear('dispatch-delayed') or {}
 		c.close()

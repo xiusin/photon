@@ -301,3 +301,6 @@ fluent-tab/
 # V test binaries produced next to *_test.v sources
 *_test
 !*_test.v
+
+# 测试编译产物（scripts/run-tests.sh）
+.photon-test-bin/

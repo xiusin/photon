@@ -34,9 +34,12 @@ v fmt -check . || echo "  Format warnings (non-blocking)"
 echo ""
 
 # Step 3: Run all module tests
-# 逐文件跑 + 每条命令 30s 熔断（scripts/run-tests.sh）。
-# 单个用例死锁只会被判为 TIMEOUT 并强杀，不会拖垮整条流水线。
-echo "→ Step 3: Module Tests (per-file, ${PHOTON_TEST_TIMEOUT:-30}s timeout)"
+# 逐文件跑，编译与运行各自计时（scripts/run-tests.sh）：
+#   PHOTON_BUILD_TIMEOUT  编译预算，默认 180s（冷编译 10~15s，慢机器留足余量）
+#   PHOTON_TEST_TIMEOUT   运行预算，默认 30s
+# 分开的理由：合成一个预算时，慢机器上编译吃光预算会被报成「用例挂死」，
+# 于是有人去查一个并不存在的死锁。超时连同进程组一起强杀，不留孤儿进程。
+echo "→ Step 3: Module Tests (per-file, build ${PHOTON_BUILD_TIMEOUT:-180}s / run ${PHOTON_TEST_TIMEOUT:-30}s)"
 if sh scripts/run-tests.sh; then
     PASS=$((PASS + 1))
 else

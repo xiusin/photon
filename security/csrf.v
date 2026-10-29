@@ -239,7 +239,8 @@ pub fn (cm &CsrfManager) validate_any(actual_token string, expected_tokens []str
 			last_err = err.msg()
 		}
 	}
-	return error(if last_err.len > 0 { last_err } else { 'CSRF token mismatch' })
+	msg := if last_err.len > 0 { last_err } else { 'CSRF token mismatch' }
+	return error(msg)
 }
 
 // constant_time_eq compares two byte strings without an early exit.
