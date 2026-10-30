@@ -149,21 +149,24 @@ pub fn studly(s string) string {
 
 // kebab converts PascalCase or snake_case to kebab-case.
 // Uses a []u8 buffer to avoid O(n²) string concatenation.
+//
+// 与 snake()/slug() 用同一套分界规则，分隔符统一收成一个 `-`：
+// 原来只认 `_` 和 `-`，空格、制表符被原样留在结果里，
+// `kebab('Hello World')` 得到 `hello world` —— 拿去当 CSS 类名或 URL 段
+// 都是非法标识符，而且调用方不会在这里做二次校验。
 pub fn kebab(s string) string {
 	mut buf := []u8{cap: s.len * 2}
 	mut last_was_sep := false
 	for i, ch in s {
-		if is_upper_char(ch) && (i > 0 || !last_was_sep) {
-			if word_boundary_at(s, i) && !last_was_sep {
-				buf << `-`
-			}
-		}
-		if ch == `_` || ch == `-` {
+		if ch == ` ` || ch == `\t` || ch == `\n` || ch == `\r` || ch == `_` || ch == `-` {
 			if !last_was_sep && buf.len > 0 {
 				buf << `-`
 				last_was_sep = true
 			}
 			continue
+		}
+		if is_upper_char(ch) && word_boundary_at(s, i) && !last_was_sep && buf.len > 0 {
+			buf << `-`
 		}
 		mut c := ch
 		if is_upper_char(c) {
@@ -177,21 +180,26 @@ pub fn kebab(s string) string {
 
 // limit truncates a string to n characters and appends "...".
 //
+// n counts characters, not bytes: `limit('中文测试', 4)` used to slice three
+// bytes off a 3-byte UTF-8 character and return invalid UTF-8 (`\uFFFD...`),
+// which then goes straight into HTTP bodies and log lines. Slicing now walks
+// rune boundaries via `utf8` so a multibyte character is never cut in half.
+//
 // n is the total length of the result, ellipsis included. When n is smaller
-// than the ellipsis itself a bare substring is returned (`limit('hello', 3)`
-// used to produce `"..."`, i.e. no payload left at all), and a negative n is
+// than the ellipsis itself a bare substring is returned, and a negative n is
 // treated as 0 instead of panicking on the slice bounds.
 pub fn limit(s string, n int) string {
 	if n <= 0 {
 		return ''
 	}
-	if s.len <= n {
+	runes := s.runes()
+	if runes.len <= n {
 		return s
 	}
 	if n <= 3 {
-		return s[..n]
+		return runes[..n].string()
 	}
-	return s[..n - 3] + '...'
+	return runes[..n - 3].string() + '...'
 }
 
 // words returns the first n words of a string.
@@ -301,27 +309,34 @@ pub fn random(length int) string {
 	return buf.bytestr()
 }
 
-// mask masks a portion of the string with the given character
+// mask masks a portion of the string with the given character.
+//
+// idx and length are character offsets, not byte offsets. The old byte-wise
+// implementation cut through multibyte characters — `mask('用户名abc', '*', 1, 3)`
+// returned `\uFFFD***\uFFFD\uFFFD名abc`, i.e. broken UTF-8 in whatever it was
+// masking (usually a phone number or an email in a log line).
+//
+// A multi-character `ch` is collapsed to its first character: the parameter is
+// a mask *character*, and the old code inserted the whole string per position
+// (`mask('abcdef', '##', 1, 3)` → `a######ef`).
 pub fn mask(s string, ch string, idx int, length int) string {
-	if s.len == 0 {
-		return ''
-	}
-	if idx < 0 || idx >= s.len {
+	if s.len == 0 || length <= 0 {
 		return s
 	}
+	runes := s.runes()
+	if idx < 0 || idx >= runes.len {
+		return s
+	}
+	mask_ch := if ch.len == 0 { '*' } else { ch.runes()[0].str() }
 	mut end := idx + length
-	if end > s.len {
-		end = s.len
+	if end > runes.len {
+		end = runes.len
 	}
-
-	mut result := s[..idx]
-	for _ in 0 .. (end - idx) {
-		result += ch
+	if end <= idx {
+		return s
 	}
-	if end < s.len {
-		result += s[end..]
-	}
-	return result
+	masked := mask_ch.repeat(end - idx)
+	return runes[..idx].string() + masked + runes[end..].string()
 }
 
 // is_json checks if a string is valid JSON (heuristic)
