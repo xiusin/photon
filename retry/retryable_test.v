@@ -311,8 +311,8 @@ fn test_delay_for_attempt_fixed() {
 		delay:   100 * time.millisecond
 		backoff: .fixed
 	}
-	// Fixed: same delay regardless of attempt
-	assert config.delay_for_attempt(1) == 100 * time.millisecond
+	// 第 1 次尝试是首次执行，前面没有等待；之后每次重试都等同一个 delay
+	assert config.delay_for_attempt(1) == time.Duration(0)
 	assert config.delay_for_attempt(2) == 100 * time.millisecond
 	assert config.delay_for_attempt(3) == 100 * time.millisecond
 	assert config.delay_for_attempt(4) == 100 * time.millisecond
@@ -323,11 +323,11 @@ fn test_delay_for_attempt_linear() {
 		delay:   100 * time.millisecond
 		backoff: .linear
 	}
-	// Linear: delay * attempt
-	assert config.delay_for_attempt(1) == 100 * time.millisecond
-	assert config.delay_for_attempt(2) == 200 * time.millisecond
-	assert config.delay_for_attempt(3) == 300 * time.millisecond
-	assert config.delay_for_attempt(4) == 400 * time.millisecond
+	// Linear: delay * (attempt - 1)
+	assert config.delay_for_attempt(1) == time.Duration(0)
+	assert config.delay_for_attempt(2) == 100 * time.millisecond
+	assert config.delay_for_attempt(3) == 200 * time.millisecond
+	assert config.delay_for_attempt(4) == 300 * time.millisecond
 }
 
 fn test_delay_for_attempt_exponential() {
@@ -335,20 +335,21 @@ fn test_delay_for_attempt_exponential() {
 		delay:   100 * time.millisecond
 		backoff: .exponential
 	}
-	// Exponential: delay * 2^(attempt-1)
-	assert config.delay_for_attempt(1) == 100 * time.millisecond
-	assert config.delay_for_attempt(2) == 200 * time.millisecond
-	assert config.delay_for_attempt(3) == 400 * time.millisecond
-	assert config.delay_for_attempt(4) == 800 * time.millisecond
+	// Exponential: delay * 2^(attempt-2)
+	assert config.delay_for_attempt(1) == time.Duration(0)
+	assert config.delay_for_attempt(2) == 100 * time.millisecond
+	assert config.delay_for_attempt(3) == 200 * time.millisecond
+	assert config.delay_for_attempt(4) == 400 * time.millisecond
 }
 
 fn test_delay_for_attempt_first_attempt_returns_base() {
-	// First attempt always returns base delay (no preceding wait)
+	// 首次尝试前面不该有任何等待 —— 否则每次调用都先卡一个 delay
 	config := RetryConfig{
 		delay:   50 * time.millisecond
 		backoff: .exponential
 	}
-	assert config.delay_for_attempt(1) == 50 * time.millisecond
+	assert config.delay_for_attempt(1) == time.Duration(0)
+	assert config.delay_for_attempt(0) == time.Duration(0)
 }
 
 // ═══════════════════════════════════════════════════════════════

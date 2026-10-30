@@ -140,21 +140,26 @@ pub fn parse_retryable_attr(attr string) RetryConfig {
 
 // ── Backoff Calculation ──
 
-// delay_for_attempt returns the delay to apply BEFORE the given attempt.
-// attempt is 1-indexed (attempt 1 is the first try, which has no preceding delay).
+// delay_for_attempt 返回「第 attempt 次尝试之前」要等多久（attempt 从 1 开始）。
 //
-//   fixed:       delay                    (constant)
-//   linear:      delay * attempt          (100ms, 200ms, 300ms, ...)
-//   exponential: delay * 2^(attempt-1)    (100ms, 200ms, 400ms, 800ms, ...)
+// 「第 1 次尝试」是首次执行，前面不该有等待 —— 重试的意义是先试一次，
+// 失败了再等。老实现里 `attempt <= 1` 直接返回 rc.delay，于是每一次
+// 首次调用都白白睡了一个 delay。默认配置下是 100ms，看起来无害；
+// 但配成 `delay:5000` 的支付回调就是每次调用先卡 5 秒。
+//
+//   fixed:       attempt 1 → 0；attempt≥2 → delay
+//   linear:      delay * (attempt-1)      (0, 100ms, 200ms, 300ms, ...)
+//   exponential: delay * 2^(attempt-2)    (0, 100ms, 200ms, 400ms, 800ms, ...)
 pub fn (rc RetryConfig) delay_for_attempt(attempt int) time.Duration {
 	if attempt <= 1 {
-		return rc.delay
+		return time.Duration(0)
 	}
 	factor := match rc.backoff {
 		.fixed { i64(1) }
-		.linear { i64(attempt) }
-		.exponential { exp_factor(attempt) }
+		.linear { i64(attempt - 1) }
+		.exponential { exp_factor(attempt - 1) }
 	}
+
 	// Saturate instead of overflowing: at attempt 64 the shift no longer fits
 	// in i64 and wraps to 0/negative, silently turning a "wait longer" policy
 	// into "retry immediately". Sleeping longer than a day is already beyond
@@ -162,7 +167,8 @@ pub fn (rc RetryConfig) delay_for_attempt(attempt int) time.Duration {
 	return saturating_multiply(rc.delay, factor)
 }
 
-// exp_factor returns 2^(attempt-1), saturating at max_retry_delay_ticks.
+// exp_factor 返回 2^(shift)，饱和到 max_retry_delay_ticks。
+// shift 由调用方按「重试次数」给出：第 n 次重试（n 从 1 起）对应 2^(n-1)。
 fn exp_factor(attempt int) i64 {
 	shift := attempt - 1
 	if shift >= 33 {
