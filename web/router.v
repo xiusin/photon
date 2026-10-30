@@ -358,6 +358,17 @@ pub fn (rr &RouteRegistry) dispatch_with_chain(method string, url_path string, h
 	mctx.route_path = url_path
 	mctx.route_method = method
 
+	// 前置中间件短路后，后置中间件仍然要跑。
+	//
+	// 后置中间件不是「handler 的收尾」，而是「响应的收尾」——CORS 头、
+	// 压缩、耗时统计都是在这一步挂到 ctx.res 上的。短路路径（鉴权失败
+	// 发的 401、CORS 预检发的空响应）同样是一条真实响应，跳过它们的结果
+	// 就是：401 没有 CORS 头，浏览器把本该看到的错误信息拦成不透明失败；
+	// 预检响应缺 Access-Control-Allow-*，整个跨域请求直接失败。
+	//
+	// 顺序不变：短路时不执行 handler，但仍按「路由级 → 全局」跑完后置链。
+	mut short_circuited := false
+
 	// 1. 执行全局前置中间件
 	if chain.len() > 0 {
 		allowed := chain.execute(mctx) or {
@@ -365,23 +376,28 @@ pub fn (rr &RouteRegistry) dispatch_with_chain(method string, url_path string, h
 			false
 		}
 		if !allowed {
-			return true // 中间件短路，响应已发送
+			short_circuited = true
 		}
 	}
 
 	// 2. 执行路由级前置中间件
-	for mw in route.middlewares {
-		allowed := mw(mctx) or {
-			eprintln('[middleware] route before-middleware error: ${err}')
-			false
-		}
-		if !allowed {
-			return true // 中间件短路
+	if !short_circuited {
+		for mw in route.middlewares {
+			allowed := mw(mctx) or {
+				eprintln('[middleware] route before-middleware error: ${err}')
+				false
+			}
+			if !allowed {
+				short_circuited = true
+				break
+			}
 		}
 	}
 
 	// 3. 执行路由 handler
-	route.handler(ctx_ptr, params)
+	if !short_circuited {
+		route.handler(ctx_ptr, params)
+	}
 
 	// 4. 执行路由级后置中间件
 	for mw in route.after_middlewares {
