@@ -61,7 +61,45 @@ fn (la &LocalAdapter) resolve_path(path string) !string {
 		return error('path traversal denied: "${path}" escapes root directory')
 	}
 
+	// 纯字符串前缀校验挡不住符号链接：root 下的一个 `link -> /etc`，
+	// 字面路径永远在 root 里，实际读写却落在 root 之外。
+	// 所以再问一次文件系统：最深的那个**已存在**的路径分量，它解析后的
+	// 真实位置也必须落在真实 root 之内。
+	//
+	// 只检查已存在的分量是有意的：write('a/b/c.txt') 时 c.txt 往往还不存在，
+	// real_path 对不存在的路径会原样返回，那种情况下检查它自己的前缀就够了。
+	// root 本身可能还不存在（首次写入时），那就先建出来 —— 只有建出来
+	// real_path 才能给出一个能用来比对的规范路径。
+	if !os.exists(root_resolved) {
+		os.mkdir_all(root_resolved) or {
+			return error('failed to create root directory "${root_resolved}": ${err}')
+		}
+	}
+	real_root := os.real_path(root_resolved)
+	if !is_within_real_root(resolved, real_root) {
+		return error('path traversal denied: "${path}" resolves outside root directory')
+	}
+
 	return resolved
+}
+
+// is_within_real_root 沿路径向上找到最深的已存在的祖先，用 real_path 解掉
+// 符号链接后再与真实 root 比较。
+fn is_within_real_root(resolved string, real_root string) bool {
+	mut probe := resolved
+	for {
+		if os.exists(probe) {
+			real_probe := os.real_path(probe)
+			return real_probe == real_root || real_probe.starts_with(real_root + '/')
+		}
+		parent := os.dir(probe)
+		if parent == probe || parent.len == 0 {
+			// 一路到根都不存在：没有可解析的链接，按字面路径判断
+			return true
+		}
+		probe = parent
+	}
+	return true
 }
 
 // normalize_path resolves . and .. path segments to produce a canonical path
