@@ -211,13 +211,37 @@ pub fn (mut bl BeanLock) unlock(bean_name string) {
 	lk.unlock()
 }
 
-// remove removes the per-bean lock entry (cleanup after singleton is created).
-// This prevents memory leaks from accumulating lock entries for beans
-// that have already been fully instantiated.
+// remove drops the per-bean lock entry for `bean_name` — but only if nobody is
+// holding or waiting for it.
+//
+// Deleting a mutex that another goroutine may be blocked on is not cleanup, it
+// is destroying the lock under its waiters:
+//
+//   * a goroutine parked in lk.@lock() stays parked on a freed mutex forever
+//     (the "wait for the singleton to be instantiated" path turns into a hang);
+//   * a later lock() call finds no entry, creates a *brand new* mutex and
+//     succeeds immediately — two goroutines then hold "the same" bean lock at
+//     the same time, which is exactly what the lock exists to prevent.
+//
+// Both matter here because set_instance() calls this on every singleton right
+// after instantiation, i.e. at the exact moment other goroutines may still be
+// waiting for that bean.
+//
+// The entry is kept when it is busy. It stays valid forever — a sync.Mutex is
+// an independent object, not a value that needs to be re-created — so the
+// registry only ever grows to the number of beans that were resolved
+// concurrently. Callers that really want to reclaim the memory must do it when
+// the container is quiescent (cleanup() at shutdown).
 pub fn (mut bl BeanLock) remove(bean_name string) {
 	bl.mu.@lock()
 	defer { bl.mu.unlock() }
-	bl.locks.delete(bean_name)
+	lk := bl.locks[bean_name] or { return }
+	if lk.try_lock() {
+		// Nothing held it, so there cannot be a waiter parked on it: a thread
+		// that owns it would have failed try_lock, and a waiter would have.
+		bl.locks.delete(bean_name)
+		lk.unlock()
+	}
 }
 
 // lock_count returns the number of active per-bean locks.
