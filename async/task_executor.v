@@ -42,6 +42,11 @@ pub mut:
 	wg           sync.WaitGroup // tracks worker goroutines
 	task_wg      sync.WaitGroup // tracks submitted (in-flight) tasks
 	stopped      bool
+	// sentinels_sent 与 stopped 分开记：stopped 只表示「不再收新任务」，
+	// 而 shutdown() 的唤醒哨兵本身还要往队列里投递。若用 stopped 判断
+	// 队列是否已关，第二次 shutdown() 会连哨兵一起拒收 —— 那时 worker
+	// 已经退出，队列空着，wait() 就永远等不到人。
+	sentinels_sent bool
 }
 
 // new_task_executor creates a TaskExecutor with `worker_count` worker
@@ -86,16 +91,17 @@ fn worker_loop(mut te TaskExecutor) {
 		if task == unsafe { nil } {
 			return
 		}
-		// run_task wraps task() so panics are caught via the ! return type.
-		run_task(task) or {
-			eprintln('TaskExecutor: task panicked - ${err}')
-		}
+		run_task(task) or { eprintln('TaskExecutor: task failed - ${err}') }
 		te.task_wg.done()
 	}
 }
 
-// run_task executes a TaskFunc and returns ! so the caller can catch
-// panics with an or block, ensuring task_wg.done() is always called.
+// run_task executes a TaskFunc and reports failure through the `!` channel.
+//
+// 注意：这里的 `!` 只承载 error，**接不住 panic**。V 的 panic 是
+// noreturn + exit(1)，线程里 panic 会直接带走整个进程，不会跳到调用方的
+// or 块。TaskFunc 本身也没有返回槽可以传 error，所以这个 `!` 目前恒成功。
+// 保留它只是为了以后换成 fn () ! 时调用方不用改结构。
 fn run_task(task TaskFunc) ! {
 	task()
 }
@@ -112,6 +118,10 @@ pub fn (mut te TaskExecutor) submit(task TaskFunc) ! {
 		te.mu.unlock()
 		return error('TaskExecutor is stopped / 任务执行器已停止')
 	}
+	if task == unsafe { nil } {
+		te.mu.unlock()
+		return error('TaskExecutor: task must not be nil / 任务不能为 nil')
+	}
 	// Track the task so shutdown() can wait for it.
 	te.task_wg.add(1)
 	te.mu.unlock()
@@ -120,7 +130,13 @@ pub fn (mut te TaskExecutor) submit(task TaskFunc) ! {
 	// eventually succeed (unless shutdown closes the queue, but shutdown
 	// waits on task_wg first, which blocks until this send succeeds and
 	// the task completes — so no deadlock and no send-on-closed).
-	te.task_queue <- task
+	//
+	// 发送失败（队列对端已无接收者）时必须回滚 task_wg，否则 wait_all()
+	// 与 shutdown() 都在等一个永远不会 done() 的任务。
+	te.task_queue <- task or {
+		te.task_wg.done()
+		return error('TaskExecutor: task queue is closed / 任务队列已关闭')
+	}
 }
 
 // try_submit attempts to enqueue a task without blocking. Returns
@@ -142,6 +158,13 @@ pub fn (mut te TaskExecutor) try_submit(task TaskFunc) !bool {
 	// task_wg.wait() cannot return before this task is resolved.
 	te.task_wg.add(1)
 	te.mu.unlock()
+
+	// nil 是 shutdown() 的唤醒哨兵，不能被当成用户任务塞进队列 ——
+	// 那会让一个 worker 提前退出，后续 shutdown 的哨兵数量就配不平。
+	if task == unsafe { nil } {
+		te.task_wg.done()
+		return error('TaskExecutor: task must not be nil / 任务不能为 nil')
+	}
 
 	mut accepted := false
 	select {
@@ -168,11 +191,14 @@ pub fn (mut te TaskExecutor) try_submit(task TaskFunc) !bool {
 // Idempotent: calling shutdown multiple times is safe.
 pub fn (mut te TaskExecutor) shutdown() {
 	te.mu.@lock()
-	if te.stopped {
+	if te.sentinels_sent {
 		te.mu.unlock()
 		return
 	}
 	te.stopped = true
+	// 先占位再投递：并发的第二个 shutdown() 必须直接返回，
+	// 否则它会往队列里再塞一批 nil，把 worker 之外的东西也一并唤醒。
+	te.sentinels_sent = true
 	te.mu.unlock()
 
 	// Wake every worker with a nil TaskFunc so it exits its loop, THEN wait
@@ -204,7 +230,7 @@ pub fn (mut te TaskExecutor) shutdown() {
 // order, so pending tasks still run before the sentinels are reached.
 fn (mut te TaskExecutor) wake_workers() {
 	for _ in 0 .. te.worker_count {
-		te.task_queue <- unsafe { TaskFunc(nil) }
+		te.task_queue <- unsafe { TaskFunc(nil) } or {}
 	}
 }
 
