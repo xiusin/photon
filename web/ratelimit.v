@@ -343,9 +343,16 @@ pub fn (mut fw FixedWindowLimiter) check(key string, max_requests int, window_se
 	mut entry := fw.windows[key] or { FixedWindowEntry{} }
 
 	// Reset if window expired
+	//
+	// 窗口长度必须为正数。原来 `window_seconds <= 0` 时 `expires = now + 0`，
+	// 而下一轮 check 里 `now >= entry.expires` 立刻成立 —— 每次请求都重新
+	// 开一扇新窗、计数归零，`max_requests` 形同不存在。配置里少写一个 0
+	// 或者把"不限流"写成 0，得到的不是不限流，是**完全不限流且毫无提示**。
+	// 这里给非正窗口回落到 1 秒，限流行为仍然成立。
+	effective_window := if window_seconds > 0 { window_seconds } else { 1 }
 	if now >= entry.expires {
 		entry.count = 0
-		entry.expires = now + window_seconds
+		entry.expires = now + effective_window
 	}
 
 	entry.count++
@@ -398,6 +405,8 @@ pub fn (mut fw FixedWindowLimiter) get_remaining(key string, max_requests int, w
 	now := time.now().unix()
 	entry := fw.windows[key] or { return max_requests }
 
+	// 与 check() 一致：非正窗口按 1 秒处理，否则这里会一直报「还剩满额」，
+	// 而实际请求已经被 check() 放过去了。
 	if now >= entry.expires {
 		return max_requests
 	}
