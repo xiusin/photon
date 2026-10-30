@@ -58,11 +58,20 @@ pub fn (h UriTemplateHandler) expand(template string, vars map[string]string) st
 		if in_var && ch == h.right_delim {
 			in_var = false
 			name := var_name_buf.bytestr().trim_space()
-			if name.len > 0 {
-				val := vars[name] or { '' }
-				if val.len > 0 {
-					sb << val.bytes()
-				}
+			// A name that is not in `vars` is not a placeholder at all: leave
+			// the braces in place. Dropping them turned '/users/{page}' into
+			// '/users/' — the caller's path silently changed shape instead of
+			// the request failing loudly.
+			if name.len == 0 {
+				// '{}' — nothing to expand, keep the literal braces.
+				sb << h.left_delim
+				sb << h.right_delim
+			} else if name in vars {
+				sb << encode_path_value(vars[name]).bytes()
+			} else {
+				sb << h.left_delim
+				sb << name.bytes()
+				sb << h.right_delim
 			}
 			i++
 			continue
@@ -76,7 +85,55 @@ pub fn (h UriTemplateHandler) expand(template string, vars map[string]string) st
 		i++
 	}
 
+	// Unclosed placeholder: emit it literally rather than truncating the path.
+	if in_var {
+		sb << h.left_delim
+		sb << var_name_buf
+	}
+
 	return sb.bytestr()
+}
+
+// encode_path_value percent-encodes the characters that would otherwise change
+// the meaning of the URI.
+//
+// A URI template variable is a *value*, not a fragment of the template: with
+// raw substitution, uri_var('id', '../../admin') rewrote '/users/{id}' into
+// '/users/../../admin', and uri_var('q', 'a&role=admin') turned '/s?q={q}'
+// into '/s?q=a&role=admin' — one extra query parameter the caller never set.
+// Both are classic path-traversal / parameter-injection shapes, and they come
+// from data (ids, usernames, search terms), not from the template author.
+fn encode_path_value(val string) string {
+	mut sb := strings.new_builder(val.len + 8)
+	for b in val.bytes() {
+		if is_uri_safe_byte(b) {
+			sb << b
+		} else {
+			sb << byte(`%`)
+			sb << hex_digit(b >> 4)
+			sb << hex_digit(b & 0x0F)
+		}
+	}
+	return sb.bytestr()
+}
+
+// is_uri_safe_byte keeps the RFC 3986 unreserved set plus the sub-delims that
+// are meaningful inside a path or query value but cannot re-split it.
+fn is_uri_safe_byte(b u8) bool {
+	return (b >= byte(`a`) && b <= byte(`z`))
+		|| (b >= byte(`A`) && b <= byte(`Z`))
+		|| (b >= byte(`0`) && b <= byte(`9`))
+		|| b == byte(`-`) || b == byte(`.`) || b == byte(`_`) || b == byte(`~`)
+		|| b == byte(`!`) || b == byte(`$`) || b == byte(`'`)
+		|| b == byte(`*`) || b == byte(`+`) || b == byte(`,`) || b == byte(`;`)
+		|| b == byte(`=`) || b == byte(`:`) || b == byte(`@`)
+}
+
+fn hex_digit(nibble u8) u8 {
+	if nibble < 10 {
+		return byte(`0`) + nibble
+	}
+	return byte(`A`) + (nibble - 10)
 }
 
 // ============================================================
@@ -500,32 +557,17 @@ pub fn (rt RestTemplate) execute(entity RequestEntity) !ResponseEntity {
 // execute_http — the actual HTTP call without interception
 // ----------------------------------------------------------
 
-fn (rt RestTemplate) execute_http(entity RequestEntity) !ResponseEntity {
-	// Apply SSL configuration if set.
-	// V's net.http.FetchConfig does not yet expose full TLS/SSL or proxy
-	// fields in the supported version. We validate and log the configuration
-	// here so that misconfiguration is caught early, and apply what the
-	// FetchConfig API supports.
-	ssl_cfg := rt.ssl_config or { SSLConfig{} }
-	proxy_cfg := rt.proxy_config or { ProxyConfig{} }
-
-	if ssl_cfg.enable && ssl_cfg.insecure_skip_verify {
-		eprintln('[warn] SSL insecure_skip_verify is enabled — not recommended for production')
-	}
-	if proxy_cfg.host.len > 0 && proxy_cfg.port > 0 {
-		// Proxy is configured; V's FetchConfig does not yet expose proxy
-		// fields, so this is recorded for future use when the API supports it.
-		eprintln('[info] Proxy configured: ${proxy_cfg.host}:${proxy_cfg.port}')
-	}
-
-	config := vhttp.FetchConfig{
+// fetch_config maps the RestTemplate configuration onto net.http.FetchConfig.
+//
+// Kept separate from execute_http so the mapping can be asserted without
+// opening a socket — the previous version only logged the proxy and TLS
+// settings, so a configured proxy silently never took effect.
+fn (rt RestTemplate) fetch_config(entity RequestEntity) !vhttp.FetchConfig {
+	mut config := vhttp.FetchConfig{
 		method: method_from_string(entity.method)
 		url:    entity.url
 		header: header_from_map(entity.headers)
 		data:   entity.body
-		// NOTE: net.http.FetchConfig (V 0.5.1) does not expose read/write
-		// timeout fields, so rt.read_timeout / rt.connect_timeout cannot be
-		// applied here. Retained in RequestTemplate for future API support.
 		// Retry is owned by execute_with_retry below; vhttp's built-in
 		// retry is limited to a single attempt to avoid double retry.
 		// V 0.5.1 treats max_retries as the total attempt count inside
@@ -533,6 +575,53 @@ fn (rt RestTemplate) execute_http(entity RequestEntity) !ResponseEntity {
 		// `0..0` range) and break every request, so use 1.
 		max_retries: 1
 	}
+
+	// read_timeout / write_timeout live on FetchConfig since 0.5.x; the
+	// values here used to be dropped on the floor.
+	if rt.read_timeout > 0 {
+		config.read_timeout = i64(rt.read_timeout) * time.millisecond
+	}
+	if rt.connect_timeout > 0 {
+		// FetchConfig has no separate connect timeout; write_timeout is the
+		// closest equivalent (time spent pushing the request out).
+		config.write_timeout = i64(rt.connect_timeout) * time.millisecond
+	}
+
+	if proxy_cfg := rt.proxy_config {
+		if proxy_cfg.host.len > 0 && proxy_cfg.port > 0 {
+			mut auth := ''
+			if proxy_cfg.username.len > 0 {
+				auth = '${proxy_cfg.username}:${proxy_cfg.password}@'
+			}
+			config.proxy = vhttp.new_http_proxy('http://${auth}${proxy_cfg.host}:${proxy_cfg.port}') or {
+				return error('invalid proxy configuration: ${err}')
+			}
+		}
+	}
+
+	if ssl_cfg := rt.ssl_config {
+		if ssl_cfg.enable {
+			config.cert = ssl_cfg.cert_file
+			config.cert_key = ssl_cfg.key_file
+			config.verify = ssl_cfg.ca_file
+			// validate=true makes net.http reject a bad certificate; skipping
+			// verification is an explicit opt-in, never a default.
+			config.validate = !ssl_cfg.insecure_skip_verify
+			if ssl_cfg.insecure_skip_verify {
+				eprintln('[warn] SSL insecure_skip_verify is enabled — certificates are not verified')
+			}
+		} else if ssl_cfg.cert_file.len > 0 || ssl_cfg.ca_file.len > 0 {
+			// Configured certs but TLS off: say it out loud instead of
+			// connecting with defaults and looking fine.
+			eprintln('[warn] SSLConfig has certificate files but enable=false — the TLS settings are ignored')
+		}
+	}
+
+	return config
+}
+
+fn (rt RestTemplate) execute_http(entity RequestEntity) !ResponseEntity {
+	config := rt.fetch_config(entity)!
 
 	vhttp_resp := execute_with_retry(config, rt.max_retries, rt.retry_base_delay) or {
 		mut resp_headers := map[string]string{}

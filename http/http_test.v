@@ -125,9 +125,14 @@ fn test_uri_template_expand_segment() {
 
 fn test_uri_template_expand_empty_vars() {
 	h := new_uri_template_handler()
-	// missing var stays as template placeholder
+	// A variable name that is not in `vars` is not substituted at all.
+	// The old assertion expected '/api/' — i.e. it locked in the behaviour of
+	// silently deleting placeholders, which is what turned a forgotten URI
+	// variable into a request to a *different* endpoint instead of an error.
 	result := h.expand('/api/{x}', map[string]string{})
-	assert result == '/api/'
+	assert result == '/api/{x}'
+	// And an unknown name next to a known one only keeps the unknown literal.
+	assert h.expand('/api/{x}/{y}', { 'y': 'ok' }) == '/api/{x}/ok'
 }
 
 fn test_uri_template_expand_nested() {
