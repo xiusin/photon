@@ -159,9 +159,27 @@ pub fn (mut la LocalAdapter) write(path string, contents string, options Storage
 }
 
 // delete removes a file
+//
+// 权限覆盖缓存必须同步摘掉。缓存按「相对路径」索引，而删除后重新创建的
+// 同名文件会复用同一个 key —— 残留的 `public` 记录会让下一个本该 private
+// 的新文件直接拿到 644 权限，并且 `visibility()` 也报 public。对一个上传
+// 目录来说，这就是「删了旧文件，新文件裸奔」。
 pub fn (la &LocalAdapter) delete(path string) ! {
 	full := la.resolve_path(path)!
 	os.rm(full)!
+	la.forget_permissions(path)!
+}
+
+// forget_permissions drops the cached visibility override for a path
+//
+// 与 visibility() 同理：`&LocalAdapter` 接收者满足 Storage 的只读段，
+// 互斥量本身不因清理一条记录而变化，故走 unsafe 访问。
+pub fn (la &LocalAdapter) forget_permissions(path string) ! {
+	unsafe {
+		la.mu.@lock()
+		la.permissions.delete(path)
+		la.mu.unlock()
+	}
 }
 
 // exists checks if a file exists
@@ -206,6 +224,20 @@ pub fn (la &LocalAdapter) move(source string, dest string) ! {
 	}
 
 	os.mv(src, dst)!
+
+	// 权限覆盖缓存以「调用方给的相对路径」为键，搬完必须跟着走，
+	// 否则源路径残留一条失效记录（同名文件重建即继承旧可见性），
+	// 目标路径则退回默认 private —— 一次 move 就悄悄降级了可见性。
+	carried := unsafe { la.permissions[source] or { '' } }
+	if carried.len > 0 {
+		la.forget_permissions(source)!
+		mut target_vis := Visibility.private_
+		if carried == 'public' {
+			target_vis = .public_
+		}
+		mut self_mut := unsafe { &LocalAdapter(la) }
+		self_mut.set_visibility(dest, target_vis)!
+	}
 }
 
 // size returns the file size in bytes
