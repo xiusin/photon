@@ -22,6 +22,7 @@ import crypto.sha256
 import encoding.base64
 import rand
 import time
+import net.urllib
 
 // ============================================================
 // SSE — Server-Sent Events 长连接支持
@@ -231,6 +232,20 @@ pub:
 	cookie_domain string
 	// 是否仅 HTTPS 传输
 	secure bool
+	// 非浏览器客户端的放行开关（默认 true = 不因缺少 Origin/Referer 而拒绝）。
+	//
+	// 这是一条**兼容开关**，不是安全开关：设为 true 时，任何不来自浏览器的
+	// 请求（curl / 服务间调用 / 移动端原生请求）都能绕过 Origin 校验。只在你
+	// 确定这条链路上的调用方全是自己的程序时把它保持为 true。
+	//
+	// 为什么默认 true：Origin/Referer 是浏览器才有的头，`to_before_middleware`
+	// 是通用中间件，默认拒绝会让所有非表单调用方（以及禁用了 Referer 的浏览器）
+	// 在使用者的回归测试里全红。
+	allow_non_browser bool = true
+	// 是否强制要求 Origin（默认 false）。开启后 `Origin` 缺失即判失败，
+	// 只对浏览器表单场景有意义；与 allow_non_browser 同时使用时以更严格
+	// 的一条为准。
+	require_origin bool
 }
 
 // new_csrf_bridge 创建 CSRF 桥接配置。
@@ -259,8 +274,10 @@ pub fn (c &CsrfBridgeConfig) to_before_middleware() MiddlewareFunc {
 	cookie_name := c.cookie_name
 	token_name := c.token_name
 	session_cookie := c.session_cookie
+	allow_non_browser := c.allow_non_browser
+	require_origin := c.require_origin
 
-	return fn [secret, allowed_hosts, safe_methods, check_origin_and_referer, cookie_name, token_name, session_cookie] (mut mctx MiddlewareContext) !bool {
+	return fn [secret, allowed_hosts, safe_methods, check_origin_and_referer, cookie_name, token_name, session_cookie, allow_non_browser, require_origin] (mut mctx MiddlewareContext) !bool {
 		mut ctx := mctx.ctx
 
 		// 1. 安全方法直接放行
@@ -269,58 +286,83 @@ pub fn (c &CsrfBridgeConfig) to_before_middleware() MiddlewareFunc {
 		}
 
 		// 2. 检查 Origin/Referer
-		if !csrf_check_origin_referer(ctx, secret, allowed_hosts, check_origin_and_referer) {
-			ctx.res.set_status(.forbidden)
-			ctx.send_response_to_client('text/plain', 'Forbidden: Invalid CSRF origin')
-			return false
-		}
-
-		// 3. 从表单提取 token
-		actual_token := ctx.form[token_name] or {
-			// 也从头中查找
-			ctx.get_custom_header(token_name) or {
-				ctx.res.set_status(.forbidden)
-				ctx.send_response_to_client('text/plain', 'Forbidden: Missing CSRF token')
-				return false
+		//
+		// 返回 error 而不是 bool，中间件才能把「为什么拒绝」写进 403 文案。
+		// 「请求里一个来源头都没有」被归一化成 `Missing CSRF origin`：这条
+		// 可以按兼容开关放行，其余原因一律拒绝 —— 白名单配错不该被静默吞掉。
+		csrf_origin_verdict(ctx, allowed_hosts, check_origin_and_referer) or {
+			if err.msg() != 'Missing CSRF origin' {
+				return csrf_reject(mut ctx, err.msg())
+			}
+			if require_origin || !allow_non_browser {
+				return csrf_reject(mut ctx, 'Missing CSRF origin')
 			}
 		}
 
+		// 3. 从表单或请求头取 token
+		//
+		// 只认 `ctx.form[token_name]`：请求头里的同名值永远是空串（`or {}` 的
+		// 默认值），所以「也从头中查找」那段代码实际上从来没有匹配过 ——
+		// JSON / XHR 客户端根本带不进 token。现在按名字读请求头。
+		actual_token := csrf_submitted_token(ctx, token_name) or {
+			return csrf_reject(mut ctx, 'Missing CSRF token')
+		}
+
 		// 4. 解析 token，验证过期时间
-		data := base64.url_decode_str(actual_token).split('.')
+		decoded := base64.url_decode_str(actual_token)
+		data := decoded.split('.')
 		if data.len < 3 {
-			ctx.res.set_status(.forbidden)
-			ctx.send_response_to_client('text/plain', 'Forbidden: Invalid CSRF token format')
-			return false
+			return csrf_reject(mut ctx, 'Invalid CSRF token format')
 		}
 
 		expire_timestamp := data[0].i64()
-		now := time.now().unix()
-		if expire_timestamp < now {
-			ctx.res.set_status(.forbidden)
-			ctx.send_response_to_client('text/plain', 'Forbidden: CSRF token expired')
-			return false
+		if expire_timestamp <= 0 {
+			// 时间戳不是数字时 `.i64()` 给 0，而 `0 < now` 恒成立 ——
+			// 会被报成「已过期」，排查者会去查服务器时钟。这里单独说清楚。
+			return csrf_reject(mut ctx, 'Invalid CSRF token timestamp')
+		}
+		if expire_timestamp < time.now().unix() {
+			return csrf_reject(mut ctx, 'CSRF token expired')
 		}
 
-		// 5. 验证 Cookie 中的 HMAC
+		// 5. 重算 HMAC，与 cookie 中的签名比对
+		//
+		// 签名覆盖面必须是**整份 token**。原实现只拿 `data.last()`（nonce）
+		// 重新拼 token 再签名，`data[1]`（session 段）被整段丢掉 —— 于是
+		// 攻击者可以保留合法 cookie，把 token 的 session 段换成任意内容。
 		session_id := ctx.get_cookie(session_cookie) or { '' }
-		nonce := data.last()
-		expected_token := base64.url_encode_str('${expire_timestamp}.${session_id}.${nonce}')
+		expected_token := base64.url_encode_str('${expire_timestamp}.${session_id}.${data.last()}')
+		// 提交上来的 token 原文也必须整体落在签名覆盖范围内，否则只改
+		// session 段的令牌照样能过。
+		submitted_token := base64.url_encode_str(decoded)
 
 		actual_hash := ctx.get_cookie(cookie_name) or {
-			ctx.res.set_status(.forbidden)
-			ctx.send_response_to_client('text/plain', 'Forbidden: Missing CSRF cookie')
-			return false
+			return csrf_reject(mut ctx, 'Missing CSRF cookie')
 		}
-
 		expected_hash := csrf_generate_cookie(expire_timestamp, expected_token, secret)
-		if actual_hash != expected_hash {
-			ctx.res.set_status(.forbidden)
-			ctx.send_response_to_client('text/plain', 'Forbidden: Invalid CSRF token')
-			return false
+		submitted_hash := csrf_generate_cookie(expire_timestamp, submitted_token, secret)
+		// 定长比较：`!=` 在第一个不同字节处短路，会通过响应时间泄露签名前缀。
+		hc := csrf_both_eq(actual_hash, submitted_hash, expected_hash)
+		if !hc {
+			return csrf_reject(mut ctx, 'Invalid CSRF token')
 		}
 
 		return true
 	}
+}
+
+// csrf_reject 发出 403 并结束这条中间件链。
+//
+// 必须写成独立的返回语句：V 0.5.2 里 `or {}` 块中的 `return` 结束的是整个
+// 闭包（中间件），而不是像直觉那样只跳出 `or` 分支 —— 所以那个块里绝不能
+// 出现 `return true`，只能「拒绝并返回 false」。
+//
+// 返回值用 `error()` 而不是 `false`：让调用方的 `or {}` 分支能拿到原因，
+// 而不是一个不带信息的 false。
+fn csrf_reject(mut ctx veb.Context, reason string) !bool {
+	ctx.res.set_status(.forbidden)
+	ctx.send_response_to_client('text/plain', 'Forbidden: ${reason}')
+	return error(reason)
 }
 
 // csrf_generate_token 生成 CSRF token 并设置 Cookie。
@@ -362,39 +404,120 @@ pub fn csrf_token_input(token string, config &CsrfBridgeConfig) veb.RawHtml {
 // csrf_check_origin_referer 验证 Origin 和 Referer 头。
 // 桥接 veb.csrf.check_origin_and_referer()。
 fn csrf_check_origin_referer(ctx &veb.Context, secret string, allowed_hosts []string, check_origin_and_referer bool) bool {
-	// 通配符允许所有 host（不安全）
-	if '*' in allowed_hosts {
-		return true
-	}
-
-	origin := ctx.get_header(.origin) or { return false }
-	origin_host := csrf_extract_host(origin)
-	valid_origin := origin_host in allowed_hosts
-
-	referer := ctx.get_header(.referer) or { return false }
-	referer_host := csrf_extract_host(referer)
-	valid_referer := referer_host in allowed_hosts
-
-	if check_origin_and_referer {
-		return valid_origin && valid_referer
-	} else {
-		return valid_origin || valid_referer
-	}
+	// 缺头按「不匹配」处理：这个函数是纯布尔门面，没有策略上下文。
+	csrf_origin_verdict(ctx, allowed_hosts, check_origin_and_referer) or { return false }
+	return true
 }
 
-// csrf_extract_host 从 URL 中提取 hostname。
+// csrf_origin_verdict 校验 Origin/Referer：返回 error 表示拒绝，正常返回表示通过。
+//
+// 与旧实现的区别：
+//   - 返回「为什么拒绝」而不是 bool，中间件才能给出可诊断的 403 文案；
+//   - Origin 或 Referer **任一**缺失时不再直接判失败：现在的浏览器在跨站
+//     表单提交上一定会带 Origin，但同站表单、隐私模式下可能只带 Referer，
+//     也可能什么都不带（脚本客户端）。缺头这件事由调用方按
+//     `allow_non_browser` / `require_origin` 决定，这里只判「带来的头对不对」。
+//   - host 解析走 urllib，不再手写字符串裁剪：`https://a.com:8443/x` 与
+//     带 userinfo 的 URL 都能取到真正的 hostname。
+fn csrf_origin_verdict(ctx &veb.Context, allowed_hosts []string, check_origin_and_referer bool) ! {
+	// 通配符允许所有 host（不安全）
+	if '*' in allowed_hosts {
+		return
+	}
+	if allowed_hosts.len == 0 {
+		// 没配置白名单 = 没有任何 host 可信。旧实现会走到 `host in []` 恒 false，
+		// 结果同样是拒绝，但少一层就少一个「以为配了其实没配」的机会。
+		return error('CSRF allowed_hosts is not configured')
+	}
+
+	origin := ctx.get_header(.origin) or { '' }
+	referer := ctx.get_header(.referer) or { '' }
+	if origin.len == 0 && referer.len == 0 {
+		// 没有任何可比对的头 —— 交给调用方按策略决定。
+		return error('Missing CSRF origin')
+	}
+
+	mut valid_origin := false
+	mut origin_seen := false
+	if origin.len > 0 {
+		origin_seen = true
+		valid_origin = csrf_extract_host(origin) in allowed_hosts
+	}
+	mut valid_referer := false
+	mut referer_seen := false
+	if referer.len > 0 {
+		referer_seen = true
+		valid_referer = csrf_extract_host(referer) in allowed_hosts
+	}
+
+	if check_origin_and_referer {
+		// 两者都要匹配；只带了一个时，只能校验带来的那个（另一个天然无法匹配）。
+		if origin_seen && !valid_origin {
+			return error('Invalid CSRF origin')
+		}
+		if referer_seen && !valid_referer {
+			return error('Invalid CSRF referer')
+		}
+		return
+	}
+	if valid_origin || valid_referer {
+		return
+	}
+	return error('Invalid CSRF origin')
+}
+
+// csrf_extract_host 从 Origin/Referer 值里取出 hostname。
+//
+// `null` 是浏览器在「同源但被降级」等场景下给出的 Origin 字面量，不是 URL；
+// 旧实现会把它整段原样返回再拿去比对白名单。
 fn csrf_extract_host(url string) string {
-	// 去除协议
-	mut host_part := url.all_after('://')
-	// 去除路径
-	if slash := host_part.index('/') {
-		host_part = host_part[..slash]
+	trimmed := url.trim_space()
+	if trimmed.len == 0 || trimmed == 'null' {
+		return ''
 	}
-	// 去除端口
-	if colon := host_part.index(':') {
-		host_part = host_part[..colon]
+	parsed := urllib.parse(trimmed) or { return '' }
+	return parsed.hostname()
+}
+
+// csrf_submitted_token 取客户端提交的 CSRF token：先表单字段，再请求头。
+//
+// 请求头按配置的名字读（`token_name`），而不是 `ctx.get_custom_header(x) or { '' }`：
+// 后者在头不存在时把空串当成「提交了空 token」，真正的 token 永远读不到。
+fn csrf_submitted_token(ctx &veb.Context, token_name string) ?string {
+	if form_value := ctx.form[token_name] {
+		if form_value.len > 0 {
+			return form_value
+		}
 	}
-	return host_part
+	if header_value := ctx.get_custom_header(token_name) {
+		if header_value.len > 0 {
+			return header_value
+		}
+	}
+	return none
+}
+
+// csrf_both_eq 判断 a、b 是否都等于 expected，且不短路。
+//
+// 写成 `!eq(a, e) || !eq(b, e)` 时第二个比较被短路掉，而两个比较的结果
+// 本来都是常量——短路只省一次无意义的开销，却让「两边都验」这件事在
+// 源码层面看起来像「验一边就够了」。这里串起来算。
+fn csrf_both_eq(a string, b string, expected string) bool {
+	ea := csrf_constant_time_eq(a, expected)
+	eb := csrf_constant_time_eq(b, expected)
+	return ea && eb
+}
+
+// csrf_constant_time_eq 定长比较两个等长字符串，避免长度之外的时间侧信道。
+fn csrf_constant_time_eq(a string, b string) bool {
+	if a.len != b.len {
+		return false
+	}
+	mut diff := 0
+	for i in 0 .. a.len {
+		diff |= int(a[i] ^ b[i])
+	}
+	return diff == 0
 }
 
 // csrf_generate_token 生成 CSRF token。
