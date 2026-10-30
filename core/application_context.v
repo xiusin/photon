@@ -382,13 +382,19 @@ pub fn (mut ctx ApplicationContext) resolve(type_name string) !voidptr {
 	ctx.cache_mu.unlock()
 	instance := ctx.container.resolve(type_name) or { return err }
 
-	// 写入缓存（仅在未冻结时写入，冻结后缓存应已完整）
-	// Write to cache (only when not frozen; cache should be complete after freezing)
-	if !ctx.is_frozen {
-		ctx.cache_mu.@lock()
-		ctx.resolve_cache[type_name] = instance
-		ctx.cache_mu.unlock()
-	}
+	// 写入缓存。
+	//
+	// 原来这里写了 `if !ctx.is_frozen`：冻结之后新解析出来的 singleton 一律
+	// 不缓存 —— 而冻结的意义正是「之后每次 resolve 都走无锁快路径」。于是
+	// 任何在 freeze 之后才被解析的 bean（@[lazy]、refresh 时被跳过的、以及
+	// 冻结后由外部 resolver 拉起的）每次调用都掉回 Container.resolve 的加锁
+	// 慢路径，热路径优化对它们完全失效，而且没有任何日志提示。
+	//
+	// 冻结后写入是安全的：冻结只禁止「改 BeanDefinition」，不禁止新增实例
+	// 缓存；删改时 invalidate_cache() 会同步清掉条目。
+	ctx.cache_mu.@lock()
+	ctx.resolve_cache[type_name] = instance
+	ctx.cache_mu.unlock()
 
 	return instance
 }
