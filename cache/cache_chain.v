@@ -129,6 +129,15 @@ pub fn (co &CacheOperation) get() !string {
 	if !isnil(co.condition) && !co.condition() {
 		return error('cache operation skipped by condition')
 	}
+	// 没有 loader 就没有「未命中时该算什么」这件事 —— 回落到普通读。
+	//
+	// 原来不判空：`remember(key, ttl, unsafe { nil })` 或只设了 key 的链式
+	// 调用会直接调一个空函数指针，进程当场 SIGSEGV，而且崩溃点在 cache
+	// 模块内部，栈上完全看不出是调用方少传了 loader。
+	if isnil(co.loader) {
+		mut lookup := unsafe { co.cache_registry }
+		return lookup.get_from(co.cache_name, co.key) or { '' }
+	}
 
 	// Tag-based cache: use tag-specific registry
 	if co.tags.len > 0 {
@@ -181,6 +190,10 @@ fn (co &CacheOperation) get_with_tags() !string {
 		return cached
 	}
 
+	// 没有 loader 时未命中就是未命中 —— 别去调空函数指针。
+	if isnil(co.loader) {
+		return ''
+	}
 	// Cache miss: call loader
 	result := co.loader()!
 
