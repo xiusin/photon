@@ -27,10 +27,13 @@ module cache
 //     which makes repeated reads of working-set keys lock-free on the recency
 //     side.
 //
-// Lock ordering (mandatory, prevents ABBA deadlocks): shard.mu → shard.lru_mu.
-// The LRU list of a shard is only ever touched while its own shard lock is held,
-// and the promotion path takes `lru_mu` alone — never while holding another
-// shard's lock. There is no global lock anywhere in this file.
+// Lock ordering: every path that needs both takes shard.mu first, then
+// shard.lru_mu — one direction only, so the two can never ABBA. The LRU list of
+// a shard is only ever touched while its own shard lock is held: promotion used
+// to take lru_mu before mu, which was the reverse of set()/delete()/eviction
+// (mu → lru list). That window was small but real, and it sat between the read
+// path and the write path of the hottest structure in the framework.
+// There is no global lock anywhere in this file.
 //
 // The background sweeper retires itself when the cache stays empty, so a dropped
 // cache does not leak a thread (see start_gc()).
@@ -52,8 +55,8 @@ const promote_distance = 8
 // i.e. roughly one read in `mask + 1`.
 //
 // Why sampling instead of "always promote": with a working set larger than the
-// hot prefix, every single read would otherwise contend for lru_mu and the
-// shard write lock, and the read path stops scaling. Measured on a 1024-key
+// hot prefix, every single read would otherwise contend for the shard write
+// lock, and the read path stops scaling. Measured on a 1024-key
 // working set the unsampled version ran ~10x slower than the 64-key case
 // (871ms vs 89ms for 800k reads) — the promotion writes, not the reads, were
 // the bottleneck. Approximate LRU is the standard answer (Redis does the same
@@ -92,7 +95,8 @@ fn (e &MemCacheEntry) is_expired() bool {
 @[heap]
 struct CacheShard {
 mut:
-	// mu guards every field of this shard except `lru_mu` itself.
+	// mu guards every field of this shard. `lru_mu` below is an independent
+	// lock and is never required to read or write shard state.
 	mu sync.RwMutex
 	// hits is bumped with an atomic add under the read lock.
 	hits u64
@@ -104,8 +108,9 @@ mut:
 	lru_tail string
 	lru_prev map[string]string
 	lru_next map[string]string
-	// lru_mu serialises recency promotion from the read path. It is only ever
-	// taken while NOT holding mu, so it can never deadlock against a writer.
+	// lru_mu serialises recency promotion from the read path so two concurrent
+	// readers do not fight over the public LRU helpers. Lock order is
+	// mu → lru_mu, the same direction as every other path.
 	lru_mu sync.Mutex
 	// counter is bumped under mu by every write; it is read WITHOUT the lock by
 	// the sweeper (stdatomic) and by the capacity check. A slightly stale read
@@ -506,7 +511,7 @@ pub fn (mut mc MemoryCache) get(key string) !string {
 
 	// Recency: promote only when the key has drifted out of the hot prefix, and
 	// only on a sampled fraction of those reads. Working-set reads (the common
-	// case) never touch lru_mu or the shard write lock at all.
+	// case) never touch the shard write lock at all.
 	if !near_front && (hit & promote_sample_mask) == 0 {
 		mc.promote(mut sh, key)
 	}
@@ -515,11 +520,18 @@ pub fn (mut mc MemoryCache) get(key string) !string {
 
 // promote moves `key` to the LRU head.
 //
-// Lock order: lru_mu → mu, and never mu → lru_mu, so it cannot deadlock
-// against the write path. The double check inside mu keeps a concurrent
-// delete/expiry from resurrecting the key in the recency list.
+// Lock order: mu → lru_mu, the SAME order every other path uses. This function
+// used to take lru_mu first and then mu, which is the reverse of set()/delete()/
+// eviction (mu → lru_push_front_unsafe → lru list): a classic ABBA. The window is
+// tiny — both are short critical sections — but it is a real deadlock, and it
+// sits between the read path and the write path of the hottest structure in the
+// framework.
+//
+// Taking mu first also removes the need for lru_mu at all here: every field this
+// function touches (the recency list, sh.seq, sh.entries) is already guarded by
+// mu. lru_mu only ever existed to let promotion avoid mu, and promotion cannot
+// avoid mu anyway because it has to re-check that the key still exists.
 fn (mut mc MemoryCache) promote(mut sh CacheShard, key string) {
-	sh.lru_mu.@lock()
 	sh.mu.@lock()
 	if key in sh.entries {
 		sh.lru_push_front_unsafe(key)
@@ -534,7 +546,6 @@ fn (mut mc MemoryCache) promote(mut sh CacheShard, key string) {
 		}
 	}
 	sh.mu.unlock()
-	sh.lru_mu.unlock()
 }
 
 // remove_if_expired deletes `key` if it is still expired. Takes the write lock
