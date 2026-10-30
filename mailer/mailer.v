@@ -562,11 +562,33 @@ pub fn get_null_sent_count() int {
 }
 
 // get_null_last_email returns the last email sent via NullTransport.
+//
+// 返回值拷贝，不是内部状态本身。邮件里含着完整正文、附件字节和密送名单，
+// 把全局变量直接交出去等于让任何一个测试都能改掉后续断言的输入。
 pub fn get_null_last_email() ?Email {
 	if null_transport_sent_count == 0 {
 		return none
 	}
-	return null_transport_last_email
+	return clone_email(null_transport_last_email)
+}
+
+// clone_email 深拷贝一封邮件。
+//
+// Email 里的 map / slice 都是引用语义，直接返回 `null_transport_last_email`
+// 等于把全局状态的钥匙交出去：调用方改一下 subject 或往 attachments 里
+// 追加一项，下一个测试读到的就是被污染的数据。
+fn clone_email(src Email) Email {
+	mut dst := src
+	dst.to = src.to.clone()
+	dst.cc = src.cc.clone()
+	dst.bcc = src.bcc.clone()
+	dst.attachments = src.attachments.clone()
+	mut headers := map[string]string{}
+	for k, v in src.headers {
+		headers[k] = v
+	}
+	dst.headers = headers.move()
+	return dst
 }
 
 // reset_null_transport resets NullTransport counters (useful between tests).
@@ -660,13 +682,63 @@ pub fn (mut m Mailer) send_html(to string, subject string, html_body string) ! {
 
 // send_batch sends the same email to multiple recipients individually.
 // Returns the number of successfully sent emails.
-pub fn (mut m Mailer) send_batch(recipients []string, subject string, body string) !int {
-	mut count := 0
-	for recip in recipients {
-		m.send_to(recip, subject, body) or { continue }
-		count++
+//
+// 部分失败时返回 `failures`：`or { continue }` 把每次 SMTP 错误都吞掉了，
+// 调用方只能看到一个"成功 0 封"的数字，分不清是「全部被拒」还是
+// 「SMTP 挂了」。0 和 N 之间的语义差别是运维最需要的那部分信息。
+//
+// 全成：返回成功数、failures 为空。
+// 全败：返回错误（首个失败的原文），不返回 0 —— 0 会被当成"还没发"。
+// 部分失败：返回成功数 + failures，由调用方决定重试哪些。
+pub fn (mut m Mailer) send_batch_report(recipients []string, subject string, body string) !BatchResult {
+	mut result := BatchResult{
+		total: recipients.len
 	}
-	return count
+	mut first_error := ''
+	for recip in recipients {
+		m.send_to(recip, subject, body) or {
+			if first_error.len == 0 {
+				first_error = err.msg()
+			}
+			result.failures << BatchFailure{
+				recipient: recip
+				reason:    err.msg()
+			}
+			continue
+		}
+		result.sent++
+	}
+	if result.sent == 0 && result.failures.len > 0 {
+		return error('send_batch: all ${result.total} recipients failed, first error: ${first_error}')
+	}
+	return result
+}
+
+// send_batch 保留原有签名（返回成功数），内部改走 send_batch_report。
+// 全败时现在会返回错误而不是静默的 0 —— 见 send_batch_report 的说明。
+pub fn (mut m Mailer) send_batch(recipients []string, subject string, body string) !int {
+	result := m.send_batch_report(recipients, subject, body)!
+	return result.sent
+}
+
+// BatchFailure records one recipient that could not be delivered to.
+pub struct BatchFailure {
+pub:
+	recipient string
+	reason    string
+}
+
+// BatchResult reports the outcome of a batch send.
+pub struct BatchResult {
+pub mut:
+	total    int
+	sent     int
+	failures []BatchFailure
+}
+
+// has_failures reports whether any recipient failed.
+pub fn (r BatchResult) has_failures() bool {
+	return r.failures.len > 0
 }
 
 // ── Common Email Templates ──

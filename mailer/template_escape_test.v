@@ -80,17 +80,24 @@ fn test_address_str_escapes_display_name_quote() {
 }
 
 fn test_address_str_plain() {
-	assert Address{ email: 'a@b.com' }.str() == 'a@b.com'
-	assert Address{ email: 'a@b.com', name: 'Alice' }.str() == '"Alice" <a@b.com>'
+	assert Address{
+		email: 'a@b.com'
+	}.str() == 'a@b.com'
+	assert Address{
+		email: 'a@b.com'
+		name:  'Alice'
+	}.str() == '"Alice" <a@b.com>'
 }
 
 fn test_log_transport_redacts_bcc() {
 	reset_log_sent_count()
 	lt := new_log_transport()
 	mail := Email{
-		from: Address{ email: 'sender@example.com' }
-		to:   [Address{ email: 'visible@example.com' }]
-		bcc:  [Address{ email: 'secret-bcc@example.com' }]
+		from:    Address{
+			email: 'sender@example.com'
+		}
+		to:      [Address{ email: 'visible@example.com' }]
+		bcc:     [Address{ email: 'secret-bcc@example.com' }]
 		subject: 'hi'
 		body:    'hello'
 		headers: map[string]string{}
