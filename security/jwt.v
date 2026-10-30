@@ -19,6 +19,12 @@ pub:
 	audience                       string
 	expiration_minutes             int = 60
 	refresh_token_expiration_hours int = 168
+	// clock_skew_seconds 是签发方与本方允许的时钟偏差。
+	//
+	// 多机部署里 NTP 同步误差几秒是常态。严格 `iat > now` 会把「快了几秒
+	// 的那台机器签的令牌」判成「在未来签发」，而 `now > exp` 又会在过期
+	// 边界上提前几秒拒掉合法令牌。两端各让 skew 秒。
+	clock_skew_seconds             i64 = 30
 }
 
 // JwtClaims represents the claims in a JWT token
@@ -120,10 +126,20 @@ pub fn (jm &JwtManager) parse_token(token string) !JwtClaims {
 	claims := jm.decode(token)!
 
 	now := time.now().unix()
-	if now > claims.exp {
+	skew := if jm.config.clock_skew_seconds > 0 { jm.config.clock_skew_seconds } else { 0 }
+
+	// 先验字段存在性，再做数值比较。
+	//
+	// 反过来的话，缺 exp 的令牌先撞上 `0 < now`，报出「已过期」—— 排查者
+	// 会去看服务器时钟，而真因是签发方少写了一个字段。exp / iat 缺失
+	// （0）时任何基于比较的检查都没有意义，必须先明确拒绝。
+	if claims.exp == 0 {
+		return error('JWT token has no expiration claim')
+	}
+	if now > claims.exp + skew {
 		return error('JWT token expired at ${claims.exp}')
 	}
-	if claims.iat > now {
+	if claims.iat > now + skew {
 		return error('JWT token used before issued time')
 	}
 	if claims.iss.len > 0 && claims.iss != jm.config.issuer {
@@ -138,13 +154,6 @@ pub fn (jm &JwtManager) parse_token(token string) !JwtClaims {
 			return error('JWT audience mismatch: expected ${jm.config.audience}, got "${claims.aud}"')
 		}
 	}
-	// exp / iat 缺失（0）时上面的检查会失效：exp=0 永远小于 now → 拒绝，
-	// iat=0 也永远不大于 now → 放行。这里显式拒绝没有 exp 的令牌，
-	// 否则一个缺字段的 payload 就成了「永不过期的通行证」。
-	if claims.exp == 0 {
-		return error('JWT token has no expiration claim')
-	}
-
 	return claims
 }
 
