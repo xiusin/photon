@@ -8,7 +8,8 @@ module health
 //   - HealthIndicator: strategy interface — each subsystem (db, cache, disk,
 //     memory, ...) implements `check() Health` to report its own status.
 //   - HealthRegistry:  aggregates all registered indicators; overall status
-//     is DOWN if ANY indicator is DOWN (Spring's default StatusAggregator).
+//     is DOWN if ANY is DOWN, UNKNOWN if ANY is UNKNOWN, else UP
+//     (Spring's default StatusAggregator semantics).
 //   - Health:          immutable status snapshot (UP/DOWN/UNKNOWN + details).
 //
 // The registry is thread-safe (sync.RwMutex): register() takes a write-lock,
@@ -192,8 +193,8 @@ pub fn (mut r HealthRegistry) count() int {
 }
 
 // check_all invokes check() on every registered indicator and aggregates
-// the results. The overall status is DOWN if ANY indicator is DOWN;
-// otherwise UP (empty registry → UP).
+// the results: DOWN if ANY indicator is DOWN, else UNKNOWN if ANY is
+// UNKNOWN, else UP (empty registry → UP).
 //
 // The read-lock is held only while snapshotting indicator pointers; each
 // indicator's check() runs outside the lock so a slow indicator does not
@@ -205,14 +206,31 @@ pub fn (mut r HealthRegistry) check_all() AggregatedHealth {
 	r.mu.runlock()
 
 	mut components := map[string]Health{}
-	mut overall_status := HealthStatus.up
+	// 三态聚合，和 Spring 的 StatusAggregator 一致：
+	//   任一 DOWN       → DOWN（有东西真的坏了，最严重）
+	//   否则任一 UNKNOWN → UNKNOWN（没坏，但也说不准）
+	//   全 UP           → UP
+	//
+	// 老实现只看 DOWN，于是「某个组件明确说自己 UNKNOWN」会被算成 UP ——
+	// 探针回 200，运维以为一切正常，其实有个子系统根本没在报健康。
+	mut seen_down := false
+	mut seen_unknown := false
 
 	for indicator in snapshot {
 		h := indicator.check()
 		components[indicator.name()] = h
-		if h.status == .down {
-			overall_status = .down
+		match h.status {
+			.down { seen_down = true }
+			.unknown { seen_unknown = true }
+			.up {}
 		}
+	}
+
+	mut overall_status := HealthStatus.up
+	if seen_down {
+		overall_status = .down
+	} else if seen_unknown {
+		overall_status = .unknown
 	}
 
 	return AggregatedHealth{
@@ -245,6 +263,13 @@ pub fn (d &DbHealthIndicator) name() string {
 // the error message on failure.
 pub fn (d &DbHealthIndicator) check() Health {
 	mut h := new_health(.up)
+	// 未配置 ping_fn 时直接调用会踩空指针。这属于「配置漏了」，
+	// 报 UNKNOWN（不是 DOWN：数据库未必坏，是我们没能力判断）。
+	if isnil(d.ping_fn) {
+		h.status = .unknown
+		h.details['error'] = 'ping_fn is not configured'
+		return h
+	}
 	d.ping_fn() or {
 		h.status = .down
 		h.details['error'] = err.msg()
@@ -273,6 +298,11 @@ pub fn (c &CacheHealthIndicator) name() string {
 // the error message on failure.
 pub fn (c &CacheHealthIndicator) check() Health {
 	mut h := new_health(.up)
+	if isnil(c.ping_fn) {
+		h.status = .unknown
+		h.details['error'] = 'ping_fn is not configured'
+		return h
+	}
 	c.ping_fn() or {
 		h.status = .down
 		h.details['error'] = err.msg()
@@ -402,13 +432,27 @@ pub fn json_escape(s string) string {
 	mut sb := strings.new_builder(s.len + 8)
 	for ch in s {
 		match ch {
-			`"` { sb.write_string('\\"') }
-			`\\` { sb.write_string('\\\\') }
-			`\n` { sb.write_string('\\n') }
-			`\r` { sb.write_string('\\r') }
-			`\t` { sb.write_string('\\t') }
-			`\b` { sb.write_string('\\b') }
-			`\f` { sb.write_string('\\f') }
+			`"` {
+				sb.write_string('\\"')
+			}
+			`\\` {
+				sb.write_string('\\\\')
+			}
+			`\n` {
+				sb.write_string('\\n')
+			}
+			`\r` {
+				sb.write_string('\\r')
+			}
+			`\t` {
+				sb.write_string('\\t')
+			}
+			`\b` {
+				sb.write_string('\\b')
+			}
+			`\f` {
+				sb.write_string('\\f')
+			}
 			else {
 				if u8(ch) < 0x20 {
 					sb.write_string('\\u00')
