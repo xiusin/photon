@@ -40,6 +40,7 @@ fn test_tag_value_newline_is_escaped() {
 
 fn test_each_sample_is_on_one_line() {
 	mut r := new_in_memory_registry()
+
 	r.counter('a', {
 		'k': 'v\nw'
 	}).increment()
@@ -57,12 +58,15 @@ fn test_each_sample_is_on_one_line() {
 fn test_prometheus_series_with_same_name_are_ordered() {
 	mut registry := new_in_memory_registry()
 	// 插入顺序刻意打乱：c, a, b
+
 	registry.counter('req', {
 		'path': '/c'
 	}).increment()
+
 	registry.counter('req', {
 		'path': '/a'
 	}).increment()
+
 	registry.counter('req', {
 		'path': '/b'
 	}).increment()
@@ -112,8 +116,7 @@ fn test_invalid_metric_name_is_sanitized() {
 			is_letter := (ch >= `a` && ch <= `z`) || (ch >= `A` && ch <= `Z`)
 			is_digit := ch >= `0` && ch <= `9`
 			is_sep := ch == `_` || ch == `:`
-			assert is_letter || is_digit || is_sep,
-				'invalid character in metric name "${name_part}": ${line}'
+			assert is_letter || is_digit || is_sep, 'invalid character in metric name "${name_part}": ${line}'
 		}
 	}
 }

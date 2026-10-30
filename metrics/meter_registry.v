@@ -490,11 +490,22 @@ pub fn (r &InMemoryMeterRegistry) format_prometheus() string {
 	cs.sort_with_compare(fn (a &&InMemoryCounter, b &&InMemoryCounter) int {
 		return compare_meters(a.name_str, a.tags_str, b.name_str, b.tags_str)
 	})
+	// # HELP / # TYPE 是「指标族」级别的注解，一个族只能出现一次。
+	// 老实现把它们写在 for 循环里，于是每个标签组合各发一套 ——
+	// `requests{path="/a"}` 和 `requests{path="/b"}` 会产生两遍
+	// `# TYPE requests counter`。文本格式明确禁止这种重复，严格解析器
+	// （Prometheus 2.x 的 scrape、各语言 client 的 parser）会直接报
+	// "second TYPE line for metric name"，整个 /metrics 抓取失败。
+	// 而失败在监控侧只表现为「没数据」，没人看得到报错。
+	mut prev_name := ''
 	for c in cs {
 		name_str := sanitize_metric_name(c.name_str)
 		tag_str := format_tags(c.tags_str)
-		sb.writeln('# HELP ${name_str} Counter')
-		sb.writeln('# TYPE ${name_str} counter')
+		if name_str != prev_name {
+			sb.writeln('# HELP ${name_str} Counter')
+			sb.writeln('# TYPE ${name_str} counter')
+			prev_name = name_str
+		}
 		sb.writeln('${name_str}${tag_str} ${c.value()}')
 	}
 
@@ -502,11 +513,15 @@ pub fn (r &InMemoryMeterRegistry) format_prometheus() string {
 	gs.sort_with_compare(fn (a &&InMemoryGauge, b &&InMemoryGauge) int {
 		return compare_meters(a.name_str, a.tags_str, b.name_str, b.tags_str)
 	})
+	prev_name = ''
 	for g in gs {
 		name_str := sanitize_metric_name(g.name_str)
 		tag_str := format_tags(g.tags_str)
-		sb.writeln('# HELP ${name_str} Gauge')
-		sb.writeln('# TYPE ${name_str} gauge')
+		if name_str != prev_name {
+			sb.writeln('# HELP ${name_str} Gauge')
+			sb.writeln('# TYPE ${name_str} gauge')
+			prev_name = name_str
+		}
 		sb.writeln('${name_str}${tag_str} ${g.value()}')
 	}
 
@@ -514,11 +529,15 @@ pub fn (r &InMemoryMeterRegistry) format_prometheus() string {
 	ts.sort_with_compare(fn (a &&InMemoryTimer, b &&InMemoryTimer) int {
 		return compare_meters(a.name_str, a.tags_str, b.name_str, b.tags_str)
 	})
+	prev_name = ''
 	for t in ts {
 		name_str := sanitize_metric_name(t.name_str)
 		tag_str := format_tags(t.tags_str)
-		sb.writeln('# HELP ${name_str} Timer')
-		sb.writeln('# TYPE ${name_str} summary')
+		if name_str != prev_name {
+			sb.writeln('# HELP ${name_str} Timer')
+			sb.writeln('# TYPE ${name_str} summary')
+			prev_name = name_str
+		}
 		sb.writeln('${name_str}_count${tag_str} ${t.count()}')
 		sb.writeln('${name_str}_sum${tag_str} ${t.total_time().nanoseconds()}')
 	}
