@@ -21,6 +21,7 @@ module photon_i18n
 // NOTE: Uses lightweight string-based TOML parser instead of V's toml module
 // to avoid V 0.5.1 C backend issues with toml.Any sum type.
 import os
+import strings
 import sync
 
 // Locale represents a supported language/region identifier.
@@ -210,12 +211,53 @@ pub fn (mut rb ResourceBundleMessageSource) resolve_or(code string, locale Local
 	msg_template := rb.lookup(code, locale, fallback)
 	rb.mu.unlock()
 
-	mut msg := msg_template
-	// Replace {0}, {1}, ... placeholders with provided args
-	for i, arg in args {
-		msg = msg.replace('{${i}}', arg)
+	return substitute_placeholders(msg_template, args)
+}
+
+// substitute_placeholders 用 args 填充模板里的 {0}、{1}…… 占位符。
+//
+// 老实现是逐个 `msg.replace('{${i}}', arg)`。两个坑：
+//
+//   1. 顺序污染。替换 {1} 之后，如果 {1} 的值里正好含 "{2}"，下一步就会被
+//      当成占位符再替换一遍。"{0} and {1}" 传 ("{1}", "x") 时第一个参数
+//      会被二次展开成 "x"。
+//   2. 只能从头顺序来。参数比占位符少时（{0} 有值、{1} 缺）剩下的占位符
+//      原样留在文案里，用户看到 `You have 3 of {1} items`——既不是报错，
+//      也没法排查。
+//
+// 改成单趟扫描：只在模板里出现 `{数字}` 的位置做替换，替换进去的值不再参与
+// 后续匹配；参数不足时把占位符整段删掉，宁可少一句话也不要漏出花括号。
+fn substitute_placeholders(template string, args []string) string {
+	if template.len == 0 {
+		return template
 	}
-	return msg
+	// 没参数就不必扫描，原样返回（占位符未被填充属于调用方的问题）
+	if args.len == 0 {
+		return template
+	}
+	mut sb := strings.new_builder(template.len + 16)
+	mut i := 0
+	for i < template.len {
+		if template[i] == `{` {
+			// 找到与之配对的 `}`，中间必须全是数字
+			mut j := i + 1
+			for j < template.len && template[j] >= `0` && template[j] <= `9` {
+				j++
+			}
+			if j > i + 1 && j < template.len && template[j] == `}` {
+				idx := template[i + 1..j].int()
+				if idx >= 0 && idx < args.len {
+					sb.write_string(args[idx])
+				}
+				// 参数不足：占位符整段丢弃，不留半截花括号
+				i = j + 1
+				continue
+			}
+		}
+		sb.write_u8(template[i])
+		i++
+	}
+	return sb.str()
 }
 
 // lookup finds a message by code, falling back to the fallback locale, then
