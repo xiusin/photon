@@ -113,12 +113,7 @@ pub fn dispatch(job Job) ! {
 pub fn dispatch_on(job Job, queue_name string) ! {
 	mut d := get_dispatcher()
 	// Check if queue is paused / 检查队列是否已暂停
-	d.paused_mu.@rlock()
-	is_paused := d.paused_queues[queue_name] or { false }
-	d.paused_mu.runlock()
-	if is_paused {
-		return error('queue ${queue_name} is paused')
-	}
+	ensure_not_paused(d, queue_name)!
 	payload := serialize_job(job.job_type(), job.data())
 	d.driver.push(queue_name, payload)!
 	d.increment_stat(queue_name, .pending, 1)
@@ -164,6 +159,7 @@ pub fn dispatch_chain_with_delay(jobs []Job, delay_secs []int) ! {
 // push 将序列化的任务推入指定队列
 pub fn push(queue_name string, job Job, delay_secs i64) ! {
 	mut d := get_dispatcher()
+	ensure_not_paused(d, queue_name)!
 	payload := serialize_job(job.job_type(), job.data())
 	if delay_secs > 0 {
 		d.driver.push_delayed(queue_name, payload, delay_secs)!
@@ -180,6 +176,7 @@ pub fn push(queue_name string, job Job, delay_secs i64) ! {
 // dispatch_later 延迟分发任务
 pub fn dispatch_later(job Job, delay_secs i64) ! {
 	mut d := get_dispatcher()
+	ensure_not_paused(d, d.default_queue)!
 	payload := serialize_job(job.job_type(), job.data())
 	if delay_secs > 0 {
 		d.driver.push_delayed(d.default_queue, payload, delay_secs)!
@@ -260,6 +257,21 @@ pub fn is_queue_paused(queue_name string) bool {
 	d.paused_mu.@rlock()
 	defer { d.paused_mu.runlock() }
 	return d.paused_queues[queue_name] or { false }
+}
+
+// ensure_not_paused returns an error when the named queue is paused.
+//
+// Only dispatch_on() used to check this; push()/dispatch_later()/dispatch_chain()
+// pushed straight into the driver, so "队列已暂停" held for exactly one of the
+// five dispatch entry points. A paused queue is how an operator stops a poisoned
+// queue from growing — every other path kept filling it.
+fn ensure_not_paused(d &QueueDispatcher, queue_name string) ! {
+	d.paused_mu.@rlock()
+	is_paused := d.paused_queues[queue_name] or { false }
+	d.paused_mu.runlock()
+	if is_paused {
+		return error('queue ${queue_name} is paused')
+	}
 }
 
 // count returns the number of pending jobs
