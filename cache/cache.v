@@ -114,16 +114,31 @@ pub fn (mut cm CacheRegistry) delete_from(name string, key string) ! {
 }
 
 // get_or_load_from 是 get_or_load 的指定缓存版本。
+//
+// 除了换缓存实例，其余语义必须与 get_or_load 一致 —— 也就是说它同样要削峰。
+// 原先这里是一条直通的「未命中 → 调 loader → 写回」：名字一说成 `redis`/`session`
+// 之类，singleflight 就整段失效，同一 key 的并发未命中会各自执行一遍 loader，
+// 而这恰恰是缓存最热的场景（多实例、多协程同时预热）。
+// 现在按「缓存名 + key」做去重键 —— 不同缓存实例的同名 key 是不同资源。
 pub fn (mut cm CacheRegistry) get_or_load_from(name string, key string, ttl_seconds int, loader fn () !string) !string {
 	// 命中的判定必须是「取到了」而非「值非空」：空串是合法缓存值。
 	mut c := cm.get_cache(name)
 	if cached := c.get(key) {
 		return cached
 	}
-	loaded := loader()!
-	mut w := cm.get_cache(name)
-	w.set(key, loaded, ttl_seconds)!
-	return loaded
+	// 去重键带上缓存名：`named:k` 与 `k` 指向不同存储，不能合并成一次加载。
+	flight_key := '${name}\x00${key}'
+	return cm.singleflight.do(flight_key, fn [mut cm, name, key, ttl_seconds, loader] () !string {
+		mut w := cm.get_cache(name)
+		// 拿到执行权后再确认一次：前一个 leader 可能刚好写完并退出，
+		// 此时直接复用它的结果比再算一遍便宜得多。
+		if cached := w.get(key) {
+			return cached
+		}
+		loaded := loader()!
+		w.set(key, loaded, ttl_seconds)!
+		return loaded
+	})!
 }
 
 // get retrieves a value from the default cache

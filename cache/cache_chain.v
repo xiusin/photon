@@ -194,10 +194,12 @@ fn (co &CacheOperation) get_with_tags() !string {
 	if isnil(co.loader) {
 		return ''
 	}
-	// Cache miss: call loader
-	result := co.loader()!
-
-	// Store with tag metadata
-	reg.set_to(co.cache_name, tagged_key, result, co.ttl_seconds)!
-	return result
+	// Cache miss: go through the registry so the tag path gets the same
+	// peak-shaving as the plain path.
+	//
+	// 原来这里直接 `co.loader()!` 再 set：带标签的 remember 完全绕过
+	// singleflight，同一 tag key 的并发未命中会各算一遍。标签缓存恰恰
+	// 是「一次失效、全体同抢」的那种用法，击穿最容易发生在这里。
+	loader := co.loader
+	return reg.get_or_load_from(co.cache_name, tagged_key, co.ttl_seconds, loader)
 }
