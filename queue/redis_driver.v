@@ -83,6 +83,19 @@ pub fn (mut d RedisDriver) push(queue_name string, payload string) ! {
 	}
 }
 
+// push_attempt 重新入队一条已失败 retry_count 次的任务。
+// 与 MemoryDriver 保持同一套 payload 约定（重放次数在头部）。
+//
+// push_attempt re-enqueues a previously failed job with the same payload
+// convention as MemoryDriver.
+pub fn (mut d RedisDriver) push_attempt(queue_name string, payload string, delay_secs i64, retry_count int) ! {
+	tagged := attach_retry_count(payload, retry_count)
+	if delay_secs > 0 {
+		return d.push_delayed(queue_name, tagged, delay_secs)
+	}
+	return d.push(queue_name, tagged)
+}
+
 // push_delayed adds a job to a per-run_at 的 sorted set，
 // 到期后由 promote_delayed 搬进主列表。
 //

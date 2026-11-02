@@ -170,7 +170,20 @@ fn next_failed_job_seq() int {
 @[heap]
 pub struct FailedJobHandler {
 pub mut:
-	repository  &FailedJobRepository
+	repository &FailedJobRepository
+	// max_retries 是单条失败任务允许被「重放」的次数上限。
+	//
+	// 为什么需要它：retry() 先把记录从仓库里删掉再投递，任务再次失败时
+	// 会被重新 save 成一条**全新的**记录，retry_count 归 0。于是
+	// 「失败 → 重放 → 再失败 → 再重放」可以无限循环：仓库里永远只有一条
+	// 记录，retry_count 永远是 0，退避算出来永远是 1 秒，死信队列成了
+	// 一台永远停不下来的重投机器，而日志里每一次都「成功重试」。
+	//
+	// 负数表示不限次数（显式选择，而不是默认行为）。
+	//
+	// max_retries caps how many times a single failed job may be replayed.
+	// Without it the retry loop is unbounded: each replay deletes the record
+	// and a re-failure saves a brand new one, resetting retry_count to 0.
 	max_retries int = 3
 }
 
@@ -185,6 +198,13 @@ pub fn new_failed_job_handler(repo &FailedJobRepository) &FailedJobHandler {
 // handle records a job as failed
 // handle 记录任务为失败
 pub fn (mut h FailedJobHandler) handle(job_type string, payload string, exception string, queue_name string, attempts int) ! {
+	h.handle_with_retry_count(job_type, payload, exception, queue_name, attempts,
+		payload_retry_count(payload))!
+}
+
+// handle_with_retry_count 记录失败任务，并显式指定它的重放次数。
+// handle_with_retry_count records a failed job with an explicit replay count.
+pub fn (mut h FailedJobHandler) handle_with_retry_count(job_type string, payload string, exception string, queue_name string, attempts int, retry_count int) ! {
 	failed := FailedJob{
 		// 纳秒时间戳在批量失败时会撞（同一 tick 内数百条），撞了就
 		// find_by_id 取到别人的记录。补一个进程内单调序号。
@@ -195,7 +215,7 @@ pub fn (mut h FailedJobHandler) handle(job_type string, payload string, exceptio
 		failed_at:   time.now().unix()
 		queue_name:  queue_name
 		attempts:    attempts
-		retry_count: 0
+		retry_count: retry_count
 		next_retry:  0
 	}
 	h.repository.save(failed)!
@@ -205,14 +225,30 @@ pub fn (mut h FailedJobHandler) handle(job_type string, payload string, exceptio
 // retry 重放失败任务
 pub fn (mut h FailedJobHandler) retry(id string) ! {
 	job := h.repository.find_by_id(id)!
+	h.ensure_retryable(job)!
 	h.repository.delete_by_id(id)!
 	// Re-dispatch with the ORIGINAL payload — `{}` loses every argument.
 	job_type, data := split_delay_payload(job.payload)
 	if job_type.len == 0 {
-		dispatch_later_by_type(job.job_type, 0)!
+		dispatch_later_by_type(job.job_type, 0, job.retry_count + 1)!
 		return
 	}
-	dispatch_later_by_payload(job_type, data, 0)!
+	dispatch_later_by_payload(job_type, data, 0, job.retry_count + 1)!
+}
+
+// ensure_retryable 在重放前拦住「已经重放太多次」的记录。
+//
+// 只在 max_retries > 0 时生效：负数表示调用方显式要求不限次数。
+//
+// ensure_retryable rejects a record that has already been replayed
+// max_retries times. A negative max_retries means "no limit".
+fn (mut h FailedJobHandler) ensure_retryable(job FailedJob) ! {
+	if h.max_retries <= 0 {
+		return
+	}
+	if job.retry_count >= h.max_retries {
+		return error('failed job ${job.id} exceeded max retries (${h.max_retries})')
+	}
 }
 
 // retry_with_backoff replays a failed job with exponential backoff delay.
@@ -232,6 +268,7 @@ pub fn (mut h FailedJobHandler) retry_with_backoff(id string) ! {
 // 「按下标取到的记录」保留的精确入口 —— 调用方已经拿到整条记录，
 // 不需要再靠 id 反查。
 pub fn (mut h FailedJobHandler) retry_job_with_backoff(job FailedJob) ! {
+	h.ensure_retryable(job)!
 	// Calculate backoff delay: base 1s * 2^retry_count
 	// 计算退避延迟：基准 1s * 2^retry_count
 	mut delay_secs := i64(1)
@@ -259,9 +296,9 @@ pub fn (mut h FailedJobHandler) retry_job_with_backoff(job FailedJob) ! {
 	// 带退避延迟重新分发，且保留原始 payload
 	job_type, data := split_delay_payload(job.payload)
 	if job_type.len == 0 {
-		dispatch_later_by_type(job.job_type, delay_secs)!
+		dispatch_later_by_type(job.job_type, delay_secs, updated_job.retry_count)!
 	} else {
-		dispatch_later_by_payload(job_type, data, delay_secs)!
+		dispatch_later_by_payload(job_type, data, delay_secs, updated_job.retry_count)!
 	}
 
 	// Update retry stats
@@ -292,20 +329,23 @@ pub fn (mut h FailedJobHandler) prune(age_hours int) ! {
 pub fn (mut h FailedJobHandler) retry_all() ! {
 	all_jobs := h.repository.all()!
 	for job in all_jobs {
+		// 超出重放上限的记录原样留着：重放它只会再失败一次并重置计数，
+		// 把死信队列变成无限循环的源头。
+		h.ensure_retryable(job) or { continue }
 		h.repository.delete_by_id(job.id)!
 		job_type, data := split_delay_payload(job.payload)
 		if job_type.len == 0 {
-			dispatch_later_by_type(job.job_type, 0)!
+			dispatch_later_by_type(job.job_type, 0, job.retry_count + 1)!
 		} else {
-			dispatch_later_by_payload(job_type, data, 0)!
+			dispatch_later_by_payload(job_type, data, 0, job.retry_count + 1)!
 		}
 	}
 }
 
 // dispatch_later_by_type re-dispatches a job by type name
 // dispatch_later_by_type 通过类型名称重新分发任务
-fn dispatch_later_by_type(job_type string, delay_secs i64) ! {
-	dispatch_later_by_payload(job_type, '{}', delay_secs)!
+fn dispatch_later_by_type(job_type string, delay_secs i64, retry_count int) ! {
+	dispatch_later_by_payload(job_type, '{}', delay_secs, retry_count)!
 }
 
 // dispatch_later_by_payload 用原始 payload 重新投递一条失败任务。
@@ -314,14 +354,16 @@ fn dispatch_later_by_type(job_type string, delay_secs i64) ! {
 // 于是跑在「参数全空」的状态下 —— 要么直接失败，要么做出错误的事。
 // 也计入 pending 统计（与 dispatch_later 一致）；退避延迟必须真的生效，
 // 原来收了参数却丢掉，传 0 进去，让「指数退避」在派发环节退化成立即重试。
-fn dispatch_later_by_payload(job_type string, data string, delay_secs i64) ! {
+fn dispatch_later_by_payload(job_type string, data string, delay_secs i64, retry_count int) ! {
 	payload := serialize_job(job_type, data)
 	mut d := get_dispatcher()
-	if delay_secs > 0 {
-		d.driver.push_delayed(d.default_queue, payload, delay_secs)!
-	} else {
-		d.driver.push(d.default_queue, payload)!
-	}
+	// 重放次数随 payload 一起走：任务再次失败时 record_failure 把它写回
+	// 新记录的 retry_count，重投因此有了可累加的计数。少了这个字段，
+	// 「失败 → 重放 → 再失败」会把计数重置成 0，循环永远停不下来。
+	//
+	// The replay count travels with the payload so that a re-failure keeps
+	// accumulating instead of resetting to 0 on every new record.
+	d.driver.push_attempt(d.default_queue, payload, delay_secs, retry_count)!
 	d.increment_stat(d.default_queue, .pending, 1)
 }
 

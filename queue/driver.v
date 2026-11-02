@@ -10,6 +10,16 @@ mut:
 	// push_delayed 在 run_at_ns（unix 纳秒）之前不可见。
 	// 默认实现退化为立即 push，便于第三方驱动按需覆盖。
 	push_delayed(queue_name string, payload string, delay_secs i64) !
+	// push_attempt 把一个「已经失败过 retry_count 次」的任务重新入队。
+	//
+	// 重放次数必须跟着 payload 走：任务再次失败时 record_failure 把它写回
+	// 新记录的 retry_count。丢掉它，每次重放都从 0 重新计数，
+	// 死信队列就成了无限重投机器。
+	//
+	// push_attempt re-enqueues a job that has already failed retry_count
+	// times. The count must travel with the payload, otherwise every replay
+	// restarts the counter at zero and the dead-letter loop never ends.
+	push_attempt(queue_name string, payload string, delay_secs i64, retry_count int) !
 	pop(queue_name string) !string
 	clear(queue_name string) !
 }
@@ -50,12 +60,25 @@ fn strip_delay_prefix(payload string) string {
 }
 
 // split_delay 同时返回 (run_at_ns, 真实 payload)
+//
+// 重放次数头也在这里一并剥掉：延迟前缀与重放前缀谁在前都可能
+// （驱动搬延迟任务时会重新拼头部），所以两头都循环剥一次。
+//
+// split_delay returns (run_at_ns, real payload) and strips both the
+// optional delay prefix and the optional replay-count prefix.
 fn split_delay(payload string) (i64, string) {
-	run_at := delayed_run_at(payload)
-	if run_at == 0 {
-		return 0, payload
+	mut rest := payload
+	mut run_at := i64(0)
+	for {
+		probe := delayed_run_at(rest)
+		if probe == 0 {
+			break
+		}
+		run_at = probe
+		rest = strip_delay_prefix(rest)
 	}
-	return run_at, strip_delay_prefix(payload)
+	rest = strip_retry_count(rest)
+	return run_at, rest
 }
 
 // is_delay_ready 判断一条 payload 当前是否可用
@@ -67,6 +90,58 @@ fn is_delay_ready(payload string, now_ns i64) bool {
 // serialize_job serializes a job to a pipe-delimited string
 fn serialize_job(job_type string, data string) string {
 	return '${job_type}||${data}'
+}
+
+// retry_meta_prefix 标记 payload 头部的重放次数元数据。
+//
+// 形如 `#r3||<job_type>||<data>`，和延迟前缀一样放在最前面：
+// `split_n('||', 2)` 的切分点因此不受影响，老代码读到它也只会
+// 当成一个不认识的 job_type —— 所以这里必须两侧都剥，
+// 而不是只在 worker 侧剥。
+//
+// retry_meta_prefix marks the replay-count header carried by a payload.
+const retry_meta_prefix = '#r'
+
+// attach_retry_count 给 payload 加/换重放次数头。
+fn attach_retry_count(payload string, retry_count int) string {
+	body := strip_retry_count(payload)
+	return '${retry_meta_prefix}${retry_count}||${body}'
+}
+
+// strip_retry_count 去掉 payload 头部的重放次数元数据。
+fn strip_retry_count(payload string) string {
+	if !payload.starts_with(retry_meta_prefix) {
+		return payload
+	}
+	sep := payload.index('||') or { return payload }
+	stamp := payload[retry_meta_prefix.len..sep]
+	if stamp.len == 0 {
+		return payload
+	}
+	for c in stamp {
+		if c < `0` || c > `9` {
+			return payload
+		}
+	}
+	return payload[sep + 2..]
+}
+
+// payload_retry_count 读出 payload 里携带的重放次数，没有就是 0。
+fn payload_retry_count(payload string) int {
+	if !payload.starts_with(retry_meta_prefix) {
+		return 0
+	}
+	sep := payload.index('||') or { return 0 }
+	stamp := payload[retry_meta_prefix.len..sep]
+	if stamp.len == 0 {
+		return 0
+	}
+	for c in stamp {
+		if c < `0` || c > `9` {
+			return 0
+		}
+	}
+	return stamp.int()
 }
 
 // deserialize_job extracts job_type and data from serialized payload.

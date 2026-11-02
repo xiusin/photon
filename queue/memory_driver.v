@@ -90,6 +90,19 @@ pub fn (mut d MemoryDriver) push(queue_name string, payload string) ! {
 	d.jobs[queue_name] = qb
 }
 
+// push_attempt 重新入队一条已失败 retry_count 次的任务。
+// 重放次数被写进 payload 头，任务再失败时能接上原来的计数。
+//
+// push_attempt re-enqueues a previously failed job, carrying its replay
+// count inside the payload so a second failure keeps accumulating.
+pub fn (mut d MemoryDriver) push_attempt(queue_name string, payload string, delay_secs i64, retry_count int) ! {
+	tagged := attach_retry_count(payload, retry_count)
+	if delay_secs > 0 {
+		return d.push_delayed(queue_name, tagged, delay_secs)
+	}
+	return d.push(queue_name, tagged)
+}
+
 // push_delayed adds a job that must not be popped before `delay_secs` from now.
 //
 // run_at 只存在于本驱动的 delayed 表里，**不**混进 payload。原因有两个：
