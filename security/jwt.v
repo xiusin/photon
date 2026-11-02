@@ -24,7 +24,15 @@ pub:
 	// 多机部署里 NTP 同步误差几秒是常态。严格 `iat > now` 会把「快了几秒
 	// 的那台机器签的令牌」判成「在未来签发」，而 `now > exp` 又会在过期
 	// 边界上提前几秒拒掉合法令牌。两端各让 skew 秒。
-	clock_skew_seconds             i64 = 30
+	clock_skew_seconds i64 = 30
+}
+
+// JwtHeader is the JOSE header of a JWT. Only `alg` matters here: it is the
+// field an attacker rewrites to switch the verification algorithm.
+pub struct JwtHeader {
+pub mut:
+	alg string
+	typ string
 }
 
 // JwtClaims represents the claims in a JWT token
@@ -215,12 +223,33 @@ fn (jm &JwtManager) decode(token string) !JwtClaims {
 	payload_b64 := parts[1]
 	signature_b64 := parts[2]
 
+	// 头部的 alg 必须先验。
+	//
+	// 现在的签名比对是「我算 HS256，你不等就拒」，所以 `alg: none` 这类
+	// 令牌恰好也被拦住了 —— 但那是因为**碰巧**签名不匹配，不是因为算法
+	// 被拒绝：错误信息写着「签名校验失败」，运维会去查密钥，而真因是
+	// 攻击者在换算法。更危险的是空签名的变体 `header.payload.`：
+	// 一旦将来有人把比对改成「签名可选」或将 header 纳入白名单，这条路
+	// 会立刻变成完整的伪造入口。这里明确拒绝任何非 HS256 的算法。
+	header_json := base64.url_decode(header_b64).bytestr()
+	header := json2.decode[JwtHeader](header_json) or {
+		return error('invalid JWT header: ${err.msg()}')
+	}
+	if header.alg != 'HS256' {
+		return error('unsupported JWT algorithm "${header.alg}": only HS256 is accepted')
+	}
+
 	// Verify signature
 	signing_input := '${header_b64}.${payload_b64}'
 	expected_sig := jm.hmac_sign(signing_input)
 	expected_sig_b64 := base64.url_encode(expected_sig)
 
-	if signature_b64 != expected_sig_b64 {
+	// 签到的是字节，比对的也必须是字节：按 base64 文本比较时，服务端没做
+	// 填充归一化，任何多/少一个 `=` 的合法令牌都会被判成伪造（表现为
+	// 「部分客户端生成的令牌偶发 401」）。比较同时走定长循环，避免在第一个
+	// 不同字节处短路泄露信息。
+	actual_sig := base64.url_decode(signature_b64)
+	if !constant_time_bytes_eq(actual_sig, expected_sig) {
 		return error('JWT signature verification failed')
 	}
 
@@ -229,6 +258,18 @@ fn (jm &JwtManager) decode(token string) !JwtClaims {
 	payload_str := payload_bytes.bytestr()
 
 	return json2.decode[JwtClaims](payload_str)!
+}
+
+// constant_time_bytes_eq compares two byte strings without an early exit.
+fn constant_time_bytes_eq(a []u8, b []u8) bool {
+	mut diff := a.len ^ b.len
+	max_len := if a.len > b.len { a.len } else { b.len }
+	for i in 0 .. max_len {
+		ac := if i < a.len { a[i] } else { u8(0) }
+		bc := if i < b.len { b[i] } else { u8(0) }
+		diff |= int(ac ^ bc)
+	}
+	return diff == 0
 }
 
 // hmac_sign creates an HMAC-SHA256 signature

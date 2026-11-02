@@ -132,9 +132,13 @@ pub:
 
 // supports checks if the auth has a username and password (not a JWT token)
 pub fn (up &UsernamePasswordAuthenticationProvider) supports(auth &Authentication) bool {
+	// 只看「这是不是一个表单登录请求」：有 principal、有密码、且密码不是令牌。
+	// 原来还禁止密码以 `eyJ` 开头 —— 那正是 `{"` 的 base64 前缀，任何以
+	// 这两个字符开头的密码都永远登录不了，而且报的是「凭据错误」，排查者
+	// 只会去查密码本身。令牌识别交给 JwtAuthenticationProvider 的
+	// Bearer 分支，两个 provider 的判据互不重叠。
 	return auth.principal.len > 0 && auth.credentials.len > 0
 		&& !auth.credentials.starts_with('Bearer ')
-		&& !auth.credentials.starts_with('eyJ')
 }
 
 // authenticate validates username and password against UserDetailsService

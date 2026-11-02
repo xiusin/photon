@@ -231,13 +231,20 @@ pub fn (cm &CsrfManager) validate_any(actual_token string, expected_tokens []str
 	if expected_tokens.len == 0 {
 		return error('CSRF token not issued for this session')
 	}
+	// 所有候选值都要比完，不能在命中处提前返回：提前返回会让「第几个
+	// token 命中」通过响应时间泄露，而 token 集合是会话级的。
+	// 现代码本来就短（32 字节），全量比较的代价可以忽略。
+	mut matched := 0
 	mut last_err := ''
 	for expected in expected_tokens {
 		if _ := cm.validate(actual_token, expected) {
-			return
+			matched = 1
 		} else {
 			last_err = err.msg()
 		}
+	}
+	if matched == 1 {
+		return
 	}
 	msg := if last_err.len > 0 { last_err } else { 'CSRF token mismatch' }
 	return error(msg)
