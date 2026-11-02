@@ -77,13 +77,33 @@ pub fn (mut r ResourceHandlerRegistry) set_compression(config StaticCompressionC
 
 // resolve matches a request path against registered patterns and returns
 // the first existing file path, or none.
+//
+// 注册一个 location 的语义是「只从这个目录取文件」，但 `os.join_path` 只是
+// 字符串拼接，它不解释 `..`：
+//
+//   r.add_mapping('/static/**', '/srv/public')
+//   GET /static/../secret.txt   =>  /srv/public/../secret.txt  =  /srv/secret.txt
+//
+// 越界的那一份候选现在**直接不参与匹配**，而不是「本 location 没有就去试
+// 下一个」—— 后者会把同一次请求悄悄换到另一个 location 上，仍然是一次逃逸。
 pub fn (r &ResourceHandlerRegistry) resolve(path string) ?string {
+	// 请求路径先归一化：`/static//a.css`、`/static/./a.css`、
+	// `/static/sub/../a.css` 指向同一个文件，规范化之后才能做前缀判断。
+	request_path := if p := normalize_url_path(path) { p } else { return none }
 	for mapping in r.mappings {
-		if pattern_matches(mapping.pattern, path) {
+		if pattern_matches(mapping.pattern, request_path) {
 			// Extract the part of path after the pattern prefix
-			relative := extract_relative_path(mapping.pattern, path)
+			relative := extract_relative_path(mapping.pattern, request_path)
+			// 归一化后仍以 ../ 开头，意味着这一份请求已经跳出 pattern 前缀本身。
+			if escapes_pattern_prefix(relative) {
+				continue
+			}
 			for location in mapping.locations {
-				file_path := os.join_path(location, relative)
+				real_location := normalize_fs_path(location)
+				file_path := os.join_path(real_location, relative)
+				if !path_within_root(file_path, real_location) {
+					continue
+				}
 				if os.exists(file_path) && os.is_file(file_path) {
 					return file_path
 				}
@@ -105,7 +125,12 @@ pub fn (r &ResourceHandlerRegistry) resolve_with_negotiation(path string, accept
 			if pattern_matches(mapping.pattern, path) {
 				relative := extract_relative_path(mapping.pattern, path)
 				for location in mapping.locations {
-					base := os.join_path(location, relative)
+					real_location := normalize_fs_path(location)
+					base := os.join_path(real_location, relative)
+					// 与 resolve() 同一道闸口：内容协商变体同样只能落在 location 内
+					if escapes_pattern_prefix(relative) || !path_within_root(base, real_location) {
+						continue
+					}
 					// 按优先级查找 Markdown 变体
 					variants := [
 						base + '.md',
@@ -213,6 +238,112 @@ fn pattern_matches(pattern string, path string) bool {
 		return path.starts_with(prefix)
 	}
 	return pattern == path
+}
+
+// normalize_url_path 把 URL 路径规范化：合并连续斜杠、去掉 `.` 段、
+// 消解 `..` 段（不跨越根）。
+//
+// 返回 none 表示路径本身非法（越过了根，或有 NUL 之类的控制字节）——
+// 这类请求只可能是构造出来的，直接不参与资源匹配。
+//
+// 注意这里**不做** percent-decoding：解码发生在更外层（vercel/veb 交给
+// handler 的已经是解码后的 url）。如果调用方传来的是原始编码形态，
+// `%2e%2e` 在这里只是一个普通文件名，不会变成 `..`，也就不会被误判成越界。
+fn normalize_url_path(path string) ?string {
+	if path.contains('\x00') {
+		return none
+	}
+	raw := if path.starts_with('/') { path } else { '/' + path }
+	mut segments := []string{}
+	for seg in raw.split('/') {
+		match seg {
+			'', '.' {
+				continue
+			}
+			'..' {
+				// 已经在根上再 `..` 就是越界，不是「回到根」
+				if segments.len == 0 {
+					return none
+				}
+				segments.delete_last()
+			}
+			else {
+				segments << seg
+			}
+		}
+	}
+	return '/' + segments.join('/')
+}
+
+// normalize_fs_path 规范化文件系统 location：纯字面量搬运，消解 `.`/`..`，
+// 保留开头的 `/`（绝对路径）或原样保留相对路径的形态。
+//
+// location 是服务端自己配的，通常不会有 `..`，但配置常常来自环境变量或
+// `join_path(config_dir, env)`，出现 `/var/data/../public` 并不稀奇。
+fn normalize_fs_path(path string) string {
+	if path == '' {
+		return '.'
+	}
+	is_abs := path.starts_with('/')
+	mut segments := []string{}
+	for seg in path.split('/') {
+		match seg {
+			'', '.' {
+				continue
+			}
+			'..' {
+				if segments.len > 0 && segments.last() != '..' {
+					segments.delete_last()
+				} else if !is_abs {
+					segments << '..'
+				}
+				// 绝对路径在根上再 `..` —— 留在根，等价于「没有变化」
+			}
+			else {
+				segments << seg
+			}
+		}
+	}
+	joined := segments.join('/')
+	if is_abs {
+		return '/' + joined
+	}
+	return if joined == '' { '.' } else { joined }
+}
+
+// escapes_pattern_prefix 判断归一化后的相对路径是否还落在 pattern 前缀之内。
+fn escapes_pattern_prefix(relative string) bool {
+	if relative.starts_with('/') {
+		return true
+	}
+	return relative == '..' || relative.starts_with('../')
+}
+
+// path_within_root 判断候选文件是否仍在 location 之内。
+//
+// 两层：字面前缀（便宜，目标文件不存在时也能判）+ 对最深的已存在分量做
+// real_path 解符号链接（挡住 root 里一个 `link -> /etc` 就绕出去的情况）。
+// 与 storage/local_adapter.v 的 resolve_path 是同一套思路。
+fn path_within_root(file_path string, real_location string) bool {
+	literal := if real_location == '/' { '/' } else { real_location + '/' }
+	if file_path != real_location && !file_path.starts_with(literal) {
+		return false
+	}
+	mut probe := file_path
+	for {
+		if os.exists(probe) {
+			real_probe := os.real_path(probe)
+			real_root := if os.exists(real_location) { os.real_path(real_location) } else { real_location }
+			return real_probe == real_root || real_probe.starts_with(real_root + '/')
+		}
+		parent := os.dir(probe)
+		if parent == probe || parent.len == 0 {
+			// 一路到根都不存在：没有可解析的链接，字面判断已经足够
+			return true
+		}
+		probe = parent
+	}
+	return true
 }
 
 // extract_relative_path extracts the path after the pattern prefix.
