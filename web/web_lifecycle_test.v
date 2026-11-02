@@ -29,7 +29,7 @@ fn test_web_lifecycle_session_store_gc_removes_expired() {
 
 	mut data := map[string]string{}
 	data['user_id'] = '123'
-	store.write('sess-1', data, 1800) or { assert false }
+	store.write('sess-1', data, map[string]string{}, 1800) or { assert false }
 	assert store.sessions.len == 1
 
 	// gc with max_age = -1 removes all entries (now - updated_at > -1 is always true)
@@ -44,7 +44,7 @@ fn test_web_lifecycle_session_store_gc_keeps_recent() {
 
 	mut data := map[string]string{}
 	data['key'] = 'val'
-	store.write('recent', data, 1800) or { assert false }
+	store.write('recent', data, map[string]string{}, 1800) or { assert false }
 
 	// gc with large max_age should keep the session
 	store.gc(999999) or { assert false }
@@ -59,21 +59,21 @@ fn test_web_lifecycle_session_store_write_read_destroy() {
 	mut data := map[string]string{}
 	data['k1'] = 'v1'
 	data['k2'] = 'v2'
-	store.write('s1', data, 1800) or { assert false }
+	store.write('s1', data, map[string]string{}, 1800) or { assert false }
 
 	read := store.read('s1') or {
 		assert false
 		return
 	}
-	assert read['k1'] == 'v1'
-	assert read['k2'] == 'v2'
+	assert read.data['k1'] == 'v1'
+	assert read.data['k2'] == 'v2'
 
 	store.destroy('s1') or { assert false }
 	read2 := store.read('s1') or {
 		assert false
 		return
 	}
-	assert read2.len == 0
+	assert read2.data.len == 0
 
 	store.close()
 }

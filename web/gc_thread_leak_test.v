@@ -72,11 +72,11 @@ fn test_active_store_keeps_sweeping() {
 	mut s := new_memory_session_store()
 	s.write('sid-1', {
 		'user': 'alice'
-	}, 3600) or { assert false, 'write failed: ${err}' }
+	}, map[string]string{}, 3600) or { assert false, 'write failed: ${err}' }
 	// Keep it non-empty across the idle window; it must not retire and lose
 	// the sweep responsibility.
 	time.sleep(2 * time.second)
-	assert s.read('sid-1')!['user'] == 'alice'
+	assert s.read('sid-1')!.data['user'] == 'alice'
 	s.close()
 }
 
@@ -99,9 +99,9 @@ fn test_store_usable_after_sweeper_retires() {
 	time.sleep(3 * time.second)
 	s.write('sid-2', {
 		'user': 'bob'
-	}, 3600) or { assert false, 'write after retire failed: ${err}' }
-	assert s.read('sid-2')!['user'] == 'bob'
+	}, map[string]string{}, 3600) or { assert false, 'write after retire failed: ${err}' }
+	assert s.read('sid-2')!.data['user'] == 'bob'
 	s.destroy('sid-2') or { assert false, 'destroy failed: ${err}' }
-	assert s.read('sid-2')!.len == 0
+	assert s.read('sid-2')!.data.len == 0
 	s.close()
 }

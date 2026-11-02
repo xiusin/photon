@@ -731,6 +731,49 @@ chain.<span class="fn">use</span>(web.<span class="fn">request_id_middleware</sp
 }</div>
         </div>
 
+        <h3>会话管理（Session · Flash 闪存）</h3>
+        <p>SessionManager 负责会话的读取、写回与销毁，后端可换（内存 / 分片内存 / 自定义实现 <code>SessionStore</code>）。闪存（flash）是「写完这次请求读不到、下一次请求读一次就消失」的数据，用来做「保存成功」这类一次性提示。</p>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm">// 1. 选一个后端，配置 Cookie 属性</span>
+<span class="at">mut</span> store := web.<span class="fn">new_sharded_memory_session_store</span>()
+<span class="at">defer</span> { store.<span class="fn">close</span>() }
+
+<span class="at">mut</span> sm := web.<span class="fn">new_session_manager</span>(store)
+sm.cookie_name = <span class="st">'PHOTON_SESSION'</span>
+sm.cookie_path = <span class="st">'/'</span>
+sm.cookie_domain = <span class="st">'.example.com'</span>   <span class="cm">// 可选中</span>
+sm.secure = <span class="kw">true</span>                        <span class="cm">// 生产必须 true（仅 HTTPS 发送）</span>
+sm.http_only = <span class="kw">true</span>                     <span class="cm">// 默认 true，禁止脚本读取</span>
+sm.same_site = <span class="st">'Lax'</span>                    <span class="cm">// 'Strict' | 'Lax' | 'None'</span>
+
+<span class="cm">// 2. 请求开始时读取会话</span>
+sess := sm.<span class="fn">start</span>(ctx)
+uid := sess.<span class="fn">get</span>(<span class="st">'uid'</span>) <span class="kw">or</span> { <span class="st">''</span> }
+
+<span class="cm">// 3. 闪存：写进去的请求读不到，下一次请求读一次就消失</span>
+sess.<span class="fn">flash</span>(<span class="st">'notice'</span>, <span class="st">'保存成功'</span>)
+notice := sess.<span class="fn">get_flash</span>(<span class="st">'notice'</span>) <span class="kw">or</span> { <span class="st">''</span> }
+
+<span class="cm">// 4. 请求结束写回（未修改且无闪存消费时自动跳过 I/O）</span>
+sm.<span class="fn">save</span>(<span class="at">mut</span> ctx, <span class="at">mut</span> sess)!
+
+<span class="cm">// 5. 注销：清空数据并让浏览器丢弃 Cookie</span>
+sm.<span class="fn">destroy</span>(<span class="at">mut</span> ctx, <span class="at">mut</span> sess)!</div>
+        </div>
+
+        <div class="info-box info-tip">
+          💡 <strong>闪存的生命周期只有一次请求</strong>：<code>save()</code> 把本次 <code>flash()</code> 的值落盘，同时把已读到的旧闪存消费掉；下一次 <code>start()</code> 读到它、标记会话为已修改，<code>save()</code> 时清空。所以同一条提示不会在之后每个页面里反复出现。
+        </div>
+
+        <div class="info-box info-warn">
+          ⚠️ <strong>清除 Cookie 的 path / domain 必须与原 Cookie 一致</strong>，否则浏览器认为这是另一个 Cookie，会话 ID 继续留在客户端。框架内部统一走 <code>build_cookie()</code>，自定义清理逻辑时请注意同样的问题。
+        </div>
+
+        <div class="info-box info-tip">
+          💡 <strong>并发写同一会话</strong>：<code>SessionLockManager</code> 提供 <code>acquire()</code> + <code>defer { guard.release() }</code> 与 <code>with_session_lock(id, cb)</code> 两种用法，配合分片内存存储可避免同一会话的并发写互相覆盖。
+        </div>
+
         <div class="info-box info-tip">
           💡 <strong>控制器方法签名约定</strong>：路由处理方法必须具有签名 <code>fn (mut c T, mut ctx veb.Context, params map[string]string) veb.Result</code>。<code>mount_controller[T]()</code> 通过 <code>$if method.return_type is veb.Result</code> 确保只对返回 <code>veb.Result</code> 的方法生成调用代码，非路由方法（构造器等）不会被匹配。
         </div>

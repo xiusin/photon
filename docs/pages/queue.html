@@ -96,6 +96,32 @@ worker.<span class="fn">stop</span>()
 
 <span class="cm">// Laravel 等价：php artisan queue:work</span></div>
         </div>
+
+        <h3>死信队列（Failed Jobs）</h3>
+        <p>任务耗尽 <code>tries()</code> 之后被记进失败任务仓库，之后可以单条或批量重放。</p>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="at">mut</span> repo := queue.<span class="fn">new_memory_failed_repo</span>()
+<span class="at">mut</span> handler := queue.<span class="fn">new_failed_job_handler</span>(repo)
+handler.max_retries = <span class="nm">3</span>   <span class="cm">// 单条失败任务最多被重放几次（负数 = 不限）</span>
+
+<span class="cm">// 按 id 重放（payload 原样带回，不会丢业务参数）</span>
+handler.<span class="fn">retry</span>(job_id)!
+
+<span class="cm">// 带指数退避重放：1s * 2^retry_count，上限 1 小时</span>
+handler.<span class="fn">retry_with_backoff</span>(job_id)!
+
+<span class="cm">// 批量重放，超限的记录会被跳过并留在列表里</span>
+handler.<span class="fn">retry_all</span>()!
+
+<span class="cm">// 清理 24 小时前的记录</span>
+handler.<span class="fn">prune</span>(<span class="nm">24</span>)!</div>
+        </div>
+
+        <div class="info-box info-warn">
+          ⚠️ <strong><code>max_retries</code> 不能省</strong>：重放会先删记录、任务再失败时存成一条新记录。少了重放次数的上限与传递，<code>失败 → 重放 → 再失败</code> 会永远循环下去 —— 仓库里始终只有一条记录、计数恒为 0、退避恒为 1 秒，而日志里每一次都写着「重试成功」。重放次数随 payload 一起走（<code>#r&lt;n&gt;||job_type||data</code>），超限的记录会报错并留在死信队列里等人工处理。
+        </div>
+
       </div>
 
       <div class="production-box">

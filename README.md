@@ -535,21 +535,24 @@ Photon 提供 Spring 风格的 `PasswordEncoder` 接口体系，支持多算法�
 
 ```v
 // DelegatingPasswordEncoder —— 生产推荐，支持 {id}hash 前缀路由
+// 无参构造已内置 bcrypt / argon2id / fnv 三种编码器
+delegating := security.new_delegating_password_encoder()
+
+// encode 输出：{bcrypt}$2a$12$...
+encoded := delegating.encode('my_password')!
+
+// matches 解析前缀并路由到对应编码器，带前缀的编码原样转发
+assert delegating.matches('my_password', encoded)! // true
+
+// 自定义编码器集合（例如只用 argon2id 做新密码）
 mut encoders := map[string]security.PasswordEncoder{}
 encoders['bcrypt'] = security.new_bcrypt_password_encoder()
 encoders['argon2id'] = security.new_argon2_password_encoder()
-encoders['fnv'] = security.new_fnv_password_encoder() // 旧哈希验证适配器
-
-delegating := security.new_delegating_password_encoder('bcrypt', encoders)
-
-// encode 输出：{bcrypt}$2y$10$...
-encoded := delegating.encode('my_password')!
-
-// matches 自动解析前缀并路由到对应编码器
-assert delegating.matches('my_password', encoded)! // true
-
-// 旧无前缀哈希通过 default_id_for_matches 回退
-assert delegating.matches('my_password', '$2y$10$oldhash...')! // true
+custom := security.DelegatingPasswordEncoder{
+	id_for_encode:          'argon2id'
+	encoders:               encoders
+	default_id_for_matches: 'bcrypt' // 无前缀的历史哈希走 bcrypt
+}
 
 // upgrade_encoding 检测是否需要升级到默认编码器
 if delegating.upgrade_encoding(encoded) {
