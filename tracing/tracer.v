@@ -167,19 +167,19 @@ pub:
 // which are only called from the main thread (e.g. list_spans).
 pub struct InMemorySpan {
 pub:
-	trace_id_str   string
-	span_id_str    string
-	parent_id      string
-	name_str       string
-	started_ticks  i64
-	started_unix   i64
+	trace_id_str  string
+	span_id_str   string
+	parent_id     string
+	name_str      string
+	started_ticks i64
+	started_unix  i64
 mut:
-	mu           sync.Mutex
-	ended_ticks  i64
-	ended_unix   i64
-	status_val   SpanStatus = .unset
-	attrs        map[string]string
-	ended        bool
+	mu          sync.Mutex
+	ended_ticks i64
+	ended_unix  i64
+	status_val  SpanStatus = .unset
+	attrs       map[string]string
+	ended       bool
 }
 
 // span_id returns this span's unique identifier.
@@ -312,8 +312,8 @@ pub fn (s &InMemorySpan) is_ended() bool {
 // to_context builds a TraceContext snapshot from this span's identity.
 pub fn (s &InMemorySpan) to_context() TraceContext {
 	return TraceContext{
-		trace_id: s.trace_id_str
-		span_id: s.span_id_str
+		trace_id:       s.trace_id_str
+		span_id:        s.span_id_str
 		parent_span_id: s.parent_id
 	}
 }
@@ -338,8 +338,11 @@ mut:
 	spans    []&InMemorySpan
 	stack    []&InMemorySpan
 	trace_id string
-pub mut:
-	exporters []SpanExporter // registered span exporters
+	// exporters 必须是私有的：它原来挂在 `pub mut` 段里，而 add_exporter /
+	// export_all 又都拿 mu 保护它 —— 于是「拿锁写」和「不拿锁写」两个入口
+	// 并存，任何调用方 `tracer.exporters << e` 都能在遍历时改数组。
+	// 访问统一走 add_exporter / remove_exporters / exporter_names。
+	exporters []SpanExporter
 }
 
 // new_in_memory_tracer creates a tracer with a fresh trace id.
@@ -434,14 +437,22 @@ pub fn (mut t InMemoryTracer) current_span() ?Span {
 	return none
 }
 
-// finish_span ends the given span and pops the active span stack. Spans
-// should be finished in LIFO (reverse-start) order to keep the nesting
-// stack consistent.
+// finish_span ends the given span and removes it from the active span stack.
+//
+// 移除的是**这个 span**，不是「栈顶」：按栈顶弹的话，收尾顺序只要不是严格的
+// 后进先出（并发收尾、提前 return、中间某层被跳过），弹掉的就是别人的条目 ——
+// 栈从此错位，后续 span 的 parent_id 全部挂到错误的父节点上，而 current_span()
+// 还会返回一个其实已经结束的 span。
+//
+// 不在栈里的 span（手动 start_span_with_parent 建出来的、或已收尾的）不碰栈。
 pub fn (mut t InMemoryTracer) finish_span(span &InMemorySpan) {
 	span.end()
 	t.mu.@lock()
-	if t.stack.len > 0 {
-		t.stack.delete(t.stack.len - 1)
+	for i := t.stack.len - 1; i >= 0; i-- {
+		if t.stack[i].span_id_str == span.span_id_str {
+			t.stack.delete(i)
+			break
+		}
 	}
 	t.mu.unlock()
 }
@@ -453,15 +464,15 @@ pub fn (mut t InMemoryTracer) list_spans() []SpanRecord {
 	mut records := []SpanRecord{cap: t.spans.len}
 	for span in t.spans {
 		records << SpanRecord{
-			trace_id: span.trace_id_str
-			span_id: span.span_id_str
+			trace_id:       span.trace_id_str
+			span_id:        span.span_id_str
 			parent_span_id: span.parent_id
-			name: span.name_str
-			start_time: span.start_time()
-			end_time: span.end_time()
-			duration: span.duration()
-			status: span.status()
-			attributes: span.attributes()
+			name:           span.name_str
+			start_time:     span.start_time()
+			end_time:       span.end_time()
+			duration:       span.duration()
+			status:         span.status()
+			attributes:     span.attributes()
 		}
 	}
 	t.mu.runlock()
@@ -588,8 +599,8 @@ pub fn extract_trace_methods[T]() []TraceMethodInfo {
 		if has_trace {
 			methods << TraceMethodInfo{
 				method_name: method.name
-				span_name: span_name
-				attrs: method.attrs.clone()
+				span_name:   span_name
+				attrs:       method.attrs.clone()
 			}
 		}
 	}

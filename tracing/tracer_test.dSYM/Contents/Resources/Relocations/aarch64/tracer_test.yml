@@ -1,5 +1,0 @@
----
-triple:          'arm64-apple-darwin'
-binary-path:     '/Users/tuoke/Desktop/worktree/photon/tracing/tracer_test'
-relocations:     []
-...

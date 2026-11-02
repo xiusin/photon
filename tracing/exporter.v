@@ -18,8 +18,6 @@ module tracing
 // Auto-export mode (future enhancement):
 //   tracer.enable_auto_export()  // exports spans on every finish_span()
 
-import time
-
 // SpanExporter is the interface for exporting spans to external systems.
 // Implementations should be thread-safe if used with auto-export mode.
 pub interface SpanExporter {
@@ -59,6 +57,7 @@ pub fn (e &ConsoleExporter) export(spans []SpanRecord) ! {
 			.error { 'ERROR' }
 			.unset { 'UNSET' }
 		}
+
 		eprintln('  [${span.trace_id}] ${span.name} (${span.span_id})')
 		eprintln('    parent: ${span.parent_span_id}')
 		eprintln('    status: ${status_str}')
@@ -80,6 +79,19 @@ pub fn (mut t InMemoryTracer) add_exporter(exporter SpanExporter) {
 	t.mu.unlock()
 }
 
+// exporter_names returns the names of the registered exporters, in order.
+// The list itself is private precisely so that registration and iteration are
+// both serialized by the tracer mutex; this is the read-only accessor.
+pub fn (mut t InMemoryTracer) exporter_names() []string {
+	t.mu.rlock()
+	defer { t.mu.runlock() }
+	mut names := []string{cap: t.exporters.len}
+	for e in t.exporters {
+		names << e.name()
+	}
+	return names
+}
+
 // remove_exporters clears all registered exporters.
 pub fn (mut t InMemoryTracer) remove_exporters() {
 	t.mu.@lock()
@@ -95,16 +107,17 @@ pub fn (mut t InMemoryTracer) export_all() ! {
 		t.mu.runlock()
 		return
 	}
-	records := t.list_spans_locked()
+	// 就地生成 SpanRecord，别再调一次 list_spans_locked()：那个函数自己
+	// 又 @rlock 一次，而 V 的 RwLock 不保证读锁可重入（写者优先的实现上
+	// 第二次 rlock 会直接挂住）。
+	records := t.records_locked()
 	exporters := t.exporters.clone()
 	t.mu.runlock()
 
 	// Try each exporter; accumulate errors but don't fail on first
 	mut errors := []string{}
 	for exporter in exporters {
-		exporter.export(records) or {
-			errors << '${exporter.name()}: ${err}'
-		}
+		exporter.export(records) or { errors << '${exporter.name()}: ${err}' }
 	}
 	if errors.len > 0 {
 		return error(errors.join('; '))
@@ -118,21 +131,21 @@ pub fn (mut t InMemoryTracer) export_and_clear() ! {
 	t.clear()
 }
 
-// list_spans_locked returns span records without acquiring the lock.
+// records_locked returns span records without acquiring the tracer lock.
 // Caller must hold at least a read lock.
-fn (mut t InMemoryTracer) list_spans_locked() []SpanRecord {
+fn (mut t InMemoryTracer) records_locked() []SpanRecord {
 	mut records := []SpanRecord{cap: t.spans.len}
 	for span in t.spans {
 		records << SpanRecord{
-			trace_id: span.trace_id_str
-			span_id: span.span_id_str
+			trace_id:       span.trace_id_str
+			span_id:        span.span_id_str
 			parent_span_id: span.parent_id
-			name: span.name_str
-			start_time: span.start_time()
-			end_time: span.end_time()
-			duration: span.duration()
-			status: span.status()
-			attributes: span.attributes()
+			name:           span.name_str
+			start_time:     span.start_time()
+			end_time:       span.end_time()
+			duration:       span.duration()
+			status:         span.status()
+			attributes:     span.attributes()
 		}
 	}
 	return records

@@ -244,12 +244,18 @@ fn test_current_span_restores_parent_after_finish() {
 	child := tracer.start_span('child')
 
 	// Active span is the child.
-	cur := tracer.current_span() or { assert false; return }
+	cur := tracer.current_span() or {
+		assert false
+		return
+	}
 	assert cur.span_id() == child.span_id()
 
 	tracer.finish_span(child)
 	// After finishing child, parent becomes active again.
-	cur2 := tracer.current_span() or { assert false; return }
+	cur2 := tracer.current_span() or {
+		assert false
+		return
+	}
 	assert cur2.span_id() == parent.span_id()
 
 	tracer.finish_span(parent)
@@ -395,8 +401,8 @@ fn test_trace_context_from_span() {
 	mut tracer := new_in_memory_tracer()
 	span := tracer.start_span('op')
 	ctx := TraceContext{
-		trace_id: span.trace_id()
-		span_id: span.span_id()
+		trace_id:       span.trace_id()
+		span_id:        span.span_id()
 		parent_span_id: span.parent_span_id()
 	}
 
