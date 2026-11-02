@@ -14,11 +14,32 @@ import time
 
 // ── Session Interface ──
 
+// SessionRecord 是一次会话存储读取的完整结果。
+//
+// 为什么不是一个裸 map：闪存（flash）是「下一次请求才能读到」的数据，
+// 它和普通会话数据必须分开存放 —— 存进去的那一次请求不该读到它，
+// 读出来的那一次请求之后它就该消失。用两个 map 表达这两种生命周期，
+// 比在同一个 map 里靠 key 前缀区分要难出错得多。
+//
+// SessionRecord is the full result of a store read.
+// Flash data has a one-request lifetime, so it is kept apart from the
+// regular session payload instead of being encoded into its keys.
+pub struct SessionRecord {
+pub:
+	data  map[string]string
+	flash map[string]string
+}
+
 // SessionStore is the interface for session storage backends.
 pub interface SessionStore {
 mut:
-	read(session_id string) !map[string]string
-	write(session_id string, data map[string]string, ttl_seconds int) !
+	// read 返回会话数据与待消费的闪存。
+	// read returns the session payload plus the flash entries that were
+	// written by the previous request and are still waiting to be consumed.
+	read(session_id string) !SessionRecord
+	// write 落盘会话数据与本次请求新写入的闪存。
+	// write persists the payload and the flash entries written by this request.
+	write(session_id string, data map[string]string, flash map[string]string, ttl_seconds int) !
 	destroy(session_id string) !
 	gc(max_age_seconds int) !
 }
@@ -314,15 +335,18 @@ pub fn (mut s MemorySessionStore) close() {
 }
 
 // read reads session data from memory.
-pub fn (mut s MemorySessionStore) read(session_id string) !map[string]string {
+pub fn (mut s MemorySessionStore) read(session_id string) !SessionRecord {
 	s.mu.rlock()
 	defer { s.mu.runlock() }
-	entry := s.sessions[session_id] or { return map[string]string{} }
-	return entry.data.clone()
+	entry := s.sessions[session_id] or { return SessionRecord{} }
+	return SessionRecord{
+		data:  entry.data.clone()
+		flash: entry.flash_data.clone()
+	}
 }
 
 // write writes session data to memory.
-pub fn (mut s MemorySessionStore) write(session_id string, data map[string]string, ttl_seconds int) ! {
+pub fn (mut s MemorySessionStore) write(session_id string, data map[string]string, flash map[string]string, ttl_seconds int) ! {
 	s.mu.@lock()
 	defer { s.mu.unlock() }
 	now_ := time.now().unix()
@@ -335,6 +359,7 @@ pub fn (mut s MemorySessionStore) write(session_id string, data map[string]strin
 		}
 	}
 	entry.data = data.clone()
+	entry.flash_data = flash.clone()
 	entry.updated_at = now_
 	s.sessions[session_id] = entry
 }
@@ -455,24 +480,27 @@ fn (s &ShardedMemorySessionStore) shard_index(session_id string) int {
 // using it under SessionLock protection. If the caller doesn't hold SessionLock,
 // concurrent write() may cause data races. For scenarios without SessionLock,
 // use MemorySessionStore (which returns a clone).
-pub fn (mut s ShardedMemorySessionStore) read(session_id string) !map[string]string {
+pub fn (mut s ShardedMemorySessionStore) read(session_id string) !SessionRecord {
 	idx := s.shard_index(session_id)
 	mut shard := unsafe { &s.shards[idx] }
 	shard.mu.rlock()
 	defer { shard.mu.runlock() }
-	entry := shard.sessions[session_id] or { return map[string]string{} }
+	entry := shard.sessions[session_id] or { return SessionRecord{} }
 	// 零拷贝：返回原始数据的引用
 	// 安全性由 SessionLock 保证：同一 session_id 的并发操作被串行化
 	//
 	// Zero-copy: returns a reference to the original data.
 	// Safety guaranteed by SessionLock: concurrent operations on the same
 	// session_id are serialized.
-	return entry.data
+	return SessionRecord{
+		data:  entry.data
+		flash: entry.flash_data
+	}
 }
 
 // write 写入 session 数据到对应分片。
 // write writes session data to the corresponding shard.
-pub fn (mut s ShardedMemorySessionStore) write(session_id string, data map[string]string, ttl_seconds int) ! {
+pub fn (mut s ShardedMemorySessionStore) write(session_id string, data map[string]string, flash map[string]string, ttl_seconds int) ! {
 	idx := s.shard_index(session_id)
 	mut shard := unsafe { &s.shards[idx] }
 	shard.mu.@lock()
@@ -487,6 +515,7 @@ pub fn (mut s ShardedMemorySessionStore) write(session_id string, data map[strin
 		}
 	}
 	entry.data = data.clone()
+	entry.flash_data = flash.clone()
 	entry.updated_at = now_
 	shard.sessions[session_id] = entry
 }
@@ -664,6 +693,7 @@ pub mut:
 	cookie_name string        = 'PHOTON_SESSION'
 	ttl_seconds int           = 1800
 	cookie_path string        = '/'
+	cookie_domain string
 	secure      bool
 	http_only   bool   = true
 	same_site   string = 'Lax'
@@ -677,19 +707,31 @@ pub fn new_session_manager(store &SessionStore) &SessionManager {
 }
 
 // start begins a session, reading from the store or creating a new one.
-// When resuming an existing session, flash data from the previous request
-// is promoted to old_flash so it can be retrieved via get_flash().
+//
+// 恢复既有会话时，存储里带着的闪存被搬进 old_flash —— 于是本次请求
+// 用 get_flash() 就能读到上一次请求 flash() 写的值（这正是 flash 的
+// 承诺：写进去的那次读不到，下一次读得到）。同时把 is_dirty 置位：
+// 读取本身就是一次消费，必须落盘，否则同一份闪存会在之后每一次请求里
+// 反复被读到，成了「永久数据」。
+//
+// start begins a session, reading from the store or creating a new one.
+// Flash data carried over by the store is promoted to old_flash so the
+// current request can read what the previous one flashed, and the session
+// is marked dirty so that consumption is persisted.
 pub fn (mut sm SessionManager) start(ctx &veb.Context) &Session {
 	mut session_id := ctx.get_cookie(sm.cookie_name) or { '' }
-
 	if session_id.len > 0 && !isnil(sm.store) {
-		data := sm.store.read(session_id) or {
-			map[string]string{}
-		}
-		if data.len > 0 {
+		rec := sm.store.read(session_id) or { SessionRecord{} }
+		// 空 payload 但仍有 flash 时也要恢复，否则「只写了一个 flash」的
+		// 会话会在下一次请求里消失。
+		// A session holding only flash data must still be resumed.
+		if rec.data.len > 0 || rec.flash.len > 0 {
 			mut sess := new_session(session_id)
-			sess.data = data.clone()
+			sess.data = rec.data.clone()
+			sess.old_flash = rec.flash.clone()
 			sess.is_new = false
+			// 闪存被消费了一次 —— 即便业务没改任何值，也要写回去清空它。
+			sess.is_dirty = rec.flash.len > 0
 			return sess
 		}
 	}
@@ -718,18 +760,59 @@ pub fn (mut sm SessionManager) save(mut ctx veb.Context, mut sess Session) ! {
 	is_dirty := sess.is_dirty
 	sess_id := sess.id
 	sess_data := sess.data.clone()
+	// 闪存的生命周期是「一次请求」：写完这一轮就搬去 old_flash，
+	// flash_data 清空。否则用它实现的一次性提示（"保存成功"）
+	// 会在每一次后续请求里重复出现，直到会话过期。
+	//
+	// Flash data lives for exactly one request: after being persisted it is
+	// moved to old_flash and cleared, so a one-shot message cannot repeat.
+	old_flash := sess.flash_data.clone()
+	sess.old_flash = old_flash.clone()
+	sess.flash_data = map[string]string{}
+	new_flash := sess.flash_data.clone()
 	unsafe { sess.mu.runlock() }
 
 	if !isnil(sm.store) && is_dirty {
-		sm.store.write(sess_id, sess_data, sm.ttl_seconds)!
+		sm.store.write(sess_id, sess_data, new_flash, sm.ttl_seconds)!
 	}
-	ctx.set_cookie(http.Cookie{
+	ctx.set_cookie(sm.build_cookie(sess_id, 0))
+}
+
+// build_cookie 用配置构造会话 Cookie。
+//
+// 会话 Cookie 是整条链路里最关键的那个 Cookie —— 它一旦被脚本读到，
+// 会话就被接管了。所以 SameSite / Domain 这些属性不能只存在配置字段里
+// 而从不写到响应上：配置写了 `same_site: 'Strict'`、实际发出去的却是
+// 浏览器默认值，这种「配置看着生效、其实没生效」是最难发现的一类。
+//
+// build_cookie builds the session cookie from the manager configuration.
+// SessionCookie attributes must reach the wire — a configured SameSite that
+// is never emitted is worse than no option at all.
+fn (sm &SessionManager) build_cookie(value string, max_age int) http.Cookie {
+	return http.Cookie{
 		name:      sm.cookie_name
-		value:     sess_id
+		value:     value
 		path:      sm.cookie_path
+		domain:    sm.cookie_domain
 		secure:    sm.secure
 		http_only: sm.http_only
-	})
+		max_age:   max_age
+		same_site: same_site_of(sm.same_site)
+	}
+}
+
+// same_site_of 把配置里的字符串映射成 http.SameSite。
+// 未知取值回落到 .same_site_not_set（不发该属性），而不是猜一个更宽松的值。
+//
+// same_site_of maps the configured string to http.SameSite. An unknown
+// value falls back to emitting nothing rather than guessing a looser policy.
+fn same_site_of(value string) http.SameSite {
+	return match value.trim_space().to_lower() {
+		'strict' { .same_site_strict_mode }
+		'lax' { .same_site_lax_mode }
+		'none' { .same_site_none_mode }
+		else { .same_site_not_set }
+	}
 }
 
 // destroy removes the session from the store and clears the cookie.
@@ -741,14 +824,12 @@ pub fn (mut sm SessionManager) destroy(mut ctx veb.Context, mut sess Session) ! 
 	if !isnil(sm.store) {
 		sm.store.destroy(sess_id)!
 	}
-	ctx.set_cookie(http.Cookie{
-		name:      sm.cookie_name
-		value:     ''
-		path:      sm.cookie_path
-		secure:    sm.secure
-		http_only: sm.http_only
-		max_age:   -1
-	})
+	// 清除 Cookie 必须与原 Cookie 的 path/domain 完全一致，否则浏览器
+	// 认为这是另一个 Cookie，会话 ID 继续留在客户端。
+	//
+	// A clearing cookie must match the original path/domain, otherwise the
+	// browser keeps the old one and the session ID never leaves the client.
+	ctx.set_cookie(sm.build_cookie('', -1))
 }
 
 // ── Session Middleware ──

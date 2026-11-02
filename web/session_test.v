@@ -106,33 +106,34 @@ fn test_memory_session_store_write_read() {
 	data['user_id'] = '123'
 	data['role'] = 'admin'
 
-	store.write('sess-1', data, 1800)!
-	read_data := store.read('sess-1')!
+	store.write('sess-1', data, map[string]string{}, 1800)!
+	read_data := store.read('sess-1')!.data
 	assert read_data['user_id'] == '123'
 	assert read_data['role'] == 'admin'
 }
 
 fn test_memory_session_store_read_missing() {
 	mut store := new_memory_session_store()
-	data := store.read('nonexistent')!
-	assert data.len == 0
+	rec := store.read('nonexistent')!
+	assert rec.data.len == 0
+	assert rec.flash.len == 0
 }
 
 fn test_memory_session_store_destroy() {
 	mut store := new_memory_session_store()
 	mut data := map[string]string{}
 	data['key'] = 'val'
-	store.write('sess-1', data, 1800)!
+	store.write('sess-1', data, map[string]string{}, 1800)!
 	store.destroy('sess-1')!
 	read_data := store.read('sess-1')!
-	assert read_data.len == 0
+	assert read_data.data.len == 0
 }
 
 fn test_memory_session_store_gc() {
 	mut store := new_memory_session_store()
 	mut data := map[string]string{}
 	data['key'] = 'val'
-	store.write('sess-1', data, 1800)!
+	store.write('sess-1', data, map[string]string{}, 1800)!
 
 	// GC with max_age=1 should remove entries older than 1 second
 	// Since the entry was just written, use a large enough max_age to ensure cleanup
@@ -142,7 +143,7 @@ fn test_memory_session_store_gc() {
 	// Let's use -1 to mean "remove everything"
 	store.gc(-1)!
 	read_data := store.read('sess-1')!
-	assert read_data.len == 0
+	assert read_data.data.len == 0
 }
 
 // ── SessionManager Tests ──
