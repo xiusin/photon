@@ -454,20 +454,28 @@ pub fn (tq &TableQuery) where_in(col string, values []ParamValue) &TableQuery {
 		return tq.with_error('invalid column identifier "${col}" / 非法列名 "${col}"')
 	}
 	if values.len == 0 {
-		return tq
+		// 空列表 = 「什么都不匹配」。返回空查询会把调用方从用户输入拼出来的
+		// 过滤条件整条丢掉，结果从「一条都不匹配」变成「全表」。
+		return tq.append_and_false()
 	}
-	mut group := []TablePredicate{cap: values.len}
+	// IN 只是尾部 AND 组里的一个谓词序列，**不能单独成为一个分组**。
+	//
+	// 曾经这里 `groups << group` 另起一组，而 build_where() 对「既不是 OR 组、
+	// 邻居也不是 OR 组」的分组用 OR 连接 —— 于是
+	//
+	//   where_eq('tenant_id', 7).where_in('status', ['a','b']).where_eq('active', true)
+	//   → WHERE tenant_id = ? OR status IN (?, ?) AND active = ?
+	//
+	// 一条租户隔离条件被 IN 一句就 OR 掉了。
+	mut next := tq
 	for v in values {
-		group << TablePredicate{
+		next = next.append_condition(TablePredicate{
 			column: c
 			op:     'in'
 			value:  v
-		}
+		})
 	}
-	// IN expands into one parenthesised AND-group of its own.
-	mut groups := tq.copy_groups()
-	groups << group
-	return tq.with_groups(groups)
+	return next
 }
 
 // where_not_in appends `column NOT IN (?, ?, …)`.  Empty list → no-op.
@@ -613,8 +621,22 @@ pub fn (tq &TableQuery) where_group(callback fn (&TableQuery) &TableQuery) &Tabl
 	mut groups := tq.copy_groups()
 	mut flags := tq.group_or_flags(groups.len)
 	if nested.len > 0 {
-		groups << nested
-		flags << nested_is_or
+		if !nested_is_or {
+			// 纯 AND 的嵌套查询就是「多几条条件」，直接并进尾部 AND 组。
+			// 另起一组会让它和前面的条件按 OR 连接（见 build_where 的规则），
+			// 于是 `.where_eq('a',1).where_group(g => g.where_eq('x',1)).where_eq('c',3)`
+			// 从 `a AND x AND c` 变成 `a OR x AND c`。
+			if groups.len == 0 {
+				groups << []TablePredicate{}
+				flags << false
+			}
+			for cond in nested {
+				groups[groups.len - 1] << cond
+			}
+		} else {
+			groups << nested
+			flags << true
+		}
 	}
 
 	// raw_where() values live outside the groups, indexed in call order by
@@ -666,12 +688,33 @@ pub fn (tq &TableQuery) raw_where(fragment string, values ...ParamValue) &TableQ
 	return next.with_raw(tq.raw_fragments, bound)
 }
 
+// append_and_false 追加一个恒假条件，用于「过滤条件为空 = 什么都不匹配」。
+//
+// 与 QueryBuilder.where_in() 的 `1 = 0` 保持一致：空 IN 从用户输入拼出来是
+// 常态，静默丢掉条件等于把「没有一条匹配」变成「全表」。
+fn (tq &TableQuery) append_and_false() &TableQuery {
+	return tq.append_condition(TablePredicate{
+		column: '1 = 0'
+		op:     'raw'
+		value:  none
+	})
+}
+
 // append_condition appends one predicate to the current AND group, untouched
 // copies all the way down.
 fn (tq &TableQuery) append_condition(cond TablePredicate) &TableQuery {
+	// 普通的 `where*()` 是「再加一条 AND 条件」，所以它永远落在一个 AND 组里。
+	//
+	// 原来无条件写进尾组 —— 如果尾组是 `or_where*()` 开出来的 OR 组，条件就被
+	// 并进了那个括号：
+	//
+	//   where_eq('a',1).or_where_eq('b',2).where_eq('c',3)
+	//   → WHERE a = ? AND (b = ? OR c = ?)      ← c 本该是独立的 AND 过滤
+	//
+	// 一个 OR 备选组只属于 `or_where*()`，别的子句不许往里塞。
 	mut groups := tq.copy_groups()
 	mut flags := tq.group_or_flags(groups.len)
-	if groups.len == 0 {
+	if groups.len == 0 || flags[groups.len - 1] {
 		groups << []TablePredicate{}
 		flags << false
 	}
@@ -856,12 +899,12 @@ pub fn (tq &TableQuery) to_sql() !(string, []ParamValue) {
 //
 // Grouping rules:
 //   • a plain group is the AND of its predicates;
-//   • an OR group renders as `(p1 OR p2 …)` and is AND-ed with the group
+//   • an OR group renders as `(p1 OR p2 …)` and is AND-ed with everything
 //     before it — `tenant = ? AND (status = ? OR status = ?)`;
-//   • groups that are neither OR nor AND-joined to a neighbour are OR-joined
-//     and parenthesised;
+//   • groups are ALWAYS AND-joined.  OR is only ever introduced by an explicit
+//     `or_where*()`, and only inside that group's own parentheses;
 //   • IN expands to one `?` per value inside its group;
-//   • unary predicates (`IS NULL`) emit no placeholder.
+//   • unary predicates (`IS NULL`) emit no placeholder;
 //   • the number of rendered `?` always equals len(args).
 fn (tq &TableQuery) build_where() !(string, []ParamValue) {
 	mut args := []ParamValue{}
@@ -927,17 +970,18 @@ fn (tq &TableQuery) build_where() !(string, []ParamValue) {
 	if groups.len == 0 {
 		return '', args
 	}
-	mut rendered := groups[0]
-	for i in 1 .. groups.len {
-		if group_kinds[i] || group_kinds[i - 1] {
-			// An OR alternative is AND-ed with everything before it: a filter
-			// that was already applied must not be widened by an OR.
-			rendered += ' AND ' + groups[i]
-		} else {
-			rendered += ' OR ' + groups[i]
-		}
-	}
-	return rendered, args
+	// 连接规则只有一条：**已经加上的条件不能被后面的子句放宽。**
+	//
+	// 所以没有任何两个分组会被 OR 连接。旧的实现里「两个都不是 OR 组」会用
+	// OR 连，那意味着一次 `where_in()` 或者一次纯 AND 的 `where_group()`
+	// （它们各自另起了一组）就会把前面的过滤整片 OR 掉：
+	//
+	//   where_eq('tenant_id', 7).where_in('status', [...])
+	//   → WHERE tenant_id = ? OR status IN (?, ?)      ← 租户隔离失效
+	//
+	// 既然 OR 语义只允许由 `or_where*()` 显式引入（且只作用于它自己那个
+	// 括号内的组），组间一律 AND。
+	return groups.join(' AND '), args
 }
 
 // build_having renders the HAVING clause and its bound values.

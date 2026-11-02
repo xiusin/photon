@@ -76,7 +76,12 @@ fn test_table_or_alternative_is_and_ed_with_prior_filters() {
 		.where_eq('deleted', false)
 	sql_stmt, args := q.to_sql()!
 	// 已经加上的过滤条件不能被一个 OR 分支放宽：租户隔离必须保持 AND。
-	assert sql_stmt == 'SELECT * FROM users WHERE tenant_id = ? AND (status = ? OR deleted = ?)'
+	//
+	// 而 or_where 之后的 `.where_eq('deleted', false)` 是**新的 AND 过滤**，
+	// 不属于那个 OR 备选组。原期望值把它并进了括号（`status = ? OR deleted = ?`），
+	// 等于让「已删除」的软删除标记去当 status 的备选值 —— 一行被删除的记录
+	// 只要 status 不匹配就会被这条 OR 捞出来。
+	assert sql_stmt == 'SELECT * FROM users WHERE tenant_id = ? AND (status = ?) AND deleted = ?'
 	assert args.len == 3
 	assert args[2] == ParamValue(false)
 }
@@ -100,10 +105,19 @@ fn test_table_in_expands_placeholders() {
 	assert args.len == 3
 }
 
-fn test_table_empty_in_is_noop() {
+fn test_table_empty_in_matches_nothing() {
+	// 空 IN 曾经被静默丢掉：调用方从用户输入拼出来的过滤列表为空时，
+	// 「一条都不匹配」直接变成「全表」。现在与 QueryBuilder.where_in()
+	// 的 `1 = 0` 对齐。
 	q := tbl_builder().where_in('id', []ParamValue{})
 	sql_stmt, _ := q.to_sql()!
-	assert sql_stmt == 'SELECT * FROM users'
+	assert sql_stmt == 'SELECT * FROM users WHERE 1 = 0'
+
+	// 空 IN 也不能把前面已经加上的条件放宽
+	q2 := tbl_builder().where_eq('tenant_id', 7).where_in('id', []ParamValue{})
+	sql_stmt2, args2 := q2.to_sql()!
+	assert sql_stmt2 == 'SELECT * FROM users WHERE tenant_id = ? AND 1 = 0'
+	assert args2.len == 1
 }
 
 fn test_table_between_and_null() {

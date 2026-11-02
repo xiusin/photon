@@ -14,9 +14,12 @@ fn test_where_group_keeps_nested_raw_values() {
 		.raw_where('z = ?', 'Z')
 		.build()!
 	assert stmt.count('?') == args.len
-	// OR 组后面追加的普通条件并入同一个 AND 组，语义等价于
-	// x = ? OR (y = ? AND z = ?)；关键断言是占位符数量与参数数量一致。
-	assert stmt == 'SELECT * FROM users WHERE (x = ? OR y = ? OR z = ?)'
+	// 嵌套回调整体是**一个括号内的子表达式**，后面的普通条件在括号外与之 AND。
+	//
+	// 这里原来的期望值是 `(x = ? OR y = ? OR z = ?)` —— 把 `z = ?` 也并进了
+	// OR 括号，于是过滤条件互相放宽。断言「占位符数量与参数数量一致」对这个
+	// 错误是免疫的：两者确实都是 3。语义正确的形态必须把 z 挡在括号外。
+	assert stmt == 'SELECT * FROM users WHERE (x = ? OR y = ?) AND z = ?'
 	assert args.len == 3
 	assert '${args[0]}' == "orm.ParamValue('X')"
 	assert '${args[1]}' == 'orm.ParamValue(1)'
