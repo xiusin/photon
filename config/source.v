@@ -129,18 +129,26 @@ pub fn (mut s EnvConfigSource) load() !map[string]string {
 	mut result := map[string]string{}
 	env_vars := os.environ()
 
-	for _, env_var in env_vars {
-		if s.prefix.len > 0 && !env_var.starts_with(s.prefix) {
+	// os.environ() 返回的是 map[string]string（键就是变量名），不是
+	// `KEY=value` 的字符串数组。按数组遍历一个 map 只会拿到它的键，
+	// 于是 `split_nth('=', 1)` 永远分不出两段 —— 这个源此前**恒为空**：
+	// 配了 `prefix: 'APP_'` 也读不到任何一个环境变量。
+	//
+	// 键统一转小写，与 FileConfigSource / 属性文件里的 `db.host` 对齐；
+	// 原有的 `split_nth` 分支是对老形态的兼容，保留但不再是唯一路径。
+	for name, value in env_vars {
+		if s.prefix.len > 0 {
+			if !name.starts_with(s.prefix) {
+				continue
+			}
+			key := name[s.prefix.len..]
+			if key.len > 0 {
+				result[key.to_lower()] = value
+			}
 			continue
 		}
-		parts := env_var.split_nth('=', 1)
-		if parts.len == 2 {
-			mut key := parts[0]
-			if s.prefix.len > 0 {
-				key = key[s.prefix.len..]
-			}
-			result[key.to_lower()] = parts[1]
-		}
+		// 无前缀：保留完整变量名（小写），不与配置里的层级键混淆
+		result[name.to_lower()] = value
 	}
 
 	s.cached = result.clone()

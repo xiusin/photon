@@ -45,7 +45,11 @@ fn test_nested_placeholder() {
 		'env':       'prod'
 		'prod.host': 'db.internal'
 	})
-	assert e.resolve_placeholders('\${$\{env}.host}') == 'db.internal'
+	// `'\${'` 是 V 里"字面量 ${"的转义写法，`'$' + '{'` 拼则是真插值。
+	// 内层的 `\${env}` 一旦写进转义字符串就会被当成字面量（`\${` 吞掉后面的 `{`
+	// 又还原成 `${`），所以嵌套那层必须用拼接构造，否则测的根本不是解析器。
+	nested := '\${' + '$' + '{env}.host}'
+	assert e.resolve_placeholders(nested) == 'db.internal'
 }
 
 fn test_no_placeholders_is_identity() {

@@ -21,9 +21,11 @@ fn test_where_group_keeps_nested_raw_values() {
 	// 错误是免疫的：两者确实都是 3。语义正确的形态必须把 z 挡在括号外。
 	assert stmt == 'SELECT * FROM users WHERE (x = ? OR y = ?) AND z = ?'
 	assert args.len == 3
-	assert '${args[0]}' == "orm.ParamValue('X')"
-	assert '${args[1]}' == 'orm.ParamValue(1)'
-	assert '${args[2]}' == "orm.ParamValue('Z')"
+	// `${}` 已经在 orm 包里，打印出来的 struct str() 不带包名前缀 ——
+	// 断言里再写一遍 `orm.` 会永远失败（而且和被测语义无关）。
+	assert '${args[0]}' == "ParamValue('X')"
+	assert '${args[1]}' == 'ParamValue(1)'
+	assert '${args[2]}' == "ParamValue('Z')"
 }
 
 fn test_where_group_without_raw_is_unchanged() {

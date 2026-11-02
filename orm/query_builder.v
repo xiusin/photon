@@ -351,7 +351,24 @@ pub fn (qb &QueryBuilder) clone() &QueryBuilder {
 pub fn (mut qb QueryBuilder) count() !i64 {
 	mut qb_copy := qb.clone()
 
-	if qb_copy.groups.len > 0 || qb_copy.havings.len > 0 {
+	// 投影列和 HAVING 都会让 COUNT 算出另一个数，所以两种情况都得包成子查询：
+	//
+	//   SELECT DISTINCT status FROM users   →  COUNT(*) 拿到 1（列的 count 值），
+	//                                         不是 12（行数）
+	//   SELECT ... WHERE x = ? HAVING c > 2 →  外层没有 GROUP BY，HAVING 引用
+	//                                          COUNT(*) 是 SQL 错误
+	//
+	// 判据不能只看 `columns != ['*']`：`SELECT * FROM t` 与 `SELECT * FROM t`
+	// 语义一致（子查询多余一次），但 `COUNT(*)` 一旦盖掉 DISTINCT 就会静默
+	// 答错——降级只会多包一层查询，永远不会给出不同的数。
+	//
+	// GROUP BY 同理：`SELECT COUNT(*) ... GROUP BY user_id` 返回的是每个分组的
+	// 行数，驱动只回第一组。
+	needs_subquery := qb_copy.groups.len > 0
+		|| qb_copy.havings.len > 0
+		|| (qb_copy.columns.len > 0 && qb_copy.columns != ['*'])
+
+	if needs_subquery {
 		inner, inner_args := qb_copy.build_select()
 		query := 'SELECT COUNT(*) AS cnt FROM (${inner}) AS photon_count'
 		db := qb.orm_manager.get_conn(qb.db_name)!

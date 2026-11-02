@@ -5,11 +5,12 @@
 // 不是「函数返回了一个字符串」。
 module web
 
-import crypto.rand as crand
 import encoding.base64
 
+
+
 fn new_test_cookie_manager() &CookieManager {
-	key := crand.read(32) or { panic('rand failed') }
+	key := crypto_rand_bytes(32)
 	return new_cookie_manager('0123456789abcdef0123456789abcdef', key) or {
 		panic('manager: ${err}')
 	}
@@ -76,7 +77,7 @@ fn test_tampered_ciphertext_is_rejected() {
 fn test_wrong_key_cannot_decrypt() {
 	mut cm := new_test_cookie_manager()
 	enc := cm.encrypt('secret')!
-	key := crand.read(32) or { panic('rand failed') }
+	key := crypto_rand_bytes(32)
 	mut other := new_cookie_manager('ffffffffffffffffffffffffffffffff', key) or {
 		panic('manager: ${err}')
 	}

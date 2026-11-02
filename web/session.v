@@ -12,6 +12,8 @@ import crypto.rand as crand
 import sync
 import time
 
+
+
 // ── Session Interface ──
 
 // SessionRecord 是一次会话存储读取的完整结果。
@@ -884,15 +886,23 @@ pub fn session_middleware(mut ctx MiddlewareContext) !bool {
 // ⚠️ 如果 crypto/rand 失败，函数会 panic — 非随机的 Session ID
 // 比没有 Session ID 更糟（session fixation 风险）。
 fn generate_session_id() string {
-	bytes := crand.read(32) or {
-		// crypto/rand failure is fatal — do NOT fall back to time-based bytes.
-		// A predictable session ID enables session fixation attacks.
-		// crypto/rand 失败是致命的 — 不要回退到基于时间的字节。
-		// 可预测的 Session ID 会导致 session fixation 攻击。
-		panic('crypto/rand failed: cannot generate secure session ID / crypto/rand 失败：无法生成安全的 Session ID')
-	}
+	bytes := crypto_rand_bytes(32)
 	hex_str := session_sha256_hex(bytes)
 	return hex_str[..40]
+}
+
+// crypto_rand_bytes 返回 n 个密码学安全的随机字节。
+//
+// V 0.5.2 把 `crypto.rand.read` 的签名从「返回 []u8」改成「填充传入的
+// buffer、不返回值」，旧写法 `crand.read(n)` 在新编译器上直接编译不过。
+// 这里统一成唯一入口：随机源只有一处，失败一律 panic（可预测的随机值
+// 比没有随机值更危险）。
+fn crypto_rand_bytes(n int) []u8 {
+	mut buf := []u8{len: n}
+	crand.read(mut buf) or {
+		panic('crypto/rand failed: cannot generate secure random bytes / crypto/rand 失败：无法生成安全随机字节')
+	}
+	return buf
 }
 
 // sha256_hex computes a SHA-256 hash and returns it as hex string.

@@ -12,10 +12,11 @@ import net.http
 import crypto.aes
 import crypto.sha256
 import crypto.hmac
-import crypto.rand as crand
 import encoding.hex
 import encoding.base64
 import sync
+
+
 
 // ── SameSite 枚举 / SameSite Enum ──
 
@@ -274,9 +275,7 @@ pub fn (mut cm CookieManager) encrypt(plaintext string) !string {
 	gcm := aes.new_aes_gcm(key)!
 	// nonce MUST be unique per encryption: reusing a nonce with the same key
 	// destroys GCM's security guarantees.
-	nonce := crand.read(gcm.nonce_size()) or {
-		return error('nonce generation failed / nonce 生成失败')
-	}
+	nonce := crypto_rand_bytes(gcm.nonce_size())
 	sealed := gcm.encrypt(plaintext.bytes(), nonce, []u8{})!
 
 	mut combined := []u8{cap: nonce.len + sealed.len}

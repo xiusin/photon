@@ -107,11 +107,11 @@ fn encode_path_value(val string) string {
 	mut sb := strings.new_builder(val.len + 8)
 	for b in val.bytes() {
 		if is_uri_safe_byte(b) {
-			sb << b
+			sb.write_u8(b)
 		} else {
-			sb << byte(`%`)
-			sb << hex_digit(b >> 4)
-			sb << hex_digit(b & 0x0F)
+			sb.write_u8(`%`)
+			sb.write_u8(hex_digit(b >> 4))
+			sb.write_u8(hex_digit(b & 0x0F))
 		}
 	}
 	return sb.bytestr()
@@ -120,20 +120,20 @@ fn encode_path_value(val string) string {
 // is_uri_safe_byte keeps the RFC 3986 unreserved set plus the sub-delims that
 // are meaningful inside a path or query value but cannot re-split it.
 fn is_uri_safe_byte(b u8) bool {
-	return (b >= byte(`a`) && b <= byte(`z`))
-		|| (b >= byte(`A`) && b <= byte(`Z`))
-		|| (b >= byte(`0`) && b <= byte(`9`))
-		|| b == byte(`-`) || b == byte(`.`) || b == byte(`_`) || b == byte(`~`)
-		|| b == byte(`!`) || b == byte(`$`) || b == byte(`'`)
-		|| b == byte(`*`) || b == byte(`+`) || b == byte(`,`) || b == byte(`;`)
-		|| b == byte(`=`) || b == byte(`:`) || b == byte(`@`)
+	return (b >= `a` && b <= `z`)
+		|| (b >= `A` && b <= `Z`)
+		|| (b >= `0` && b <= `9`)
+		|| b == `-` || b == `.` || b == `_` || b == `~`
+		|| b == `!` || b == `$` || b == `'`
+		|| b == `*` || b == `+` || b == `,` || b == `;`
+		|| b == `=` || b == `:` || b == `@`
 }
 
 fn hex_digit(nibble u8) u8 {
 	if nibble < 10 {
-		return byte(`0`) + nibble
+		return u8(`0`) + nibble
 	}
-	return byte(`A`) + (nibble - 10)
+	return u8(`A`) + (nibble - 10)
 }
 
 // ============================================================

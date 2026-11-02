@@ -161,13 +161,21 @@ pub fn (mut p Pool) get() !&ActiveRedisConn {
 					continue
 				}
 				if !isnil(p.opt.test_on_borrow) {
-					p.opt.test_on_borrow(mut client) or {
-						client.close() or {}
-						continue
+					unsafe {
+						mut c := client
+						p.opt.test_on_borrow(mut c) or {
+							client.close() or {}
+							continue
+						}
 					}
 				}
-				client.is_active = true
-				return client
+				// 通道解构出来的变量是只读绑定；这里改的是它指向的连接内部字段，
+				// 而不是重新绑定，所以显式加 unsafe 才允许。
+				unsafe {
+					mut conn := client
+					conn.is_active = true
+					return conn
+				}
 			}
 			else {
 				// No idle connection — dial a fresh one.
@@ -263,7 +271,7 @@ pub fn (mut p Pool) close() {
 	// Drain idle connections.
 	for {
 		select {
-			mut client := <-p.connections {
+			client := <-p.connections {
 				client.close() or {}
 			}
 			else {

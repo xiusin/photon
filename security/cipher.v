@@ -30,6 +30,8 @@ import encoding.base64
 import x.json2
 import crypto.rand as crand
 
+
+
 // ── AES-256-CBC Cipher ──
 
 // AesCipher provides AES-256-CBC encryption with HMAC authentication.
@@ -48,7 +50,7 @@ pub fn new_aes_cipher(key string) !&AesCipher {
 	key_bytes := key.bytes().clone()
 	return &AesCipher{
 		key:    key_bytes
-		cipher: aes.new_cipher(key_bytes.clone())
+		cipher: aes.new_cipher(key_bytes.clone())!
 	}
 }
 
@@ -201,15 +203,25 @@ fn (c &AesCipher) aes_cbc_decrypt(data []u8, iv []u8) []u8 {
 	return out
 }
 
+// crypto_rand_bytes 返回 n 个密码学安全的随机字节。
+//
+// V 0.5.2 把 `crypto.rand.read` 的签名从「返回 []u8」改成「填充传入的
+// buffer、不返回值」，旧写法 `crand.read(n)` 在新编译器上直接编译不过。
+// 这里统一成唯一入口：随机源只有一处，失败一律 panic（可预测的随机值
+// 比没有随机值更危险）。
+fn crypto_rand_bytes(n int) []u8 {
+	mut buf := []u8{len: n}
+	crand.read(mut buf) or {
+		panic('crypto/rand failed: cannot generate secure random bytes / crypto/rand 失败：无法生成安全随机字节')
+	}
+	return buf
+}
+
 // ── Random Byte Generation ──
 
 // generate_random_bytes generates cryptographically secure random bytes.
 fn generate_random_bytes(n int) []u8 {
-	buf := crand.read(n) or {
-		// crypto/rand failure is fatal — do NOT fall back to weak randomness.
-		// A predictable IV/salt would undermine the security of the cipher.
-		panic('crypto/rand failed: cannot generate secure random bytes')
-	}
+	buf := crypto_rand_bytes(n)
 	return buf
 }
 
