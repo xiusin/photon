@@ -164,12 +164,25 @@ pub fn (e DelegatingPasswordEncoder) encode(raw_password string) !string {
 	return encoder.encode(raw_password)!
 }
 
+// matches 用「编码时声明的那个 encoder」验证密码。
+//
+// 不能把 `{bcrypt}` 剥掉再交给 encoder：每个 encoder 自己的 matches()
+// 都以「输入是带前缀的完整编码」为前提，内部还会再剥一次并把它交给底层
+// 哈希器。这里多剥一次，于是 argon2id 的编码变成以 `$argon2id$v=19$...`
+// 开头的裸 PHC 串交给 libargon2 校验（能过），而 bcrypt 的编码变成
+// `$2a$...` 交给 crypto.bcrypt —— 结果取决于底层有多宽容。
+//
+// 更麻烦的是 prefix 映射与「谁负责剥」这两件事分散在四个地方，
+// 任何一处判断不同，表现都是「密码正确却登录失败」。
+// 所以这里原样转发，剥前缀只发生在各个 encoder 内部。
+//
+// matches forwards the verbatim encoded value: every encoder's matches()
+// expects the prefixed form and strips it itself.
 pub fn (e DelegatingPasswordEncoder) matches(raw_password string, encoded string) !bool {
-	id, hash_stripped := parse_encoder_id(encoded)
+	id, _ := parse_encoder_id(encoded)
 	encoder_id := if id == '' { e.default_id_for_matches } else { id }
-	hash_to_verify := if id == '' { encoded } else { hash_stripped }
 	encoder := e.encoders[encoder_id] or { return false }
-	return encoder.matches(raw_password, hash_to_verify)!
+	return encoder.matches(raw_password, encoded)!
 }
 
 pub fn (e DelegatingPasswordEncoder) upgrade_encoding(encoded string) bool {
