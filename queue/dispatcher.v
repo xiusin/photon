@@ -103,6 +103,7 @@ pub fn (mut d QueueDispatcher) register_job_factory(meta JobMetadata, factory Jo
 // dispatch 将任务推入默认队列
 pub fn dispatch(job Job) ! {
 	mut d := get_dispatcher()
+	ensure_not_paused(d, d.default_queue)!
 	payload := serialize_job(job.job_type(), job.data())
 	d.driver.push(d.default_queue, payload)!
 	d.increment_stat(d.default_queue, .pending, 1)
@@ -123,6 +124,7 @@ pub fn dispatch_on(job Job, queue_name string) ! {
 // dispatch_bulk 批量分发多个任务到默认队列
 pub fn dispatch_bulk(jobs []Job) ! {
 	mut d := get_dispatcher()
+	ensure_not_paused(d, d.default_queue)!
 	for job in jobs {
 		payload := serialize_job(job.job_type(), job.data())
 		d.driver.push(d.default_queue, payload)!
@@ -134,6 +136,7 @@ pub fn dispatch_bulk(jobs []Job) ! {
 // dispatch_chain 顺序分发任务链
 pub fn dispatch_chain(jobs []Job) ! {
 	mut d := get_dispatcher()
+	ensure_not_paused(d, d.default_queue)!
 	for job in jobs {
 		payload := serialize_job(job.job_type(), job.data())
 		d.driver.push(d.default_queue, payload)!
@@ -166,6 +169,9 @@ pub fn push(queue_name string, job Job, delay_secs i64) ! {
 	} else {
 		d.driver.push(queue_name, payload)!
 	}
+	// 入队成功就要记 pending：原来 push() 不更新统计，于是「用 push 排进
+	// 指定队列的任务」在 queue_stats 里从来不计入，监控面板上一直是 0。
+	d.increment_stat(queue_name, .pending, 1)
 }
 
 // dispatch_later dispatches a job to run after a delay.
@@ -191,6 +197,7 @@ pub fn dispatch_later(job Job, delay_secs i64) ! {
 pub fn dispatch_batch(jobs []Job) !string {
 	batch_id := generate_batch_id()
 	mut d := get_dispatcher()
+	ensure_not_paused(d, d.default_queue)!
 	for job in jobs {
 		payload := serialize_job(job.job_type(), inject_batch_id(job.data(), batch_id))
 		d.driver.push(d.default_queue, payload)!
@@ -261,10 +268,14 @@ pub fn is_queue_paused(queue_name string) bool {
 
 // ensure_not_paused returns an error when the named queue is paused.
 //
-// Only dispatch_on() used to check this; push()/dispatch_later()/dispatch_chain()
-// pushed straight into the driver, so "队列已暂停" held for exactly one of the
-// five dispatch entry points. A paused queue is how an operator stops a poisoned
-// queue from growing — every other path kept filling it.
+// Every entry point that puts a job into a queue must call this:
+// dispatch / dispatch_on / dispatch_bulk / dispatch_chain / dispatch_chain_with_delay
+// / dispatch_batch / dispatch_later / push.
+//
+// 原来只有 dispatch_on() 查这个标记，其余六条路径直接写驱动 —— 「暂停队列」
+// 是运维掐掉一条被污染队列的手段，结果队列继续长。上一轮修了 push /
+// dispatch_later，这一轮把 dispatch / dispatch_bulk / dispatch_chain /
+// dispatch_batch 四条也补齐：判据只有一处，任何一个入口都绕不过去。
 fn ensure_not_paused(d &QueueDispatcher, queue_name string) ! {
 	d.paused_mu.@rlock()
 	is_paused := d.paused_queues[queue_name] or { false }
@@ -309,6 +320,7 @@ fn (mut d QueueDispatcher) increment_stat(queue_name string, field StatField, am
 		.failed { s.failed += amount }
 		.total { s.total += amount }
 	}
+
 	d.stats[queue_name] = s
 }
 
