@@ -662,28 +662,28 @@ pub fn (mut env Environment) property_source(key string) string {
 // Checks the full priority chain (see get_property).
 pub fn (mut env Environment) get_property_int(key string) !int {
 	val := env.lookup_property(key) or { return error('property "${key}" not found') }
-	return val.int()
+	return parse_property_int(key, val)
 }
 
 // get_property_int_or retrieves a property as an integer with a default.
 // Checks the full priority chain (see get_property).
 pub fn (mut env Environment) get_property_int_or(key string, default_val int) int {
 	val := env.lookup_property(key) or { return default_val }
-	return val.int()
+	return parse_property_int_or(key, val, default_val)
 }
 
 // get_property_bool retrieves a property as a boolean.
 // Checks the full priority chain (see get_property).
 pub fn (mut env Environment) get_property_bool(key string) !bool {
 	val := env.lookup_property(key) or { return error('property "${key}" not found') }
-	return val.bool()
+	return parse_property_bool(key, val)
 }
 
 // get_property_bool_or retrieves a property as a boolean with a default.
 // Checks the full priority chain (see get_property).
 pub fn (mut env Environment) get_property_bool_or(key string, default_val bool) bool {
 	val := env.lookup_property(key) or { return default_val }
-	return val.bool()
+	return parse_property_bool_or(key, val, default_val)
 }
 
 // has_property checks if a property exists in any source (priority chain).
@@ -748,18 +748,30 @@ fn (mut env Environment) resolve_placeholders_with_visited(text string, visited 
 	open_pattern := dollar + '{'
 	for {
 		open_pos := result.index_after(open_pattern, start) or { break }
-		close_pos := result.index_after('}', open_pos) or { break }
+		// 必须找匹配的右括号：`index_after('}')` 在遇到 ${a.${env}.host} 时
+		// 命中的是内层的 `}`，占位符名被截成 'a.${env' —— 嵌套占位符与
+		// 「值里含花括号」两种情况都解析错。
+		close_pos := find_placeholder_end(result, open_pos)
+		if close_pos < 0 {
+			break
+		}
 
 		placeholder := result[open_pos + 2..close_pos]
+		// Nested placeholders are resolved first: ${app.${env}.host}
+		mut resolved_key_part := placeholder
+		if placeholder.contains(open_pattern) {
+			resolved_key_part = env.resolve_placeholders_with_visited(placeholder, visited)
+		}
+
 		// Support default values: ${key:default}
-		parts := placeholder.split_nth(':', 2)
+		parts := resolved_key_part.split_nth(':', 2)
 		key := parts[0]
 		default_val := if parts.len > 1 { parts[1] } else { '' }
 
 		// Check for circular reference
 		if key in visited {
 			cycle_path := visited.join('→') + '→' + key
-			result = result[..open_pos] + '${cycle_path}' + result[close_pos + 1..]
+			result = result[..open_pos] + '\${' + cycle_path + '}' + result[close_pos + 1..]
 			break
 		}
 
@@ -773,12 +785,117 @@ fn (mut env Environment) resolve_placeholders_with_visited(text string, visited 
 		}
 
 		result = result[..open_pos] + resolved + result[close_pos + 1..]
-		start = open_pos + resolved.len
-		if start >= result.len {
+		// 扫描位置属于「被扫描的文本」，不是重建后的字符串：
+		// 按替换值的长度推进只在替换发生在偏移 0 时才成立，否则替换一改变
+		// 前面的长度，下一个占位符就会被跳过或被重复解析。
+		next_start := open_pos + resolved.len
+		if next_start >= result.len {
 			break
 		}
+		start = next_start
 	}
 	return result
+}
+
+// find_placeholder_end finds the '}' matching the '${' at open_pos, tracking
+// nesting so that ${app.${env}.host} closes at the outer brace.
+// Returns -1 if the placeholder is not closed.
+fn find_placeholder_end(text string, open_pos int) int {
+	mut depth := 1
+	mut i := open_pos + 2
+	for i < text.len {
+		if text[i] == `}` {
+			depth--
+			if depth == 0 {
+				return i
+			}
+		} else if text[i] == `$` && i + 1 < text.len && text[i + 1] == `{` {
+			depth++
+			i++
+		}
+		i++
+	}
+	return -1
+}
+
+// ── Typed Property Parsing ──
+//
+// V 的 `'abc'.int()` 返回 0，`'5abc'.int()` 也返回 0 —— 转换失败与「值就是 0」
+// 共用同一个返回值。于是配置里 `server.port = 八十` 会被读成 0，绑定到一个
+// 「0 表示随机端口」的字段上，服务静默起在一个随机端口上，日志里一切正常。
+//
+// 这一组函数把「转换失败」变成显式错误：严格版返回 error，_or 版退回默认值。
+// 空白视为未设置（沿用 Spring 的语义）；数值路径会先 trim，因为 `.int()`
+// 不跳过前导空格（`' 8080'.int() == 0`）。
+
+// parse_property_int 严格解析整数属性。
+pub fn parse_property_int(key string, raw string) !int {
+	v := raw.trim_space()
+	if v.len == 0 {
+		return error('property "${key}" is empty')
+	}
+	n := v.int()
+	if n == 0 && v.trim_left('-') != '0' && v != '+0' && v != '-0' {
+		return error('property "${key}" is not an integer: "${raw}"')
+	}
+	return n
+}
+
+// parse_property_f64 严格解析浮点属性。
+pub fn parse_property_f64(key string, raw string) !f64 {
+	v := raw.trim_space()
+	if v.len == 0 {
+		return error('property "${key}" is empty')
+	}
+	f := v.f64()
+	if f == 0.0 && !is_zero_literal(v) {
+		return error('property "${key}" is not a number: "${raw}"')
+	}
+	return f
+}
+
+// parse_property_int_or 解析失败时退回默认值（与 `or { default }` 语义一致，便于链式使用）。
+pub fn parse_property_int_or(key string, raw string, default_val int) int {
+	return parse_property_int(key, raw) or { default_val }
+}
+
+// parse_property_f64_or 解析失败时退回默认值。
+pub fn parse_property_f64_or(key string, raw string, default_val f64) f64 {
+	return parse_property_f64(key, raw) or { default_val }
+}
+
+// parse_property_bool_or 解析失败时退回默认值。
+pub fn parse_property_bool_or(key string, raw string, default_val bool) bool {
+	return parse_property_bool(key, raw) or { default_val }
+}
+
+// is_zero_literal 判断字符串是否真的是一个零值数字字面量（含 `0.0`、`-0e3`）。
+fn is_zero_literal(v string) bool {
+	mut seen_digit := false
+	for c in v {
+		if c >= `1` && c <= `9` {
+			return false
+		}
+		if c >= `0` && c <= `9` {
+			seen_digit = true
+		}
+	}
+	return seen_digit
+}
+
+// parse_property_bool 严格解析布尔属性。
+//
+// 不能用 `val.bool()`：V 的实现只认 `'true'` 和 `'t'`，于是 `1` / `yes` / `on` /
+// `TRUE` 全部被读成 **false** —— 打开开关的配置反而把功能关掉了。
+// 收下的字面量与 config.parse_config_bool / Spring 的 Boolean.parseBoolean 一致。
+pub fn parse_property_bool(key string, raw string) !bool {
+	v := raw.trim_space().to_lower()
+	return match v {
+		'true', 't', '1', 'yes', 'y', 'on' { true }
+		'false', 'f', '0', 'no', 'n', 'off' { false }
+		'' { error('property "${key}" is empty') }
+		else { error('property "${key}" is not a boolean: "${raw}"') }
+	}
 }
 
 // ── Required Properties ──
@@ -788,12 +905,12 @@ fn (mut env Environment) resolve_placeholders_with_visited(text string, visited 
 //
 // Spring equivalent: ConfigurablePropertyResolver.validateRequiredProperties()
 pub fn (mut env Environment) validate_required_properties(keys []string) ! {
-	env.mu.rlock()
-	defer { env.mu.runlock() }
-
 	mut missing := []string{}
 	for key in keys {
-		if key !in env.properties {
+		// 走完整优先级链，不是只查 properties。原来只查 set_property 写进去的那张表，
+		// 于是从 application.toml / PHOTON_* 环境变量 / --key=value 提供的必填项
+		// 一律被报成缺失 —— 而这三条正是它存在的理由。
+		if !env.has_property(key) {
 			missing << key
 		}
 	}
@@ -932,14 +1049,14 @@ pub fn (mut env Environment) source_count() int {
 // Checks the full priority chain (see get_property).
 pub fn (mut env Environment) get_property_f64(key string) !f64 {
 	val := env.lookup_property(key) or { return error('property "${key}" not found') }
-	return val.f64()
+	return parse_property_f64(key, val)
 }
 
 // get_property_f64_or retrieves a property as a float64 with a default.
 // Checks the full priority chain (see get_property).
 pub fn (mut env Environment) get_property_f64_or(key string, default_val f64) f64 {
 	val := env.lookup_property(key) or { return default_val }
-	return val.f64()
+	return parse_property_f64_or(key, val, default_val)
 }
 
 // ── Merged Properties (Task A4) ──
@@ -1361,30 +1478,36 @@ fn bind_to_struct_impl[T](env &Environment, prefix string, typ &T) !T {
 		full_key := if prefix.len > 0 { '${prefix}.${effective_key}' } else { effective_key }
 
 		// Bind based on field type — primitive types first, then arrays, then nested structs
+		// 绑定失败（值不是那个类型）时保留零值，不把 `'八十'.int()` == 0 静默写进去 ——
+		// 那会让「配置写错了」和「配置就是 0」完全无法区分。
 		$if field.typ is string {
 			if env_mut.has_property(full_key) {
 				config.$(field.name) = env_mut.get_property(full_key)
 			}
 		} $else $if field.typ is int {
 			if env_mut.has_property(full_key) {
-				config.$(field.name) = env_mut.get_property(full_key).int()
+				config.$(field.name) = parse_property_int_or(full_key,
+					env_mut.get_property(full_key), config.$(field.name))
 			}
 		} $else $if field.typ is i64 {
 			if env_mut.has_property(full_key) {
-				config.$(field.name) = env_mut.get_property(full_key).i64()
+				config.$(field.name) = i64(parse_property_int_or(full_key,
+					env_mut.get_property(full_key), int(config.$(field.name))))
 			}
 		} $else $if field.typ is f32 {
 			if env_mut.has_property(full_key) {
-				config.$(field.name) = env_mut.get_property(full_key).f32()
+				config.$(field.name) = f32(parse_property_f64_or(full_key,
+					env_mut.get_property(full_key), f64(config.$(field.name))))
 			}
 		} $else $if field.typ is f64 {
 			if env_mut.has_property(full_key) {
-				config.$(field.name) = env_mut.get_property(full_key).f64()
+				config.$(field.name) = parse_property_f64_or(full_key,
+					env_mut.get_property(full_key), config.$(field.name))
 			}
 		} $else $if field.typ is bool {
 			if env_mut.has_property(full_key) {
-				val := env_mut.get_property(full_key)
-				config.$(field.name) = val == 'true' || val == '1' || val == 'yes' || val == 'on'
+				config.$(field.name) = parse_property_bool_or(full_key,
+					env_mut.get_property(full_key), config.$(field.name))
 			}
 		} $else $if field.typ is []string {
 			if env_mut.has_property(full_key) {
@@ -1403,7 +1526,7 @@ fn bind_to_struct_impl[T](env &Environment, prefix string, typ &T) !T {
 				if raw.len > 0 {
 					mut arr := []int{}
 					for part in raw.split(',') {
-						arr << part.trim_space().int()
+						arr << parse_property_int_or(full_key, part, 0)
 					}
 					config.$(field.name) = arr
 				}
@@ -1414,7 +1537,7 @@ fn bind_to_struct_impl[T](env &Environment, prefix string, typ &T) !T {
 				if raw.len > 0 {
 					mut arr := []f64{}
 					for part in raw.split(',') {
-						arr << part.trim_space().f64()
+						arr << parse_property_f64_or(full_key, part, 0.0)
 					}
 					config.$(field.name) = arr
 				}
@@ -1425,8 +1548,7 @@ fn bind_to_struct_impl[T](env &Environment, prefix string, typ &T) !T {
 				if raw.len > 0 {
 					mut arr := []bool{}
 					for part in raw.split(',') {
-						p := part.trim_space()
-						arr << p == 'true' || p == '1' || p == 'yes' || p == 'on'
+						arr << parse_property_bool_or(full_key, part, false)
 					}
 					config.$(field.name) = arr
 				}
