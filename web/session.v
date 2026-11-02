@@ -689,14 +689,14 @@ pub fn (mut s ShardedMemorySessionStore) shard_stats() []ShardStats {
 // SessionManager manages session lifecycle with a pluggable store.
 pub struct SessionManager {
 pub mut:
-	store       &SessionStore = unsafe { nil }
-	cookie_name string        = 'PHOTON_SESSION'
-	ttl_seconds int           = 1800
-	cookie_path string        = '/'
+	store         &SessionStore = unsafe { nil }
+	cookie_name   string        = 'PHOTON_SESSION'
+	ttl_seconds   int           = 1800
+	cookie_path   string        = '/'
 	cookie_domain string
-	secure      bool
-	http_only   bool   = true
-	same_site   string = 'Lax'
+	secure        bool
+	http_only     bool   = true
+	same_site     string = 'Lax'
 }
 
 // new_session_manager creates a SessionManager with a given store.
@@ -760,22 +760,43 @@ pub fn (mut sm SessionManager) save(mut ctx veb.Context, mut sess Session) ! {
 	is_dirty := sess.is_dirty
 	sess_id := sess.id
 	sess_data := sess.data.clone()
+	// 读一下客户端手上那个 Cookie 的值：只有和当前 ID 不同才需要重发。
+	cookie_id := ctx.get_cookie(sm.cookie_name) or { '' }
 	// 闪存的生命周期是「一次请求」：写完这一轮就搬去 old_flash，
 	// flash_data 清空。否则用它实现的一次性提示（"保存成功"）
 	// 会在每一次后续请求里重复出现，直到会话过期。
 	//
 	// Flash data lives for exactly one request: after being persisted it is
 	// moved to old_flash and cleared, so a one-shot message cannot repeat.
-	old_flash := sess.flash_data.clone()
-	sess.old_flash = old_flash.clone()
-	sess.flash_data = map[string]string{}
+	// 注意顺序：本轮 flash() 写进去的值要整份落盘（new_flash），落盘之后
+	// 才把它搬进 old_flash —— 搬进去的是「已经存在存储里的那份」。
+	// 原来先赋值再 clone 了一个刚清空的 map，等于每次 save() 都把存储里的
+	// flash 覆盖成空 —— flash() 一次都活不到下一个请求。
 	new_flash := sess.flash_data.clone()
+	sess.old_flash = new_flash.clone()
+	sess.flash_data = map[string]string{}
+	// 落盘之后这个 Session 就不再是「新会话」了；不清零会让后续每次
+	// save() 都判定需要重发 Cookie。
+	sess.is_new = false
 	unsafe { sess.mu.runlock() }
 
 	if !isnil(sm.store) && is_dirty {
 		sm.store.write(sess_id, sess_data, new_flash, sm.ttl_seconds)!
 	}
-	ctx.set_cookie(sm.build_cookie(sess_id, 0))
+	// Cookie 只在「新会话」「ID 变了」或「本来就要写存储」时才重发。
+	// 每次响应都 set 一遍意味着：并发请求里最后写 Cookie 的那个把别人刚
+	// regenerate 出来的新 ID 又盖回旧 ID（session fixation 的经典入口），
+	// 而且每个静态响应都白带一个会话 Cookie。
+	is_new := sess.is_new
+	current_id := sess.id
+	// 只是在「没给客户端发过这个 ID」时才发 Cookie：后续请求由浏览器带着
+	// 同一个 ID 回来（此时 cookie_id == current_id），或者同一个响应里
+	// 第二次 save（响应头里已经有这个 ID）都不再重复发。
+	already_sent :=
+		ctx.res.header.values(.set_cookie).any(it.starts_with('${sm.cookie_name}=${current_id}'))
+	if is_new || (current_id != cookie_id && !already_sent) {
+		ctx.set_cookie(sm.build_cookie(current_id, 0))
+	}
 }
 
 // build_cookie 用配置构造会话 Cookie。

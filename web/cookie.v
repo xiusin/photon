@@ -9,6 +9,7 @@ module web
 // 以及 Fluent API 的 CookieBuilder。
 import veb
 import net.http
+import crypto.aes
 import crypto.sha256
 import crypto.hmac
 import crypto.rand as crand
@@ -246,147 +247,77 @@ pub fn (mut cm CookieManager) get_signed_cookie(ctx &veb.Context, name string) ?
 
 // ── Encrypted Cookie Operations / 加密 Cookie 操作 ──
 
-// encrypt encrypts the plaintext using AES-256-GCM.
-// Format: enc://<base64(nonce_12bytes + ciphertext + tag_16bytes)>
+// encrypt encrypts the plaintext with AES-256-GCM.
+// Format: enc://<base64(nonce[12] || ciphertext || tag[16])>
 //
-// ⚠️ SECURITY WARNING: AES-256-GCM is not yet available in V's standard library.
-// This implementation uses XOR-based obfuscation with HMAC-SHA256 authentication
-// as a placeholder. This provides integrity verification but NOT true confidentiality.
-// DO NOT use this for sensitive data until a proper AES-256-GCM implementation
-// is available. The placeholder provides encoding + authentication but NOT real encryption.
+// 原来的实现是一段「占位符」：把明文与密钥、nonce 逐字节 XOR，再用
+// HMAC-SHA256 做完整性校验，注释里也写着「等 V 支持 AES-GCM 再替换」。
+// 问题是 XOR 用同一段密钥流反复覆盖同一个 key —— 两份用同一 nonce 的
+// 密文一异或，明文之间的关系就直接暴露，而调用方看到的是
+// `set_encrypted_cookie`，会以为数据真的被加密了。
 //
-// encrypt 使用 AES-256-GCM 加密明文。
-// 格式：enc://<base64(nonce_12bytes + ciphertext + tag_16bytes)>
+// V 的 crypto.aes 早就有 AES-GCM（new_aes_gcm / encrypt / decrypt，带
+// 认证标签），所以直接换成真算法：机密性 + 完整性都由 GCM 提供，
+// 不再需要外挂 HMAC。密文格式（nonce || ct || tag）保持不变。
 //
-// ⚠️ 安全警告：V 标准库尚不支持 AES-256-GCM。
-// 当前实现使用基于 XOR 的混淆 + HMAC-SHA256 认证作为占位符。
-// 这提供了完整性验证但不提供真正的机密性。
-// 在正式的 AES-256-GCM 实现可用之前，请勿用于敏感数据。
-// 占位符提供编码 + 认证，不提供真正的加密。
+// encrypt encrypts plaintext with real AES-256-GCM. The previous version was
+// XOR "obfuscation" + HMAC, which provided integrity but no confidentiality.
 pub fn (mut cm CookieManager) encrypt(plaintext string) !string {
-	cm.mu.rlock()
-	key_len := cm.encryption_key.len
-	cm.mu.runlock()
-
-	if key_len != 32 {
-		return error('cookie encryption key must be 32 bytes / Cookie 加密密钥必须为 32 字节')
-	}
-
-	// Generate a random 12-byte nonce (IV) — MUST be unique per encryption.
-	// Reusing a nonce with the same key completely breaks security.
-	// 生成随机 12 字节 nonce（IV）——每次加密必须唯一。
-	// 在相同密钥下复用 nonce 会完全破坏安全性。
-	nonce := crand.read(12) or { return error('nonce generation failed / nonce 生成失败') }
-
-	// Placeholder: XOR-based obfuscation with the encryption key and nonce.
-	// This is NOT secure encryption — it only provides basic obfuscation.
-	// Replace with proper AES-256-GCM when V's crypto library supports it.
-	//
-	// 占位符：基于 XOR 的混淆，使用加密密钥和 nonce。
-	// 这不是安全的加密——仅提供基本混淆。
-	// 当 V 的 crypto 库支持时，替换为正式的 AES-256-GCM。
 	cm.mu.rlock()
 	key := cm.encryption_key.clone()
 	cm.mu.runlock()
 
-	mut ciphertext := plaintext.bytes()
-	for i in 0 .. ciphertext.len {
-		ciphertext[i] ^= key[i % 32]
-		ciphertext[i] ^= nonce[i % 12]
+	if key.len != 32 {
+		return error('cookie encryption key must be 32 bytes / Cookie 加密密钥必须为 32 字节')
 	}
 
-	// Compute HMAC-SHA256 over (nonce + ciphertext) for authentication.
-	// This ensures tampering is detected even though XOR is not real encryption.
-	// Truncate to 16 bytes (128-bit tag) for compactness.
-	// 对 (nonce + ciphertext) 计算 HMAC-SHA256 用于认证。
-	// 即使 XOR 不是真正的加密，这也能确保篡改被检测到。
-	// 截断为 16 字节（128 位 tag）以保持紧凑。
-	mut tag_input := []u8{}
-	tag_input << nonce
-	tag_input << ciphertext
-	tag_data := hmac.new(key, tag_input, sha256.sum, sha256.block_size)
-	mut tag := []u8{len: 16, cap: 16}
-	for i in 0 .. 16 {
-		if i < tag_data.len {
-			tag[i] = tag_data[i]
-		}
+	gcm := aes.new_aes_gcm(key)!
+	// nonce MUST be unique per encryption: reusing a nonce with the same key
+	// destroys GCM's security guarantees.
+	nonce := crand.read(gcm.nonce_size()) or {
+		return error('nonce generation failed / nonce 生成失败')
 	}
+	sealed := gcm.encrypt(plaintext.bytes(), nonce, []u8{})!
 
-	mut combined := []u8{}
+	mut combined := []u8{cap: nonce.len + sealed.len}
 	combined << nonce
-	combined << ciphertext
-	combined << tag
-
+	combined << sealed
 	return 'enc://${base64.encode(combined)}'
 }
 
-// decrypt decrypts an AES-256-GCM encrypted cookie value.
-// Returns none if the value is not in the expected format or decryption fails.
-// Does NOT panic on decryption failure.
+// decrypt verifies and decrypts an AES-256-GCM cookie value.
+// Returns none if the value is malformed or the authentication tag fails.
 //
-// ⚠️ SECURITY WARNING: This uses XOR-based decryption (placeholder for AES-256-GCM).
-// See encrypt() for details.
-//
-// decrypt 解密 AES-256-GCM 加密的 Cookie 值。
-// 值格式不正确或解密失败时返回 none。
-// 解密失败不会 panic。
-//
-// ⚠️ 安全警告：此实现使用基于 XOR 的解密（AES-256-GCM 的占位符）。
-// 详见 encrypt()。
+// decrypt 校验并解密 AES-256-GCM 加密的 Cookie 值。
+// 格式不对或认证失败时返回 none（不 panic）。
 pub fn (mut cm CookieManager) decrypt(encrypted string) ?string {
 	if !encrypted.starts_with('enc://') {
 		return none
 	}
 	encoded := encrypted[6..]
 	combined := base64.decode(encoded)
-	if combined.len < 28 { // 12 (nonce) + 0 (min ciphertext) + 16 (tag)
+	// 12 (nonce) + 16 (tag) 是下限：GCM 的空明文也会带一个 tag
+	if combined.len < 28 {
 		return none
 	}
 
 	cm.mu.rlock()
 	key := cm.encryption_key.clone()
 	cm.mu.runlock()
-
 	if key.len != 32 {
 		return none
 	}
 
-	nonce := combined[..12]
-	ciphertext := combined[12..combined.len - 16]
-	stored_tag := combined[combined.len - 16..]
-
-	// Verify HMAC-SHA256 tag BEFORE decrypting (authenticate-then-decrypt).
-	// This prevents padding oracle attacks and ensures ciphertext integrity.
-	// Compute tag over (nonce + ciphertext), same as encrypt().
-	// 在解密之前验证 HMAC-SHA256 tag（先认证后解密）。
-	// 这防止了 padding oracle 攻击并确保密文完整性。
-	// 对 (nonce + ciphertext) 计算 tag，与 encrypt() 相同。
-	mut tag_input := []u8{}
-	tag_input << nonce
-	tag_input << ciphertext
-	expected_tag_data := hmac.new(key, tag_input, sha256.sum, sha256.block_size)
-	mut expected_tag := []u8{len: 16, cap: 16}
-	for i in 0 .. 16 {
-		if i < expected_tag_data.len {
-			expected_tag[i] = expected_tag_data[i]
-		}
-	}
-
-	// Constant-time tag comparison to prevent timing attacks
-	// 常量时间 tag 比较以防止时序攻击
-	if !hmac.equal(stored_tag, expected_tag) {
+	gcm := aes.new_aes_gcm(key) or { return none }
+	nonce_size := gcm.nonce_size()
+	if combined.len < nonce_size + 16 {
 		return none
 	}
+	nonce := combined[..nonce_size]
+	sealed := combined[nonce_size..]
 
-	// Placeholder: reverse the XOR obfuscation
-	// 占位符：反向 XOR 混淆
-	mut plaintext_bytes := ciphertext.clone()
-	for i in 0 .. plaintext_bytes.len {
-		plaintext_bytes[i] ^= key[i % 32]
-		plaintext_bytes[i] ^= nonce[i % 12]
-	}
-
-	return unsafe { plaintext_bytes.bytestr() }
+	plaintext := gcm.decrypt(sealed, nonce, []u8{}) or { return none }
+	return plaintext.bytestr()
 }
 
 // set_encrypted_cookie sets an encrypted cookie on the response.

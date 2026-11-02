@@ -161,9 +161,12 @@ pub fn (mut slm SessionLockManager) with_session_lock(session_id string, callbac
 	if !acquired {
 		return error('session lock timeout: ${session_id} / Session 锁超时: ${session_id}')
 	}
-	callback() or {
+	// 释放放进 defer：`callback() or {}` 只接住 error，panic 会直接展开
+	// 栈帧 —— 那把本地锁就留在已加锁状态，这个 session 之后的每一次
+	// acquire 都等到超时（看起来像「会话偶尔卡住」）。同样的写法在
+	// locking.with_lock 里已经修过一次，这里漏了。
+	defer {
 		slm.lock_manager.unlock(key) or {}
-		return err
 	}
-	slm.lock_manager.unlock(key) or {}
+	callback()!
 }
