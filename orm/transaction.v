@@ -102,6 +102,64 @@ pub fn new_transaction_manager() &TransactionManager {
 	return &TransactionManager{}
 }
 
+// savepoint_name 按嵌套层次生成保存点名。
+//
+// 名字由层次决定而不是由调用方给，`ROLLBACK TO` 就不可能打错层次 ——
+// 嵌套事务最典型的 bug 是回滚到了外层的保存点，把外层的写入一起丢掉。
+fn savepoint_name(depth int) string {
+	return 'photon_sp_${depth}'
+}
+
+// exec_savepoint_locked 下发一条保存点相关 SQL。调用方必须已经持有 tm.mu。
+//
+// 没有 exec_fn（单元测试、或用户没接真实连接）时什么都不发 ——
+// 跟踪仍然成立，只是没有 SQL 可发。
+fn (mut tm TransactionManager) exec_savepoint_locked(sql_stmt string) ! {
+	if isnil(tm.exec_fn) {
+		return
+	}
+	tm.exec_fn(tm.conn, sql_stmt)!
+}
+
+// begin_savepoint 在当前事务里开一个保存点，返回它的名字。
+// 调用方必须已经持有 tm.mu。
+//
+// 这是 `Propagation.nested` 的语义核心：内层失败只回滚到保存点，
+// 外层的写入保留。原来这里只做了 `savepoint_count++`，一条 SQL 都没发，
+// 于是内层吞掉错误之后，它本该丢弃的写入跟着外层一起 COMMIT ——
+// 事件序列干净得像一次正常提交。
+pub fn (mut tm TransactionManager) begin_savepoint_locked() !string {
+	tm.savepoint_count++
+	name := savepoint_name(tm.savepoint_count)
+	tm.exec_savepoint_locked('SAVEPOINT ${name}') or {
+		tm.savepoint_count--
+		return err
+	}
+	return name
+}
+
+// release_savepoint 释放保存点（成功路径）。
+// 调用方必须已经持有 tm.mu。
+//
+// SQLite / PostgreSQL 的 `ROLLBACK TO` **不会**释放保存点，所以失败路径
+// 回滚之后也必须显式 RELEASE 一次，否则同名保存点会一直留在事务里。
+pub fn (mut tm TransactionManager) release_savepoint_locked(name string) ! {
+	tm.exec_savepoint_locked('RELEASE SAVEPOINT ${name}') or { return err }
+	if tm.savepoint_count > 0 {
+		tm.savepoint_count--
+	}
+}
+
+// rollback_to_savepoint 回滚到保存点，再释放它。
+// 调用方必须已经持有 tm.mu。
+pub fn (mut tm TransactionManager) rollback_to_savepoint_locked(name string) ! {
+	tm.exec_savepoint_locked('ROLLBACK TO SAVEPOINT ${name}') or { return err }
+	tm.exec_savepoint_locked('RELEASE SAVEPOINT ${name}') or { return err }
+	if tm.savepoint_count > 0 {
+		tm.savepoint_count--
+	}
+}
+
 // new_transaction_manager_with_conn creates a TransactionManager bound to a real DB connection.
 // The begin/commit/rollback callbacks operate on the provided connection.
 pub fn new_transaction_manager_with_conn(conn voidptr, begin_fn fn (voidptr) !, commit_fn fn (voidptr) !, rollback_fn fn (voidptr) !) &TransactionManager {
@@ -531,16 +589,20 @@ pub fn (mut tm TransactionManager) execute(propagation Propagation, f fn () !) !
 				tm.mu.unlock()
 				return error('no active transaction for nested propagation')
 			}
-			tm.savepoint_count++
+			sp := tm.begin_savepoint_locked() or {
+				tm.mu.unlock()
+				return err
+			}
 			tm.mu.unlock()
 			f() or {
+				// 内层失败：只回滚到保存点，外层的写入必须保留
 				tm.mu.@lock()
-				tm.savepoint_count--
+				tm.rollback_to_savepoint_locked(sp) or {}
 				tm.mu.unlock()
 				return err
 			}
 			tm.mu.@lock()
-			tm.savepoint_count--
+			tm.release_savepoint_locked(sp) or {}
 			tm.mu.unlock()
 		}
 		.mandatory {

@@ -241,6 +241,9 @@ pub fn new_transaction_context(attr TransactionAttribute) &TransactionContext {
 pub struct TransactionalInterceptor {
 pub mut:
 	tx_manager &TransactionManager = unsafe { nil }
+	// last_savepoint 记住 nested 传播下最近一次创建的保存点名，
+	// commit_if_needed / rollback_if_needed 用它来释放或回滚到该点。
+	last_savepoint string
 }
 
 // new_transactional_interceptor creates a TransactionalInterceptor.
@@ -276,8 +279,18 @@ pub fn (mut ti TransactionalInterceptor) begin_if_needed(attr TransactionAttribu
 		}
 		.nested {
 			if ti.tx_manager.is_active() {
-				// Use savepoint_count to track nesting
-				ti.tx_manager.savepoint_count++
+				// 真下发 SAVEPOINT。原来这里只做了 savepoint_count++，
+				// 于是内层被吞掉的错误不会丢掉内层写入 —— 它会跟着外层
+				// 一起提交，而日志里只有一次正常的 COMMIT。
+				// 这里只是「进入」阶段，保存点名要留给调用方做回滚/释放，
+				// 所以记在 last_savepoint 上。
+				ti.tx_manager.mu.@lock()
+				sp := ti.tx_manager.begin_savepoint_locked() or {
+					ti.tx_manager.mu.unlock()
+					return err
+				}
+				ti.tx_manager.mu.unlock()
+				ti.last_savepoint = sp
 				false
 			} else {
 				ti.tx_manager.begin()!
@@ -311,15 +324,47 @@ pub fn (mut ti TransactionalInterceptor) begin_if_needed(attr TransactionAttribu
 }
 
 // commit_if_needed commits the transaction if it was started by this interceptor.
+//
+// nested 传播下（started == false）提交语义是「释放保存点」，不是 COMMIT ——
+// 内层不该结束外层事务。
 pub fn (mut ti TransactionalInterceptor) commit_if_needed(started bool) ! {
-	if started && !isnil(ti.tx_manager) && ti.tx_manager.is_active() {
+	if isnil(ti.tx_manager) {
+		return
+	}
+	if !started {
+		if ti.last_savepoint.len > 0 {
+			ti.tx_manager.mu.@lock()
+			ti.tx_manager.release_savepoint_locked(ti.last_savepoint) or {
+				ti.tx_manager.mu.unlock()
+				return err
+			}
+			ti.tx_manager.mu.unlock()
+			ti.last_savepoint = ''
+		}
+		return
+	}
+	if ti.tx_manager.is_active() {
 		ti.tx_manager.commit()!
 	}
 }
 
 // rollback_if_needed rolls back the transaction on error.
+//
+// nested 传播下只回滚到保存点：外层事务与外层的写入必须保留。
 pub fn (mut ti TransactionalInterceptor) rollback_if_needed(started bool) {
-	if started && !isnil(ti.tx_manager) && ti.tx_manager.is_active() {
+	if isnil(ti.tx_manager) {
+		return
+	}
+	if !started {
+		if ti.last_savepoint.len > 0 {
+			ti.tx_manager.mu.@lock()
+			ti.tx_manager.rollback_to_savepoint_locked(ti.last_savepoint) or {}
+			ti.tx_manager.mu.unlock()
+			ti.last_savepoint = ''
+		}
+		return
+	}
+	if ti.tx_manager.is_active() {
 		ti.tx_manager.rollback() or { return }
 	}
 }
