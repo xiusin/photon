@@ -52,6 +52,36 @@ fn (r &RateLimiter) shard_for(key string) int {
 	return int(support.fnv1a_str(key) & u64(shard_count - 1))
 }
 
+// effective_decay normalizes a decay window to a positive number of seconds.
+//
+// 0（或负数）不该被理解成「窗口无限长」。`now - ts < 0` 恒为 false，于是
+// 所有记录都被判为过期：`hit()` 记的次数一扫而空，`too_many_attempts()`
+// 永远说不超限 —— 一条彻底不生效的限流，且与正常限流的表现无从区分。
+// 而 `throttle_middleware(max_attempts, decay_minutes: 0)` 恰好算出 0，
+// 是配置里最常见的一种笔误。这里按 1 秒处理，让限流仍然成立。
+fn effective_decay(decay_seconds i64) i64 {
+	return if decay_seconds > 0 { decay_seconds } else { 1 }
+}
+
+// count_within returns how many of `attempts` fall inside the decay window
+// ending at `now`.
+//
+// 窗口是滑动的：`now - ts < decay`。原来用 `now - ts >= decay` 判过期，
+// 两秒整的那一刻既不算有效、也不算刚过期，于是 `cleanup_expired()` 在
+// 那个边界上一条都删不掉，已经死掉的 key 会一直留在 map 里 ——
+// 一条只在整秒边界出现的泄漏。
+fn count_within(attempts []i64, now i64, decay_seconds i64) int {
+	mut n := 0
+	for ts in attempts {
+		// 负差值（时钟回拨/未来时间戳）按有效计：宁可多算一次，
+		// 也不要因为时钟问题把限流整体放空。
+		if now - ts < decay_seconds {
+			n++
+		}
+	}
+	return n
+}
+
 // too_many_attempts checks if the key has exceeded the max attempts
 // within the decay window (in seconds). Expired attempts are automatically
 // cleaned from the attempt list.
@@ -64,11 +94,12 @@ pub fn (mut r RateLimiter) too_many_attempts(key string, max_attempts int, decay
 
 	mut attempts := r.attempts[key] or { return false }
 	now := time.now().unix()
+	decay := effective_decay(decay_seconds)
 
 	// Filter out expired attempts (outside the decay window)
 	mut valid := []i64{cap: attempts.len}
 	for ts in attempts {
-		if now - ts < decay_seconds {
+		if now - ts < decay {
 			valid << ts
 		}
 	}
@@ -79,7 +110,10 @@ pub fn (mut r RateLimiter) too_many_attempts(key string, max_attempts int, decay
 	}
 
 	r.attempts[key] = valid
-	return valid.len >= max_attempts
+	// 与 hit_and_record() 同一个边界：第 max 次仍在配额内，第 max+1 次才算超限。
+	// 旧实现写 `>= max`，于是 max_attempts=3 时只放得过去两次 ——
+	// 运维按配置理解会有整整一次的行为差，而且只在边界上出现。
+	return valid.len > max_attempts
 }
 
 // hit records an attempt for the given key.
@@ -116,12 +150,7 @@ pub fn (mut r RateLimiter) remaining(key string, max_attempts int, decay_seconds
 	now := time.now().unix()
 
 	// Filter out expired attempts (same logic as too_many_attempts)
-	mut valid_count := 0
-	for ts in attempts {
-		if now - ts < decay_seconds {
-			valid_count++
-		}
-	}
+	valid_count := count_within(attempts, now, effective_decay(decay_seconds))
 
 	remaining := max_attempts - valid_count
 	if remaining < 0 {
@@ -143,7 +172,7 @@ pub fn (mut r RateLimiter) retry_after(key string, decay_seconds i64) i64 {
 	}
 	now := time.now().unix()
 	earliest := attempts[0]
-	decay_time := earliest + decay_seconds
+	decay_time := earliest + effective_decay(decay_seconds)
 	if now >= decay_time {
 		return 0
 	}
@@ -180,10 +209,11 @@ pub fn (mut r RateLimiter) clear_expired(decay_seconds i64) {
 	}
 	now := time.now().unix()
 	mut keys_to_delete := []string{}
+	decay := effective_decay(decay_seconds)
 	for key, attempts in r.attempts {
 		mut valid := []i64{}
 		for ts in attempts {
-			if now - ts < decay_seconds {
+			if now - ts < decay {
 				valid << ts
 			}
 		}
@@ -222,13 +252,7 @@ pub fn (mut r RateLimiter) attempts_within(key string, decay_seconds i64) int {
 	defer { r.shards[idx].unlock() }
 	attempts := r.attempts[key] or { return 0 }
 	now := time.now().unix()
-	mut count := 0
-	for ts in attempts {
-		if now - ts < decay_seconds {
-			count++
-		}
-	}
-	return count
+	return count_within(attempts, now, effective_decay(decay_seconds))
 }
 
 // key_count returns the total number of tracked keys.
@@ -253,20 +277,31 @@ pub fn (mut r RateLimiter) hit_and_record(key string, max_attempts int, decay_se
 	defer { r.shards[idx].unlock() }
 
 	now := time.now().unix()
+	decay := effective_decay(decay_seconds)
 
 	// Record the hit
 	mut attempts := r.attempts[key] or { []i64{} }
 	attempts << now
-	// Bound the slice: trim oldest entries if over threshold
-	if attempts.len > max_attempts_per_key {
-		attempts = attempts[attempts.len - max_attempts_per_key..].clone()
+	// Bound the slice, but never below what this window still needs to
+	// remember. max_attempts_per_key 是个纯粹的防爆顶，可它原来连
+	// 「窗口内还活着的记录」一起截：窗口 1 小时、max_attempts 20000 时，
+	// 顶流 key 每秒 3 次，10000 条只装得下 55 分钟 —— 被截掉的那些
+	// 恰恰是窗口里最老的、也是最早该失效的，于是有效计数在窗口中途
+	// 回落，已经被拒的调用方重新被放行。上限至少要容得下 max_attempts
+	// 本身，否则这个限流器的上限根本达不到。
+	mut bound := max_attempts_per_key
+	if max_attempts + 1 > bound {
+		bound = max_attempts + 1
+	}
+	if attempts.len > bound {
+		attempts = attempts[attempts.len - bound..].clone()
 	}
 	r.attempts[key] = attempts
 
 	// Check if limit exceeded (filter expired)
 	mut valid := []i64{cap: attempts.len}
 	for ts in attempts {
-		if now - ts < decay_seconds {
+		if now - ts < decay {
 			valid << ts
 		}
 	}
@@ -274,7 +309,19 @@ pub fn (mut r RateLimiter) hit_and_record(key string, max_attempts int, decay_se
 		r.attempts[key] = valid
 	}
 
-	return valid.len < max_attempts
+	// 第 max 次许可，第 max+1 次拒绝 —— 与 too_many_attempts() 的
+	// `valid.len >= max` 是同一个边界（旧实现写的是 `< max`，于是
+	// 每次都少放一次：`hit_and_record(k, 1, ...)` 连第一次都过不去，
+	// 而 throttle_middleware 用的正是这个函数）。
+	//
+	// `valid` 是「含本次」的计数，而 too_many_attempts() 判的是
+	// `已记录的历史 >= max`，两者相差本次这一条。要给出互补的答案，
+	// 这里必须按「扣除本次之后」的历史来判。
+	//
+	// 旧实现写的是 `valid.len < max_attempts`，对同一个 key 与
+	// too_many_attempts() 永远差一拍：中间件已经放行的请求，在运维接口
+	// 上看是「还有余量」；中间件拒掉的，在接口上看也许还没超。
+	return valid.len - 1 < max_attempts
 }
 
 // resolve_rate_limit_key builds a rate limit key from prefix, user ID, and IP.

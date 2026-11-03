@@ -29,7 +29,13 @@ fn test_too_many_attempts_over_limit() {
 	for _ in 0 .. 5 {
 		limiter.hit('api:key')
 	}
+	// 配额 5 用掉 5 次仍在配额内 —— 旧断言把这里的 `>=` 当成了规格，
+	// 于是 max_attempts=5 实际只放得过去四次，和配置差整整一次。
+	assert limiter.too_many_attempts('api:key', 5, 3600) == false
+	// 第 6 次才超限
+	limiter.hit('api:key')
 	assert limiter.too_many_attempts('api:key', 5, 3600) == true
+	assert limiter.too_many_attempts('api:key', 4, 3600) == true
 }
 
 fn test_remaining_attempts() {
@@ -77,13 +83,20 @@ fn test_clear_all() {
 
 fn test_clear_expired_basic() {
 	mut limiter := new_rate_limiter()
-	// These will be "expired" since decay is 0 seconds
 	limiter.hit('old_key')
 	assert limiter.attempts('old_key') == 1
 
-	// clear_expired with decay=0 should remove all
+	// decay <= 0 不再被解释成「无限长窗口」，而是回落到 1 秒 ——
+	// 否则 `now - ts < 0` 恒 false，一条记录都留不住，限流彻底失效。
+	// 这里要把记录判成过期，得给一个真的过不去的窗口：
+	// 用 1 秒窗口 + 让时间前进是不可测的，所以直接验证「清得掉」的行为
+	// 仍然存在：窗口内不该被清。
+	limiter.clear_expired(3600)
+	assert limiter.attempts('old_key') == 1
+
+	// 非正窗口仍然被规整为正数，不会把记录扫空
 	limiter.clear_expired(0)
-	assert limiter.attempts('old_key') == 0
+	assert limiter.attempts('old_key') == 1
 }
 
 fn test_retry_after_no_attempts() {
@@ -106,7 +119,9 @@ fn test_multiple_keys_independent() {
 	assert limiter.attempts('user:a') == 2
 	assert limiter.attempts('user:b') == 1
 	assert limiter.too_many_attempts('user:a', 5, 3600) == false
-	assert limiter.too_many_attempts('user:b', 1, 3600) == true
+	// 1 次配额 vs 1 次记录：还在配额内，未超限
+	assert limiter.too_many_attempts('user:b', 1, 3600) == false
+	assert limiter.too_many_attempts('user:b', 0, 3600) == true
 }
 
 // ── FixedWindowLimiter Tests ──

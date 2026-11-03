@@ -1,5 +1,7 @@
 module web
 
+import time
+
 // web_ext_test.v - Tests for pipeline, ratelimit, kernel
 
 // ============================================================
@@ -97,6 +99,10 @@ fn test_ratelimiter_hit_and_check() {
 	r.hit('key1')
 	r.hit('key1')
 	r.hit('key1')
+	// 配额 3 用掉 3 次仍在配额内；第 4 次才超限。
+	// 旧断言把 `>=` 当规格，等于 max_attempts 永远少放一次。
+	assert r.too_many_attempts('key1', 3, 60) == false
+	r.hit('key1')
 	assert r.too_many_attempts('key1', 3, 60) == true
 }
 
@@ -117,6 +123,7 @@ fn test_ratelimiter_remaining_capped() {
 fn test_ratelimiter_clear() {
 	mut r := new_rate_limiter()
 	r.hit('key1')
+	r.hit('key1')
 	assert r.too_many_attempts('key1', 1, 60) == true
 	r.clear('key1')
 	assert r.too_many_attempts('key1', 1, 60) == false
@@ -126,7 +133,9 @@ fn test_ratelimiter_multiple_keys() {
 	mut r := new_rate_limiter()
 	r.hit('user1')
 	r.hit('user1')
+	r.hit('user1')
 	r.hit('user2')
+	// user1 用掉 3 次超配额 2 → 超限；user2 只 1 次 → 未超限
 	assert r.too_many_attempts('user1', 2, 60) == true
 	assert r.too_many_attempts('user2', 2, 60) == false
 }
@@ -139,7 +148,16 @@ fn test_ratelimiter_retry_without_hits() {
 fn test_ratelimiter_clear_expired() {
 	mut r := new_rate_limiter()
 	r.hit('k')
+	// decay <= 0 不再被理解成「窗口无限长」（那会把记录全扫空、限流失效），
+	// 而是回落到 1 秒 —— 所以窗口内的记录不该被清掉。
+	r.clear_expired(60)
+	assert r.key_count() == 1
 	r.clear_expired(0)
+	assert r.key_count() == 1
+	// 真过期才清：1 秒窗口 + 睡过边界
+	r.clear_expired(1)
+	time.sleep(1100 * time.millisecond)
+	r.clear_expired(1)
 	assert r.key_count() == 0
 }
 
