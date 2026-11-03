@@ -271,7 +271,9 @@ pub fn (mut p Pool) close() {
 	// Drain idle connections.
 	for {
 		select {
-			client := <-p.connections {
+			mut client := <-p.connections {
+				// Redis.close has a `mut` receiver: the channel hands out a
+				// copy, so it must be bound to a mutable variable here.
 				client.close() or {}
 			}
 			else {

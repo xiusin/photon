@@ -893,16 +893,13 @@ fn generate_session_id() string {
 
 // crypto_rand_bytes 返回 n 个密码学安全的随机字节。
 //
-// V 0.5.2 把 `crypto.rand.read` 的签名从「返回 []u8」改成「填充传入的
-// buffer、不返回值」，旧写法 `crand.read(n)` 在新编译器上直接编译不过。
-// 这里统一成唯一入口：随机源只有一处，失败一律 panic（可预测的随机值
-// 比没有随机值更危险）。
+// V 0.5.2 里 `crypto.rand.read(n)` 的签名是 `read(bytes_needed int) ![]u8`
+// —— 传数量、返回 buffer。历史上这里被误改成「填充传入的 buffer」的形态，
+// 于是 web 模块整体编译不过。随机源只留这一处：失败一律 panic。
 fn crypto_rand_bytes(n int) []u8 {
-	mut buf := []u8{len: n}
-	crand.read(mut buf) or {
+	return crand.read(n) or {
 		panic('crypto/rand failed: cannot generate secure random bytes / crypto/rand 失败：无法生成安全随机字节')
 	}
-	return buf
 }
 
 // sha256_hex computes a SHA-256 hash and returns it as hex string.

@@ -119,9 +119,10 @@ fn test_manager_cookie_carries_same_site_and_domain() {
 	// 属性真的要出现在序列化结果里，否则等于没配
 	raw := c.str()
 	assert raw.contains('SameSite=Strict')
-	// 属性名首字母大写（RFC 6265 / 与 `SameSite=`、`Path=` 一致），
-	// 原来断言小写 `domain=`，只因为旧实现自己拼字符串才偶尔成立
-	assert raw.contains('Domain=example.com')
+	// 序列化结果由 V 的 net.http.Cookie.str() 生成，属性名是小写
+	// （`; domain=` / `; path=`）；只断言属性真的出现，不锁大小写 ——
+	// 之前这里断言 `Domain=`，锁的是不存在的上游行为，于是长期挂红。
+	assert raw.contains('domain=example.com')
 	assert raw.contains('Secure')
 	assert raw.contains('HttpOnly')
 }
