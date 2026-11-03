@@ -103,8 +103,8 @@ pub mut:
 // proceed concurrently without blocking each other.
 // 线程安全：通过 ShardedRwMutex 实现，不同事件名的操作互不阻塞。
 //
-// dispatch_async() tracks spawned goroutines via sync.WaitGroup so that
-// wait_async()/shutdown() can block until all in-flight async listeners
+// dispatch_background() tracks spawned goroutines via sync.WaitGroup so that
+// wait_background()/shutdown() can block until all in-flight listeners
 // complete. Listeners are assigned unique ids (returned by on()) so they
 // can be removed individually via off_listener(id) — this works for
 // closures where function-pointer comparison would fail.
@@ -277,10 +277,10 @@ pub fn (mut bus EventBus) listener_count(event_name string) int {
 // 使用分片读锁：仅锁定事件名对应的分片，不同事件名可并发 dispatch。
 //
 // 注意：V 语言没有 try-catch 机制，如果某个 listener 触发运行时 panic，
-// 后续 listener 将不会被执行。如果需要 listener 隔离，请使用 dispatch_async()。
+// 后续 listener 将不会被执行。如果需要 listener 隔离，请使用 dispatch_background()。
 //
 // Note: V has no try-catch mechanism. If a listener triggers a runtime panic,
-// subsequent listeners will NOT be called. For listener isolation, use dispatch_async().
+// subsequent listeners will NOT be called. For listener isolation, use dispatch_background().
 pub fn (mut bus EventBus) dispatch(event &Event) int {
 	bus.sharded_mu.rlock(event.name)
 	listeners := bus.listeners[event.name] or { []RegisteredListener{} }
@@ -306,40 +306,31 @@ pub fn (mut bus EventBus) dispatch(event &Event) int {
 	return called
 }
 
-// dispatch_async fires an event asynchronously using goroutines.
-// Does not wait for listeners to complete — use wait_async() to block
-// until all in-flight async dispatches finish.
-// Each listener runs in its own thread — a failing listener does not affect others.
-// Goroutines are tracked via sync.WaitGroup so shutdown() can drain them.
-// 使用分片读锁：仅锁定事件名对应的分片，不同事件名可并发 dispatch。
-pub fn (mut bus EventBus) dispatch_async(event &Event) {
-	bus.sharded_mu.rlock(event.name)
-	listeners := bus.listeners[event.name] or { []RegisteredListener{} }
-	bus.sharded_mu.runlock(event.name)
-
-	for rl in listeners {
-		if event.is_propagation_stopped() {
-			break
-		}
-		if isnil(rl.listener) {
-			continue
-		}
-		captured_event := event
-		captured_listener := rl.listener
-		bus.wg.add(1)
-		spawn fn [captured_event, captured_listener, mut bus] () {
-			defer {
-				bus.wg.done()
-			}
-			captured_listener(captured_event)
-		}()
-	}
+// dispatch_background fires an event asynchronously on a background thread.
+// Unlike dispatch(), the caller returns immediately; a failing listener does
+// not affect the others. Background dispatches are tracked so that
+// wait_background()/shutdown() can drain them before the process exits.
+// 后台派发：调用方立即返回，listener 在后台线程执行；失败不影响其他 listener。
+//
+// 注意 / Note: the event must stay alive for the whole dispatch. It is
+// @[heap], so the caller's reference is GC-managed and safe to share.
+// 注意：不要在 dispatch_background() 之后立刻修改 Event 的可变字段。
+pub fn (mut bus EventBus) dispatch_background(event &Event) {
+	bus.wg.add(1)
+	spawn fn [mut bus, event] () {
+		// done() must be the LAST statement of this goroutine: V's `defer`
+		// is function-scoped, but relying on it here would let a reader
+		// assume the wait group is still held while the frame unwinds.
+		bus.dispatch(event)
+		bus.wg.done()
+	}()
 }
 
-// wait_async blocks until all in-flight async dispatch goroutines complete.
-// Useful for graceful shutdown — call before exiting to ensure all async
+// wait_background blocks until all in-flight background dispatches complete.
+// Useful for graceful shutdown — call before exiting to ensure all background
 // event listeners have finished processing.
-pub fn (mut bus EventBus) wait_async() {
+// 等待所有后台派发完成；shutdown() 内部会先调用它。
+pub fn (mut bus EventBus) wait_background() {
 	bus.wg.wait()
 }
 
@@ -348,7 +339,7 @@ pub fn (mut bus EventBus) wait_async() {
 // further events will be dispatched.
 // 使用全局分片锁：需清空所有事件监听器。
 pub fn (mut bus EventBus) shutdown() {
-	bus.wait_async()
+	bus.wait_background()
 	bus.sharded_mu.lock_all()
 	defer { bus.sharded_mu.unlock_all() }
 	bus.listeners = map[string][]RegisteredListener{}
