@@ -353,22 +353,37 @@ pub fn (la &LocalAdapter) visibility(path string) !Visibility {
 // Directory Operations
 // ============================================================
 
-// list_contents returns metadata for all files in a directory
+// relative_dir_prefix 把调用方给的目录参数折成「相对 root 的规范前缀」。
+// '' 表示 root 本身；`a`、`a/b` 表示子目录；`./a`、`/a/`、`a/../a` 都归一到 `a`。
+fn relative_dir_prefix(directory string) string {
+	clean := normalize_path('/' + directory.trim_left('/'))
+	return clean.trim_left('/').trim_right('/')
+}
+
+// list_contents returns metadata for all files in a directory.
+//
+// 返回的 `path` 一律是**相对 root 的规范路径**，与 read() / metadata() /
+// visibility() 接受的形式一致。原来直接拿入参拼字符串，于是同一份文件
+// 在 `list_contents('')` 下叫 `/x.txt`、在 `list_contents('.')` 下叫
+// `./x.txt` —— 调用方拿这个 path 去查 metadata 只会找不到，而列表本身
+// 看起来完全正常。
+//
+// visibility 同理必须查缓存表：`permissions` 是可见性的唯一来源，
+// 原来给每个条目硬写 `.private_`，于是「单文件查询说 public、目录列表说
+// private」，同一份文件两个答案。
 pub fn (la &LocalAdapter) list_contents(directory string) ![]&FileMetadata {
 	full := la.resolve_path(directory)!
 	if !os.exists(full) {
 		return error('directory not found: ${directory}')
 	}
+	// 目录在 root 内的相对前缀（'' 表示 root 本身），用于拼出规范相对路径
+	prefix := relative_dir_prefix(directory)
 
 	entries := os.ls(full)!
 	mut result := []&FileMetadata{}
 
 	for entry in entries {
-		entry_path := if directory.ends_with('/') {
-			'${directory}${entry}'
-		} else {
-			'${directory}/${entry}'
-		}
+		entry_path := if prefix.len == 0 { entry } else { '${prefix}/${entry}' }
 		full_entry := la.resolve_path(entry_path)!
 
 		if os.is_dir(full_entry) {
@@ -389,6 +404,7 @@ pub fn (la &LocalAdapter) list_contents(directory string) ![]&FileMetadata {
 			lm := os.file_last_mod_unix(full_entry)
 			mut meta := new_file_metadata(entry_path, sz, mime)
 			meta.last_modified = lm
+			meta.visibility = la.visibility(entry_path) or { Visibility.private_ }
 			result << meta
 		}
 	}
