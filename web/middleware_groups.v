@@ -133,8 +133,15 @@ pub fn new_throttle_state(max_attempts int, decay_seconds i64) &ThrottleState {
 pub fn throttle_middleware(max_attempts int, decay_minutes int) fn (mut MiddlewareContext) !bool {
 	mut state := new_throttle_state(max_attempts, i64(decay_minutes) * 60)
 	return fn [mut state] (mut ctx MiddlewareContext) !bool {
-		mut key := ctx.data['user_id'] or { 'anonymous' }
-		key = 'throttle_${key}'
+		// key 必须落到「同一个客户端」上。原来这里是
+		//   ctx.data['user_id'] or { 'anonymous' }
+		// 而 user_id 只有登录之后才被写进 data，于是所有未登录请求共用一个
+		// 'anonymous' 桶：
+		//   * 一个人打满配额，全站未登录用户一起被限流
+		//   * 任何人都能靠刷自己的配额，把所有人挡在门外
+		// 账号维度仍优先（同一账号跨 IP 才能共享配额），没有则退到客户端 IP。
+		// 两者都拿不到时才用 '-' —— client_ip() 在无连接上下文时返回它。
+		key := 'throttle_' + throttle_key(ctx)
 
 		// hit_and_record atomically records the hit AND checks the limit.
 		// This is critical: if we checked first and then hit, a request at
@@ -197,4 +204,24 @@ pub fn cors_configurable_middleware(allowed_origins []string, allowed_methods st
 		}
 		return true
 	}
+}
+
+// throttle_key 推导限流的分桶键。
+//
+// 优先 user_id（同一账号在不同网络下共享配额，这是账号维度的语义），
+// 否则用客户端 IP。两者都没有才退到 '-'，此时限流退化为全局限流 ——
+// 不理想，但比「把所有人塞进同一个桶」要诚实：至少它不会因为某个人
+// 刷接口而误伤其他人之后还自称在按客户端限流。
+fn throttle_key(ctx MiddlewareContext) string {
+	if uid := ctx.data['user_id'] {
+		trimmed := uid.trim_space()
+		if trimmed.len > 0 && trimmed != 'anonymous' {
+			return 'user:${trimmed}'
+		}
+	}
+	ip := client_ip(ctx.ctx)
+	if ip.len > 0 && ip != '-' {
+		return 'ip:${ip}'
+	}
+	return 'global'
 }

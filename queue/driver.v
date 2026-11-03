@@ -127,12 +127,32 @@ fn strip_retry_count(payload string) string {
 }
 
 // payload_retry_count 读出 payload 里携带的重放次数，没有就是 0。
+//
+// 必须先剥掉延迟前缀再找 `#r`。延迟重放投递出去的 payload 形如
+//   <run_at_ns>||#r2||<job_type>||<data>
+// `#r` 并不在开头 —— 只看 starts_with 的话，这类 payload 一律读成 0。
+// 后果正是这一批要修的那个循环：任务延迟重放后再次失败，record_failure
+// 把 retry_count 写成 0（新记录），退避算出来永远是 1 秒，
+// `max_retries` 也就永远数不到上限。
+//
+// strip 的顺序必须和 split_delay 一致（先延迟前缀，再 `#r`），
+// 否则「能解析」和「计数正确」会分成两套规则。
 fn payload_retry_count(payload string) int {
-	if !payload.starts_with(retry_meta_prefix) {
+	// split_delay 会把 `#r` 读掉，这里改从原始串里自己取那一段。
+	// 逐层剥延迟前缀，与 split_delay 的循环保持同一形态。
+	mut head := payload
+	for {
+		probe := delayed_run_at(head)
+		if probe == 0 {
+			break
+		}
+		head = strip_delay_prefix(head)
+	}
+	if !head.starts_with(retry_meta_prefix) {
 		return 0
 	}
-	sep := payload.index('||') or { return 0 }
-	stamp := payload[retry_meta_prefix.len..sep]
+	sep := head.index('||') or { return 0 }
+	stamp := head[retry_meta_prefix.len..sep]
 	if stamp.len == 0 {
 		return 0
 	}

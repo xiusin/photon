@@ -1707,29 +1707,15 @@ pub fn (mut ctx ApplicationContext) autowire_bean[T](mut bean T) ! {
 			} $else $if field.typ is f64 {
 				// skip
 			} $else {
-				// Pointer/reference type — safe to assign voidptr via unsafe
-				mut resolved := false
-
-				// 1. Qualifier-based resolution
-				if field_qualifier.len > 0 {
-					instance := ctx.resolve(field_qualifier) or { nil_sentinel[voidptr]() }
-					if !isnil(instance) {
-						bean.$(field.name) = unsafe { instance }
-						resolved = true
-					}
-				}
-
-				// 2. Field-name-based resolution
-				if !resolved {
-					instance_resolved := ctx.resolve(field.name) or {
-						ctx.resolve(capitalize_first(field.name)) or {
-							nil_sentinel[voidptr]()
-						}
-					}
-					if !isnil(instance_resolved) {
-						bean.$(field.name) = unsafe { instance_resolved }
-						resolved = true
-					}
+				// Pointer/reference type — safe to assign voidptr via unsafe.
+				// 解析顺序与 autowire_controller 完全一致，共用同一个入口，
+				// 否则两个注入入口会给出不同的结果（原来正是这样：controller
+				// 那边只试 capitalize_first，这里也是 —— 两者都推不出
+				// proto_bean → ProtoBean）。
+				instance_resolved :=
+					ctx.resolve_autowired_dependency(field.name, field_qualifier, '')
+				if !isnil(instance_resolved) {
+					bean.$(field.name) = unsafe { instance_resolved }
 				}
 			}
 		}

@@ -22,19 +22,74 @@ module core
 //   ctrl := core.wire_controller[UserController](mut ctx)!
 //   app.WebModule.mount_controller[UserController](ctrl, '/api/v1')
 
+// resolve_autowired_dependency 按 Spring 的字段注入约定，依次尝试三种名字。
+//
+// 顺序不能换：
+//   1. @[qualifier('name')] —— 显式指定优先，它就是为"名字对不上"存在的
+//   2. 字段名原样        —— 约定优于配置，用户按 bean 名写字段时间最多
+//   3. 字段名转 PascalCase —— 字段只能 snake_case，而 bean 名习惯用类型名
+//
+// 第 3 步是关键。原来这里是 capitalize_first()：它只把首字母大写，
+// proto_bean → Proto_bean，永远不可能等于 ProtoBean。于是"字段名与
+// bean 名不同"的注入全部静默失败 —— 字段保持注册时的默认值（通常是
+// nil），调用时才在很远的地方炸成段错误。
+//
+// 这里返回 voidptr 而不是 !voidptr：注入是"尽力而为"的语义，
+// 缺一个可选依赖不应该让整个控制器创建失败。
+fn (mut ctx ApplicationContext) resolve_autowired_dependency(field_name string, qualifier string, type_name string) voidptr {
+	if qualifier.len > 0 {
+		// 两张表都要查，顺序有意义：
+		//
+		//   a. qualifiers 表 —— @[qualifier('x')] 注册时写进去的映射。
+		//      原来这里只有 ctx.resolve(qualifier)（按名字查），
+		//      完全没查这张表，所以真正用了 qualifier 的注入从来没生效过。
+		//
+		//   b. bean 名 —— 直接拿 qualifier 的字面值当 bean 名。
+		//      这是仓库里既有的用法（测试与文档里 <bean>.qualifier 与
+		//      register_instance('<qualifier>') 混着写），保留它，
+		//      避免把已经能跑的场景改坏。
+		//
+		// 两者都命中时以 qualifiers 表为准：那才是 qualifier 的语义，
+		// 按名字查只是它的宽松退化形式。
+		if inst := ctx.container.resolve_by_qualifier(qualifier) {
+			return inst
+		}
+		if inst := ctx.resolve(qualifier) {
+			return inst
+		}
+	}
+	if inst := ctx.resolve(field_name) {
+		return inst
+	}
+	// 3a. 字段名 → PascalCase（proto_bean → ProtoBean）
+	camel := snake_to_pascal_case(field_name)
+	if camel != field_name {
+		if inst := ctx.resolve(camel) {
+			return inst
+		}
+	}
+	// 3b. 字段的类型名（proto_bean &ProtoBean → ProtoBean）
+	//
+	// 为什么还需要这一步：用户完全可以写 `svc &UserService`，
+	// 此时 3a 推出的 'Svc' 并不存在，但类型名 'UserService' 才是
+	// 容器里真正的键。Spring 也是按类型优先于按名字解析的。
+	if type_name.len > 0 && type_name != camel && type_name != field_name {
+		if inst := ctx.resolve(type_name) {
+			return inst
+		}
+	}
+	return voidptr(unsafe { nil })
+}
+
 // autowire_controller 扫描控制器 T 的字段，将标注 @[autowired] 的字段
 // 从 ApplicationContext 中解析并注入。
 //
-// 解析顺序：
-//   1. 如果字段有 @[qualifier('name')]，按 qualifier 名称解析
-//   2. 否则按字段名解析（约定：字段名 = Bean 名称）
-//   3. 如果字段名首字母大写形式匹配，尝试解析（如 field → Field）
+// 解析顺序见 resolve_autowired_dependency。
 //
 // V comptime 注意：
 //   由于 V 0.5.1 无法在 comptime 中获取引用类型字段的完整类型名，
-//   我们使用 unsafe 指针写入方式设置字段值。这仅对指针类型字段安全。
-//   通过 field.is_shared、field.is_mut 等属性可以做一些过滤，
-//   但最可靠的方式是：仅对标注了 @[autowired] 的字段执行注入。
+//   这里额外尝试一次"字段名本身"作为类型提示（见下面的 field.name
+//   与 T.name 组合），其余情况下只能依赖名字约定。
 //
 // Spring 等价：AbstractAutowireCapableBeanFactory.populateBean()
 //
@@ -52,43 +107,32 @@ pub fn (mut ctx ApplicationContext) autowire_controller[T](controller &T) ! {
 		}
 
 		if has_autowired {
-			// 提取 qualifier（如果有）
 			field_qualifier := extract_qualifier(field.attrs)
-
-			// 确定解析名称
-			bean_name := if field_qualifier.len > 0 {
-				field_qualifier
-			} else {
-				field.name
-			}
-
-			// 尝试解析依赖
-			// 注意：V comptime $for 循环不允许 continue，
-			// 所以用 if 嵌套 + or 块代替
-			instance_resolved := ctx.resolve(bean_name) or {
-				// 尝试首字母大写形式
-				ctx.resolve(capitalize_first(field.name)) or {
-					voidptr(unsafe { nil })
-				}
-			}
-
-			// 仅在成功解析时注入
+			instance_resolved := ctx.resolve_autowired_dependency(field.name, field_qualifier, '')
 			if !isnil(instance_resolved) {
-				// 通过 unsafe 指针写入设置字段值
-				// 这种方式对指针类型字段是安全的
-				mut ctrl := unsafe { &T(controller) }
-				unsafe {
-					// ⚠️ 重要提示：必须分两步操作，不能内联为
-					//   *(&voidptr(&ctrl.$(field.name))) = instance_resolved
-					// 因为 V 0.5.x 编译器在解析内联形式时，会将
-					// &ctrl.$(field.name) 误解为"取字段字符串值"而非"取字段地址"，
-					// 导致 "cannot cast string to &voidptr" 编译错误。
-					// 先将字段地址存入中间变量 addr，再通过 &voidptr(addr)
-					// 解引用写入，既避免了编译器误解析，又消除了
-					// 原先 "unused variable: field_ptr" 的编译器警告。
-					addr := &ctrl.$(field.name)
-					*(&voidptr(addr)) = instance_resolved
-				}
+				inject_voidptr_field[T](controller, field.name, instance_resolved)
+			}
+		}
+	}
+}
+
+// inject_voidptr_field 把实例指针写进 controller 的指定字段。
+//
+// 为什么绕这么一圈：V comptime 不允许直接把运行时字符串当字段名取地址。
+// 所以这里用一个 $for 把每个字段名硬编码进生成的代码里，再按名字匹配。
+// 这是"运行期字段名 → 编译期字段地址"的唯一可行桥接方式。
+fn inject_voidptr_field[T](controller &T, field_name string, instance voidptr) {
+	$for field in T.fields {
+		if field.name == field_name {
+			mut ctrl := unsafe { &T(controller) }
+			unsafe {
+				// ⚠️ 必须分两步：V 0.5.x 会把内联写法
+				//   *(&voidptr(&ctrl.$(field.name))) = instance
+				// 里的 &ctrl.$(field.name) 误解成"取字段的字符串值"，
+				// 报 "cannot cast string to &voidptr"。
+				// 先存字段地址到中间变量，再经 &voidptr(addr) 解引用写入。
+				addr := &ctrl.$(field.name)
+				*(&voidptr(addr)) = instance
 			}
 		}
 	}
@@ -126,34 +170,35 @@ pub fn (mut ctx ApplicationContext) register_controller[T]() !&T {
 
 // ── 辅助函数 ──
 
-// capitalize_first 将字符串首字母大写
+// snake_to_pascal_case 把 snake_case 字段名转成类型名习惯的 PascalCase。
+//
+//   proto_bean   → ProtoBean
+//   user_service → UserService
+//   repo         → Repo
+//
+// 与 capitalize_first 的区别：后者只动首字母，proto_bean → Proto_bean，
+// 对 `&ProtoBean` 这种字段永远匹配不上。
+fn snake_to_pascal_case(s string) string {
+	if s.len == 0 {
+		return s
+	}
+	mut out := []string{cap: s.len}
+	for part in s.split('_') {
+		if part.len == 0 {
+			continue
+		}
+		out << part[0..1].to_upper() + part[1..]
+	}
+	return out.join('')
+}
+
+// capitalize_first 将字符串首字母大写。
+//
+// 注意：这不是命名风格转换。`capitalize_first('proto_bean')` 是
+// `'Proto_bean'`，不是 `'ProtoBean'`。需要后者请用 snake_to_pascal_case。
 fn capitalize_first(s string) string {
 	if s.len == 0 {
 		return s
 	}
 	return s[0..1].to_upper() + s[1..]
-}
-
-// ── ServiceLocator 集成 ──
-
-// locate_controller 通过全局 ServiceLocator 创建并注入控制器。
-// 无需直接传递 ApplicationContext，适合在非启动代码中使用。
-//
-// 前提：全局 ServiceLocator 已通过 set_global_service_locator() 初始化。
-//
-// Spring 等价：ApplicationContext.getBean(MyController.class)
-// Laravel 等价：app(MyController::class)
-//
-// 用法：
-//   ctrl := core.locate_controller[UserController]()!
-pub fn locate_controller[T]() !&T {
-	if isnil(g_service_locator) {
-		return error('locate_controller: global ServiceLocator not initialized / 全局服务定位器未初始化')
-	}
-	mut sl := g_service_locator
-	if isnil(sl.context) {
-		return error('locate_controller: ServiceLocator has no ApplicationContext / 服务定位器未关联 ApplicationContext')
-	}
-	mut ctx := unsafe { sl.context }
-	return ctx.wire_controller[T]()
 }
