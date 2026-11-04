@@ -89,9 +89,14 @@ pub fn page(data string, page int, page_size int, total int) PageResult {
 	}
 }
 
-// to_json serializes the Result to JSON
+// to_json serializes the Result to JSON.
+//
+// ⚠️ 不能写成 `json2.encode(r)`。json2 对「实现了 to_json() 的类型」（JsonEncoder
+// 接口）不再逐字段编码，而是回头调用 to_json() —— 从 to_json 进 json2 再回到
+// to_json，栈直接打爆（不只是这几个字段，任何实现了 to_json 的 struct 都中招，
+// 且第一次调用就 panic，不是偶发）。这里手动拼字段，绕开那个分派。
 pub fn (r &Result) to_json() string {
-	return json2.encode(r)
+	return '{"success":${r.success},"code":${r.code},"message":${json2.encode(r.message)},"data":${r.data},"timestamp":${r.timestamp},"path":${json2.encode(r.path)}}'
 }
 
 // to_json serializes the PageResult (including pagination) to JSON

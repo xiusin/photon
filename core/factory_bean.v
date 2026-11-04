@@ -94,6 +94,21 @@ pub fn (mut r FactoryBeanRegistry) register_factory(def FactoryBeanDefinition) {
 	r.factories[def.output_type_name] = def
 }
 
+// is_prototype_factory reports whether the factory registered for the given
+// output type produces a fresh instance per resolve.
+//
+// 调用方（ApplicationContext）需要据此决定「能不能缓存这次解析结果」。
+// 没有这个入口时，prototype 工厂的产物会被上层当成普通 bean cache 进
+// resolve_cache —— 第一次拿到的是原型，第二次开始拿到的是同一个对象，
+// 而且所有后续解析都命中缓存，作用域声明彻底失效。
+// Spring 等价：BeanFactory.isPrototype(name)
+pub fn (mut r FactoryBeanRegistry) is_prototype_factory(output_type_name string) bool {
+	r.mu.rlock()
+	defer { r.mu.runlock() }
+	def := r.factories[output_type_name] or { return false }
+	return !def.is_singleton_
+}
+
 // has_factory checks if a factory exists for the given output type.
 pub fn (mut r FactoryBeanRegistry) has_factory(output_type_name string) bool {
 	r.mu.rlock()

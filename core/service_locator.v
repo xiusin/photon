@@ -246,6 +246,25 @@ pub fn locate_service[T]() !&T {
 	return unsafe { &T(instance) }
 }
 
+// locate_controller 从全局 ServiceLocator 创建控制器 T 并完成 @[autowired] 注入。
+//
+// 文档（docs/ 与 example/verify）里一直在用它，但这个入口从来没被实现过 ——
+// `locate_service[T]()` 只解析**已经存在**的 bean，而控制器从来不预先注册在容器里，
+// 所以它替不了这一层：还要 new 一个实例、把依赖填进去。缺了它，
+// 「不持有 ctx 也能拿到一个装配好的控制器」这条路是断的。
+//
+// Spring 等价：SpringApplicationContext.getBean(MyController.class)（含自动装配）
+//
+// 用法：
+//   ctrl := core.locate_controller[UserController]()!
+pub fn locate_controller[T]() !&T {
+	if isnil(g_service_locator) {
+		return error('locate_controller: global ServiceLocator not initialized / 全局服务定位器未初始化')
+	}
+	mut sl := g_service_locator
+	return sl.context.wire_controller[T]()
+}
+
 // locate_service_by_name resolves a bean by name from the global ServiceLocator.
 pub fn locate_service_by_name(name string) !voidptr {
 	if isnil(g_service_locator) {

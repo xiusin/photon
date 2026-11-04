@@ -598,6 +598,23 @@ pub fn (mut c Container) is_singleton(type_name string) bool {
 	return false
 }
 
+// is_prototype_output 判断一次 resolve 的产物是否「每次都必须新建」，
+// 覆盖两条来源：
+//   * BeanDefinition 的 scope == .prototype
+//   * FactoryBean 的 is_singleton() == false
+//
+// 只查定义是不够的：工厂产出的 bean 没有 BeanDefinition，靠 output_type 直连。
+// 上层（ApplicationContext.resolve）据此决定要不要写 resolve_cache。
+pub fn (mut c Container) is_prototype_output(type_name string) bool {
+	if c.is_prototype(type_name) {
+		return true
+	}
+	if !isnil(c.factory_registry) {
+		return c.factory_registry.is_prototype_factory(type_name)
+	}
+	return false
+}
+
 // is_prototype checks if the bean with the given name has prototype scope.
 // Returns false if the bean is not registered.
 //

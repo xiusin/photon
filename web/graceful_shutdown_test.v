@@ -489,3 +489,74 @@ fn test_graceful_shutdown_drains_multiple_in_flight() {
 	assert elapsed_ms < 1000
 	assert gsm.is_stopped() == true
 }
+
+// ── 排空语义：in-flight 请求真的被等到了吗 ──
+//
+// 只断言「shutdown() 最终返回了」是测不出问题的：它在两种情况下都会返回 ——
+// 请求跑完了，或者超时兜底了。而超时兜底恰恰是 in-flight 计数失效时的表现。
+// 所以这里断言的是**回调在什么时刻被调用**：早于请求完成即为漏排。
+__global gsm_drain_completed_ns i64
+__global gsm_drain_order_ok bool
+
+fn test_graceful_shutdown_drains_before_callback() {
+	mut gsm := new_graceful_shutdown_manager()
+	gsm.set_timeout(5 * time.second) // 远大于请求耗时：超时兜底不该发生
+
+	gsm_drain_completed_ns = 0
+	gsm_drain_order_ok = false
+	// 标记必须走 __global：V 0.5.2 里闭包对 `[mut x]` 捕获的是**跨线程共享的副本**，
+	// 主线程事后读到的 x 永远是闭包创建时的值，其它线程的写入它也看不见。
+	// 用它做「回调晚于请求完成」的判断，断言会恒假 —— 测出来的是语言行为，不是框架。
+	gsm.set_on_shutdown(fn () {
+		gsm_drain_order_ok = gsm_drain_completed_ns > 0
+			&& time.now().unix_nano() >= gsm_drain_completed_ns
+	})
+
+	gsm.request_started()!
+	spawn fn (mut g GracefulShutdownManager) {
+		time.sleep(150 * time.millisecond)
+		gsm_drain_completed_ns = time.now().unix_nano()
+		g.request_completed()
+	}(mut gsm)
+
+	start_ns := time.now().unix_nano()
+	gsm.shutdown()
+	elapsed_ms := (time.now().unix_nano() - start_ns) / 1_000_000
+
+	// 请求耗时 150ms：真的排空就不可能 50ms 内回来
+	assert elapsed_ms >= 140, 'shutdown() returned in ${elapsed_ms}ms — in-flight requests were not drained'
+	assert gsm_drain_completed_ns > 0, 'in-flight request never completed'
+	assert gsm_drain_order_ok, 'on_shutdown fired before the in-flight request completed'
+}
+
+// ── 反向对照：计数接到副本上，等待就必然失效 ──
+//
+// 上面那条只证明了「现在是好的」。这条复刻 V 0.5.2 里 `mut x := <引用>` 的真实语义
+// ——生成的是结构体副本、副本自带一份计数——用来钉住「为什么这里必须传指针」。
+// 断言：原等待组清零后，副本上的 wait() 仍然不返回。
+fn test_waitgroup_copy_does_not_share_counter() {
+	mut original := sync.WaitGroup{}
+	original.add(1)
+	mut copy := original
+
+	done := chan bool{cap: 1}
+	spawn fn (mut wg sync.WaitGroup, d chan bool) {
+		wg.wait()
+		d <- true
+	}(mut copy, done)
+
+	original.done()
+	time.sleep(100 * time.millisecond)
+
+	mut finished := false
+	select {
+		_ := <-done {
+			finished = true
+		}
+		else {
+		}
+	}
+	assert !finished, '副本上的 wait() 等到了原等待组的 done() —— 前提不成立'
+	// 收尾：别把这个协程留到进程退出
+	copy.done()
+}

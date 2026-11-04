@@ -30,8 +30,6 @@ import encoding.base64
 import x.json2
 import crypto.rand as crand
 
-
-
 // ── AES-256-CBC Cipher ──
 
 // AesCipher provides AES-256-CBC encryption with HMAC authentication.
@@ -50,7 +48,7 @@ pub fn new_aes_cipher(key string) !&AesCipher {
 	key_bytes := key.bytes().clone()
 	return &AesCipher{
 		key:    key_bytes
-		cipher: aes.new_cipher(key_bytes.clone())
+		cipher: aes.new_cipher(key_bytes.clone())!
 	}
 }
 
@@ -205,12 +203,13 @@ fn (c &AesCipher) aes_cbc_decrypt(data []u8, iv []u8) []u8 {
 
 // crypto_rand_bytes 返回 n 个密码学安全的随机字节。
 //
-// V 0.5.2 里 `crypto.rand.read(n)` 的签名是 `read(bytes_needed int) ![]u8`
-// —— 传数量、返回 buffer。历史上这里被误改成「填充传入的 buffer」的形态，
-// 于是整个 security 模块编译不过。随机源只留这一处：失败一律 panic，
-// 因为可预测的随机值比没有随机值更危险。
+// V 0.5.2 (93bf4a9) 的 `crypto.rand.read(mut buffer []u8) !` 是「填充传入的
+// buffer」形态，不返回新 slice；按数量返回的入口叫 `crypto.rand.bytes(n)`。
+// 这里固定走 `bytes(n)` —— 它是唯一与 V 版本无关的那个名字，也是
+// 上面注释里「传数量、返回 buffer」那句曾经误记为 `read` 的语义。
+// 随机源只留这一处：失败一律 panic，因为可预测的随机值比没有随机值更危险。
 fn crypto_rand_bytes(n int) []u8 {
-	return crand.read(n) or {
+	return crand.bytes(n) or {
 		panic('crypto/rand failed: cannot generate secure random bytes / crypto/rand 失败：无法生成安全随机字节')
 	}
 }
