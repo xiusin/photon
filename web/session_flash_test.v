@@ -123,7 +123,7 @@ fn test_manager_cookie_carries_same_site_and_domain() {
 	// `Domain=` / `Path=`，并且会剥掉前导点（`.example.com` → `example.com`）。
 	// 这里只断言「域名真的进了序列化结果」，不锁是否保留前导点 ——
 	// 那是上游实现细节，锁死了会在 V 改实现时变成假红。
-	assert raw.contains('domain=example.com')
+	assert raw.contains('Domain=example.com')
 	assert raw.contains('Secure')
 	assert raw.contains('HttpOnly')
 }
