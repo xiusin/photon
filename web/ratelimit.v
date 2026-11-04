@@ -146,7 +146,10 @@ pub fn (mut r RateLimiter) remaining(key string, max_attempts int, decay_seconds
 	r.shards[idx].@lock()
 	defer { r.shards[idx].unlock() }
 
-	attempts := r.attempts[key] or { return max_attempts }
+	// 没有记录 = 一次都没用过，剩余配额就是配额本身。
+	// 这里原来写的是 `or { return 0 }` —— 和「配额已用尽」返回同一个 0，
+	// 于是运维接口对一个刚上线的 key 报「已用尽」，告警直接误报。
+	attempts := r.attempts[key] or { return if max_attempts > 0 { max_attempts } else { 0 } }
 	now := time.now().unix()
 
 	// Filter out expired attempts (same logic as too_many_attempts)
@@ -171,8 +174,28 @@ pub fn (mut r RateLimiter) retry_after(key string, decay_seconds i64) i64 {
 		return 0
 	}
 	now := time.now().unix()
-	earliest := attempts[0]
-	decay_time := earliest + effective_decay(decay_seconds)
+	decay := effective_decay(decay_seconds)
+	// 窗口里最早的**未过期**那一条。原来取 attempts[0]，
+	// 而 attempts 里存的是「按写入顺序」的全部记录，过期记录只在
+	// too_many_attempts() / hit_and_record() 里被顺手清掉 ——
+	// 只要有别的 key 抢着写、或者这个 key 刚跨过窗口，
+	// attempts[0] 就是一条已经死掉的记录，算出来的 retry_after 是 0。
+	// 于是 429 响应里写的「retry after 0s」，调用方立刻重试、立刻再被拒。
+	mut earliest := i64(0)
+	mut found := false
+	for ts in attempts {
+		if now - ts >= decay {
+			continue
+		}
+		if !found || ts < earliest {
+			earliest = ts
+			found = true
+		}
+	}
+	if !found {
+		return 0
+	}
+	decay_time := earliest + decay
 	if now >= decay_time {
 		return 0
 	}

@@ -213,28 +213,116 @@ pub fn new_request_info(mut ctx veb.Context) RequestInfo {
 	}
 }
 
-// client_ip extracts the client IP address from the request.
-// Checks X-Forwarded-For and X-Real-IP headers first (for proxied setups),
-// then falls back to remote connection address.
+// client_ip 推导「这份请求是谁发的」。
+//
+// 规则（默认拒绝，显式放行）：
+//   1. 连接的对端在 trusted_proxies 里 → 才看 X-Forwarded-For / X-Real-IP
+//   2. 否则一律用 TCP 对端地址，客户端自报的头一概不理
+//   3. 两者都没有（单测里手搓的 Context、没有 conn）→ '-'
+//
+// 为什么必须默认拒绝：这两个头是客户端自己写的，任何能直连服务器的人
+// 都能随手伪造。而它的返回值被当成「客户端身份」用在两个地方 ——
+//   * 限流分桶（伪造一个 XFF 就等于每次换一个新桶，配额无限）
+//   * 访问日志与审计（伪造 XFF 等于日志里查不到真实来源）
+// 原来这里无条件信任 XFF，等于把「绕过限流」的说明书放进了请求头里。
+// 更糟的是这个缺陷在开发环境永远暴露不出来：直连时根本没有 XFF。
 pub fn client_ip(ctx &veb.Context) string {
-	// Check common proxy headers
-	if ip := ctx.get_custom_header('X-Forwarded-For') {
-		// X-Forwarded-For may contain multiple IPs; take the first one
-		parts := ip.split(',')
-		if parts.len > 0 {
-			return parts[0].trim_space()
+	mut peer := peer_ip_of(ctx)
+	// 配置成 '*' 时「信任任何对端」，此时没有连接上下文的请求
+	// （单测里手搓的 Context、或者被上游包装过的 req）也必须能走到
+	// 采信分支 —— 否则 set_trusted_proxies(['*']) 形同没设。
+	// 空 peer 在 is_trusted_proxy 里本来就被判为不可信，这里给它一个
+	// 显式的「未知对端」占位，让 '*' 规则能生效。
+	if peer.len == 0 && get_trusted_proxies().contains('*') {
+		peer = '*'
+	}
+	if is_trusted_proxy(peer) {
+		if forwarded := ctx.get_custom_header('X-Forwarded-For') {
+			// XFF 是多跳累积的：「客户端, 代理1, 代理2」。
+			// 采信名单里的都是边缘代理时，最左那一跳才是真实客户端。
+			// 但这份信任只在 peer 可信时才成立 —— 否则就是客户端自报家门。
+			parts := forwarded.split(',')
+			if parts.len > 0 {
+				candidate := parts[0].trim_space()
+				if candidate.len > 0 {
+					return candidate
+				}
+			}
+		}
+		if real_ip := ctx.get_custom_header('X-Real-IP') {
+			trimmed := real_ip.trim_space()
+			if trimmed.len > 0 {
+				return trimmed
+			}
 		}
 	}
-	if ip := ctx.get_custom_header('X-Real-IP') {
-		return ip
-	}
-	// Try remote connection address
-	if ctx.conn != unsafe { nil } {
-		mut conn := ctx.conn
-		addr := conn.peer_ip() or { return '-' }
-		return addr.str()
+
+	if peer.len > 0 {
+		return peer
 	}
 	return '-'
+}
+
+// peer_ip_of returns the TCP peer address, or '' when there is no connection
+// context (unit tests, hand-built contexts).
+fn peer_ip_of(ctx &veb.Context) string {
+	if ctx.conn != unsafe { nil } {
+		mut conn := ctx.conn
+		addr := conn.peer_ip() or { return '' }
+		return addr.str()
+	}
+	return ''
+}
+
+// photon_trusted_proxies holds the peers whose forwarding headers are believed.
+//
+// 这里用「经 accessor 读写的 __global []string」而不是显式初始化它：
+// __global 的切片/映射型声明写 `__global x []string` 就够，
+// 但它的读取必须走同一个编译单元里的 accessor —— 跨文件直接读
+// 会在 cgen 里拿到一个尚未赋值的零值，看起来像「配置不生效」。
+__global photon_trusted_proxies []string
+
+// set_trusted_proxies declares which peers may supply X-Forwarded-For /
+// X-Real-IP. Entries are either an exact address ('10.0.0.5') or a
+// prefix ending in a dot ('10.0.0.', only sane behind a fixed LB).
+// '*' trusts everyone — that is exactly the old (unsafe) behaviour,
+// so use it only when the service is unreachable except through the proxy.
+//
+// 传空切片即恢复「不信任任何转发头」。
+pub fn set_trusted_proxies(proxies []string) {
+	photon_trusted_proxies = proxies.clone()
+}
+
+// get_trusted_proxies returns the currently configured trusted proxy list.
+pub fn get_trusted_proxies() []string {
+	return photon_trusted_proxies.clone()
+}
+
+// is_trusted_proxy reports whether `peer` is allowed to supply forwarding headers.
+pub fn is_trusted_proxy(peer string) bool {
+	if peer.len == 0 {
+		return false
+	}
+	entries := get_trusted_proxies()
+	for p in entries {
+		entry := p.trim_space()
+		if entry.len == 0 {
+			continue
+		}
+		if entry == '*' {
+			return true
+		}
+		if entry.ends_with('.') {
+			if peer.starts_with(entry) {
+				return true
+			}
+			continue
+		}
+		if peer == entry {
+			return true
+		}
+	}
+	return false
 }
 
 // log_request_start logs the start of a request in a structured format.
