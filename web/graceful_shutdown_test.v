@@ -534,16 +534,27 @@ fn test_graceful_shutdown_drains_before_callback() {
 // 上面那条只证明了「现在是好的」。这条复刻 V 0.5.2 里 `mut x := <引用>` 的真实语义
 // ——生成的是结构体副本、副本自带一份计数——用来钉住「为什么这里必须传指针」。
 // 断言：原等待组清零后，副本上的 wait() 仍然不返回。
+struct WgCopyHolder {
+mut:
+	wg sync.WaitGroup
+}
+
 fn test_waitgroup_copy_does_not_share_counter() {
 	mut original := sync.WaitGroup{}
 	original.add(1)
 	mut copy := original
 
+	// 不能用 `spawn fn (mut wg sync.WaitGroup, ...)`：V 不允许 spawn 的实参里
+	// 出现「可变的非引用类型」，整条用例连编译都过不去 —— 于是它长期以来
+	// 既不是红的也不是绿的，只是不存在。
+	// 把副本塞进 @[heap] 结构体、只传指针，同样是「协程持有自己那份计数」，
+	// 语义等价，且能被编译器接受。
+	holder := &WgCopyHolder{ wg: copy }
 	done := chan bool{cap: 1}
-	spawn fn (mut wg sync.WaitGroup, d chan bool) {
-		wg.wait()
+	spawn fn (h &WgCopyHolder, d chan bool) {
+		unsafe { h.wg.wait() }
 		d <- true
-	}(mut copy, done)
+	}(holder, done)
 
 	original.done()
 	time.sleep(100 * time.millisecond)
@@ -558,5 +569,5 @@ fn test_waitgroup_copy_does_not_share_counter() {
 	}
 	assert !finished, '副本上的 wait() 等到了原等待组的 done() —— 前提不成立'
 	// 收尾：别把这个协程留到进程退出
-	copy.done()
+	unsafe { holder.wg.done() }
 }
