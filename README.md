@@ -58,6 +58,12 @@ photon/
 - [V 语言](https://vlang.io) 0.5.2
 - Redis 7+（可选，只在使用 Redis 缓存 / 队列 / 分布式锁时需要）
 
+> **自举 0.5.2 时的一个坑**：`vlang/vc` 仓库的 `v.c` 快照是按上游 master 滚动的，
+> 只有**与 tag 同批**的那一份才能引导 0.5.2。用了之后批次的 `vc` 会在自举阶段
+> 报出上百条 `sum type reference requires ... storage` / `cannot use 0 as &ast.X`
+> —— 那些是类型系统内部形状漂移，不是你的代码问题。直接下载官方预编译包，
+> 或把 `vc` 回到 tag 当时的 commit。
+
 ### 安装
 
 ```bash

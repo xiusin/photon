@@ -154,7 +154,8 @@ hit_rate := cache_manager.<span class="fn">hit_rate</span>()
         <div class="code-block">
           <div class="code-header"><span class="code-lang">bash</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
           <div class="code-body"><span class="cm"># 1. 编译生产版本</span>
-v -prod -o myapp main.v
+<span class="cm">#    -enable-globals 是必需的：框架里 core 的全局 ServiceLocator 依赖它</span>
+v -enable-globals -prod -o myapp main.v
 
 <span class="cm"># 2. 直接运行</span>
 ./myapp
@@ -164,6 +165,27 @@ v -prod -o myapp main.v
 <span class="kw">COPY</span> myapp /app/myapp
 <span class="kw">EXPOSE</span> 8080
 <span class="kw">CMD</span> ["/app/myapp"]</div>
+        </div>
+
+        <h3>自举编译器：只要打包产物，别自编 V</h3>
+        <p><code>vlang/vc</code> 仓库里的 <code>v.c</code> 是按上游 master 滚动的快照。
+          只有<b>与 tag 同批</b>的那一份能引导 0.5.2；用了之后批次的 <code>vc</code>，
+          自举阶段会报出上百条 <code>sum type reference requires ... storage</code> /
+          <code>cannot use 0 as &ast;ast.ScopeObject</code> —— 那些是类型系统内部形状漂移，
+          跟你的代码无关。</p>
+        <div class="code-block">
+          <div class="code-header"><span class="code-lang">bash</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
+          <div class="code-body"><span class="cm"># 推荐：直接拿官方预编译包（CI、Dockerfile 都是这么做的）</span>
+git clone --depth 1 --branch 0.5.2 https://github.com/vlang/v.git
+<span class="kw">cd</span> v &amp;&amp; make &amp;&amp; ./v symlink
+
+<span class="cm"># 用同一版编译器验证：全量测试逐文件跑，编译/运行分开计时</span>
+<span class="kw">cd</span> photon
+sh scripts/sync-vendor.sh
+VFLAGS=<span class="st">"-enable-globals -gc none"</span> sh scripts/run-tests.sh
+
+<span class="cm"># 为什么要 -gc none：官方预编译 gc 库在某些发行版上缺 sigsetjmp 符号，</span>
+<span class="cm"># 链接阶段会报 `undefined reference to sigsetjmp`，那是工具链问题，不是框架问题。</span></div>
         </div>
 
         <h3>优雅关闭</h3>

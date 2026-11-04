@@ -1418,20 +1418,25 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 
 | 模块 | 测试文件数 | 测试框架 |
 |------|-----------|----------|
-| config | 1 | V built-in test |
-| web | 9 | V built-in test + TestResponse 助手 |
-| orm | 8 | V built-in test |
-| security | 9 | V built-in test |
-| cache | 1 | V built-in test |
-| queue | 1 | V built-in test |
-| pool | 1 | V built-in test |
-| locking | 1 | V built-in test |
-| storage | 1 | V built-in test |
-| ticker | 1 | V built-in test |
-| support | 5 | V built-in test |
-| cli | 1 | V built-in test |
-| http | 1 | V built-in test |
-| **合计** | **~40** | |
+| web | 52 | V built-in test + TestResponse 助手 |
+| orm | 32 | V built-in test |
+| core | 30 | V built-in test |
+| security | 17 | V built-in test |
+| cache | 17 | V built-in test |
+| queue | 9 | V built-in test |
+| support | 9 | V built-in test |
+| config | 6 | V built-in test |
+| locking | 6 | V built-in test |
+| ticker | 6 | V built-in test |
+| logger | 5 | V built-in test |
+| pool | 5 | V built-in test |
+| storage | 5 | V built-in test |
+| http | 4 | V built-in test |
+| async | 4 | V built-in test |
+| metrics | 3 | V built-in test |
+| mailer | 3 | V built-in test |
+| apidoc / cli / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
+| **合计** | **225** | |
 
 ### 8.2 测试模式
 
@@ -1450,12 +1455,23 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 # 单个模块
 v -enable-globals test web/
 
-# 全部模块（通过 Makefile）
-make test-all
+# 全部模块：逐文件跑，编译与运行分开计时
+#   PHOTON_BUILD_TIMEOUT  编译预算（默认 180s）
+#   PHOTON_TEST_TIMEOUT   运行预算（默认 30s）
+sh scripts/run-tests.sh
+sh scripts/run-tests.sh web orm        # 只跑指定模块
 
-# CI 矩阵测试（14 个模块并行）
-# 参见 .github/workflows/ci.yml
+# 本机没有可用的 gc 库时（预编译 gc 缺 sigsetjmp 符号）：
+VFLAGS="-enable-globals -gc none" sh scripts/run-tests.sh
 ```
+
+**为什么要逐文件跑。** `v test mod/` 把整个模块的用例编进一个二进制，
+只要里面有 1 个用例死锁，整个模块就挂住，CI 只能等到全局限时才失败 ——
+既拿不到「是谁卡的」，也会把后面的模块一起拖死。
+
+**为什么编译与运行要分开计时。** `v test file_test.v` 是「编译 + 运行」两段，
+web 模块冷编译本身就要 10~15 秒。合成一个 30 秒预算时，慢机器上的编译就会
+吃光预算并被标签成「多半是死锁」，于是有人去查一个并不存在的死锁。
 
 ### 8.4 Web 测试工具
 
