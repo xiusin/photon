@@ -28,18 +28,55 @@ pub mut:
 	property_sources []&PropertySource
 	active_profiles  []string
 mut:
-	source_cache map[string]string
-	cache_valid  bool
+	source_cache    map[string]string
+	cache_valid     bool
+	profile_sources map[string]&PropertySource
 }
 
 // new_environment creates an Environment
 pub fn new_environment() &Environment {
-	return &Environment{}
+	return &Environment{
+		profile_sources: map[string]&PropertySource{}
+	}
 }
 
 // add_source registers a property source
 pub fn (mut e Environment) add_source(source &PropertySource) {
 	e.property_sources << source
+	e.cache_valid = false
+}
+
+// sources 返回已注册的属性源（按注册顺序）。
+//
+// 用 `&PropertySource` 直接遍历调用方的容器时，V 会按接口对象取方法，
+// 容易踩到「拿到的是副本/悬垂槽位」那类问题（orm 的 Specification 已经
+// 中过一次）。统一走这个 accessor，容器只有一份。
+pub fn (e &Environment) sources() []&PropertySource {
+	return e.property_sources
+}
+
+// overlay_sources 返回按优先级从低到高的属性源：注册顺序在前，
+// environment.profiles 展开出的 profile 源在后。
+//
+// 这是「profile 覆盖基础配置」的**唯一**落地点。以前注册顺序就是
+// 优先级顺序，而 set_profiles 只往 active_profiles 里写、从没参与过
+// 覆盖顺序 —— 先注册 application-dev.yml 再注册 application.yml 时，
+// dev 的配置会被基础配置原样盖回去，而两边都"加载成功"。
+pub fn (e &Environment) overlay_sources() []&PropertySource {
+	mut ordered := e.property_sources.clone()
+	for profile in e.active_profiles {
+		profile_source := e.profile_sources[profile] or { continue }
+		ordered << profile_source
+	}
+	return ordered
+}
+
+// register_profile_source 把一个 profile 专属的属性源绑到 profile 名上。
+// 同名重复注册时后注册的覆盖先注册的（同一 profile 只应有一份配置）。
+pub fn (mut e Environment) register_profile_source(profile string, source &PropertySource) {
+	unsafe {
+		e.profile_sources[profile] = source
+	}
 	e.cache_valid = false
 }
 
@@ -50,7 +87,7 @@ pub fn (mut e Environment) add_source(source &PropertySource) {
 fn (mut e Environment) build_cache() {
 	e.source_cache = map[string]string{}
 	// Iterate forward: later sources override earlier (highest priority wins)
-	for mut source in e.property_sources {
+	for mut source in e.overlay_sources() {
 		for key, value in source.get_all_with_prefix('') {
 			e.source_cache[key] = value
 		}
@@ -239,8 +276,9 @@ pub fn (mut e Environment) has_property(key string) bool {
 //   // Returns: { 'app.database.host': 'localhost', 'app.database.port': '5432' }
 pub fn (mut e Environment) get_by_prefix(prefix string) map[string]string {
 	mut result := map[string]string{}
-	// Check sources in forward order so later sources override
-	for mut source in e.property_sources {
+	// Check sources in forward order so later sources override；
+	// profile 源排最后，于是 profile 值覆盖基础配置。
+	for mut source in e.overlay_sources() {
 		for key, value in source.get_all_with_prefix(prefix) {
 			result[key] = value
 		}
