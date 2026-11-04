@@ -136,11 +136,17 @@ pub fn (mut gsm GracefulShutdownManager) shutdown() {
 	// Wait for in-flight requests with timeout. We spawn a goroutine that
 	// waits on the WaitGroup and signals via a channel; the main thread
 	// polls with a deadline (V's select { else {} } is non-blocking).
+	//
+	// ⚠️ 传的是 &WaitGroup，不是 manager。写成 `mut g := wg` 再
+	// `g.in_flight_wg.wait()` 时，V 生成的是**结构体副本**，wait() 等的是副本
+	// 自带的计数（永远是 1）—— 排空阶段等不到，只能靠 timeout 兜底。
+	// 那样每个 in-flight 请求都被记成「超时未完成」，而日志、返回值全都正常，
+	// 只有停机变慢和「请求被半路砍掉」这两件事在线上表现出来。
 	done_ch := chan bool{cap: 1}
-	spawn fn (wg &GracefulShutdownManager, d chan bool) {
+	spawn fn (wg &sync.WaitGroup, d chan bool) {
 		unsafe {
-			mut g := wg
-			g.in_flight_wg.wait()
+			mut w := &sync.WaitGroup(wg)
+			w.wait()
 		}
 		select {
 			d <- true {
@@ -148,7 +154,7 @@ pub fn (mut gsm GracefulShutdownManager) shutdown() {
 			else {
 			}
 		}
-	}(gsm, done_ch)
+	}(&gsm.in_flight_wg, done_ch)
 
 	deadline_ns := time.now().unix_nano() + i64(timeout)
 	for {

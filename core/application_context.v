@@ -392,9 +392,14 @@ pub fn (mut ctx ApplicationContext) resolve(type_name string) !voidptr {
 	//
 	// 冻结后写入是安全的：冻结只禁止「改 BeanDefinition」，不禁止新增实例
 	// 缓存；删改时 invalidate_cache() 会同步清掉条目。
-	ctx.cache_mu.@lock()
-	ctx.resolve_cache[type_name] = instance
-	ctx.cache_mu.unlock()
+	// prototype（含 prototype 工厂产物）不能进缓存：缓存一处、之后处处命中，
+	// 于是「每次 resolve 新建一个」的声明只在第一次生效。这类 bean 的
+	// resolve 成本本来就打算付，跳过缓存才是对的。
+	if !ctx.container.is_prototype_output(type_name) {
+		ctx.cache_mu.@lock()
+		ctx.resolve_cache[type_name] = instance
+		ctx.cache_mu.unlock()
+	}
 
 	return instance
 }
