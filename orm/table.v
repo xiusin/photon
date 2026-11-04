@@ -1052,13 +1052,15 @@ pub fn (tq &TableQuery) exists() !bool {
 	return tq.count()! > 0
 }
 
-// count returns COUNT(*) for the current WHERE, ignoring ORDER BY / LIMIT.
+// count returns「有多少行满足条件」, ignoring ORDER BY / LIMIT.
 //
 //   n := orm.table('users', om).where_eq('status', 'active').count()!
+//
+// 三种情况分别用什么 SQL，见 needs_subquery 的注释 —— 判据是
+// 「直接盖掉投影会不会改变答案」，不是「投影看起来复不复杂」。
 pub fn (tq &TableQuery) count() !i64 {
 	qfn := tq.require_query_fn()!
-	view := tq.count_view()
-	sql_stmt, args := view.build()!
+	sql_stmt, args := tq.count_sql()!
 	db := tq.conn()!
 	rows := qfn(db, sql_stmt, param_values_to_strings(args))!
 	if rows.len == 0 || rows[0].len == 0 {
@@ -1067,9 +1069,40 @@ pub fn (tq &TableQuery) count() !i64 {
 	return rows[0][0].i64()
 }
 
-// count_view derives the COUNT(*) variant of this query: same WHERE, no
-// ORDER BY / LIMIT, projection replaced.  It bypasses the projection validator
-// on purpose — the aggregate is generated here, not user-supplied.
+// count_sql renders the statement count() will run — useful for logs/tests.
+//
+// ⚠️ GROUP BY 必须包进子查询。原来是直接把投影换成 `COUNT(*)`：
+//
+//   .one_column('status').group_by('status').count()   -- 4 个分组
+//   → SELECT COUNT(*) AS cnt FROM users GROUP BY status
+//
+// 这条 SQL 返回 4 行，而 count() 只取第一行 —— 于是「按状态分了几组」
+// 被答成「第一组有多少行」。两个数都是合法整数，只有业务对不上。
+fn (tq &TableQuery) count_sql() !(string, []ParamValue) {
+	// 投影列、GROUP BY、HAVING 三者都会让 COUNT 算出另一个数：
+	//   SELECT DISTINCT status ...          → COUNT(*) 数的是列值，不是行
+	//   ... GROUP BY x                      → 驱动只回第一组
+	//   ... HAVING COUNT(*) > 2             → 外层没有 GROUP BY，SQL 错误
+	// 任何一种都只能靠子查询保住原语义。降级只会多包一层查询，
+	// 永远不会给出一个不同的数。
+	needs_subquery := tq.group_cols.len > 0 || tq.having_parts.len > 0
+		|| (tq.select_cols.len > 0 && tq.select_cols != ['*'])
+	if needs_subquery {
+		inner, inner_args := tq.build_derived()!
+		return 'SELECT COUNT(*) AS cnt FROM (${inner}) AS photon_count', inner_args
+	}
+
+	// 无投影 / 无分组：COUNT(*) 与「行数」同义，不必多包一层。
+	view := tq.count_view()
+	sql_stmt, args := view.build()!
+	return sql_stmt, args
+}
+
+// count_view derives the flat COUNT(*) variant: same WHERE, no ORDER BY /
+// LIMIT, projection replaced.  Only valid当 GROUP BY / HAVING 都为空 ——
+// 调用方（count_sql）负责把关。
+//
+// 它绕过投影校验是有意的：聚合是这里生成的，不是用户传进来的。
 fn (tq &TableQuery) count_view() &TableQuery {
 	mut next := tq.mutable_copy()
 	next.select_cols = ['COUNT(*) AS cnt']
@@ -1077,6 +1110,16 @@ fn (tq &TableQuery) count_view() &TableQuery {
 	next.limit_val = 0
 	next.offset_val = 0
 	return next
+}
+
+// build_derived renders this query as a sub-select: ORDER BY / LIMIT / OFFSET
+// 一律去掉（子查询里的 LIMIT 会改变 COUNT(*) 的语义），其余原样保留。
+fn (tq &TableQuery) build_derived() !(string, []ParamValue) {
+	mut next := tq.mutable_copy()
+	next.order_parts = []string{}
+	next.limit_val = 0
+	next.offset_val = 0
+	return next.build()
 }
 
 // order_by_none drops every ORDER BY clause (used by count()).
