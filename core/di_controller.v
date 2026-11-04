@@ -126,13 +126,20 @@ fn inject_voidptr_field[T](controller &T, field_name string, instance voidptr) {
 		if field.name == field_name {
 			mut ctrl := unsafe { &T(controller) }
 			unsafe {
-				// ⚠️ 必须分两步：V 0.5.x 会把内联写法
-				//   *(&voidptr(&ctrl.$(field.name))) = instance
-				// 里的 &ctrl.$(field.name) 误解成"取字段的字符串值"，
-				// 报 "cannot cast string to &voidptr"。
-				// 先存字段地址到中间变量，再经 &voidptr(addr) 解引用写入。
+				// ⚠️ V 0.5.2 下 `&voidptr(&ctrl.$(field.name))` 一律报
+				//   cannot cast string to `&voidptr`, use `addr.str` instead.
+				// —— 编译器把 comptime 字段的取址当成「取字符串字段的值」。
+				// 必须先经 voidptr 转一次：`voidptr(addr)` 再取址，
+				// 生成的 C 就是 `*(voidptr_t*)&ctrl->field = instance`，
+				// 与手写等价。
+				//
+				// 这个缺陷的症状是「整个 core 编不过」，而且只在
+				// 泛型函数体内的 comptime 字段上出现 ——
+				// `v -check core/` 因为要求 main 模块而看不出，
+				// 直到编 example/verify 才炸出来。
 				addr := &ctrl.$(field.name)
-				*(&voidptr(addr)) = instance
+				slot := &voidptr(voidptr(addr))
+				*slot = instance
 			}
 		}
 	}
