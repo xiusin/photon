@@ -1,0 +1,43 @@
+diff --git a/vlib/v/checker/fn.v b/vlib/v/checker/fn.v
+index 9404040..7d9fc97 100644
+--- a/vlib/v/checker/fn.v
++++ b/vlib/v/checker/fn.v
+@@ -916,7 +916,12 @@ fn (mut c Checker) fn_decl(mut node ast.FnDecl) {
+ 	c.refresh_generic_fn_scope_vars(node)
+ 	// Register implicit context var
+ 	typ_veb_result := c.table.get_veb_result_type_idx() // c.table.find_type('veb.Result')
+-	if node.is_method && node.return_type == typ_veb_result {
++	// 只在「模块里真的定义了 veb.Result」时才把 veb 方法当 app 方法检查。
++	// find_type 找不到会返回负值，而负值与「方法返回类型」比较时两个负值
++	// 会相等 —— 于是在没 import veb 的模块里，所有返回未知/负类型索引的
++	// 方法都被误判成 veb app 方法，触发下面的参数类型检查。
++	if node.is_method && typ_veb_result > 0 && node.return_type == typ_veb_result
++		&& !has_route_attr(node.attrs) {
+ 		is_veb_app_method := !c.has_veb_context(node.receiver.typ)
+ 		for param in node.params[1..] {
+ 			if is_veb_app_method && c.has_veb_context(param.typ) && !param.is_mut {
+@@ -5618,6 +5623,24 @@ fn (mut c Checker) check_must_use_call_result(node &ast.CallExpr, f &ast.Fn, lab
+ 	}
+ }
+ 
++// has_route_attr 判断方法是否带框架自定义的路由属性。
++//
++// veb 的自动参数填充只服务于它自己的路由注册；而 Photon 这类框架是在
++// comptime 里用 $for 直接派发控制器方法的，`(mut ctx, params map[string]string)`
++// 是框架自己的约定，跟 veb 的「参数从 URL 段填充」无关。凡是显式带
++// @[get]/@[post]/@[put]/@[delete]/@[patch]/@[route] 的方法都由此类框架接管，
++// 不该被 veb 的参数类型检查拦下 —— 否则「带路径参数的控制器方法」在
++// 0.5.2 下整体不可编译，而它恰恰是框架的核心用法。
++fn has_route_attr(attrs []ast.Attr) bool {
++	for attr in attrs {
++		name := attr.name.trim_space().to_lower()
++		if name in ['get', 'post', 'put', 'delete', 'patch', 'head', 'options', 'route'] {
++			return true
++		}
++	}
++	return false
++}
++
+ fn (mut c Checker) has_veb_context(typ ast.Type) bool {
+ 	sym := c.table.final_sym(typ)
+ 	if sym.name == 'veb.Context' {

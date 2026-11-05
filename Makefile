@@ -83,7 +83,8 @@ run:
 test:
 	$(V) $(VFLAGS) test $(ORM_TESTS)
 
-## verify — 运行框架功能验证套件 (DI/注解/各模块用法, 130+ 断言)
+## verify — 运行框架功能验证套件 (DI/注解/各模块用法, 247 项断言)
+## 需要编译器补丁：sh scripts/apply-v-patches.sh（原因见 scripts/v-patches/README.md）
 verify:
 	$(V) $(VFLAGS) run $(ROOT_PREFIX)example/verify
 

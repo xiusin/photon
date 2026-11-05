@@ -1418,7 +1418,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 
 | 模块 | 测试文件数 | 测试框架 |
 |------|-----------|----------|
-| web | 52 | V built-in test + TestResponse 助手 |
+| web | 53 | V built-in test + TestResponse 助手 |
 | orm | 32 | V built-in test |
 | core | 30 | V built-in test |
 | security | 17 | V built-in test |
@@ -1436,7 +1436,8 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | metrics | 3 | V built-in test |
 | mailer | 3 | V built-in test |
 | apidoc / cli / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
-| **合计** | **225** | |
+| core/tests | 2 | V built-in test（黑盒集成） |
+| **合计** | **228** | |
 
 ### 8.2 测试模式
 
@@ -1472,6 +1473,36 @@ VFLAGS="-enable-globals -gc none" sh scripts/run-tests.sh
 **为什么编译与运行要分开计时。** `v test file_test.v` 是「编译 + 运行」两段，
 web 模块冷编译本身就要 10~15 秒。合成一个 30 秒预算时，慢机器上的编译就会
 吃光预算并被标签成「多半是死锁」，于是有人去查一个并不存在的死锁。
+
+### 8.4 功能验证套件（example/verify）
+
+`example/verify/` 是一个独立的自验证程序（`module main`，与 `example/` 的
+Web 应用分开），用断言逐项验证 DI、注解、控制器挂载、ORM 链式查询、安全、
+缓存等模块的**真实用法**——不只是「能编译」。当前 **247 项断言**。
+
+```bash
+make verify                                  # v run example/verify
+sh scripts/apply-v-patches.sh                # 先打编译器补丁（见下）
+```
+
+**它需要一份编译器补丁，这不是可选项。** 验证套件跑的是框架的核心约定：
+
+```v
+@[get: '/users/:id']
+pub fn (mut c Ctrl) show(mut ctx veb.Context, params map[string]string) veb.Result
+```
+
+而 V 0.5.2 的 `checker.fn_decl()` 把**任何**返回 `veb.Result` 的方法都当成
+veb app 方法，只放行 `string / 整数 / bool`。于是这 7 个方法整包编不过。
+
+这条约束没法在框架里绕开——把参数改成 `string` 就等于放弃路径参数，
+那不是「绕开检查」，是把框架能力砍掉。所以补丁放在编译器一侧：
+`scripts/v-patches/0001-*.patch`，用 `scripts/apply-v-patches.sh` 应用。
+补丁只在方法带路由属性时跳过该检查，veb 自身的约束不变。
+
+**这条套件长期没人跑，所以它坏了很久没人知道**——`locate_controller[T]` 曾经
+只存在于文档里、原型作用域的 bean 曾被缓存成单例、`run_with_graceful_shutdown()`
+曾经整块编不过。三个都是它第一次跑起来时才暴露的。
 
 ### 8.4 Web 测试工具
 

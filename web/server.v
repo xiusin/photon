@@ -97,41 +97,61 @@ pub fn new_graceful_server_config(port int) GracefulServerConfig {
 //   pub fn (mut app App) after_request() {
 //       gsm.request_completed()
 //   }
-pub fn run_with_graceful_shutdown[A, X](port int, on_shutdown fn ()) &GracefulShutdownManager {
-	mut gsm := new_graceful_shutdown_manager()
-	gsm.set_on_shutdown(on_shutdown)
-	gsm.start_signal_listener()
+// GracefulServerHolder 持有优雅停机期间需要跨协程共享的状态。
+//
+// 它存在有两个具体原因，都不是风格问题：
+//   1. 泛型函数体里不能写 `&Holder[A]{}`（0.5.2：`generic struct init type
+//      parameter A must be within the parameters () of the current generic function`），
+//      所以 holder 只能是非泛型，app 用类型擦除的指针带过去；
+//   2. 闭包捕获 `mut <指针>` 之后拿到的是捕获上下文里的副本。优雅停机靠的
+//      正是「一个协程的 shutdown() 能被另一个协程看见」，副本化等于功能全废。
+//      收成一个 holder 指针后，所有可变状态都长在指针背后。
+@[heap]
+struct GracefulServerHolder {
+mut:
+	app voidptr                  = unsafe { nil }
+	gsm &GracefulShutdownManager = unsafe { nil }
+}
 
+fn new_graceful_server_holder() &GracefulServerHolder {
+	return &GracefulServerHolder{
+		gsm: new_graceful_shutdown_manager()
+	}
+}
+
+pub fn run_with_graceful_shutdown[A, X](port int, on_shutdown fn ()) &GracefulShutdownManager {
+	// 只捕获一个 holder 指针，所有跨协程共享的状态都长在它身上（原因见结构体注释）。
 	mut app := &A{}
+	mut holder := new_graceful_server_holder()
+	holder.app = voidptr(app)
+	holder.gsm.set_on_shutdown(on_shutdown)
+	holder.gsm.start_signal_listener()
+
 	routes := scan_controller[A]()
 	println('')
 	println('  Photon Web Server starting on port ${port}... (graceful shutdown enabled)')
 	print_routes(routes)
-	println('  Shutdown timeout: ${gsm.timeout}')
+	println('  Shutdown timeout: ${holder.gsm.timeout}')
 	println('  Send SIGTERM/SIGINT to initiate graceful shutdown.')
 
-	// Run the veb server in a background goroutine. The main goroutine
-	// blocks on gsm.wait() until a signal is received.
-	spawn fn [mut gsm, mut app] () {
-		veb.run_at[A, X](mut app, host: '0.0.0.0', port: port, family: .ip) or {
-			eprintln('[web] veb server error: ${err}')
-			// If the server fails to start, trigger shutdown so the main
-			// goroutine doesn't block forever.
-			gsm.shutdown()
-		}
-	}(mut gsm, mut app)
+	// veb 必须在主线程跑（fasthttp 的事件循环不接受跨线程搬迁），
+	// 于是反过来：主线程跑服务，单独开一个协程等停机信号。
+	// 信号一到就 shutdown()：拒绝新请求 → 排空 in-flight → 回调。
+	spawn fn [mut holder] () {
+		holder.gsm.wait()
+		holder.gsm.shutdown()
+	}()
 
-	// Block until shutdown() is called (by the signal listener or by
-	// request_started() rejection logic). shutdown() drains in-flight
-	// requests and calls the on_shutdown callback.
-	gsm.wait()
+	// 服务端自身出错时也要触发停机，否则上面的协程会永远等下去。
+	veb.run_at[A, X](mut app, host: '0.0.0.0', port: port, family: .ip) or {
+		eprintln('[web] veb server error: ${err}')
+		holder.gsm.shutdown()
+	}
 
-	// Give the veb server a moment to stop accepting new connections.
-	// In production, the on_shutdown callback should call veb.Server.shutdown()
-	// if the app implements HasInitServer.
+	// 给正在收尾的请求一点时间（on_shutdown 里通常已经 veb.Server.shutdown()）。
 	time.sleep(100 * time.millisecond)
 
-	return gsm
+	return holder.gsm
 }
 
 // handle_request_with_gsm wraps a request handler with graceful-shutdown

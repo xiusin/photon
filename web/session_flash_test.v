@@ -11,7 +11,6 @@ module web
 //   4. SessionManager 的 same_site / cookie_domain 必须真的写进响应 Cookie
 //
 // session_flash_test.v locks the flash lifecycle and cookie attributes.
-
 import net.http
 import veb
 import time
@@ -119,11 +118,13 @@ fn test_manager_cookie_carries_same_site_and_domain() {
 	// 属性真的要出现在序列化结果里，否则等于没配
 	raw := c.str()
 	assert raw.contains('SameSite=Strict')
-	// 序列化结果由 V 的 net.http.Cookie.str() 生成：属性名是首字母大写的
-	// `Domain=` / `Path=`，并且会剥掉前导点（`.example.com` → `example.com`）。
-	// 这里只断言「域名真的进了序列化结果」，不锁是否保留前导点 ——
-	// 那是上游实现细节，锁死了会在 V 改实现时变成假红。
-	assert raw.contains('Domain=example.com')
+	// 序列化结果由 V 的 net.http.Cookie.str() 生成，它有两个上游行为：
+	//   1. 属性名小写：`; domain=` / `; path=`，不是 `Domain=` / `Path=`
+	//   2. 会剥掉前导点：`.example.com` → `example.com`
+	// 这里断言「域名真的进了序列化结果」，但**不锁大小写、不锁前导点** ——
+	// 这两条都是上游实现细节，锁死了 V 一改实现就会变成假红，而真正的
+	// 缺陷（域名压根没序列化出去）它反而测不出来。所以按小写之后的形式匹配。
+	assert raw.to_lower().contains('domain=example.com')
 	assert raw.contains('Secure')
 	assert raw.contains('HttpOnly')
 }

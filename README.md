@@ -62,7 +62,30 @@ photon/
 > 只有**与 tag 同批**的那一份才能引导 0.5.2。用了之后批次的 `vc` 会在自举阶段
 > 报出上百条 `sum type reference requires ... storage` / `cannot use 0 as &ast.X`
 > —— 那些是类型系统内部形状漂移，不是你的代码问题。直接下载官方预编译包，
-> 或把 `vc` 回到 tag 当时的 commit。
+> 或把 `vc` 回到 tag 当时的 commit（0.5.2 / `7647ce1` 对应 `vlang/vc` 的 `7eb8c54a`）。
+
+> **两个环境前置**（都是机器的事，与框架无关）：
+> 1. `thirdparty/tcc` 里的预编译 `tcc` 需要 GLIBC 2.38，较新的发行版之外直接删掉
+>    这个目录，V 会回退到系统 `cc`；
+> 2. 自举阶段的 `libgc.a` 在部分 glibc 上缺 `sigsetjmp`，自举时加 `-gc none`
+>    （`make local=1 VFLAGS="-gc none"`）。
+
+> **`example/verify` 需要一份编译器补丁**。它验证的正是框架的核心约定——
+> 控制器方法收 `(mut ctx veb.Context, params map[string]string)`——而 V 0.5.2 的
+> checker 会把「任何返回 `veb.Result` 的方法」当成 veb 自己的 app 方法，
+> 只放行 `string / 整数 / bool`。在未打补丁的编译器上，`example/verify` 的
+> 7 个控制器方法整包编不过。补丁在 `scripts/v-patches/`，一键应用：
+>
+> ```bash
+> sh scripts/apply-v-patches.sh            # 自动定位 $VROOT
+> VROOT=/path/to/v sh scripts/apply-v-patches.sh
+> ```
+>
+> 补丁只做一件事：方法带 `@[get]/@[post]/@[put]/@[delete]/@[patch]/@[head]/
+> @[options]/@[route]` 时跳过该检查 —— 这些属性的路由由框架 comptime 派发，
+> 与 veb 的「参数从 URL 段填充」无关。veb 自己的路由方法不带这些属性，
+> 约束对 veb 本身依然生效。理由与最小复现见
+> [scripts/v-patches/README.md](scripts/v-patches/README.md)。
 
 ### 安装
 
@@ -75,11 +98,14 @@ cd photon
 sh scripts/sync-vendor.sh    # 或 make vendor
 
 # 运行测试
-make test-all                # 全部 23 个模块
+make test-all                # 全部 23 个模块（逐文件跑，每条命令 30s 熔断）
 make test-vendor             # vendored vredis（需要本机 Redis）
 
 # 构建示例应用
 v -enable-globals -prod -o bin/photon example/
+
+# 跑功能验证套件（247 项断言，需要上面那份编译器补丁）
+make verify
 ```
 
 ### 依赖策略：唯一第三方代码 vendor 在仓库内

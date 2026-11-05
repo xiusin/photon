@@ -48,7 +48,7 @@ pub fn new_aes_cipher(key string) !&AesCipher {
 	key_bytes := key.bytes().clone()
 	return &AesCipher{
 		key:    key_bytes
-		cipher: aes.new_cipher(key_bytes.clone())!
+		cipher: aes.new_cipher(key_bytes.clone())
 	}
 }
 

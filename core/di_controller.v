@@ -138,8 +138,7 @@ fn inject_voidptr_field[T](controller &T, field_name string, instance voidptr) {
 				// `v -check core/` 因为要求 main 模块而看不出，
 				// 直到编 example/verify 才炸出来。
 				addr := &ctrl.$(field.name)
-				slot := &voidptr(voidptr(addr))
-				*slot = instance
+				*(&voidptr(voidptr(addr))) = instance
 			}
 		}
 	}
