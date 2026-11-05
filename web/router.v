@@ -26,22 +26,26 @@ pub:
 // Returns RouteInfo for display/debugging (does NOT register routes).
 pub fn scan_controller[T]() []RouteInfo {
 	mut routes := []RouteInfo{}
+	// 控制器前缀（@[prefix: '/api/v1']）。mount_controller 挂载时会拼上它，
+	// 这里不拼就会让「启动横幅 / actuator /mappings 显示的路径」和
+	// 「真正能被访问到的路径」差一段前缀 —— 排查 404 时最误导人的那种差。
+	prefix := extract_controller_prefix[T]()
 
 	$for method in T.methods {
+		// 三种写法都要认：
+		//   分离式  @[get]  @['/users']  → attrs = ['get', '/users']
+		//   合并式  @[get: '/users']     → attrs = ["get: '/users'"]
+		//   元组式  @['/users'; get]     → attrs = ['/users', 'get']
+		// 早先只认前两种，合并式被整条漏掉：mount_controller 明明用的是
+		// 同一套 parse_route_attrs（它认三种），于是出现「路由能挂上、
+		// 启动横幅和 actuator /mappings 里却一条都没有」的错位。
 		mut found_route := false
 		mut http_method := ''
 		mut path := ''
-
-		// Check for HTTP method attributes (annotation-based)
-		for attr in method.attrs {
-			if attr == 'get' || attr == 'post' || attr == 'put' || attr == 'delete'
-				|| attr == 'patch' {
-				http_method = attr.to_upper()
-				found_route = true
-			}
-			if attr.starts_with('/') {
-				path = attr
-			}
+		if route_attr := parse_route_attrs(method.name, method.attrs) {
+			found_route = true
+			http_method = route_attr.method
+			path = route_attr.path
 		}
 
 		// Convention-based: methods returning veb.Result are routes
@@ -56,12 +60,19 @@ pub fn scan_controller[T]() []RouteInfo {
 			name := method.name
 			// Skip lifecycle hooks
 			if name != 'before_request' && name != 'after_request' {
+				// 默认路径：index → /，其余 → /方法名。
+				// 两种来路都会走到这里：显式写了 @[get] 但没写路径，以及
+				// 完全靠约定（返回 veb.Result 即路由）判出来的方法 ——
+				// 后者的 path 从来没人填过，不补就会漏成空串。
 				if path.len == 0 {
 					if name == 'index' {
 						path = '/'
 					} else {
 						path = '/${name}'
 					}
+				}
+				if prefix.len > 0 && !path.starts_with(prefix) {
+					path = prefix + path
 				}
 				mut middlewares := []string{}
 				mut collecting := false

@@ -32,21 +32,110 @@ import time
 //   }
 //   web.run[App, Context](8080)
 pub fn run[A, X](port int) {
-	mut app := &A{}
-	veb.run_at[A, X](mut app, host: '0.0.0.0', port: port, family: .ip) or { panic(err) }
+	run_by[A, X](new_server_run_params(port), veb_starter[A, X]()) or { panic(err) }
 }
 
-// run_with_routes starts the Photon web server and prints all registered routes.
+// ═══════════════════════════════════════════════════════════
+// 可注入启动参数 —— 让 run 系列函数能被测试
+// ═══════════════════════════════════════════════════════════
+//
+// `run[A, X](port)` 与 `run_with_routes[A, X](port)` 长期没有用例，原因很
+// 具体：端口、监听地址、启动横幅全写死在函数体里，一调用就独占端口且永不
+// 返回。于是「这两个入口到底对不对」从来没人验证过 —— 和
+// `run_with_graceful_shutdown`（编译不过所以没人调用）是同一个形状。
+//
+// 这里把「怎么起」抽成 ServerRunParams，把「起」抽成一个可注入的启动器，
+// 测试就能验参数、验路由扫描、验错误上抛，不必真的监听端口。
+
+// ServerRunParams 描述一次服务启动。
+pub struct ServerRunParams {
+pub:
+	// host 为空时交给 veb 决定
+	host        string = '0.0.0.0'
+	port        int    = 8080
+	show_routes bool // 启动前打印编译期扫出的控制器路由表
+}
+
+// new_server_run_params 创建默认参数：监听 0.0.0.0，不打路由表。
+pub fn new_server_run_params(port int) ServerRunParams {
+	return ServerRunParams{
+		port: port
+	}
+}
+
+// with_host 返回改了监听地址的副本（配置要跨协程传递时不该被就地改）。
+pub fn (p ServerRunParams) with_host(host string) ServerRunParams {
+	return ServerRunParams{
+		host:        host
+		port:        p.port
+		show_routes: p.show_routes
+	}
+}
+
+// with_routes 返回「启动前打印路由表」的副本。
+pub fn (p ServerRunParams) with_routes(show bool) ServerRunParams {
+	return ServerRunParams{
+		host:        p.host
+		port:        p.port
+		show_routes: show
+	}
+}
+
+// min_port / max_port 是合法端口区间。
+const min_port = 1
+const max_port = 65535
+
+// validate 检查端口是否可监听。
+//
+// veb 自己也会校验，但那是在打印完启动横幅之后 —— 端口填错时先看到
+// 「starting on port 70000」再看到错误，日志顺序会误导人。
+pub fn (p ServerRunParams) validate() ! {
+	if p.port < min_port || p.port > max_port {
+		return error('invalid port ${p.port}: must be between ${min_port} and ${max_port}')
+	}
+}
+
+// ServerStarter 是「真正去监听」的那一步。
+//
+// 返回 !string 而不是 !void：V 里 `!void` 无法把 error 干净地上抛给
+// 调用方（`fn () !` 的 `or` 块只能给 void 值），而这里必须能把
+// 「端口被占」原样传回 run_by 的调用者。成功时返回一句启动说明。
+pub type ServerStarter = fn (voidptr, ServerRunParams) !string
+
+// run_by 用注入的启动器跑服务，是本文件 run 系列的公共实现。
+//
+// 真实启动用 veb_starter[A, X]()；测试传自己的假启动器，就能在不占端口的
+// 前提下检查参数与路由扫描。
+pub fn run_by[A, X](params ServerRunParams, starter ServerStarter) !string {
+	params.validate()!
+	mut app := &A{}
+	if params.show_routes {
+		println('')
+		println('  Photon Web Server starting on ${params.host}:${params.port}...')
+		// scan_controller 是编译期扫描，不依赖 app 实例，所以先打表再监听。
+		print_routes(scan_controller[A]())
+	}
+	return starter(voidptr(app), params)
+}
+
+// veb_starter 返回真实启动器：把 app 指针还原成 &A 后交给 veb.run_at。
+//
+// 泛型不能当值传递，所以「还原 &A」只能在泛型函数体里做 —— 这是它必须
+// 存在的原因，不是多余的包装。
+pub fn veb_starter[A, X]() ServerStarter {
+	return fn [A, X](app_ptr voidptr, params ServerRunParams) !string {
+		mut app := unsafe { &A(app_ptr) }
+		veb.run_at[A, X](mut app, host: params.host, port: params.port, family: .ip)!
+		return 'stopped'
+	}
+}
+
+// run_with_params 是 run 的可配置版本：接受 ServerRunParams，返回启动错误。
 //
 // Usage:
-//   web.run_with_routes[MyApp, MyContext](8080)
-pub fn run_with_routes[A, X](port int) {
-	mut app := &A{}
-	routes := scan_controller[A]()
-	println('')
-	println('  Photon Web Server starting on port ${port}...')
-	print_routes(routes)
-	veb.run_at[A, X](mut app, host: '0.0.0.0', port: port, family: .ip) or { panic(err) }
+//   web.run_with_params[App, Context](web.new_server_run_params(8080))!
+pub fn run_with_params[A, X](params ServerRunParams) ! {
+	run_by[A, X](params, veb_starter[A, X]())!
 }
 
 // ── Graceful Shutdown Integration (Task D4) ──

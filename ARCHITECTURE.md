@@ -1418,7 +1418,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 
 | 模块 | 测试文件数 | 测试框架 |
 |------|-----------|----------|
-| web | 53 | V built-in test + TestResponse 助手 |
+| web | 54 | V built-in test + TestResponse 助手 |
 | orm | 32 | V built-in test |
 | core | 30 | V built-in test |
 | security | 17 | V built-in test |
@@ -1437,7 +1437,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | mailer | 3 | V built-in test |
 | apidoc / cli / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **228** | |
+| **合计** | **229** | |
 
 ### 8.2 测试模式
 
@@ -1503,6 +1503,45 @@ veb app 方法，只放行 `string / 整数 / bool`。于是这 7 个方法整�
 **这条套件长期没人跑，所以它坏了很久没人知道**——`locate_controller[T]` 曾经
 只存在于文档里、原型作用域的 bean 曾被缓存成单例、`run_with_graceful_shutdown()`
 曾经整块编不过。三个都是它第一次跑起来时才暴露的。
+
+### 8.5 启动入口的可测试性（web/server.v）
+
+`web.run[A, X](port)`、`web.run_with_routes[A, X](port)` 曾经没有任何用例，
+原因不是没人想写，而是**写不出来**：端口、监听地址、启动横幅全写死在函数体
+里，一调用就独占端口且永不返回。于是它们和当年的 `run_with_graceful_shutdown`
+一样，处在「没人调用 → 没有用例 → 每次全绿都跟它无关」的循环里。
+
+现在把「怎么起」和「真的去起」拆开：
+
+```v
+// 参数与校验：端口非法时不会去碰监听
+params := web.new_server_run_params(8080).with_host('127.0.0.1').with_routes(true)
+params.validate()!
+
+// run_by 收一个可注入的启动器；测试传假的，生产传 veb_starter
+web.run_by[App, Context](params, web.veb_starter[App, Context]())!
+
+// 生产入口不变
+web.run[App, Context](8080)
+web.run_with_routes[App, Context](8080)
+web.run_with_params[App, Context](params)!
+```
+
+`ServerStarter` 的返回类型是 `!string` 而不是 `!void`：V 里 `!void` 的 `or`
+块只能拿到 void，错误无法干净地上抛给 `run_by` 的调用方，而「端口被占要
+原样传回」正是这里必须验的事。
+
+`web/server_run_params_test.v` 的 12 条用例覆盖：默认值、`with_*` 的不可变
+语义、端口边界、参数透传、**校验先于启动**、启动错误上抛、路由表扫描。
+
+**顺带修掉的两个展示层缺陷**（写这组用例时才暴露）：
+
+1. `scan_controller` 只认「分离式」`@[get]` + `@['/x']`，把「合并式」
+   `@[get: '/x']` 整条漏掉。而 `mount_controller` 走的是
+   `parse_route_attrs`，它认三种写法 —— 于是出现「路由能访问，
+   启动横幅和 actuator `/mappings` 里却一条都没有」的错位。
+2. `scan_controller` 不拼控制器前缀 `@[prefix: '/api/v1']`，展示的路径比
+   真实可访问路径短一段。
 
 ### 8.4 Web 测试工具
 
@@ -1618,7 +1657,7 @@ docker   — Docker 镜像构建
 | web/result.v | 144 | Result + PageResult + 全部 HTTP 状态码 |
 | web/testing.v | 602 | TestResponse 链式断言（含 JSON 路径断言） |
 | web/bind.v | 151 | DTO 绑定 + @[required] 校验 |
-| web/server.v | 104 | web.run[T] 包装器 |
+| web/server.v | 200 | web.run[T] 包装器 + 可注入启动参数 |
 | web/filter.v | 111 | FilterChain + CORS / Content-Type 过滤器 |
 | web/middleware_groups.v | 157 | 中间件组 + 参数化 CORS/Throttle |
 | web/pipeline.v | 52 | 洋葱模型管道 |
