@@ -15,7 +15,7 @@ pub interface Command {
 	name() string
 	description() string
 	signature() string
-	execute(input &CommandInput, output &CommandOutput) !
+	execute(input &CommandInput, mut output &CommandOutput) !
 }
 
 // BaseCommand provides default implementations for common command patterns
@@ -202,7 +202,7 @@ pub fn new_annotated_command(info CommandInfo) &AnnotatedCommand {
 
 // execute runs the annotated command; by default prints its help
 // execute 执行注解命令；默认打印其帮助信息
-pub fn (c &AnnotatedCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &AnnotatedCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	help := c.info.to_command_help()
 	output.writeln(help.to_help_text())
 }

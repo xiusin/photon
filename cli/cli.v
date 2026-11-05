@@ -51,7 +51,7 @@ pub const attr_default  = 'default'
 // CommandInfo holds metadata extracted from a command struct via comptime
 // CommandInfo 保存通过编译期从命令 struct 提取的元数据
 pub struct CommandInfo {
-pub:
+pub mut:
 	name        string
 	description string
 	options     []ParamInfo
@@ -61,13 +61,16 @@ pub:
 // ParamInfo holds metadata for a single command parameter (option or argument)
 // ParamInfo 保存单个命令参数（选项或位置参数）的元数据
 pub struct ParamInfo {
-pub:
+pub mut:
 	field_name  string
 	param_name  string
 	description string
 	is_required bool
 	default_val string
 	is_option   bool // true=option, false=argument / true=选项, false=位置参数
+	// is_bool 为 true 表示这个选项在命令行上不带值（`--verbose`）。
+	// 解析 argv 时靠它区分「吞下一个 token」还是「就地置真」。
+	is_bool bool
 }
 
 // scan_command[T]() scans a struct type T annotated with @[command] and extracts
@@ -78,70 +81,57 @@ pub:
 // 提取其元数据，返回包含名称、描述、选项和位置参数的 CommandInfo。
 pub fn scan_command[T]() CommandInfo {
 	mut info := CommandInfo{}
+
+	// struct 级属性走 `T.attributes`（[]VAttribute），字段级走 `field.attrs`
+	// （[]string）—— 两种形态不同，见 cli/attrs.v 顶部的说明。
 	mut cmd_name := ''
 	mut cmd_desc := ''
-
-	// Scan struct-level attributes / 扫描 struct 级别的属性
 	$for attr in T.attributes {
 		if attr.name == attr_command {
-			// @[command: 'name'] — extract the custom name / 提取自定义名称
-			if attr.args.len > 0 {
-				cmd_name = attr.args[0].replace("'", '')
-			}
+			cmd_name = attr.arg
 		}
 		if attr.name == attr_description {
-			// @[description('help text')] — extract description / 提取描述
-			if attr.args.len > 0 {
-				cmd_desc = attr.args[0].replace("'", '')
-			}
+			cmd_desc = attr.arg
 		}
 	}
 
-	// Fall back to struct name if no custom name / 无自定义名称时回退到 struct 名称
+	// 无自定义名称时回退到 struct 名称。
+	// `T.name` 带模块前缀（`cli.PlainCmd`），拿去当命令名就成了
+	// `app cli.PlainCmd --help`，剥掉前缀才是用户会敲的那个词。
 	if cmd_name.len == 0 {
-		cmd_name = T.name
+		cmd_name = T.name.all_after_last('.')
 	}
-
 	info.name = cmd_name
 	info.description = cmd_desc
 
-	// Scan field-level attributes / 扫描字段级别的属性
 	$for field in T.fields {
-		mut param := ParamInfo{
-			field_name: field.name
-		}
+		is_option := has_attr(field.attrs, attr_option)
+		is_argument := has_attr(field.attrs, attr_argument)
 
-		for attr in field.attrs {
-			if attr.name == attr_option {
-				// @[option('name')] or @[option: 'name'] / 选项注解
-				param.is_option = true
-				if attr.args.len > 0 {
-					param.param_name = attr.args[0].replace("'", '')
-				} else {
-					param.param_name = field.name
-				}
-			} else if attr.name == attr_argument {
-				// @[argument] — positional argument / 位置参数
-				param.is_option = false
-				param.param_name = field.name
-			} else if attr.name == attr_required {
-				// @[required] — mark as required / 标记为必填
-				param.is_required = true
-			} else if attr.name == attr_default {
-				// @[default('value')] — default value / 默认值
-				if attr.args.len > 0 {
-					param.default_val = attr.args[0].replace("'", '')
-				}
-			} else if attr.name == attr_description {
-				// @[description('text')] on a field / 字段上的描述注解
-				if attr.args.len > 0 {
-					param.description = attr.args[0].replace("'", '')
+		if is_option || is_argument {
+			mut param_name := field.name
+			if is_option {
+				// `@[option('env')]` 给了名字就用它，否则回退到字段名
+				declared := attr_value(field.attrs, attr_option)
+				if declared.len > 0 {
+					param_name = declared
 				}
 			}
-		}
-
-		if param.param_name.len > 0 {
-			if param.is_option {
+			// 字段类型在编译期可判，布尔选项在 argv 上不带值
+			mut is_bool := false
+			$if field.typ is bool {
+				is_bool = true
+			}
+			param := ParamInfo{
+				field_name:  field.name
+				param_name:  param_name
+				description: attr_value(field.attrs, attr_description)
+				is_required: has_attr(field.attrs, attr_required)
+				default_val: attr_value(field.attrs, attr_default)
+				is_option:   is_option
+				is_bool:     is_bool
+			}
+			if is_option {
 				info.options << param
 			} else {
 				info.arguments << param

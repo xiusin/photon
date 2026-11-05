@@ -28,14 +28,14 @@ pub fn new_make_command_command() &MakeCommandCommand {
 	}
 }
 
-pub fn (c &MakeCommandCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &MakeCommandCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	name := input.get_arg(0)
 	if name.len == 0 {
 		return error('command name is required. Usage: make:command <Name>')
 	}
 
 	stub := generate_command_stub(name)
-	write_stub(name, 'commands', stub, output)!
+	write_stub(name, 'commands', stub, mut output)!
 	return
 }
 
@@ -54,7 +54,7 @@ pub fn new_make_controller_command() &MakeControllerCommand {
 	}
 }
 
-pub fn (c &MakeControllerCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &MakeControllerCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	name := input.get_arg(0)
 	if name.len == 0 {
 		return error('controller name is required. Usage: make:controller <Name>')
@@ -62,7 +62,7 @@ pub fn (c &MakeControllerCommand) execute(input &CommandInput, output &CommandOu
 
 	is_resource := input.has_flag('resource')
 	stub := generate_controller_stub(name, is_resource)
-	write_stub(name, 'controllers', stub, output)!
+	write_stub(name, 'controllers', stub, mut output)!
 	return
 }
 
@@ -81,14 +81,14 @@ pub fn new_make_middleware_command() &MakeMiddlewareCommand {
 	}
 }
 
-pub fn (c &MakeMiddlewareCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &MakeMiddlewareCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	name := input.get_arg(0)
 	if name.len == 0 {
 		return error('middleware name is required. Usage: make:middleware <Name>')
 	}
 
 	stub := generate_middleware_stub(name)
-	write_stub(name, 'middleware', stub, output)!
+	write_stub(name, 'middleware', stub, mut output)!
 	return
 }
 
@@ -107,14 +107,14 @@ pub fn new_make_provider_command() &MakeProviderCommand {
 	}
 }
 
-pub fn (c &MakeProviderCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &MakeProviderCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	name := input.get_arg(0)
 	if name.len == 0 {
 		return error('provider name is required. Usage: make:provider <Name>')
 	}
 
 	stub := generate_provider_stub(name)
-	write_stub(name, 'providers', stub, output)!
+	write_stub(name, 'providers', stub, mut output)!
 	return
 }
 
@@ -133,14 +133,14 @@ pub fn new_make_entity_command() &MakeEntityCommand {
 	}
 }
 
-pub fn (c &MakeEntityCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &MakeEntityCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	name := input.get_arg(0)
 	if name.len == 0 {
 		return error('entity name is required. Usage: make:entity <Name>')
 	}
 
 	stub := generate_entity_stub(name)
-	write_stub(name, 'entities', stub, output)!
+	write_stub(name, 'entities', stub, mut output)!
 	return
 }
 
@@ -159,7 +159,7 @@ pub fn new_make_model_command() &MakeModelCommand {
 	}
 }
 
-pub fn (c &MakeModelCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &MakeModelCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	name := input.get_arg(0)
 	if name.len == 0 {
 		return error('model name is required. Usage: make:model <Name>')
@@ -168,8 +168,8 @@ pub fn (c &MakeModelCommand) execute(input &CommandInput, output &CommandOutput)
 	// 生成实体 + 仓储两个文件
 	entity_stub := generate_entity_stub(name)
 	repo_stub := generate_repository_stub(name)
-	write_stub(name, 'entities', entity_stub, output)!
-	write_stub(name, 'repositories', repo_stub, output)!
+	write_stub(name, 'entities', entity_stub, mut output)!
+	write_stub(name, 'repositories', repo_stub, mut output)!
 	return
 }
 
@@ -189,7 +189,7 @@ pub fn new_make_migration_command() &MakeMigrationCommand {
 	}
 }
 
-pub fn (c &MakeMigrationCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &MakeMigrationCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	name := input.get_arg(0)
 	if name.len == 0 {
 		return error('migration name is required. Usage: make:migration <Name>')
@@ -222,14 +222,14 @@ pub fn new_make_resource_command() &MakeResourceCommand {
 	}
 }
 
-pub fn (c &MakeResourceCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &MakeResourceCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	name := input.get_arg(0)
 	if name.len == 0 {
 		return error('resource name is required. Usage: make:resource <Name>')
 	}
 
 	stub := generate_resource_stub(name)
-	write_stub(name, 'resources', stub, output)!
+	write_stub(name, 'resources', stub, mut output)!
 	return
 }
 
@@ -248,14 +248,14 @@ pub fn new_make_seeder_command() &MakeSeederCommand {
 	}
 }
 
-pub fn (c &MakeSeederCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &MakeSeederCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	name := input.get_arg(0)
 	if name.len == 0 {
 		return error('seeder name is required. Usage: make:seeder <Name>')
 	}
 
 	stub := generate_seeder_stub(name)
-	write_stub(name, 'database/seeders', stub, output)!
+	write_stub(name, 'database/seeders', stub, mut output)!
 	return
 }
 
@@ -274,14 +274,14 @@ pub fn new_make_factory_command() &MakeFactoryCommand {
 	}
 }
 
-pub fn (c &MakeFactoryCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &MakeFactoryCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	name := input.get_arg(0)
 	if name.len == 0 {
 		return error('factory name is required. Usage: make:factory <Name>')
 	}
 
 	stub := generate_factory_stub(name)
-	write_stub(name, 'database/factories', stub, output)!
+	write_stub(name, 'database/factories', stub, mut output)!
 	return
 }
 
@@ -626,7 +626,7 @@ pub fn (f &${pascal}Factory) create() !${pascal}Resource {
 // Helpers
 // ============================================================
 
-fn write_stub(name string, dir string, content string, output &CommandOutput) ! {
+fn write_stub(name string, dir string, content string, mut output &CommandOutput) ! {
 	path := '${dir}/${to_snake_case(name)}.v'
 
 	// Ensure directory exists

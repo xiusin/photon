@@ -46,8 +46,48 @@ pub fn (app &CliApplication) find_command(name string) &Command {
 
 // run parses arguments and dispatches the command
 // run 解析参数并分发命令
+//
+// `os.args` 直接读进程全局，所以 run() 本身无法被用例驱动 —— 它一跑就分发
+// 到「刚才那个测试的 argv」。真正可测的是 run_args：把「参数从哪来」和
+// 「怎么分发」拆开，测试传自己的 argv。
 pub fn (mut app CliApplication) run() ! {
-	args := os.args[1..]
+	app.run_args(os.args[1..])!
+}
+
+// run_args 与 run 相同，但参数由调用方给出。返回命令的退出码语义上等价于
+// run：错误原样上抛，由 main 决定怎么收场。
+pub fn (mut app CliApplication) run_args(args []string) ! {
+	mut output := new_output()
+	app.run_args_with_output(args, mut output)!
+}
+
+// option_schema_for 汇总命令声明的选项，供 argv 解析阶段使用。
+//
+// 单独抽出来的原因：这是「布尔选项要不要吞下一个 token」的唯一判断点，
+// 只有它能被单独驱动，端到端用例才可能锁住它。
+pub fn (app &CliApplication) option_schema_for(command_name string) &OptionSchema {
+	mut schema := new_option_schema()
+	declared := app.find_command(command_name)
+	if declared != unsafe { nil } {
+		if declared is AnnotatedCommand {
+			annotated := unsafe { &AnnotatedCommand(declared) }
+			for opt in annotated.info.options {
+				// 布尔选项在命令行上是裸的 `--verbose`，不能吞下一个 token；
+				// 其余选项按取值处理。
+				if opt.is_bool {
+					schema.declare_flag_option(opt.param_name)
+				} else {
+					schema.declare_value_option(opt.param_name)
+				}
+			}
+		}
+	}
+	return schema
+}
+
+// run_args_with_output 与 run_args 相同，但输出目标由调用方给出。
+// 用例靠它拿到「命令到底印了什么」，不必去截进程的 stdout。
+pub fn (mut app CliApplication) run_args_with_output(args []string, mut output CommandOutput) ! {
 	mut command_name := 'list'
 
 	if args.len > 0 && !args[0].starts_with('-') {
@@ -75,26 +115,16 @@ pub fn (mut app CliApplication) run() ! {
 
 	// 用命令声明的选项表解析参数：没有它，`--verbose build src/` 会把
 	// `build` 当成 `--verbose` 的值，子命令从此消失。
-	mut known := map[string]bool{}
-	declared := app.find_command(command_name)
-	if declared != unsafe { nil } {
-		if declared is AnnotatedCommand {
-			annotated := unsafe { &AnnotatedCommand(declared) }
-			for opt in annotated.info.options {
-				known[opt.param_name] = true
-			}
-		}
-	}
-	mut input := new_input_with_options(raw_args.clone(), known)
-	mut output := new_output()
+	mut schema := app.option_schema_for(command_name)
+	mut input := new_input_with_schema(raw_args.clone(), schema)
 
 	// Handle global flags / 处理全局标志
 	if input.has_flag('help') || input.has_flag('h') {
 		if command_name == 'list' {
-			app.print_help(output)
+			app.print_help(mut output)
 			return
 		}
-		app.print_command_help(output, command_name)
+		app.print_command_help(mut output, command_name)
 		return
 	}
 
@@ -118,12 +148,12 @@ pub fn (mut app CliApplication) run() ! {
 		return error('command not found: ${command_name}')
 	}
 
-	cmd.execute(input, output)!
+	cmd.execute(input, mut output)!
 }
 
 // print_banner displays the application banner
 // print_banner 显示应用横幅
-pub fn (app &CliApplication) print_banner(output &CommandOutput) {
+pub fn (app &CliApplication) print_banner(mut output &CommandOutput) {
 	output.writeln('')
 	output.writeln(green_text(bold_text('  ${app.name}')))
 	output.writeln(dim_text('  version ${app.version}'))
@@ -132,8 +162,8 @@ pub fn (app &CliApplication) print_banner(output &CommandOutput) {
 
 // print_help displays general help
 // print_help 显示通用帮助
-fn (app &CliApplication) print_help(output &CommandOutput) {
-	app.print_banner(output)
+fn (app &CliApplication) print_help(mut output &CommandOutput) {
+	app.print_banner(mut output)
 	output.writeln(bold_text('Usage:'))
 	output.writeln('  ${app.name} <command> [options] [arguments]')
 	output.writeln('')
@@ -148,7 +178,7 @@ fn (app &CliApplication) print_help(output &CommandOutput) {
 
 // print_command_help displays help for a specific command
 // print_command_help 显示特定命令的帮助
-fn (app &CliApplication) print_command_help(output &CommandOutput, command_name string) {
+fn (app &CliApplication) print_command_help(mut output &CommandOutput, command_name string) {
 	cmd := app.find_command(command_name)
 	if cmd == unsafe { nil } {
 		output.error('Command "${command_name}" not found.')

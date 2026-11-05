@@ -14,16 +14,67 @@ pub mut:
 	raw_args     []string
 }
 
+// OptionSchema declares what a command knows about its own options.
+//
+// OptionSchema 描述命令自己对选项的了解程度。
+//
+// 为什么不是 `map[string]bool`：光知道「这个名字被声明过」回答不了
+// `--verbose v2` 里的 `v2` 是不是值。布尔选项在命令行上是裸的，后面跟的
+// 那个 token 是位置参数；取值选项则要吞掉它。两种情况「名字都被声明过」，
+// 早期用 `map[string]bool` 时只能一律按取值处理，于是
+// `--verbose v2` 把 `v2` 吃成了 verbose 的值。
+pub struct OptionSchema {
+pub mut:
+	// takes_value 为 true 表示该选项需要一个值（`--port 8080`）；
+	// 未出现在表里的名字按取值处理，保持旧行为不变。
+	takes_value map[string]bool
+	// known 是「声明过的选项名」全集，包含布尔选项。
+	known map[string]bool
+}
+
+// new_option_schema 建一张空表
+pub fn new_option_schema() &OptionSchema {
+	return &OptionSchema{
+		takes_value: map[string]bool{}
+		known:       map[string]bool{}
+	}
+}
+
+// declare_value_option 声明一个「需要值」的选项，如 `--port 8080`
+pub fn (mut s OptionSchema) declare_value_option(name string) &OptionSchema {
+	s.known[name] = true
+	s.takes_value[name] = true
+	return s
+}
+
+// declare_flag_option 声明一个「不取值」的布尔选项，如 `--verbose`
+pub fn (mut s OptionSchema) declare_flag_option(name string) &OptionSchema {
+	s.known[name] = true
+	s.takes_value[name] = false
+	return s
+}
+
+// should_take_value 报告 `name` 后面那个 token 是否应被吃成它的值。
+//
+// 表里有明确声明就照声明；没声明时保持历史行为（按取值处理），
+// 这样 `new_input_with_options` 的既有用法语义不变。
+fn (s &OptionSchema) should_take_value(name string) bool {
+	if name in s.takes_value {
+		return s.takes_value[name]
+	}
+	return true
+}
+
 // parse_options splits the raw argv into command_name / options / flags /
 // positional args.
 //
-// When `known` is non-empty the parser is schema-aware: a preceding `--name`
-// only consumes the next token when `name` is a declared option. Without a
-// schema the parser falls back to the historical greedy rule, except for the
-// unambiguous cases below.
+// When a schema is supplied the parser is schema-aware: a preceding `--name`
+// only consumes the next token when `name` is declared to take a value.
+// Without a schema the parser falls back to the historical greedy rule,
+// except for the unambiguous cases below.
 //
 // `--` always terminates option parsing (`-- --looks-like-flag`).
-pub fn new_input_with_options(raw_args []string, known map[string]bool) &CommandInput {
+pub fn new_input_with_schema(raw_args []string, schema &OptionSchema) &CommandInput {
 	mut input := CommandInput{
 		args:     map[string]string{}
 		options:  map[string]string{}
@@ -60,10 +111,17 @@ pub fn new_input_with_options(raw_args []string, known map[string]bool) &Command
 
 		next := if i + 1 < raw_args.len { raw_args[i + 1] } else { '' }
 		option_name := option_token_name(arg)
-		// 声明了选项表时，只有已知选项才吞下一个 token；否则 `--verbose build`
-		// 会把子命令当成布尔选项的值吃掉。没有 `--` 前缀的单字母短选项无法
-		// 从声明里查到（命令只声明长名），按声明了选项表处理时它仍然取值。
-		name_takes_value := known.len == 0 || option_name in known || is_short_option(arg)
+		// 有 schema 时按声明判断：布尔选项不吞下一个 token，取值选项吞。
+		// 没有 schema（known 为空）时退回贪心规则；单字母短选项在声明表里
+		// 查不到（命令只声明长名），仍然按取值处理。
+		mut name_takes_value := true
+		if schema.known.len > 0 {
+			if option_name in schema.known {
+				name_takes_value = schema.should_take_value(option_name)
+			} else {
+				name_takes_value = is_short_option(arg)
+			}
+		}
 		next_is_value := i + 1 < raw_args.len && name_takes_value && is_value_token(next)
 
 		if arg.starts_with('--') {
@@ -101,6 +159,18 @@ pub fn new_input_with_options(raw_args []string, known map[string]bool) &Command
 	}
 
 	return &input
+}
+
+// new_input_with_options 是 schema 之前的入口，保留以兼容既有调用。
+//
+// `known` 里的名字一律按「取值选项」处理 —— 这正是 `--verbose v2` 会吞掉
+// `v2` 的历史行为。需要区分布尔选项时改用 new_input_with_schema。
+pub fn new_input_with_options(raw_args []string, known map[string]bool) &CommandInput {
+	mut schema := new_option_schema()
+	for name, _ in known {
+		schema.declare_value_option(name)
+	}
+	return new_input_with_schema(raw_args, schema)
 }
 
 // is_short_option reports whether `arg` is a single-letter short option such
@@ -147,7 +217,7 @@ fn is_value_token(token string) bool {
 // new_input parses os.args into a CommandInput
 // new_input 将 os.args 解析为 CommandInput
 pub fn new_input(raw_args []string) &CommandInput {
-	return new_input_with_options(raw_args, map[string]bool{})
+	return new_input_with_schema(raw_args, new_option_schema())
 }
 
 // get_arg returns a positional argument by index (0-based)
@@ -266,12 +336,8 @@ pub fn (input &CommandInput) validate_required(required []string) ! {
 //   @[command]
 //   @[description('Deploy the application')]
 //   struct DeployCommand {
-//       @[option: 'env']
-//       @[default('production')]
-//       environment string
-//
-//       @[argument]
-//       version string
+//       environment string @[option('env'); default('production')]
+//       version     string @[argument]
 //   }
 //
 //   cmd := bind_input[DeployCommand](input) or { panic(err) }
@@ -279,101 +345,114 @@ pub fn bind_input[T](input &CommandInput) !T {
 	mut result := T{}
 
 	$for field in T.fields {
-		mut is_option_field := false
-		mut is_argument_field := false
-		mut param_name := ''
-		mut default_value := ''
+		is_option := has_attr(field.attrs, attr_option)
+		is_argument := has_attr(field.attrs, attr_argument)
 
-		for attr in field.attrs {
-			if attr.name == attr_option {
-				is_option_field = true
-				if attr.args.len > 0 {
-					param_name = attr.args[0].replace("'", '')
-				} else {
-					param_name = field.name
+		if is_option || is_argument {
+			// 选项名以 `@[option('env')]` 为准，没给就用字段名；
+			// 位置参数只按字段名登记，取值靠序号。
+			mut param_name := field.name
+			if is_option {
+				declared := attr_value(field.attrs, attr_option)
+				if declared.len > 0 {
+					param_name = declared
 				}
-			} else if attr.name == attr_argument {
-				is_argument_field = true
-				param_name = field.name
-			} else if attr.name == attr_default {
-				if attr.args.len > 0 {
-					default_value = attr.args[0].replace("'", '')
+			}
+
+			mut value := attr_value(field.attrs, attr_default)
+			mut is_present := false
+			if is_option {
+				opt_val := input.get_option_or(param_name, '')
+				if opt_val.len > 0 {
+					value = opt_val
+					is_present = true
 				}
-			} else if attr.name == attr_required {
-				// Required validation handled below / 必填验证在下面处理
-			}
-		}
-
-		// Skip fields without option/argument annotations / 跳过没有 option/argument 注解的字段
-		if !is_option_field && !is_argument_field {
-			continue
-		}
-
-		mut value := default_value
-
-		if is_option_field && param_name.len > 0 {
-			// Bind from options / 从选项绑定
-			opt_val := input.get_option_or(param_name, '')
-			if opt_val.len > 0 {
-				value = opt_val
-			}
-		} else if is_argument_field {
-			// Bind from positional arguments / 从位置参数绑定
-			// Try to find by sequential index / 尝试按顺序索引查找
-			mut arg_idx := -1
-			mut arg_counter := 0
-			$for f in T.fields {
-				mut is_arg := false
-				for a in f.attrs {
-					if a.name == attr_argument {
-						is_arg = true
-						break
+				// 布尔选项在命令行上是裸的 `--verbose`，new_input 把它归进
+				// flags 而不是 options。只查 options 会让 bool 字段永远是 false，
+				// 所以这里也看 flags。
+				if input.has_flag(param_name) {
+					value = 'true'
+					is_present = true
+				}
+			} else {
+				arg_idx := arg_index_of[T](field.name)
+				if arg_idx >= 0 {
+					arg_val := input.get_argument_or(arg_idx, '')
+					if arg_val.len > 0 {
+						value = arg_val
+						is_present = true
 					}
 				}
-				if is_arg {
-					if f.name == field.name {
-						arg_idx = arg_counter
-						break
-					}
-					arg_counter++
+			}
+
+			$if field.typ is string {
+				result.$(field.name) = value
+			} $else $if field.typ is int {
+				if value.len > 0 {
+					result.$(field.name) = value.int()
+				}
+			} $else $if field.typ is bool {
+				result.$(field.name) = value == 'true' || value == '1'
+			} $else $if field.typ is f64 {
+				if value.len > 0 {
+					result.$(field.name) = value.f64()
 				}
 			}
 
-			if arg_idx >= 0 {
-				arg_val := input.get_argument_or(arg_idx, '')
-				if arg_val.len > 0 {
-					value = arg_val
-				}
+			if has_attr(field.attrs, attr_required) && !is_present && value.len == 0 {
+				return error('Required parameter "${param_name}" is missing')
 			}
-		}
-
-		// Assign the value to the field / 将值赋给字段
-		$if field.typ is string {
-			result.$(field.name) = value
-		} $else $if field.typ is int {
-			if value.len > 0 {
-				result.$(field.name) = value.int()
-			}
-		} $else $if field.typ is bool {
-			result.$(field.name) = value == 'true' || value == '1'
-		} $else $if field.typ is f64 {
-			if value.len > 0 {
-				result.$(field.name) = value.f64()
-			}
-		}
-
-		// Check required constraint / 检查必填约束
-		mut is_required := false
-		for attr in field.attrs {
-			if attr.name == attr_required {
-				is_required = true
-				break
-			}
-		}
-		if is_required && value.len == 0 {
-			return error('Required parameter "${param_name}" is missing')
 		}
 	}
 
 	return result
+}
+
+// ============================================================
+// Schema-aware binding / 带 schema 的绑定
+// ============================================================
+
+// schema_for[T]() 从类型 T 的注解推导出 argv 解析表。
+//
+// 为什么 bind_input[T](input) 不够：调用方用 `new_input()` 解析 argv 时没有
+// 任何 schema，`--dry-run 42` 会把 `42` 吃成 dry-run 的值，位置参数从此少一个。
+// bind_input 本身看不出「被吞掉的那个 token 本来是什么」—— 解析早于绑定。
+// 所以这里让类型自己出 schema，再用它重新解析原始 argv。
+pub fn schema_for[T]() &OptionSchema {
+	mut schema := new_option_schema()
+	$for field in T.fields {
+		if has_attr(field.attrs, attr_option) {
+			mut name := field.name
+			declared := attr_value(field.attrs, attr_option)
+			if declared.len > 0 {
+				name = declared
+			}
+			mut is_bool := false
+			$if field.typ is bool {
+				is_bool = true
+			}
+			if is_bool {
+				schema.declare_flag_option(name)
+			} else {
+				schema.declare_value_option(name)
+			}
+		}
+	}
+	return schema
+}
+
+// bind_input_from_args[T]() 用 T 自己声明的选项表解析 raw_args 并绑定。
+//
+// 推荐入口：不需要调用方先知道哪些选项是布尔，也就不会再踩
+// 「`--flag value` 里 value 被吞掉」这个坑。
+//
+//   cmd := cli.bind_input_from_args[DeployCmd](os.args[1..])!
+pub fn bind_input_from_args[T](raw_args []string) !T {
+	input := new_input_with_schema(raw_args, schema_for[T]())
+	return bind_input[T](input)
+}
+
+// has_flag_like 报告该选项在 flags 里是否出现过（布尔选项的裸形式）
+pub fn (input &CommandInput) has_flag_like(name string) bool {
+	return input.has_flag(name) || input.has_option(name)
 }

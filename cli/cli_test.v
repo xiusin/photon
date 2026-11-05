@@ -106,18 +106,18 @@ fn test_output_styles() {
 }
 
 fn test_output_writeln() {
-	output := new_output()
+	mut output := new_output()
 	output.writeln('test message')
 	// No assertion, just check it doesn't panic
 }
 
 fn test_output_success() {
-	output := new_output()
+	mut output := new_output()
 	output.success('test success')
 }
 
 fn test_output_error() {
-	output := new_output()
+	mut output := new_output()
 	output.error('test error')
 }
 

@@ -1435,7 +1435,8 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | async | 4 | V built-in test |
 | metrics | 3 | V built-in test |
 | mailer | 3 | V built-in test |
-| apidoc / cli / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
+| apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
+| cli | 3 | V built-in test |
 | core/tests | 2 | V built-in test（黑盒集成） |
 | **合计** | **229** | |
 
@@ -1542,6 +1543,64 @@ web.run_with_params[App, Context](params)!
    启动横幅和 actuator `/mappings` 里却一条都没有」的错位。
 2. `scan_controller` 不拼控制器前缀 `@[prefix: '/api/v1']`，展示的路径比
    真实可访问路径短一段。
+
+### 8.6 注解驱动的 CLI（cli/cli.v · cli/input.v）
+
+**这两块代码在 0.5.2 下从来没编过。**
+
+`scan_command[T]()` 和 `bind_input[T]()` 是把「struct 上的注解」变成「命令元数据
+和强类型参数」的入口，也是 Photon CLI 与 Spring Shell / Laravel Artisan 对齐的
+关键。但它们把 `field.attrs` 当成 `[]VAttribute` 用（读 `.name` / `.args`），
+而 0.5.2 里它的实际类型是 `[]string`：
+
+```
+field.attrs   → []string   ["option: 'env'", "default: 'production'"]
+T.attributes  → []VAttribute { name, has_arg, arg, kind }
+```
+
+因为没有任何用例、也没有任何 example 实例化过这两个函数，编译器从没被要求
+编过它们 —— 又一个「没人调用 → 没有用例 → 全绿与它无关」的循环。
+
+修掉之后暴露的问题比编译本身更多：
+
+1. **布尔选项永远绑不上。** `--verbose` 在 argv 上是裸的，`new_input` 把它归进
+   `flags`，而 `bind_input` 只查 `options`。于是所有 `bool` 字段恒为 false。
+2. **「名字声明过」说明不了「要不要吞下一个 token」。** 旧的 schema 是
+   `map[string]bool`，`--verbose v2` 里 `verbose` 确实被声明过，于是 `v2` 被
+   当成它的值吃掉，位置参数从此错位。现在 `OptionSchema` 区分
+   `declare_flag_option` / `declare_value_option`。
+3. **位置参数按字段名查，不按声明顺序。** 编译期循环里不允许 `break` /
+   `continue`，所以序号必须整段扫完再定位（`arg_index_of[T]`）。
+4. **回退命名带模块前缀。** 没有 `@[command: 'x']` 时用 `T.name`，拿到的是
+   `cli.PlainCmd`，用户得敲 `app cli.PlainCmd`。现在剥掉前缀。
+
+对外新增的入口：
+
+```v
+// 推荐：类型自己出解析表，再解析 argv —— 调用方不必知道哪个选项是布尔
+cmd := cli.bind_input_from_args[DeployCmd](os.args[1..])!
+
+// 已经解析好 argv 时
+schema := cli.schema_for[DeployCmd]()
+input := cli.new_input_with_schema(argv, schema)
+cmd := cli.bind_input[DeployCmd](input)!
+```
+
+`bind_input_from_args` 存在的理由不是好看：`bind_input` 拿到的是**已经解析错的**
+结果，被吞掉的那个 token 补不回来。只有让类型参与解析，`--verbose v2` 才可能正确。
+
+**顺带让 CLI 变得可测**（否则上面这些一条都验不了）：
+
+- `run()` → `run_args(args)` / `run_args_with_output(args, mut output)`：
+  `run()` 直接读 `os.args`，用例一调就分发到「上个测试的 argv」。
+- `CommandOutput` 增加内存收集（`new_capturing_output()` / `collected()`）：
+  原先所有输出直接 `println` 落进程 fd，用例拿不到「它到底印了什么」。
+- `app.option_schema_for(command)` 抽成独立方法：这是「布尔还是取值」的
+  唯一判断点，单独暴露才能被用例锁住。
+
+`cli/annotated_command_test.v` 共 23 条用例。做过五轮变异验证：布尔不查 flags、
+schema 忽略 takes_value、位置参数不按声明顺序、命令名不剥前缀、application 不区分
+布尔选项 —— 每一条都让对应用例变红，恢复后绿。
 
 ### 8.4 Web 测试工具
 
@@ -1709,10 +1768,11 @@ docker   — Docker 镜像构建
 | support/arr.v | 232 | 数组工具 |
 | support/pagination.v | 126 | 分页器 |
 | support/sort.v | 171 | Sort + PageRequest |
-| cli/application.v | 148 | CliApplication |
+| cli/application.v | 226 | CliApplication + 可测的解析入口 |
 | cli/command.v | 38 | Command 接口 |
-| cli/input.v | 97 | CommandInput 参数解析 |
-| cli/output.v | 123 | CommandOutput 彩色输出 |
+| cli/input.v | 388 | CommandInput 参数解析 + OptionSchema |
+| cli/attrs.v | 76 | 编译期属性解析（两侧共用） |
+| cli/output.v | 172 | CommandOutput 彩色输出 + 内存收集 |
 | cli/format.v | ~60 | ANSI 格式化 |
 | cli/interactive.v | ~80 | ask/confirm/secret/choice |
 | cli/progress.v | ~40 | ProgressBar |

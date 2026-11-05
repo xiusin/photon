@@ -36,7 +36,7 @@ pub fn new_queue_work_command(runner &QueueCommandRunner) &QueueWorkCommand {
 	}
 }
 
-pub fn (c &QueueWorkCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &QueueWorkCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	queue_name := input.get_option_or('queue', 'default')
 	sleep_secs := input.get_option_or('sleep', '5').int()
 
@@ -74,7 +74,7 @@ pub fn new_queue_list_command(runner &QueueCommandRunner) &QueueListCommand {
 	}
 }
 
-pub fn (c &QueueListCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &QueueListCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	queue_name := input.get_option_or('queue', 'default')
 	count := c.runner.count()
 
@@ -106,7 +106,7 @@ pub fn new_queue_clear_command(runner &QueueCommandRunner) &QueueClearCommand {
 	}
 }
 
-pub fn (c &QueueClearCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &QueueClearCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	_ = input
 	c.runner.clear_queue()!
 	output.success('Queue cleared.')

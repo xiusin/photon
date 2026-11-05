@@ -29,7 +29,7 @@ pub fn new_list_command(app &CliApplication) &ListCommand {
 	}
 }
 
-pub fn (c &ListCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &ListCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	output.writeln('')
 	output.writeln(green_text(bold_text('  ${c.app.name}')))
 	output.writeln(dim_text('  version ${c.app.version}'))
@@ -68,7 +68,7 @@ pub fn new_help_command(app &CliApplication) &HelpCommand {
 	}
 }
 
-pub fn (c &HelpCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &HelpCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	command_name := input.get_arg(0)
 
 	if command_name.len == 0 {
@@ -118,7 +118,7 @@ pub fn new_serve_command() &ServeCommand {
 	}
 }
 
-pub fn (c &ServeCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (c &ServeCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	port_str := input.get_option_or('port', '8080')
 	host := input.get_option_or('host', 'localhost')
 

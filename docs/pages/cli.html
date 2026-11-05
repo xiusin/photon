@@ -144,26 +144,19 @@ myapp make:service UserService        <span class="cm"># 生成 Service 模板</
 <span class="at">@[description('Send notifications to users')]</span>
 <span class="kw">pub struct</span> <span class="tp">NotifyCommand</span> {
 <span class="kw">pub</span>:
-    <span class="at">@[option('channel')]</span>
-    <span class="at">@[default('email')]</span>
-    channel <span class="tp">string</span>
-
-    <span class="at">@[argument]</span>
-    <span class="at">@[required]</span>
-    user_id <span class="tp">string</span>
-
-    <span class="at">@[option('dry-run')]</span>
-    dry_run <span class="tp">bool</span>
+    channel <span class="tp">string</span> <span class="at">@[option('channel'); default('email')]</span>
+    user_id <span class="tp">string</span> <span class="at">@[argument; required]</span>
+    dry_run <span class="tp">bool</span> <span class="at">@[option('dry-run')]</span>
 }
 
 <span class="cm">// Comptime scan / 编译期扫描</span>
 info := cli.<span class="fn">scan_command</span>[<span class="tp">NotifyCommand</span>]()
-<span class="fn">println</span>(info.name)         <span class="cm">// 'NotifyCommand'</span>
+<span class="fn">println</span>(info.name)         <span class="cm">// 'notify'（@[command: 'notify'] 指定的名字）</span>
 <span class="fn">println</span>(info.description)  <span class="cm">// 'Send notifications to users'</span>
 
 <span class="cm">// Auto-register / 自动注册</span>
 <span class="kw">mut</span> app := cli.<span class="fn">new_application</span>(<span class="st">'myapp'</span>, <span class="st">'1.0.0'</span>)
-cli.<span class="fn">register_command_from</span>[<span class="tp">NotifyCommand</span>](<span class="kw">mut</span> app)!
+cli.<span class="fn">register_command_from</span>[<span class="tp">NotifyCommand</span>](<span class="kw">mut</span> app)
 
 <span class="cm">// Spring Shell equivalent: @ShellMethod</span>
 <span class="cm">// Laravel equivalent: Artisan command signature</span></div>
@@ -181,7 +174,8 @@ cli.<span class="fn">register_command_from</span>[<span class="tp">NotifyCommand
           <tbody>
             <tr><td><code>CommandHelp</code></td><td>结构化帮助文本构建器</td><td>—</td></tr>
             <tr><td><code>AnnotatedCommand</code></td><td>带自动生成帮助的命令</td><td>—</td></tr>
-            <tr><td><code>bind_input[T]()</code></td><td>将 CLI 输入绑定到 struct 字段</td><td>—</td></tr>
+            <tr><td><code>bind_input_from_args[T]()</code></td><td>按类型自带选项表解析 argv 并绑定（推荐）</td><td>—</td></tr>
+            <tr><td><code>bind_input[T](input)</code></td><td>把已解析的输入绑定到 struct 字段</td><td>—</td></tr>
             <tr><td><code>generate_help(app)</code></td><td>生成所有命令的帮助文本</td><td><code>php artisan help</code></td></tr>
             <tr><td><code>generate_man_page(app)</code></td><td>生成 man page 格式文档</td><td>—</td></tr>
           </tbody>
@@ -200,14 +194,18 @@ cmd.<span class="fn">add_option</span>(<span class="st">'channel'</span>, <span 
 cmd.<span class="fn">add_argument</span>(<span class="st">'user_id'</span>, <span class="st">'Target user ID'</span>, <span class="kw">true</span>)
 <span class="fn">println</span>(cmd.<span class="fn">to_help_text</span>())
 
-<span class="cm">// 2. bind_input[T]() — Bind input to struct / 绑定输入到结构体</span>
-<span class="kw">mut</span> input := cli.<span class="tp">CommandContext</span>{
-    args:    {<span class="st">'user_id'</span>: <span class="st">'42'</span>}
-    options: {<span class="st">'channel'</span>: <span class="st">'sms'</span>, <span class="st">'dry-run'</span>: <span class="st">'true'</span>}
-}
-<span class="kw">mut</span> notify := cli.<span class="fn">bind_input</span>[<span class="tp">NotifyCommand</span>](<span class="kw">mut</span> input)!
+<span class="cm">// 2. bind_input_from_args[T]() — Bind argv to struct / 绑定命令行参数到结构体</span>
+<span class="cm">//    它会从 T 的注解自己推导解析表，所以布尔选项在 argv 上写裸的</span>
+<span class="cm">//    --dry-run 就够，后面的位置参数不会被吞掉。</span>
+<span class="cm">//    位置参数按 @[argument] 字段的声明顺序取。</span>
+notify := cli.<span class="fn">bind_input_from_args</span>[<span class="tp">NotifyCommand</span>]([<span class="st">'notify'</span>, <span class="st">'--channel'</span>, <span class="st">'sms'</span>, <span class="st">'--dry-run'</span>, <span class="st">'42'</span>])!
 <span class="fn">println</span>(notify.user_id)  <span class="cm">// '42'</span>
 <span class="fn">println</span>(notify.channel)  <span class="cm">// 'sms'</span>
+<span class="fn">println</span>(notify.dry_run)  <span class="cm">// true</span>
+
+<span class="cm">// 已经解析好 argv 时也可以直接绑：cli.bind_input[T](input)!</span>
+<span class="cm">// 但那样解析阶段没有 schema，`--dry-run 42` 里的 42 会被当成它的值 ——</span>
+<span class="cm">// 需要自己保证 argv 是用 schema_for[T]() 解析的。</span>
 
 <span class="cm">// 3. Generate help for all commands / 生成所有命令的帮助</span>
 <span class="kw">mut</span> app := cli.<span class="fn">new_application</span>(<span class="st">'myapp'</span>, <span class="st">'1.0.0'</span>)

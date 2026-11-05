@@ -35,7 +35,7 @@ pub fn new_schedule_command(schedule &ScheduleRunner) &ScheduleCommand {
 	}
 }
 
-pub fn (mut c ScheduleCommand) execute(input &CommandInput, output &CommandOutput) ! {
+pub fn (mut c ScheduleCommand) execute(input &CommandInput, mut output &CommandOutput) ! {
 	output.writeln('')
 	output.info('Running scheduled tasks...')
 
