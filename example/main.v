@@ -143,8 +143,10 @@ pub fn main() {
 
 	port := app_cfg.server_port
 	log_.info('=== Starting HTTP server on 0.0.0.0:${port} ===')
-	print_routes()
 
+	// 路由表从 App 自己扫出来，不再另外维护一份手写清单。
+	// 手写清单曾经少列了整组 /__docs 路由 —— 而且越改越旧，
+	// 因为「加一条路由」和「想起去改清单」是两件互不相干的事。
 	routes := web.scan_controller[App]()
 	web.print_routes(routes)
 

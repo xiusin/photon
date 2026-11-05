@@ -126,28 +126,3 @@ pub fn print_banner(app_cfg &AppConfig) {
 	println('╚══════════════════════════════════════════════════════════╝')
 	println('')
 }
-
-// print_routes 打印所有 API 端点
-pub fn print_routes() {
-	println('  Available API Endpoints:')
-	println('  ───────────────────────────────────────────────────────────')
-	println('  ${'METHOD':-8s} ${'PATH':-40s} ${'AUTH':-12s} ${'DESCRIPTION'}')
-	println('  ───────────────────────────────────────────────────────────')
-	println('  ${'GET':-8s} ${'/':-40s} ${'-':-12s} API 信息')
-	println('  ${'GET':-8s} ${'/health':-40s} ${'-':-12s} 健康检查')
-	println('  ${'GET':-8s} ${'/ping':-40s} ${'-':-12s} 连通性测试')
-	println('  ${'GET':-8s} ${'/stats':-40s} ${'-':-12s} 服务器统计')
-	println('  ${'GET':-8s} ${'/cache':-40s} ${'-':-12s} 缓存演示 (?key=xxx)')
-	println('  ${'GET':-8s} ${'/request-info':-40s} ${'-':-12s} 请求信息回显')
-	println('')
-	println('  ${'POST':-8s} ${'/api/v1/auth/login':-40s} ${'-':-12s} 用户登录')
-	println('  ${'POST':-8s} ${'/api/v1/auth/register':-40s} ${'-':-12s} 用户注册')
-	println('  ${'GET':-8s}  ${'/api/v1/auth/profile':-40s} ${'JWT':-12s} 获取用户信息')
-	println('')
-	println('  ${'GET':-8s}  ${'/api/v1/users':-40s} ${'ADMIN':-12s} 用户列表 (分页)')
-	println('  ${'GET':-8s}  ${'/api/v1/users/:id':-40s} ${'ADMIN':-12s} 用户详情')
-	println('  ${'POST':-8s} ${'/api/v1/users':-40s} ${'ADMIN':-12s} 创建用户')
-	println('  ${'PUT':-8s}  ${'/api/v1/users/:id':-40s} ${'ADMIN':-12s} 更新用户')
-	println('  ${'DELETE':-8s} ${'/api/v1/users/:id':-40s} ${'ADMIN':-12s} 删除用户')
-	println('  ───────────────────────────────────────────────────────────')
-}
