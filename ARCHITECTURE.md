@@ -1431,7 +1431,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | security | 17 | V built-in test |
 | cache | 17 | V built-in test |
 | queue | 9 | V built-in test |
-| strutil | 8 | V built-in test |
+| strutil | 9 | V built-in test（含下游安装布局的端到端编译）|
 | pageable | 2 | V built-in test |
 | config | 6 | V built-in test |
 | locking | 6 | V built-in test |
@@ -1446,7 +1446,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
 | cli | 6 | V built-in test（含对生成产物的真实编译） |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **236** | |
+| **合计** | **237** | |
 
 ### 8.2 测试模式
 
@@ -1767,6 +1767,56 @@ orm/entity.v:358:2:  error: `support.snake(field_name)` used as value
    —— 报的是 `unknown enum orm.DriverType`，看不出「你import 错了模块」。
    所以 `make:*` 生成的 stub 一律写 `import photon.cli` / `import photon.orm as phorm`，
    前提是框架以 `~/.vmodules/photon` 的形式被安装。
+
+### 8.11 两种编译视角：仓库内 vs 下游安装
+
+这是 Photon 里最容易自欺的一处盲区，也是好几轮 bug 的共同土壤。
+
+**仓库内**（`v test web/`、`sh scripts/run-tests.sh`）编译时，V 的模块查找把
+「导入方所在项目」排在前面，于是：
+
+```
+web/request_pool.v 里的 import pool   → <root>/pool      （本仓库的）
+pool/db_pool.v 里的 import orm        → <root>/orm       （本仓库的）
+```
+
+**下游**（用户工程里写 `import photon.web`）时，查找根是用户的工程目录，
+于是同样那两行落到 vlib：
+
+```
+import pool  → vlib/pool   （里面只有 ConnectionPool，没有 Pool / PoolStats）
+import orm   → vlib/orm    （没有 DriverType）
+```
+
+表现是「用户什么都没改，却在自己的构建里收到一堆 `web/request_pool.v`
+的 `unknown type pool.Pool`」。
+
+**这一轮想修，最后证明修不动。** 因为 V 0.5.2 里 `-path` 给的那些根
+**优先于**导入方所在项目，而 `run-tests.sh` 不带 `-path`：
+
+| 写法 | 仓库内 | 下游 |
+|---|---|---|
+| 裸名 `import pool` | ✅ | ❌ |
+| `import photon.pool` | ❌ | ✅ |
+
+两种写法各让一方编不过，而改一半更糟：`run-tests.sh` 会从全绿变成 web 整片红，
+红的理由还跟被测代码毫无关系。所以这一轮**没有动那两行 import**。
+
+`strutil/downstream_import_test.v` 把这个边界钉成三条断言：
+
+1. `test_downstream_import_photon_web_is_known_to_fail` —— 记录当前差异。
+   哪天上游条件变了、它真的能编了，这条会红并提示「改成 assert ok」。
+2. `test_downstream_import_photon_pool_is_known_to_fail` —— 同上，守 `pool/db_pool.v`。
+3. `test_repo_side_import_still_works` —— 挡「改一半」：谁把 `import pool`
+   单方面改成 `import photon.pool`，这里立刻红。
+
+**写这三条用例时踩到一个把我误导了两次的坑：符号链接。**
+第一版用 `os.symlink` 把仓库链进临时目录当查找根，结果下游那条**恒绿**。
+原因是 `/tmp/x/photon/web/request_pool.v` 的 real path 仍是
+`/workspace/web/request_pool.v`，V 顺着 `/workspace` 往上找，恰好看见
+`/workspace/pool` —— 缺陷被链接本身掩盖了。同一份代码，链接进来是绿的，
+`cp -a` 拷进去是红的。真实的安装/发布一定是拷贝，所以用例必须拷贝。
+**「我的复现是绿的」有时候只说明复现方式不对，不说明缺陷不存在。**
 
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 
