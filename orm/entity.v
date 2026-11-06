@@ -5,7 +5,6 @@ module orm
 // Provides base entity traits with lifecycle hooks similar to JPA/Hibernate.
 // Entities can implement hooks: BeforeCreate, AfterCreate, BeforeUpdate,
 // AfterUpdate, BeforeDelete, AfterDelete, AfterFind.
-import support
 import time
 
 // Touchable is implemented by BaseEntity (and any struct embedding it).

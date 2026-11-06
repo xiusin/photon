@@ -432,7 +432,6 @@ pub fn (p &${pascal}ServiceProvider) boot(app &core.ApplicationContext) ! {
 
 fn generate_entity_stub(name string) string {
 	pascal := to_pascal_case(name)
-	snake := to_snake_case(name)
 	table := table_name_of(name)
 	return "module entities
 
