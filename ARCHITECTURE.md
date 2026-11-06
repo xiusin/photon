@@ -1436,9 +1436,9 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | metrics | 3 | V built-in test |
 | mailer | 3 | V built-in test |
 | apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
-| cli | 3 | V built-in test |
+| cli | 5 | V built-in test |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **229** | |
+| **合计** | **233** | |
 
 ### 8.2 测试模式
 
@@ -1462,6 +1462,9 @@ v -enable-globals test web/
 #   PHOTON_TEST_TIMEOUT   运行预算（默认 30s）
 sh scripts/run-tests.sh
 sh scripts/run-tests.sh web orm        # 只跑指定模块
+
+# 沙箱里 `cc` 读 .rsp 后不产出二进制时（症状：所有文件都「编译失败」但 v run 正常）：
+VFLAGS="-enable-globals -no-rsp" sh scripts/run-tests.sh
 
 # 本机没有可用的 gc 库时（预编译 gc 缺 sigsetjmp 符号）：
 VFLAGS="-enable-globals -gc none" sh scripts/run-tests.sh
@@ -1601,6 +1604,65 @@ cmd := cli.bind_input[DeployCmd](input)!
 `cli/annotated_command_test.v` 共 23 条用例。做过五轮变异验证：布尔不查 flags、
 schema 忽略 takes_value、位置参数不按声明顺序、命令名不剥前缀、application 不区分
 布尔选项 —— 每一条都让对应用例变红，恢复后绿。
+
+### 8.7 交互式输入与进度条（cli/interactive.v · cli/progress.v）
+
+这两个文件之前一条用例都没有 —— 和 `CommandOutput` 是同一个病症，只是还没被碰到：
+它们直接读写进程的 stdin/stdout。
+
+| 文件 | 之前的写法 | 后果 |
+|---|---|---|
+| `interactive.v` | 直接 `os.input()` | 用例一调就挂在 stdin 上等输入 |
+| `progress.v` | 直接 `print()` | 用例只能断言 `current`，看不到那一行 |
+
+所以先把「算」和「画/读」拆开：`*_from` / `parse_*` / `render_text()` 是纯函数，
+`ask()` / `confirm()` / `advance()` 之类保留原签名，内部只是一层薄薄的 IO。
+用例因此可以既提供答案、又断言问了什么。
+
+**拆开之后暴露的四个逻辑缺陷：**
+
+1. **`choice` 的 `for {}` 没有出口。** 空行、字母、越界数字都走不到返回，
+   终端里就是一个死循环；选项列表为空时提示语自身先吐 `[0--1]`。
+   现在最多重问 `max_choice_attempts` 轮，用尽返回 -1。
+2. **字母被当成第 0 项。** `'abc'.int()` 在 V 里返回 `0` 而不是报错，
+   于是 `choice` 把任何非数字输入都选中第一项。现在先按十进制校验形态再判越界，
+   前导 `0`（`'00'` / `'03'`）也一并拒绝 —— 它们同样不是任何一个选项号。
+3. **`confirm` 只认 `y` / `yes`。** 旧实现是 `input == 'y' || input == 'yes'`，
+   `yeah` / `yep` 落到 false，而 `[Y/n]` 给用户的暗示是「回车即 yes」。
+   现在空输入回落默认值，其余看首字母。
+4. **`ask_required` 与 `choice` 分不清 EOF 和空行。** `os.input()` 在 EOF 时返回
+   字面量 `<EOF>`，于是 `ask_required` 会把 `<EOF>` 当答案交给调用方。
+   改用 `os.input_opt()`，并且两条循环都有轮数上限。
+
+**进度条第 5、6 个缺陷更隐蔽，因为它们只在极端值上现形：**
+
+5. **走完了显示 0%。** `percentage()` 用 `cur * 100 / total`，`cur` 接近 int 上限
+   时乘积溢出成负数（`2000000000 * 100` → `-1863462912`），除回去得到 0。
+   先判两端（`cur <= 0` → 0、`cur >= total` → 100）再乘法。
+6. **进度条不等宽。** `cur == total` 时 `filled` 正好等于 `width`，代码里
+   `if filled < pb.width` 不成立，于是少画一格箭头、空槽循环也多跑一格 ——
+   画出来是 `[====]` 而不是 `[===>]`，而且宽度随进度漂移。另外 `advance(-5)`
+   能把 `current` 推成负数，空槽反而变多。现在 `clamp()` 双向夹紧，
+   `render_text()` 的条形区恒为 `width + 2` 个字符。
+
+`cli/interactive_test.v` 21 条 + `cli/progress_test.v` 15 条。八轮变异验证：
+不再拒绝字母、`confirm` 退回 `== y`、`percentage` 退回乘法、`cur==total` 仍画箭头、
+去掉下界夹紧、去掉前导 0 拒绝、空选项提示语、空进度静默返回 —— 每一条都变红，
+恢复后绿。
+
+### 8.8 测试环境的两个硬前提（踩坑记录）
+
+`scripts/run-tests.sh` 之外，还有两条不写下来每次都会重踩的：
+
+- **`-no-rsp` 是必须的。** V 0.5.2 会把 C 编译参数写进 `@<out>.rsp` 响应文件再交给
+  `cc`；在部分沙箱里 `cc` 读完响应文件返回 0，但**不产出二进制**，`v` 于是报
+  编译成功、脚本报「产物不存在」。表现是「所有测试文件都编译失败，但直接
+  `v run` 又能跑」。所以跑测试时用
+  `VFLAGS="-enable-globals -no-rsp" sh scripts/run-tests.sh`。
+- **`thirdparty/tcc/lib/libgc.a` 得手工补一个归档。** 删掉 `thirdparty/tcc` 回退
+  系统 `cc` 之后，链接仍会去找这个路径。编一次 `thirdparty/libgc/gc.o`
+  （`-DGC_THREADS=1`，不能带 `-DTHREAD_LOCAL_ALLOC=1`），再
+  `ar rcs thirdparty/tcc/lib/libgc.a thirdparty/libgc/gc.o` 放到位。
 
 ### 8.4 Web 测试工具
 

@@ -1530,12 +1530,34 @@ output.line(40)               // 分隔线
 ### 13.5 交互式输入
 
 ```v
-answer := cli.ask('请输入名称: ')
-confirmed := cli.confirm('确认删除？(y/n): ')
-password := cli.secret('请输入密码: ')
-idx := cli.choice('选择颜色:', ['红', '蓝', '绿'])
-answer := cli.ask_with_default('端口', '8080')
+answer := cli.ask('请输入名称')                 // AskResult{answer, valid}
+answer := cli.ask_with_default('端口', '8080')  // 空回车回落 '8080'
+name := cli.ask_required('用户名')              // 空输入重问，EOF 返回 ''
+
+confirmed := cli.confirm('确认删除？')          // 默认 No
+confirmed := cli.confirm_with_default('继续？', true)  // 默认 Yes
+
+password := cli.secret('请输入密码')
+idx := cli.choice('选择颜色', ['红', '蓝', '绿'])   // 非法输入最多重问 3 轮，用尽返回 -1
 val := cli.anticipate('框架', ['Photon', 'Spring', 'Django'])
+```
+
+**交互逻辑可以脱离终端测试。** 每组函数都有一个纯逻辑版本，输入是字符串、
+输出是字符串 —— 命令行程序最难测的就是「它到底问了什么、把答案理解成了什么」：
+
+```v
+// 提示语 + 解析结果一起给出
+r := cli.ask_from('端口', '8080', '')
+assert r.prompt_out == '端口 [8080]: '
+assert r.result.answer == '8080'
+
+assert cli.confirm_from('继续', true, 'yeah').result       // 首字母 y 即 yes
+assert cli.parse_choice('abc', 3).index == -1              // 字母不再被当成 0
+assert cli.parse_choice('2', 3).index == 2
+assert cli.choice_prompt('颜色', ['红', '蓝']).contains('[1] 蓝')
+
+got, unique := cli.anticipate_from('pho', ['Photon', 'Spring'])
+assert got == 'Photon' && unique
 ```
 
 ### 13.6 进度条
@@ -1543,10 +1565,24 @@ val := cli.anticipate('框架', ['Photon', 'Spring', 'Django'])
 ```v
 mut pb := cli.new_progress_bar(100)
 for i in 0 .. 100 {
-    pb.advance(1)
+    pb.advance(1)      // 越界自动夹紧到 [0, total]
 }
 pb.set(75)
 pb.finish()
+```
+
+`render()` 只负责画，`render_text()` 返回那一行，可以断言：
+
+```v
+mut pb := cli.new_progress_bar(100)
+pb.current = 100
+text := pb.render_text()
+assert text.contains('100%')
+assert pb.filled_width() == pb.width   // 走完是整条 '='，没有残留箭头
+assert pb.percentage() == 100          // total 很大时也不会溢出成 0
+
+z := cli.new_progress_bar(0)           // 空进度不静默：照样画 '0%'
+assert z.render_text().contains('0%')
 ```
 
 ### 13.7 代码生成命令
