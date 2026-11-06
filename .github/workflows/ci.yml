@@ -39,7 +39,8 @@ jobs:
           - orm
           - http
           - queue
-          - support
+          - strutil
+          - pageable
           - ticker
           - cache
           - pool

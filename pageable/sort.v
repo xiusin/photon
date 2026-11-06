@@ -1,4 +1,4 @@
-module support
+module pageable
 
 // sort.v - Sort + Pageable (Spring Data inspired)
 

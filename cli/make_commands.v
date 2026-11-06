@@ -16,7 +16,7 @@ module cli
 // TableBuilder 不存在、跨包类型写错、返回栈上引用……），而它们全都排在
 // 一个从未被用例驱动过、也从没对生成结果做编译验证的路径上。
 import os
-import support
+import strutil
 import time
 
 // MakeCommandCommand generates a new CLI command file
@@ -685,13 +685,13 @@ fn write_stub(name string, dir string, content string, mut output &CommandOutput
 
 // to_snake_case converts PascalCase or camelCase to snake_case.
 //
-// 委托给 support.snake：这里原来是一份手写的劣化实现，每个大写字母前都插
+// 委托给 strutil.snake：这里原来是一份手写的劣化实现，每个大写字母前都插
 // 下划线，于是 `HTMLParser` → `h_t_m_l_parser`、`UserDOB` → `user_d_o_b`。
 // 生成出来的文件叫 controllers/user_d_o_b.v，表叫 user_d_o_bs。
-// support.snake 处理了缩写连读（`HTTPServer` → `http_server`），这里没理由
+// strutil.snake 处理了缩写连读（`HTTPServer` → `http_server`），这里没理由
 // 再维护第二套规则 —— 而 cli_test 里那条断言当时把这个 bug 锁成了「正确」。
 fn to_snake_case(s string) string {
-	return support.snake(s)
+	return strutil.snake(s)
 }
 
 // to_pascal_case converts snake_case to PascalCase

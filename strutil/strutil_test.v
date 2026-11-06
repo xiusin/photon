@@ -1,4 +1,4 @@
-module support
+module strutil
 
 // support_test.v - Tests for the support module
 

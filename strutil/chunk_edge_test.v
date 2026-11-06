@@ -1,4 +1,4 @@
-module support
+module strutil
 
 // Regression: chunk(items, 0) used to loop forever — `i` never advanced
 // because end == i, so the caller hung with no way out.

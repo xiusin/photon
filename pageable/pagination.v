@@ -1,4 +1,4 @@
-module support
+module pageable
 
 // pagination.v - Pagination (Laravel Paginator inspired)
 // @deprecated: Use Page[T] from page.v instead (Spring Data style).

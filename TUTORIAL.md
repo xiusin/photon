@@ -1663,9 +1663,9 @@ ticker.after_func(5 * time.second, fn () {
 ### 15.1 Collection（链式集合）
 
 ```v
-import photon.support
+import strutil
 
-c := support.collect([1, 2, 3, 4, 5])
+c := strutil.collect([1, 2, 3, 4, 5])
 
 // 过滤 + 映射
 result := c.filter(fn (n int) bool { return n > 2 })
@@ -1705,12 +1705,12 @@ c.some(fn (n int) bool { return n > 4 })         // true
 c.each(fn (n int) { println(n) })
 
 // 修改
-mut c2 := support.collect([1, 2])
+mut c2 := strutil.collect([1, 2])
 c2.push(3)
 c2.transform(fn (n int) int { return n * 2 })
 
 // 合并
-c.merge(support.collect([6, 7]))
+c.merge(strutil.collect([6, 7]))
 c.concat([6, 7])
 
 // 输出
@@ -1718,15 +1718,17 @@ c.to_json()                             // '[1,2,3,4,5]'
 c.join(', ')                            // '1, 2, 3, 4, 5'
 
 // 管道
-c.tap(fn (col &support.Collection[int]) { println(col.count()) })
-total := c.pipe(fn (col support.Collection[int]) int { return col.count() })
+c.tap(fn (col &strutil.Collection[int]) { println(col.count()) })
+total := c.pipe(fn (col strutil.Collection[int]) int { return col.count() })
 ```
 
 ### 15.2 分页
 
 ```v
+import pageable
+
 // 完整分页（含总数）
-mut p := support.new_paginator[int](items, 100, 20, 1)
+mut p := pageable.new_paginator[int](items, 100, 20, 1)
 p.has_more_pages()    // true
 p.on_first_page()     // true
 p.on_last_page()      // false
@@ -1738,14 +1740,16 @@ p.prev_page_url()     // ''
 p.to_json()           // JSON
 
 // 简单分页（不含总数，适合大数据集）
-sp := support.new_simple_paginator[int](items, 20, 1, true)
+sp := pageable.new_simple_paginator[int](items, 20, 1, true)
 sp.has_more            // true
 ```
 
 ### 15.3 排序
 
 ```v
-s := support.by('name').ascending().and(support.by_desc('created_at'))
+import pageable
+
+s := pageable.by('name').ascending().and(pageable.by_desc('created_at'))
 s.to_sql()             // 'name ASC, created_at DESC'
 s.is_empty()           // false
 s.is_sorted()          // true
@@ -1754,72 +1758,76 @@ s.is_sorted()          // true
 ### 15.4 分页请求
 
 ```v
-pr := support.page_request(1, 20)
+import pageable
+
+pr := pageable.page_request(1, 20)
 pr.get_offset()        // 0
 pr.get_page_number()   // 1
 pr.get_page_size()     // 20
 pr.has_previous()      // false
 pr.next()              // PageRequest{page:2, size:20}
 
-pr2 := support.page_request_with_sort(1, 20, support.by_desc('created_at'))
+pr2 := pageable.page_request_with_sort(1, 20, pageable.by_desc('created_at'))
 pr2.get_sort()         // Sort
 ```
 
 ### 15.5 Str（字符串工具）
 
 ```v
-import photon.support
+import strutil
 
-support.slug('Hello World')                // 'hello-world'
-support.snake('camelCase')                 // 'camel_case'
-support.camel('hello world')               // 'helloWorld'
-support.studly('hello_world')              // 'HelloWorld'
-support.kebab('Hello World')               // 'hello-world'
-support.limit('Long text here', 8)         // 'Long tex...'
-support.words('one two three four', 2)     // 'one two'
-support.contains('hello world', 'world')   // true
-support.starts_with('hello', 'he')         // true
-support.ends_with('hello', 'llo')          // true
-support.after('hello@world.com', '@')      // 'world.com'
-support.before('hello@world.com', '@')     // 'hello'
-support.between('(abc)', '(', ')')         // 'abc'
-support.finish('path/', '/')               // 'path/'（确保以指定字符结尾）
-support.replace_first('abcabc', 'b', 'X')  // 'aXcabc'
-support.replace_last('abcabc', 'b', 'X')   // 'abcabX'
-support.random(16)                         // 随机字符串
-support.mask('13812345678', '*', 3, 4)     // '138****5678'
-support.is_json('{"ok":true}')             // true
-support.lower('HELLO')                     // 'hello'
-support.upper('hello')                     // 'HELLO'
-support.title('hello world')               // 'Hello World'
+strutil.slug('Hello World')                // 'hello-world'
+strutil.snake('camelCase')                 // 'camel_case'
+strutil.camel('hello world')               // 'helloWorld'
+strutil.studly('hello_world')              // 'HelloWorld'
+strutil.kebab('Hello World')               // 'hello-world'
+strutil.limit('Long text here', 8)         // 'Long tex...'
+strutil.words('one two three four', 2)     // 'one two'
+strutil.contains('hello world', 'world')   // true
+strutil.starts_with('hello', 'he')         // true
+strutil.ends_with('hello', 'llo')          // true
+strutil.after('hello@world.com', '@')      // 'world.com'
+strutil.before('hello@world.com', '@')     // 'hello'
+strutil.between('(abc)', '(', ')')         // 'abc'
+strutil.finish('path/', '/')               // 'path/'（确保以指定字符结尾）
+strutil.replace_first('abcabc', 'b', 'X')  // 'aXcabc'
+strutil.replace_last('abcabc', 'b', 'X')   // 'abcabX'
+strutil.random(16)                         // 随机字符串
+strutil.mask('13812345678', '*', 3, 4)     // '138****5678'
+strutil.is_json('{"ok":true}')             // true
+strutil.lower('HELLO')                     // 'hello'
+strutil.upper('hello')                     // 'HELLO'
+strutil.title('hello world')               // 'Hello World'
 ```
 
 ### 15.6 Arr（数组/Map 工具）
 
 ```v
+import strutil
+
 // Map 操作
-support.get_string(my_map, 'key', 'default')
-support.set_string(mut my_map, 'key', 'value')
-support.forget_string(mut my_map, 'key')
-support.has_string(my_map, 'key')
-support.only_string(my_map, ['name', 'email'])       // 只保留指定 key
-support.except_string(my_map, ['password'])          // 排除指定 key
-support.pluck([{'name':'A'}, {'name':'B'}], 'name')  // ['A', 'B']
-support.merge_string(map1, map2)                     // 合并
-support.keys_string(my_map)                          // []string
-support.values_string(my_map)                        // []string
+strutil.get_string(my_map, 'key', 'default')
+strutil.set_string(mut my_map, 'key', 'value')
+strutil.forget_string(mut my_map, 'key')
+strutil.has_string(my_map, 'key')
+strutil.only_string(my_map, ['name', 'email'])       // 只保留指定 key
+strutil.except_string(my_map, ['password'])          // 排除指定 key
+strutil.pluck([{'name':'A'}, {'name':'B'}], 'name')  // ['A', 'B']
+strutil.merge_string(map1, map2)                     // 合并
+strutil.keys_string(my_map)                          // []string
+strutil.values_string(my_map)                        // []string
 
 // 数组操作
-support.first([1,2,3], fn (n int) bool { return n > 1 }, 0)  // 2
-support.last([1,2,3], fn (n int) bool { return n > 1 }, 0)   // 3
-support.filter_items([1,2,3], fn (n int) bool { return n > 1 })  // [2,3]
-support.flatten([[1,2], [3,4]])                       // [1,2,3,4]
-support.chunk([1,2,3,4,5], 2)                         // [[1,2],[3,4],[5]]
-support.shuffle([1,2,3])
-support.unique_string(['a', 'b', 'a'])               // ['a', 'b']
-support.reverse([1,2,3])                              // [3,2,1]
-support.take([1,2,3,4,5], 3)                          // [1,2,3]
-support.skip([1,2,3,4,5], 2)                          // [3,4,5]
+strutil.first([1,2,3], fn (n int) bool { return n > 1 }, 0)  // 2
+strutil.last([1,2,3], fn (n int) bool { return n > 1 }, 0)   // 3
+strutil.filter_items([1,2,3], fn (n int) bool { return n > 1 })  // [2,3]
+strutil.flatten([[1,2], [3,4]])                       // [1,2,3,4]
+strutil.chunk([1,2,3,4,5], 2)                         // [[1,2],[3,4],[5]]
+strutil.shuffle([1,2,3])
+strutil.unique_string(['a', 'b', 'a'])               // ['a', 'b']
+strutil.reverse([1,2,3])                              // [3,2,1]
+strutil.take([1,2,3,4,5], 3)                          // [1,2,3]
+strutil.skip([1,2,3,4,5], 2)                          // [3,4,5]
 ```
 
 ---

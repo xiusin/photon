@@ -1,4 +1,4 @@
-module support
+module strutil
 
 // str_case_test.v — 命名转换与截断的边界行为
 //
@@ -21,8 +21,8 @@ fn test_snake_numeric_boundary() {
 	assert snake('apiV2Service') == 'api_v2_service'
 	assert snake('V2') == 'v2'
 	// 数字之后的词首也要断开：`Order2Item` 是 `order2_item` 不是 `order2item`。
-	// orm/local_hash.v 里有一份本地的 snake_case 副本（为了绕开
-	// `photon.support` 双重身份，见 ARCHITECTURE.md 8.10），两边必须同步。
+	// orm/local_hash.v 里有一份本地的 snake_case 副本（热路径性能选择，
+	// 见 ARCHITECTURE.md 8.10），两边必须同步。
 	assert snake('Order2Item') == 'order2_item'
 	assert snake('utf8Text') == 'utf8_text'
 }

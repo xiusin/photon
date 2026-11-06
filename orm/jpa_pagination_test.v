@@ -1,6 +1,6 @@
 module orm
 
-import support
+import pageable
 
 // jpa_pagination_test.v - Tests for Repository[T].find_all_paged() (Task B1)
 //
@@ -258,7 +258,7 @@ fn page_setup_with_users(count int) !Repository[PageTestUser] {
 
 fn test_jpa_paged_first_page() {
 	mut repo := page_setup_with_users(25)!
-	page := repo.find_all_paged(support.page_request(1, 10))!
+	page := repo.find_all_paged(pageable.page_request(1, 10))!
 	assert page.items.len == 10
 	assert page.total == 25
 	assert page.page_number == 1
@@ -281,7 +281,7 @@ fn test_jpa_paged_first_page() {
 
 fn test_jpa_paged_middle_page() {
 	mut repo := page_setup_with_users(25)!
-	page := repo.find_all_paged(support.page_request(2, 10))!
+	page := repo.find_all_paged(pageable.page_request(2, 10))!
 	assert page.items.len == 10
 	assert page.total == 25
 	assert page.page_number == 2
@@ -304,7 +304,7 @@ fn test_jpa_paged_middle_page() {
 
 fn test_jpa_paged_last_page_partial() {
 	mut repo := page_setup_with_users(25)!
-	page := repo.find_all_paged(support.page_request(3, 10))!
+	page := repo.find_all_paged(pageable.page_request(3, 10))!
 	assert page.items.len == 5
 	assert page.total == 25
 	assert page.page_number == 3
@@ -326,7 +326,7 @@ fn test_jpa_paged_last_page_partial() {
 
 fn test_jpa_paged_out_of_bounds() {
 	mut repo := page_setup_with_users(25)!
-	page := repo.find_all_paged(support.page_request(4, 10))!
+	page := repo.find_all_paged(pageable.page_request(4, 10))!
 	// Out of bounds: empty items, but total/total_pages still correct
 	assert page.items.len == 0
 	assert page.total == 25
@@ -341,7 +341,7 @@ fn test_jpa_paged_out_of_bounds() {
 
 fn test_jpa_paged_single_page() {
 	mut repo := page_setup_with_users(25)!
-	page := repo.find_all_paged(support.page_request(1, 25))!
+	page := repo.find_all_paged(pageable.page_request(1, 25))!
 	assert page.items.len == 25
 	assert page.total == 25
 	assert page.page_number == 1
@@ -356,7 +356,7 @@ fn test_jpa_paged_single_page() {
 
 fn test_jpa_paged_exact_division() {
 	mut repo := page_setup_with_users(20)!
-	page := repo.find_all_paged(support.page_request(2, 10))!
+	page := repo.find_all_paged(pageable.page_request(2, 10))!
 	assert page.items.len == 10
 	assert page.total == 20
 	assert page.total_pages == 2
@@ -372,7 +372,7 @@ fn test_jpa_paged_exact_division() {
 fn test_jpa_paged_empty_table() {
 	mut repo := page_mock_setup[PageTestUser]()!
 	repo.create_table()!
-	page := repo.find_all_paged(support.page_request(1, 10))!
+	page := repo.find_all_paged(pageable.page_request(1, 10))!
 	assert page.items.len == 0
 	assert page.total == 0
 	assert page.total_pages == 0
@@ -385,7 +385,7 @@ fn test_jpa_paged_empty_table() {
 
 fn test_jpa_paged_sort_desc() {
 	mut repo := page_setup_with_users(25)!
-	pr := support.page_request_with_sort(1, 10, support.by_desc('id'))
+	pr := pageable.page_request_with_sort(1, 10, pageable.by_desc('id'))
 	page := repo.find_all_paged(pr)!
 	assert page.items.len == 10
 	assert page.total == 25
@@ -402,7 +402,7 @@ fn test_jpa_paged_sort_desc() {
 
 fn test_jpa_paged_sort_asc() {
 	mut repo := page_setup_with_users(25)!
-	pr := support.page_request_with_sort(1, 10, support.by('id'))
+	pr := pageable.page_request_with_sort(1, 10, pageable.by('id'))
 	page := repo.find_all_paged(pr)!
 	assert page.items.len == 10
 	// ASC order: first page should have User1..User10
@@ -416,7 +416,7 @@ fn test_jpa_paged_sort_asc() {
 
 fn test_jpa_paged_sort_desc_second_page() {
 	mut repo := page_setup_with_users(25)!
-	pr := support.page_request_with_sort(2, 10, support.by_desc('id'))
+	pr := pageable.page_request_with_sort(2, 10, pageable.by_desc('id'))
 	page := repo.find_all_paged(pr)!
 	assert page.items.len == 10
 	// DESC order page 2: User15..User6
@@ -430,7 +430,7 @@ fn test_jpa_paged_sort_desc_second_page() {
 
 fn test_jpa_paged_page_number_zero() {
 	mut repo := page_setup_with_users(25)!
-	page := repo.find_all_paged(support.page_request(0, 10))!
+	page := repo.find_all_paged(pageable.page_request(0, 10))!
 	// page_number 0 is normalized to 1
 	assert page.page_number == 1
 	assert page.items.len == 10
@@ -443,7 +443,7 @@ fn test_jpa_paged_page_number_zero() {
 
 fn test_jpa_paged_page_number_negative() {
 	mut repo := page_setup_with_users(25)!
-	page := repo.find_all_paged(support.page_request(-5, 10))!
+	page := repo.find_all_paged(pageable.page_request(-5, 10))!
 	assert page.page_number == 1
 	assert page.items.len == 10
 	assert page.items[0].id == 1
@@ -455,7 +455,7 @@ fn test_jpa_paged_page_number_negative() {
 
 fn test_jpa_paged_page_size_zero_error() {
 	mut repo := page_setup_with_users(25)!
-	if _ := repo.find_all_paged(support.page_request(1, 0)) {
+	if _ := repo.find_all_paged(pageable.page_request(1, 0)) {
 		assert false, 'expected error: page size must be positive'
 	} else {
 		assert true
@@ -468,7 +468,7 @@ fn test_jpa_paged_page_size_zero_error() {
 
 fn test_jpa_paged_page_size_negative_error() {
 	mut repo := page_setup_with_users(25)!
-	if _ := repo.find_all_paged(support.page_request(1, -1)) {
+	if _ := repo.find_all_paged(pageable.page_request(1, -1)) {
 		assert false, 'expected error: page size must be positive'
 	} else {
 		assert true
@@ -481,13 +481,13 @@ fn test_jpa_paged_page_size_negative_error() {
 
 fn test_jpa_paged_page_size_one() {
 	mut repo := page_setup_with_users(3)!
-	page := repo.find_all_paged(support.page_request(1, 1))!
+	page := repo.find_all_paged(pageable.page_request(1, 1))!
 	assert page.items.len == 1
 	assert page.total == 3
 	assert page.total_pages == 3
 	assert page.items[0].id == 1
 
-	page2 := repo.find_all_paged(support.page_request(3, 1))!
+	page2 := repo.find_all_paged(pageable.page_request(3, 1))!
 	assert page2.items.len == 1
 	assert page2.items[0].id == 3
 	assert page2.is_last()
@@ -499,7 +499,7 @@ fn test_jpa_paged_page_size_one() {
 
 fn test_jpa_paged_uses_parameterized_limit_offset() {
 	mut repo := page_setup_with_users(5)!
-	_ := repo.find_all_paged(support.page_request(1, 2))!
+	_ := repo.find_all_paged(pageable.page_request(1, 2))!
 	// The last SELECT query should use ? placeholders for LIMIT and OFFSET
 	// (not interpolated integers), confirming parameterized queries.
 	assert g_page_last_query.contains('LIMIT ? OFFSET ?')

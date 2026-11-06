@@ -39,7 +39,7 @@ LOG_DIR="${PHOTON_TEST_LOG_DIR:-/tmp/photon-test-logs}"
 # 放仓库内既稳定，也能被 .gitignore 一次覆盖。
 BIN_DIR="${PHOTON_TEST_BIN_DIR:-$ROOT/.photon-test-bin}"
 
-ALL_MODULES="core config logger security cli web orm http queue support ticker cache pool locking async photon_i18n health metrics mailer retry storage tracing apidoc"
+ALL_MODULES="core config logger security cli web orm http queue strutil pageable ticker cache pool locking async photon_i18n health metrics mailer retry storage tracing apidoc"
 
 if [ $# -gt 0 ]; then
 	MODULES="$*"

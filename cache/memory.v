@@ -243,8 +243,10 @@ fn (mut mc MemoryCache) evict_one_unlocked(skip int) bool {
 	return false
 }
 
-// support_fnv1a is a local FNV-1a so the cache does not pay an import cycle for
-// one 6-line hash. Kept byte-identical to support.fnv1a_str.
+// support_fnv1a is a local FNV-1a so shard selection stays allocation-free and
+// does not pay a cross-module call for one 6-line hash. Kept byte-identical to
+// strutil.fnv1a_str (name kept for continuity; the "support" module it once
+// referred to is now `strutil`).
 @[direct_array_access; inline]
 fn support_fnv1a(s string) u64 {
 	mut h := u64(0xcbf29ce484222325)

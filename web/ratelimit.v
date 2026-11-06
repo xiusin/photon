@@ -15,10 +15,9 @@ import sync
 // bytes directly (no `s.bytes()` allocation), for hot paths such as shard
 // selection.
 //
-// 为什么不直接用 support.fnv1a_str：`support` 同时被注册成 `photon.support`，
-// 两条路径同时加载时 V 会解析到那份空的函数表，于是这里变成
-// `unknown function: fnv1a_str` —— 任何 import photon.web 的下游用户都会
-// 直接编译失败。cache/memory.v 早先因同一原因也做过本地实现。
+// 为什么本地实现：分片选择在每次限流判定时都要跑，逐字节扫描不必绕一层跨
+// 模块调用。（历史原因是为绕开 `support` 双重身份那个构建缺陷，该缺陷已随
+// 模块改名 `strutil` 从根上消掉，见 ARCHITECTURE.md 8.10。）
 @[direct_array_access; inline]
 fn fnv1a_str(s string) u64 {
 	mut hash := u64(14695981039346656037) // FNV offset basis

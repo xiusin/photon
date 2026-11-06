@@ -1,4 +1,4 @@
-module support
+module pageable
 
 // sort_test.v - Tests for Sort and PageRequest
 

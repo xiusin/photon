@@ -1,4 +1,4 @@
-module support
+module pageable
 
 // page.v - Page[T] result container for pagination
 //

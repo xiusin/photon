@@ -227,15 +227,20 @@ photon/
 │   ├── timer.v           # Timer/Ticker（Go 兼容 API）+ after/after_func/sleep/tick
 │   └── ticker_test.v
 │
-├── support/              # [Beta] 支持工具
-│   ├── support.v         # 入口
+├── strutil/              # [Beta] 支持工具（字符串 / 数组 / 集合 / 错误）
+│   ├── strutil.v         # 入口（模块名为什么不是 support，见 8.10）
 │   ├── error.v           # PhotonError + ErrorCode 枚举（统一领域错误类型，实现 IError）
+│   ├── hash.v            # fnv1a_str（零分配）
 │   ├── arr.v             # 数组工具（dot-notation get/set/has + reverse/take/skip）
 │   ├── str.v             # 字符串工具（slug/snake/camel/studly/kebab + 截断/填充）
 │   ├── collection.v      # Collection[T]（Laravel 风格链式集合操作：map/filter/reduce/sort/groupBy）
-│   ├── pagination.v      # LengthAwarePaginator[T] + SimplePaginator[T]
-│   ├── sort.v            # Sort + SortOrder + PageRequest（Spring Data 风格）
+│   ├── module_identity_test.v  # 防回归：顶层模块名不得被 photon.<dir> 撞上
 │   └── *._test.v         # 测试文件
+│
+├── pageable/             # [Beta] 分页与排序（Spring Data 风格）
+│   ├── sort.v            # Sort + SortOrder + PageRequest
+│   ├── page.v            # Page[T] + Slice[T]
+│   └── pagination.v      # LengthAwarePaginator[T] + SimplePaginator[T]（已弃用，迁移到 Page[T]）
 │
 ├── http/                 # [Alpha] HTTP 客户端（Spring RestTemplate 对齐）
 │   ├── http.v            # 入口
@@ -277,7 +282,7 @@ photon/
 
 | 层级 | 模块 | 描述 |
 |------|------|------|
-| **核心层** | config, support | 所有模块依赖的基础工具 |
+| **核心层** | config, strutil, pageable | 所有模块依赖的基础工具 |
 | **基础设施层** | cache, pool, locking, ticker | 通用中间件原语 |
 | **业务抽象层** | orm, security, queue, storage, http | 业务能力抽象 |
 | **展现层** | web, cli | 对外交互接口 |
@@ -880,7 +885,7 @@ Timer / Ticker — Go 兼容 API:
     tick(d)            → chan Time — 周期通道
 ```
 
-### 3.11 Support 模块（support/）
+### 3.11 支持模块（strutil/ + pageable/）
 
 **Collection[T]** — Laravel 风格链式集合（315 行）：
 ```
@@ -1084,7 +1089,8 @@ exporter.export([span])!
                     │
                 cache(可选)
 
-support: 零依赖，所有模块都可使用
+strutil: 零依赖，所有模块都可使用
+pageable: 零依赖（Sort / Page[T] / PageRequest）
 ticker:  零依赖（纯 V channel/goroutine）
 ```
 
@@ -1093,7 +1099,8 @@ ticker:  零依赖（纯 V channel/goroutine）
 | 模块 | 依赖 | 说明 |
 |------|------|------|
 | config | 无 | 纯标准库 |
-| support | 无 | 纯标准库 |
+| strutil | 无 | 纯标准库（刻意零 import）|
+| pageable | 无 | 纯标准库 |
 | ticker | 无 | 纯 V channel |
 | cache | xiusin.vredis（vendored） | 仅 RedisStore 需要；内存后端零依赖 |
 | pool | orm (db_pool) | 仅 DbPool 依赖 orm.DriverType |
@@ -1418,13 +1425,14 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 
 | 模块 | 测试文件数 | 测试框架 |
 |------|-----------|----------|
-| web | 54 | V built-in test + TestResponse 助手 |
-| orm | 32 | V built-in test |
+| web | 55 | V built-in test + TestResponse 助手 |
+| orm | 33 | V built-in test |
 | core | 30 | V built-in test |
 | security | 17 | V built-in test |
 | cache | 17 | V built-in test |
 | queue | 9 | V built-in test |
-| support | 9 | V built-in test |
+| strutil | 8 | V built-in test |
+| pageable | 2 | V built-in test |
 | config | 6 | V built-in test |
 | locking | 6 | V built-in test |
 | ticker | 6 | V built-in test |
@@ -1438,7 +1446,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
 | cli | 6 | V built-in test（含对生成产物的真实编译） |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **234** | |
+| **合计** | **236** | |
 
 ### 8.2 测试模式
 
@@ -1692,39 +1700,73 @@ to_snake_case 退回原样返回      → 5 条红
 迁移退回 phorm.TableBuilder     → 红，报 "unknown method TableBuilder.id"
 ```
 
-### 8.10 `support` 的双重身份（跨模块解析陷阱）
+### 8.10 模块命名：任何顶层目录都不能被 `photon.<dir>` 撞上
 
-`photon.v` 声明 `module photon`，而它所在的目录正是仓库根 `support/` 的父目录，
-于是 `support` 同时被注册成两个名字：
+`photon.v` 声明 `module photon`，仓库根目录就是 photon 模块的目录。于是任何
+顶层目录 `X/` 会**同时**被注册成两个名字：
 
 ```
-import support          → /workspace/support
-import photon.support   → /workspace/support   （同一个目录，不同的模块表）
+import X          → <root>/X
+import photon.X   → <root>/X     （同一个目录，两张模块表）
 ```
 
-当编译单元里两条路径同时被加载（`import photon.web` 会经由 `core` 引出
-`support`），V 会解析到 `photon.support` 那份**空的**函数表，结果不是「找不到
-模块」，而是更难查的一串：
+两条路径同时被加载时，V 会解析到 `photon.X` 那份**空的**函数表。报出来的不是
+「找不到模块」，而是更难查的一串：
 
 ```
 orm/entity.v:358:17: error: unknown function: support.snake
 orm/entity.v:358:2:  error: `support.snake(field_name)` used as value
 ```
 
-受影响的是**任何 `import photon.web` 或 `import photon.orm` 的下游用户**，不是
-测试环境怪癖。`cache/memory.v` 的 `support_fnv1a` 早就因同一原因做过本地实现，
-注释里写着「so the cache does not pay an import cycle for one 6-line hash」——
-但 orm / web / core 没跟上。
+历史上 `support/` 就是这个形状，任何 `import photon.web` 的下游用户都编不过。
+当时的处置是给 orm / web / core 各留一份 `fnv1a_str` 副本绕开 —— 那治的是症。
 
-处理方式：`orm/local_hash.v` 提供 `orm.fnv1a_str` / `orm.snake_case`，
-`web/ratelimit.v` 与 `core/sharded_lock.v` 各自持有本地 `fnv1a_str`，
-`support` 本身保持**零 import**（`random()` 里原先的 `import rand` 一并去掉，
-改用 `arr.v` 的 `shuffle()` 已在用的 time 种子 LCG）。代价是几份十几行的
-常量级复制，换来的是这三个模块对 `support` 不再有构建期依赖。
+**根治方式是改名。** `support/` 现在是 `strutil/`，`Sort` / `Page[T]` /
+`PageRequest` 这套分页类型挪进了新的 `pageable/`。这两个名字都不会和
+`photon.<x>` 撞车，双重身份这条路径彻底不存在了。
 
-`orm/repository.v` 的 `find_all_paged` 仍以 `support.Page[T]` / `support.PageRequest`
-作为**公开返回类型**，那是 API 契约，不能改；它不在上述致命路径上（需要显式
-调用才实例化）。
+`orm/local_hash.v`、`web/ratelimit.v`、`core/sharded_lock.v`、`cache/memory.v`
+里的本地哈希/snake_case 副本**保留**，但理由换了：从「绕开编译缺陷」变成
+「热路径不绕一层跨模块调用」。副本一致性靠 `orm/local_hash_test.v` 与
+`strutil/str_case_test.v` 两边各自的字符向量表互相钉住。
+
+#### 防回归：`strutil/module_identity_test.v`
+
+光把目录改名不够 —— 下一个人完全可以再建一个同形状的目录，然后一切照旧。
+所以有一组用例直接扫仓库：
+
+- 任何顶层目录里若有 `module <dir>`，就不许出现顶格的 `import photon.<dir>`
+  （字符串字面量会先被剥掉，`cli/make_commands.v` 的生成器模板不算）
+- `support/` 目录一旦复活就红，报错信息直接写清它为什么会打断下游构建
+- 公开模块名单逐个断言存在，防止误改名
+
+变异验证：造 `support/` 目录 → 红；造 `mymod/` 并让 `core/core.v` 真的
+`import photon.mymod` → 红；清理后 → 绿。
+
+#### 顺带撞出来的两件事
+
+1. **`mut` 闭包捕获在 V 0.5.2 下是副本。** 这组用例的第一版用
+   `fn [mut acc] (path string) { acc.paths << path }` 收集文件，结果恒为空表，
+   用例恒过。最小复现：
+
+   ```v
+   mut c := 0
+   f := fn [mut c] () { c++ }
+   f()
+   f()
+   println(c) // 0
+   ```
+
+   闭包内部的 `c` 确实在累加（打印 1、2），外部始终是 0。前几轮记录里说
+   「没能证明闭包捕获是副本」，这一轮证到了。绕法是用指针
+   （`acc &VFileAcc` + `unsafe { mut a := acc }`）。
+
+2. **生成器模板里的 `import` 必须写 `photon.<mod>`，不能写裸名。**
+   `cli` / `orm` / `pool` 这三个模块名与 **vlib 自带模块同名**。仓库外的用户
+   写 `import orm` 会解析到 `vlib/orm`（里面没有 `DriverType`），而且是静默的
+   —— 报的是 `unknown enum orm.DriverType`，看不出「你import 错了模块」。
+   所以 `make:*` 生成的 stub 一律写 `import photon.cli` / `import photon.orm as phorm`，
+   前提是框架以 `~/.vmodules/photon` 的形式被安装。
 
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 
@@ -1828,7 +1870,8 @@ docker   — Docker 镜像构建
 | locking | Beta | 中 | 中 | 部分 |
 | storage | Beta | 高 | 中 | 是（仅本地磁盘；云存储留作扩展点）|
 | ticker | Beta | 高 | 中 | 是 |
-| support | Beta | 高 | 高 | 是 |
+| strutil | Beta | 高 | 高 | 是 |
+| pageable | Beta | 高 | 高 | 是 |
 | cli | Beta | 高 | 低 | 是 |
 | http | Beta | 高 | 中 | 部分（TLS/代理配置未生效）|
 | tracing | Alpha | 中 | 低 | 否（新模块）|
@@ -1901,11 +1944,12 @@ docker   — Docker 镜像构建
 | ticker/heap.v | 173 | 4-ary min-heap |
 | ticker/bucket.v | 134 | 64 桶调度器 |
 | ticker/optimizer.v | 126 | 桶头最小堆优化 |
-| support/collection.v | 315 | 链式集合（30+ 方法）|
-| support/str.v | 309 | 字符串工具（20+ 方法）|
-| support/arr.v | 232 | 数组工具 |
-| support/pagination.v | 126 | 分页器 |
-| support/sort.v | 171 | Sort + PageRequest |
+| strutil/collection.v | 315 | 链式集合（30+ 方法）|
+| strutil/str.v | 309 | 字符串工具（20+ 方法）|
+| strutil/arr.v | 232 | 数组工具 |
+| pageable/pagination.v | 126 | 分页器（已弃用，迁移到 Page[T]）|
+| pageable/sort.v | 171 | Sort + PageRequest |
+| pageable/page.v | 130 | Page[T] + Slice[T] |
 | cli/application.v | 226 | CliApplication + 可测的解析入口 |
 | cli/command.v | 38 | Command 接口 |
 | cli/input.v | 388 | CommandInput 参数解析 + OptionSchema |

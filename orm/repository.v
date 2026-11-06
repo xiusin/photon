@@ -1,6 +1,6 @@
 module orm
 
-import support
+import pageable
 
 // repository.v - Repository Pattern
 //
@@ -1062,12 +1062,12 @@ pub fn (mut repo Repository[T]) find_all() ![]T {
 // interpolation of user values, preventing SQL injection.
 //
 // Example:
-//   pr := support.page_request(2, 10)            // page 2, 10 items per page
+//   pr := pageable.page_request(2, 10)            // page 2, 10 items per page
 //   page := repo.find_all_paged(pr)!             // Page[User]
 //   assert page.items.len == 10
 //   assert page.total == 25
 //   assert page.total_pages == 3
-pub fn (mut repo Repository[T]) find_all_paged(page_request support.PageRequest) !support.Page[T] {
+pub fn (mut repo Repository[T]) find_all_paged(page_request pageable.PageRequest) !pageable.Page[T] {
 	if isnil(repo.query_fn) {
 		return error('find_all_paged: query_fn not configured')
 	}
@@ -1120,7 +1120,7 @@ pub fn (mut repo Repository[T]) find_all_paged(page_request support.PageRequest)
 	}
 
 	// 4. Build Page[T] with computed total_pages (ceiling division)
-	return support.new_page[T](entities, total, page_num, page_request.size)
+	return pageable.new_page[T](entities, total, page_num, page_request.size)
 }
 
 // count returns the total number of entities.
@@ -1291,9 +1291,9 @@ pub:
 // PageResult[T] — Lightweight Pagination Result (Task 3)
 // ═══════════════════════════════════════════════════════════════════
 //
-// A simpler alternative to support.Page[T] for Repository's
+// A simpler alternative to pageable.Page[T] for Repository's
 // paginate() method.  Provides page items plus navigation metadata
-// without depending on support.Sort.
+// without depending on pageable.Sort.
 
 // PageResult[T] represents a paginated result set with metadata.
 pub struct PageResult[T] {
@@ -1422,7 +1422,7 @@ pub fn (mut repo Repository[T]) count_by_field(field_name string, value string) 
 // Page numbers are 1-based.  A page_size <= 0 returns an error.
 //
 // This is a convenience method that returns PageResult[T] instead of
-// support.Page[T], keeping the API self-contained within the ORM module.
+// pageable.Page[T], keeping the API self-contained within the ORM module.
 //
 // Example:
 //   result := repo.paginate(1, 10)!   // first page, 10 items per page

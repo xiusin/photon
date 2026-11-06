@@ -1,4 +1,4 @@
-module support
+module strutil
 
 // arr.v - Array Helpers (Laravel Arr class inspired)
 //

@@ -45,7 +45,8 @@ photon/
 ├── i18n/       # 国际化：TOML 资源包、占位符解析、懒加载
 ├── tracing/    # 分布式追踪：TraceContext、Span、@[trace] 注解
 ├── apidoc/     # API 文档：Collector 收集、Store 持久化
-├── support/    # 工具：Collection、Str、Arr、分页、排序
+├── strutil/    # 工具：Collection、Str、Arr、hash（零依赖）
+├── pageable/   # 分页与排序：Sort、PageRequest、Page[T]
 └── example/    # 示例应用
 ```
 
@@ -86,6 +87,27 @@ photon/
 > 与 veb 的「参数从 URL 段填充」无关。veb 自己的路由方法不带这些属性，
 > 约束对 veb 本身依然生效。理由与最小复现见
 > [scripts/v-patches/README.md](scripts/v-patches/README.md)。
+
+### 怎么 import 这个框架
+
+框架的模块是**扁平的顶层包**（`web`、`orm`、`strutil`…），不是 `photon.web`。
+V 只在「编译目标目录」「同目录 `modules/`」「`~/.vmodules`」三处找模块，所以在
+自己的项目里要用到它们，得先把框架接进搜索路径：
+
+```bash
+# 方式一：vpm 布局，框架装到 ~/.vmodules/photon 之后
+#   裸名 `import web` 依然找不到，得用 `import photon.web`
+mkdir -p ~/.vmodules && ln -sfn /path/to/photon ~/.vmodules/photon
+
+# 方式二：项目内链接（推荐，`import web` 直接可用）
+mkdir -p modules && ln -sfn /path/to/photon/web modules/web
+```
+
+> **`cli` / `orm` / `pool` 这三个名字与 vlib 自带模块重名。** 仓库外写
+> `import orm` 会静默解析到 `vlib/orm`（里面没有 `DriverType`），报的是
+> `unknown enum orm.DriverType` —— 看不出是 import 错了模块。这三个模块必须用
+> `import photon.orm` 形式的完整路径。`make:*` 生成的 stub 已经统一这么写了。
+> 详见 [ARCHITECTURE.md 8.10](ARCHITECTURE.md)。
 
 ### 安装
 
@@ -952,7 +974,9 @@ cfg.set('app.name', 'Photon Demo')
 ### Collection — 链式集合操作
 
 ```v
-c := support.collect([1, 2, 3, 4, 5])
+import strutil
+
+c := strutil.collect([1, 2, 3, 4, 5])
 
 result := c.filter(fn (n int) bool { return n > 2 })
     .map(fn (n int) string { return n.str() })
@@ -971,21 +995,30 @@ c.to_json()          // '[1,2,3,4,5]'
 ### 分页
 
 ```v
-// 简单分页
-paginator := support.new_simple_paginator(items, 15)
-page_items := paginator.items()
-has_more := paginator.has_more()
+import pageable
 
-// 完整分页（含总数）
-lp := support.new_length_aware_paginator(items, total, 20)
-total_pages := lp.total_pages()
+// Spring Data 风格（推荐）：PageRequest 进，Page[T] 出
+pr := pageable.page_request(2, 10)              // 第 2 页，每页 10 条
+page := pageable.new_page(items, total, pr.page, pr.size)
+println(page.total_pages)                        // 总页数
+println(page.has_next())                         // 还有下一页？
+println(page.get_offset())                       // 对应 SQL OFFSET
+
+// Repository 里直接用
+pr2 := pageable.page_request_with_sort(2, 10, pageable.by_desc('created_at'))
+page2 := repo.find_all_paged(pr2)!
 ```
+
+`LengthAwarePaginator` / `SimplePaginator` 仍然可用，但已标记 `@[deprecated]`，
+迁移方向是 `Page[T]`。
 
 ### 排序
 
 ```v
-s := support.new_sort('name', .asc, 'created_at', .desc)
-println(s.order_by()) // 'name ASC, created_at DESC'
+import pageable
+
+s := pageable.by('name').and(pageable.by_desc('created_at'))
+println(s.to_sql())  // ' ORDER BY name ASC, created_at DESC'
 ```
 
 ---

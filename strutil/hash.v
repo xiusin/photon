@@ -1,4 +1,4 @@
-module support
+module strutil
 
 // hash.v - Zero-allocation hashing utilities
 //

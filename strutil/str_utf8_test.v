@@ -1,4 +1,4 @@
-module support
+module strutil
 
 // str_utf8_test.v - 字符语义 vs 字节语义
 //

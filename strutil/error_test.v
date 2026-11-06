@@ -1,4 +1,4 @@
-module support
+module strutil
 
 fn test_error_code_str() {
 	assert ErrorCode.err_security.str() == 'security'

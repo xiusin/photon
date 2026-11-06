@@ -14,7 +14,7 @@ module core
 // V's `select { else {} }` is non-blocking, so completion is tracked via
 // buffered channels.
 import time
-import support
+import strutil
 import queue
 import ticker
 
@@ -205,7 +205,7 @@ fn test_sharded_rw_mutex_shard_distribution() {
 
 	for i in 0 .. 1000 {
 		key := 'key_${i}'
-		hash := support.fnv1a_str(key)
+		hash := strutil.fnv1a_str(key)
 		idx_bitwise := int(hash & u64(shard_count - 1))
 		idx_modulo := int(hash % u64(shard_count))
 		assert idx_bitwise == idx_modulo

@@ -1,4 +1,4 @@
-module support
+module strutil
 
 // support_ext_test.v - Extended tests for collection gaps, arr gaps
 
@@ -242,4 +242,24 @@ fn test_str_random_from_edges() {
 	assert random_from('', 5) == ''
 	assert random_from('ab', 4).len == 4
 	assert random(0) == ''
+}
+
+// ── Collection.pop 边界（原先躺在 support/pagination_test.v 里，
+//    它跟分页无关，属于 Collection 的边界语义）──
+
+fn test_collection_pop_on_empty_returns_zero_value() {
+	mut c := new_collection[string]()
+	// 空集合上 pop 不能越界访问
+	assert c.pop() == ''
+	assert c.count() == 0
+
+	mut numbers := new_collection[int]()
+	assert numbers.pop() == 0
+}
+
+fn test_collection_pop_normal() {
+	mut c := collect(['a', 'b', 'c'])
+	assert c.pop() == 'c'
+	assert c.count() == 2
+	assert c.all() == ['a', 'b']
 }

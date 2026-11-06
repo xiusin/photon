@@ -242,7 +242,6 @@ fn (jm &JwtManager) decode(token string) !JwtClaims {
 	// Verify signature
 	signing_input := '${header_b64}.${payload_b64}'
 	expected_sig := jm.hmac_sign(signing_input)
-	expected_sig_b64 := base64.url_encode(expected_sig)
 
 	// 签到的是字节，比对的也必须是字节：按 base64 文本比较时，服务端没做
 	// 填充归一化，任何多/少一个 `=` 的合法令牌都会被判成伪造（表现为

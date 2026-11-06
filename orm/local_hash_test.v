@@ -2,12 +2,11 @@ module orm
 
 // local_hash_test.v — orm 自己那份 snake_case / fnv1a_str
 //
-// 为什么要本地实现、以及它防的是什么回归，见 ARCHITECTURE.md 8.10：
-// `support` 同时被注册成 `photon.support`，两条路径同时加载时 V 会解析到
-// 空函数表，`support.snake()` 变成 `unknown function`，任何
-// `import photon.orm` / `import photon.web` 的用户直接编译失败。
+// 本地这份是性能选择：ors 在实体映射热路径上算表名/列名，不必多一层跨模块
+// 调用（历史原因是绕开 `support` 双重身份那个构建缺陷，该缺陷已随模块改名
+// `strutil` 从根上消掉，见 ARCHITECTURE.md 8.10）。
 //
-// 这里的用例锁两件事：本地实现的行为和 support 一致；表名推导对缩写正确。
+// 这里的用例锁两件事：本地实现的行为和 strutil 一致；表名推导对缩写正确。
 
 fn test_snake_case_keeps_acronyms_together() {
 	// 表名靠它算：`UserDOB` 必须是 `user_dobs`，不是 `user_d_o_bs`
@@ -43,22 +42,22 @@ fn test_fnv1a_str_distributes() {
 }
 
 fn test_extract_column_name_falls_back_to_local_snake_case() {
-	// 这条路径曾经因为 support.snake 解析失败而整链编译不过
+	// 这条路径曾经因为 support.snake 解析失败而整链编译不过（缺陷已根治）
 	assert extract_column_name('userName', []) == 'user_name'
 	assert extract_column_name('userDOB', []) == 'user_dob'
 	// 带 @[column: 'x'] 时以注解为准
 	assert extract_column_name('userName', ["column: 'uid'"]) == 'uid'
 }
 
-// ── 与 support.snake 的行为一致性 ──
+// ── 与 strutil.snake 的行为一致性 ──
 //
-// 本地这份实现是为了绕开 `photon.support` 解析问题而做的副本。副本最大的
-// 风险是「改了一边忘了另一边」，所以这里把两边钉在一起：任一时刻两边对同一
-// 输入给出不同结果，这条就红。
+// 副本最大的风险是「改了一边忘了另一边」，所以这里把两边钉在一起：任一时
+// 刻两边对同一输入给出不同结果，这条就红。
 //
-// 注意：这个文件本身不能 `import support`（那正是要绕开的东西），所以完整性
-// 靠的是下面这张表 —— 它同时被 support 的用例覆盖，改任意一边都会有一侧红。
-fn test_snake_case_matches_support_contract() {
+// 注意：这个文件本身不 `import strutil`（保持 orm 对它的零构建期依赖），所以
+// 完整性靠的是下面这张表 —— 它同时被 strutil 的用例覆盖，改任意一边都会有
+// 一侧红。
+fn test_snake_case_matches_strutil_contract() {
 	cases := {
 		'':            ''
 		'a':           'a'

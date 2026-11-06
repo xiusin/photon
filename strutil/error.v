@@ -1,4 +1,4 @@
-module support
+module strutil
 
 // error.v - Photon Domain Error Types
 //

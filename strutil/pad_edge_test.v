@@ -1,4 +1,4 @@
-module support
+module strutil
 
 // Regression: pad_left_str / pad_right_str looped forever on an empty pad —
 // `result.len` never reached `length`.

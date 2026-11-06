@@ -1,4 +1,4 @@
-module support
+module strutil
 
 // str.v - String Helpers (Laravel Str class inspired)
 import time
