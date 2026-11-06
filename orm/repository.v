@@ -1097,7 +1097,7 @@ pub fn (mut repo Repository[T]) find_all_paged(page_request support.PageRequest)
 	if page_request.sort.orders.len > 0 {
 		mut order_parts := []string{cap: page_request.sort.orders.len}
 		for order in page_request.sort.orders {
-			col := support.snake(order.property)
+			col := snake_case(order.property)
 			dir := if order.direction == .desc { 'DESC' } else { 'ASC' }
 			order_parts << '${col} ${dir}'
 		}
@@ -1353,7 +1353,7 @@ fn (repo Repository[T]) resolve_column_name(field_name string) string {
 		}
 	}
 	// Not a known field name — treat as a column name directly
-	return support.snake(field_name)
+	return snake_case(field_name)
 }
 
 // find_by_field retrieves entities where the specified field equals

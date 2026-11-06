@@ -312,7 +312,19 @@ fn test_to_snake_case() {
 	assert to_snake_case('HelloWorld') == 'hello_world'
 	assert to_snake_case('PostController') == 'post_controller'
 	assert to_snake_case('Simple') == 'simple'
-	assert to_snake_case('HTMLParser') == 'h_t_m_l_parser'
+}
+
+// 缩写不该被拆成单个字母。
+//
+// 这条断言原来是 `to_snake_case('HTMLParser') == 'h_t_m_l_parser'` —— 它把
+// 一个缺陷锁成了「正确行为」，于是 `make:controller HTMLParser` 生成的文件叫
+// controllers/h_t_m_l_parser.v，`make:model UserDOB` 生成 user_d_o_b。
+// 缩写连读是命名转换的常识（`HTTPServer` → `http_server`），不是风格偏好。
+fn test_to_snake_case_keeps_acronyms_together() {
+	assert to_snake_case('HTMLParser') == 'html_parser'
+	assert to_snake_case('UserDOB') == 'user_dob'
+	assert to_snake_case('HTTPServer') == 'http_server'
+	assert to_snake_case('Order2Item') == 'order2_item'
 }
 
 fn test_to_pascal_case() {

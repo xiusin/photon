@@ -18,7 +18,6 @@ module core
 //   - Per-bean locking for safe singleton instantiation
 //   - Lock auto-cleanup to prevent memory leaks
 import sync
-import support
 
 // shard_count is the number of lock segments.
 // 16 is a good balance between concurrency and memory overhead.
@@ -62,8 +61,8 @@ pub fn new_sharded_rw_mutex() &ShardedRwMutex {
 // by new_sharded_rw_mutex) but avoids the expensive integer division on every
 // lock acquisition — a measurable win on hot paths like container bean lookups.
 fn (sm &ShardedRwMutex) shard_index(key string) int {
-	// FNV-1a 64-bit hash, zero-allocation via support.fnv1a_str
-	return int(support.fnv1a_str(key) & u64(shard_count - 1))
+	// FNV-1a 64-bit hash, zero-allocation (local impl, see fnv1a_str)
+	return int(fnv1a_str(key) & u64(shard_count - 1))
 }
 
 // rlock acquires a read lock on the shard for the given key.
@@ -256,4 +255,19 @@ pub fn (mut bl BeanLock) cleanup() {
 	bl.mu.@lock()
 	defer { bl.mu.unlock() }
 	bl.locks = map[string]&sync.Mutex{}
+}
+
+// fnv1a_str computes the FNV-1a 64-bit hash of a string by iterating over its
+// bytes directly, for hot paths such as shard selection.
+//
+// 为什么不直接用 support.fnv1a_str：`support` 同时被注册成 `photon.support`，
+// 两条路径同时加载时 V 会解析到那份空的函数表，于是这里变成
+// `unknown function: fnv1a_str`。cache/memory.v 早先因同一原因也做过本地实现。
+@[direct_array_access; inline]
+fn fnv1a_str(s string) u64 {
+	mut hash := u64(14695981039346656037) // FNV offset basis
+	for i in 0 .. s.len {
+		hash = (hash ^ u64(s[i])) * u64(1099511628211) // FNV prime
+	}
+	return hash
 }

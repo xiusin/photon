@@ -1436,9 +1436,9 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | metrics | 3 | V built-in test |
 | mailer | 3 | V built-in test |
 | apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
-| cli | 5 | V built-in test |
+| cli | 6 | V built-in test（含对生成产物的真实编译） |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **233** | |
+| **合计** | **234** | |
 
 ### 8.2 测试模式
 
@@ -1649,6 +1649,82 @@ schema 忽略 takes_value、位置参数不按声明顺序、命令名不剥前�
 不再拒绝字母、`confirm` 退回 `== y`、`percentage` 退回乘法、`cur==total` 仍画箭头、
 去掉下界夹紧、去掉前导 0 拒绝、空选项提示语、空进度静默返回 —— 每一条都变红，
 恢复后绿。
+
+### 8.9 脚手架产物的编译验证（cli/make_commands.v）
+
+`make:*` 是脚手架命令：用户敲一条，拿到一份可以直接开工的代码。因此对它唯一
+有意义的验收标准是「**产出的文件能编译**」，而不是「命令返回 0」。
+
+这 10 个生成器产出的 80 个文件里，曾有 **48 个编不过**：
+
+| 目录 | 原因 |
+|---|---|
+| `commands/`、`database/seeders/` | `output` 参数缺 `mut`（"output is immutable"） |
+| `middleware/` | 签名与 `web.MiddlewareFunc = fn (ctx &MiddlewareContext) !bool` 不匹配 |
+| `database/factories/` | 返回栈上接收者的引用；返回类型 `factories.XxxResource` 不存在 |
+| `repositories/` | 实体写成包内名字，实际在 `entities` 包 |
+| `database/migrations/` | `phorm.TableBuilder`、`phorm.execute_schema` 都不存在 |
+
+它们能一直躺着，是因为用例只断言过「命令名对」，从没断言过「产物能编」。
+`cli/make_stub_compiles_test.v` 补上的是这件事：真调一次生成器，再用真实的
+V 编译器编一次产物（`-shared -o`，因为模块包本来就没有 `main`）。找不到
+`v` 可执行文件时**跳过并打印原因**，不在没有编译器的环境里假装通过。
+
+同一批用例还锁住了三个语义缺陷：
+
+- `to_snake_case` 早先是手写实现，每个大写字母前插下划线，`HTMLParser` →
+  `h_t_m_l_parser`、`UserDOB` → `user_d_o_b`，生成的文件叫
+  `controllers/user_d_o_b.v`。`cli_test.v` 里那条
+  `assert to_snake_case('HTMLParser') == 'h_t_m_l_parser'` 把这个 bug 锁成了
+  「正确行为」——**把现状写成断言，就等于把缺陷升格成契约**。现在委托给
+  `support.snake`，缩写连读。
+- 迁移版本号写死 `return 100` 并留了句 TODO。版本号是 `MigrationManager`
+  排序与去重的唯一依据，每个迁移都是 100 就等于「只有第一个会执行」。改为
+  由名字哈希得出，同名稳定、异名不撞。
+- `make:migration` 用 `time.format_ss()` 当文件名，得到
+  `2026-11-06 14:57:47`，中间的空格把路径切成两段。改为 `YYYYMMDDHHMMSS`。
+
+变异验证（每条都让对应用例变红、恢复后绿）：
+
+```
+to_snake_case 退回原样返回      → 5 条红
+生成器去掉 mut output           → 红，报 "output is immutable"
+迁移退回 phorm.TableBuilder     → 红，报 "unknown method TableBuilder.id"
+```
+
+### 8.10 `support` 的双重身份（跨模块解析陷阱）
+
+`photon.v` 声明 `module photon`，而它所在的目录正是仓库根 `support/` 的父目录，
+于是 `support` 同时被注册成两个名字：
+
+```
+import support          → /workspace/support
+import photon.support   → /workspace/support   （同一个目录，不同的模块表）
+```
+
+当编译单元里两条路径同时被加载（`import photon.web` 会经由 `core` 引出
+`support`），V 会解析到 `photon.support` 那份**空的**函数表，结果不是「找不到
+模块」，而是更难查的一串：
+
+```
+orm/entity.v:358:17: error: unknown function: support.snake
+orm/entity.v:358:2:  error: `support.snake(field_name)` used as value
+```
+
+受影响的是**任何 `import photon.web` 或 `import photon.orm` 的下游用户**，不是
+测试环境怪癖。`cache/memory.v` 的 `support_fnv1a` 早就因同一原因做过本地实现，
+注释里写着「so the cache does not pay an import cycle for one 6-line hash」——
+但 orm / web / core 没跟上。
+
+处理方式：`orm/local_hash.v` 提供 `orm.fnv1a_str` / `orm.snake_case`，
+`web/ratelimit.v` 与 `core/sharded_lock.v` 各自持有本地 `fnv1a_str`，
+`support` 本身保持**零 import**（`random()` 里原先的 `import rand` 一并去掉，
+改用 `arr.v` 的 `shuffle()` 已在用的 time 种子 LCG）。代价是几份十几行的
+常量级复制，换来的是这三个模块对 `support` 不再有构建期依赖。
+
+`orm/repository.v` 的 `find_all_paged` 仍以 `support.Page[T]` / `support.PageRequest`
+作为**公开返回类型**，那是 API 契约，不能改；它不在上述致命路径上（需要显式
+调用才实例化）。
 
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 

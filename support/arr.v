@@ -143,7 +143,13 @@ pub fn shuffle[T](items []T) []T {
 		n--
 		// Simple LCG: X_{n+1} = (a * X_n + c) mod m
 		seed = seed * i64(1103515245) + i64(12345)
-		k := int(seed.abs() % i64(n + 1))
+		// 0.5.2 没有 i64.abs()（"unknown method or field: `i64.abs`"），
+		// 而这里必须取非负：负数取模在 V 里保留符号，下标会变成负的。
+		mut mag := seed
+		if mag < 0 {
+			mag = -mag
+		}
+		k := int(mag % i64(n + 1))
 		result[n], result[k] = result[k], result[n]
 	}
 	return result

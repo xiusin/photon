@@ -355,7 +355,7 @@ pub fn extract_column_name(field_name string, attrs []string) string {
 			return strip_attr_quotes(rest.trim_space())
 		}
 	}
-	return support.snake(field_name)
+	return snake_case(field_name)
 }
 
 // is_primary_key_field returns true if the field carries @[id] or
@@ -398,7 +398,7 @@ fn default_table_name[T]() string {
 	} else {
 		full_name
 	}
-	return support.snake(short_name) + 's'
+	return snake_case(short_name) + 's'
 }
 
 // ═══════════════════════════════════════════════════════════════════

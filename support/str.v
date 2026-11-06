@@ -1,7 +1,7 @@
 module support
 
 // str.v - String Helpers (Laravel Str class inspired)
-import rand
+import time
 
 // is_upper_char checks if a byte is an uppercase ASCII letter
 fn is_upper_char(ch u8) bool {
@@ -298,15 +298,15 @@ pub fn replace_last(s string, search string, replace string) string {
 // random_charset is the character set used by random() for alphanumeric generation
 const random_charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 
-// random generates a random alphanumeric string
+// random generates a random alphanumeric string.
+//
+// 为什么不用 `rand`：support 被 web / orm / core 依赖，而「被依赖方 import 了
+// 标准库」会让上游模块里对 support 的每一次函数调用被解析成 `void`
+// （现象：`unknown function: support.snake`、`expression does not return a
+// value so it cannot be cast`）。所以 support 刻意保持零 import，这里用
+// arr.v 里 shuffle() 已在用的同一套 time 种子 LCG。
 pub fn random(length int) string {
-	mut buf := []u8{cap: length}
-	chars_len := random_charset.len
-	for _ in 0 .. length {
-		idx := rand.intn(chars_len) or { 0 }
-		buf << u8(random_charset[idx])
-	}
-	return buf.bytestr()
+	return random_from(random_charset, length)
 }
 
 // mask masks a portion of the string with the given character.
@@ -416,4 +416,26 @@ pub fn pad_right_str(s string, length int, pad string) string {
 	needed := length - s.len
 	repeats := (needed + pad.len - 1) / pad.len
 	return s + pad.repeat(repeats)[..needed]
+}
+
+// random_from builds a string of `length` characters drawn from `charset`.
+//
+// 零 import 的随机来源：time 种子 + LCG（与 arr.v 的 shuffle() 同一套）。
+// `length <= 0` 返回空串，`charset` 为空返回空串 —— 调用方不必先判边界。
+pub fn random_from(charset string, length int) string {
+	if length <= 0 || charset.len == 0 {
+		return ''
+	}
+	mut seed := i64(time.now().unix_nano())
+	mut buf := []u8{cap: length}
+	for _ in 0 .. length {
+		// LCG: X_{n+1} = (a * X_n + c) mod m
+		seed = seed * i64(1103515245) + i64(12345)
+		mut mag := seed
+		if mag < 0 {
+			mag = -mag
+		}
+		buf << charset[int(mag % i64(charset.len))]
+	}
+	return buf.bytestr()
 }

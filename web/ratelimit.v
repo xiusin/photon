@@ -10,7 +10,23 @@ module web
 //     but complete in O(1) without iterating the full map.
 import time
 import sync
-import support
+
+// fnv1a_str computes the FNV-1a 64-bit hash of a string by iterating over its
+// bytes directly (no `s.bytes()` allocation), for hot paths such as shard
+// selection.
+//
+// 为什么不直接用 support.fnv1a_str：`support` 同时被注册成 `photon.support`，
+// 两条路径同时加载时 V 会解析到那份空的函数表，于是这里变成
+// `unknown function: fnv1a_str` —— 任何 import photon.web 的下游用户都会
+// 直接编译失败。cache/memory.v 早先因同一原因也做过本地实现。
+@[direct_array_access; inline]
+fn fnv1a_str(s string) u64 {
+	mut hash := u64(14695981039346656037) // FNV offset basis
+	for i in 0 .. s.len {
+		hash = (hash ^ u64(s[i])) * u64(1099511628211) // FNV prime
+	}
+	return hash
+}
 
 // shard_count is the default number of lock shards.
 // Must be a power of 2 for fast modulo via bitwise AND.
@@ -48,8 +64,8 @@ pub fn new_rate_limiter() &RateLimiter {
 // Uses FNV-1a hash for fast, uniform distribution.
 @[inline]
 fn (r &RateLimiter) shard_for(key string) int {
-	// FNV-1a 64-bit hash, zero-allocation via support.fnv1a_str
-	return int(support.fnv1a_str(key) & u64(shard_count - 1))
+	// FNV-1a 64-bit hash, zero-allocation (local impl, see fnv1a_str)
+	return int(fnv1a_str(key) & u64(shard_count - 1))
 }
 
 // effective_decay normalizes a decay window to a positive number of seconds.
@@ -395,7 +411,7 @@ pub fn new_fixed_window_limiter() &FixedWindowLimiter {
 // shard_for returns the shard index for a given key.
 @[inline]
 fn (fw &FixedWindowLimiter) shard_for(key string) int {
-	return int(support.fnv1a_str(key) & u64(shard_count - 1))
+	return int(fnv1a_str(key) & u64(shard_count - 1))
 }
 
 // max_windows bounds the windows map size to prevent unbounded memory

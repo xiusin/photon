@@ -300,7 +300,7 @@ fn get_table_name[T]() string {
 	} else {
 		full_name
 	}
-	return support.snake(short_name) + 's'
+	return snake_case(short_name) + 's'
 }
 
 // get_entity_pk_value extracts the primary key value from an entity

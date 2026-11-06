@@ -20,6 +20,11 @@ fn test_snake_numeric_boundary() {
 	// 数字开头的新词需要下划线，否则 api_v2 与 api_v_2 无法区分
 	assert snake('apiV2Service') == 'api_v2_service'
 	assert snake('V2') == 'v2'
+	// 数字之后的词首也要断开：`Order2Item` 是 `order2_item` 不是 `order2item`。
+	// orm/local_hash.v 里有一份本地的 snake_case 副本（为了绕开
+	// `photon.support` 双重身份，见 ARCHITECTURE.md 8.10），两边必须同步。
+	assert snake('Order2Item') == 'order2_item'
+	assert snake('utf8Text') == 'utf8_text'
 }
 
 fn test_kebab_keeps_acronym_together() {

@@ -80,9 +80,72 @@ pub fn (app &CliApplication) option_schema_for(command_name string) &OptionSchem
 					schema.declare_value_option(opt.param_name)
 				}
 			}
+		} else {
+			// 非注解命令（所有 make:* 都是）没有结构化选项信息，只能从
+			// signature 里读：`<name> [--resource]` 里的 `--resource` 是布尔，
+			// `[--output=<path>]` / `[--env <name>]` 是取值。
+			//
+			// 不读的后果是实打实的：schema 为空时解析器退回贪心规则，
+			// `make:controller --resource BlogPost` 会把 BlogPost 吃成 resource
+			// 的值，位置参数消失，命令自己报 "controller name is required"。
+			schema = schema_from_signature(declared.signature())
 		}
 	}
 	return schema
+}
+
+// schema_from_signature 从命令的 usage 串里解析出选项表。
+//
+// 三种写法都要认：
+//
+//   `[--resource]`        裸的     → 布尔
+//   `[--output=<path>]`   带等号   → 取值
+//   `[--env <name>]`      空格分隔 → 取值（下一个 token 是占位符）
+//
+// 占位符（`<name>` / `[pos]`）本身不含 `-`，不会被当成选项。
+fn schema_from_signature(sig string) &OptionSchema {
+	mut schema := new_option_schema()
+	mut tokens := []string{cap: 8}
+	for raw in sig.split(' ') {
+		// `[--env <name>]` 只有一个 token 带方括号，另一个裸着；先把括号统一剥掉
+		piece := raw.trim('[](),')
+		if piece.len > 0 {
+			tokens << piece
+		}
+	}
+	for i, token in tokens {
+		if !token.starts_with('-') || token == '-' || token == '--' {
+			continue
+		}
+		name := token.trim_left('-')
+		if name.len == 0 {
+			continue
+		}
+		next_is_placeholder := i + 1 < tokens.len && is_usage_placeholder(tokens[i + 1])
+		if token.contains('=') || token.contains('<') || next_is_placeholder {
+			clean := name.split('=')[0].trim('<>')
+			schema.declare_value_option(clean)
+		} else {
+			schema.declare_flag_option(name)
+		}
+	}
+	return schema
+}
+
+// is_usage_placeholder reports whether `token` is a value placeholder that
+// belongs to the preceding option, such as `<path>` in `[--output <path>]`.
+//
+// 只认 `<...>` 与被方括号包住的裸词。`args...` / `[command]` 这类是位置参数
+// 说明，不是上一个选项的值 —— 把 `--verbose` 后面跟的 `args...` 当成它的值，
+// 布尔选项就又变回「吞掉下一个 token」的老毛病。
+fn is_usage_placeholder(token string) bool {
+	if token.len == 0 || token.starts_with('-') {
+		return false
+	}
+	if token.starts_with('<') && token.ends_with('>') {
+		return true
+	}
+	return false
 }
 
 // run_args_with_output 与 run_args 相同，但输出目标由调用方给出。

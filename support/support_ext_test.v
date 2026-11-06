@@ -222,3 +222,24 @@ fn test_str_random() {
 	r2 := random(8)
 	assert r2.len == 8
 }
+
+// random() 以前调 rand.intn()，用的是标准库 `rand`。而 support 被 web / orm /
+// core 依赖，被依赖方 import 标准库会让上游对 support 的每次调用被解析成 void
+// （详见 ARCHITECTURE.md 8.10）。现在改成零 import 的 time 种子 LCG ——
+// 这个用例确认换实现之后随机性还在：不是每次都吐同一个串。
+fn test_str_random_is_actually_random() {
+	mut seen := map[string]bool{}
+	for _ in 0 .. 50 {
+		seen[random(16)] = true
+	}
+	assert seen.len > 1, '50 次调用只得到一个串，随机源坏了'
+}
+
+// 边界：长度非正、字符集为空都不该 panic
+fn test_str_random_from_edges() {
+	assert random_from('ab', 0) == ''
+	assert random_from('ab', -3) == ''
+	assert random_from('', 5) == ''
+	assert random_from('ab', 4).len == 4
+	assert random(0) == ''
+}
