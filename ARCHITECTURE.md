@@ -1438,7 +1438,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | locking | 6 | V built-in test |
 | ticker | 6 | V built-in test |
 | logger | 5 | V built-in test |
-| pool | 6 | V built-in test（含 DbPool 与零 orm 依赖校验） |
+| pool | 7 | V built-in test（含 DbPool、零 orm 依赖校验、PooledGuard 契约） |
 | storage | 5 | V built-in test |
 | http | 4 | V built-in test |
 | async | 4 | V built-in test |
@@ -1447,10 +1447,10 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
 | cli | 6 | V built-in test（含对生成产物的真实编译） |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **240** | |
+| **合计** | **241** | |
 
 > 口径：表格含 `core/tests/` 的 2 个黑盒用例。`scripts/run-tests.sh` 的
-> `ALL_MODULES` 不扫子目录，逐文件跑的是 237 个；`core/tests` 由
+> `ALL_MODULES` 不扫子目录，逐文件跑的是 238 个；`core/tests` 由
 > `make test-core-tests` 单独跑。
 
 ### 8.2 测试模式
@@ -2017,6 +2017,110 @@ struct 改回纯 pub:                          → 编译期红（field `headers
 可以被静态扫描看见；ResponseEntity 连「被谁用」都没有 —— 它的验收标准是
 「文件存在，且长得像 Spring」。**泛型类型的沉默比普通函数更彻底：它连
 「零引用」都表现为一种正常状态，因为没人实例化它。**
+
+### 8.14 PooledGuard：一条挂在「推荐用法」上的数据串号
+
+`pool/guard.v` 的 `PooledGuard[T]` 不是泛型沉默区 —— 它在 `example/verify`
+里被调用过，`web/request_pool.v` 也天天用它。这轮它出现在这里，是因为
+**被调用过的地方只走了三条直线路径**，而 `release()` 里有两个分支从头到尾
+没人踩进去：
+
+1. **`reset_on_release`**（归还前清数据）
+2. **临时 guard**（创建对象时池已耗尽，guard 里没有 pool）
+
+#### 第一条：推荐用法和「会清数据」的用法，是两条不同的路
+
+`web/request_pool.v` 文件头写的用法是：
+
+```v
+mut guard := rp.acquire[Session]('session')!
+defer { guard.release() }
+sess := guard.get()
+sess.set('user_id', '42')
+```
+
+而 `reset_fn` 当时只挂在 `rp.release(name, obj)` 上。于是：
+
+| 归还路径 | 是否调 reset | 后果 |
+|---|---|---|
+| `rp.release(name, obj)` | 是 | 正确 |
+| `guard.release()`（文档推荐、`defer` 的标准写法） | **否** | 上一个请求的 `user_id` 被下一个请求读到 |
+
+这不是「算错了」，是**对象确实归还了、计数确实对、`is_released()` 确实是 true**，
+所有可观测信号都正常，只有池化对象里的数据没清。`web/request_pool_test.v`
+原有的 `with_acquired` 用例断言的是「回调执行了」，也没碰这件事。
+
+修法是把 reset 挂到**归还的那条路径本身**，而不是挂在调用方要记得走的另一条
+路径上：
+
+```v
+pub struct PooledGuard[T] {
+pub mut:
+	obj              voidptr
+	released         bool
+	is_temporary     bool
+	reset_on_release fn (voidptr) = unsafe { nil }   // 归还前跑一次
+}
+```
+
+`release()` 里 reset 在锁外执行：`reset_fn` 会碰对象，`Pool.release()` 会拿池的
+互斥锁，任一在 `g.mu` 下面做都会引入守卫与池的锁序反转。
+
+#### 第二条：临时 guard 的 `release()` 是个静默 no-op
+
+池耗尽时 `acquire` 会造一个回退对象，并返回 `new_pooled_guard(nil, obj)`。
+而 `release()` 的第一行是：
+
+```v
+if g.released || isnil(g.pool) || isnil(g.obj) {
+	return          // ← 连 released 都没置位
+}
+```
+
+`isnil(g.pool)` 在条件里，等于「临时对象永远不算被释放」。调用方按 RAII 契约写
+`assert guard.is_released()` 永远拿不到 true，也没法区分「还在手上」和「已经没了」；
+对它调用 `release()` 既不归还也不销毁，对象就这么漏了。
+
+`web/request_pool_test.v` 里原有的临时对象用例只断言 `isnil(guard.get())` 不崩，
+所以这条一直绿。
+
+修法是把「回退对象」建成一个显式的形状，而不是用「nil pool」隐式表达：
+
+```v
+pub fn new_temporary_guard[T](obj voidptr) PooledGuard[T]   // is_temporary: true
+```
+
+`release()` 现在把 `isnil(g.obj)` 作为唯一短路条件，`temporary || isnil(pool)` 时
+`free` 掉对象再返回 —— 回退对象能做的事只有一件（被销毁），现在它真的做了。
+`web.RequestPool.with_acquired` 的池耗尽分支同样补上了 reset 与 `free`
+（那条路径直接建对象、调回调、丢掉，既不进池也不再经过任何 release 钩子）。
+
+#### 用例与变异
+
+`pool/guard_test.v` 12 条（首次覆盖整个守卫 API）+ `web/request_pool_test.v`
+新增 5 条。六轮变异，每轮都让对应用例变红、恢复后绿：
+
+```
+release() 条件加回 isnil(g.pool)         → 临时守卫三连红
+acquire 不再给守卫挂 reset_on_release     → 复用对象残留 42
+release() 不调 reset_on_release           → 上面 + 池守卫的 reset 用例
+回退对象不 free（release 静默 no-op）      → 段错误 / is_released 断言红
+get() 去掉 g.released 判断                → 需要把 g.obj 填回去才抓得住（见下）
+with_acquired 临时分支去掉 reset           → mark.n == 1（应为 0）
+```
+
+第二、五两条各值得说一句：
+
+- **`acquire` 那条变异，行为用例本来就该红。** 它一直绿，是因为没人写过
+  「第二个请求能不能读到第一个请求的数据」这一句。
+- **`get()` 那条第一版没红。** 因为 `release()` 顺手把 `g.obj` 清空了，只查
+  `isnil(g.obj)` 的实现看起来也对。用例得手动把 `g.obj` 填回去才能证明
+  `released` 是独立条件 —— 否则测的是「obj 被清空了」，不是「released 被检查了」。
+
+这一条的形状和前几轮不同：前几轮沉默的是「没人调的代码」「没人看的输出」
+「看起来太可信的表格」。这次的代码天天被调用，**沉默的是它的第二条路径** ——
+被推荐的那条。`.release()` 在几乎每个示例里都写对了，只是没有一个示例写过
+`defer { guard.release() }` 之后再去读一次对象。
 
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 

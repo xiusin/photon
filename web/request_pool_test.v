@@ -183,7 +183,7 @@ fn test_request_pool_release_nil_obj_is_noop() {
 	// release nil 对象为 no-op
 	// Releasing a nil object is a no-op
 	mut rp := new_request_pool(RequestPoolConfig{})
-	rp.release('test', voidptr(0)) // 不应 panic / should not panic
+	rp.release('test', unsafe { nil }) // 不应 panic / should not panic
 	assert true
 }
 
@@ -276,9 +276,7 @@ fn test_request_pool_with_acquired_releases_on_error() {
 	}, reset_test_pooled_obj)!
 	rp.with_acquired[TestPooledObj]('test', fn (obj &TestPooledObj) ! {
 		return error('callback error')
-	}) or {
-		assert err.msg() == 'callback error'
-	}
+	}) or { assert err.msg() == 'callback error' }
 	// 对象应已释放 / Object should have been released
 	assert true
 }
@@ -667,4 +665,124 @@ fn test_request_pool_multiple_pools_independent() {
 
 	guard_b.release()
 	assert guard_b.is_released() == true
+}
+
+// ── acquire/defer 的 reset 契约 / reset on the acquire path ──
+//
+// 这几条针对一个只会在「推荐用法」上出现的缺陷：
+//
+//   mut guard := rp.acquire[Session]('session')!
+//   defer { guard.release() }
+//
+// 这是 request_pool.v 文件头写的用法，也是唯一省心的用法。但 reset_fn
+// 以前只挂在 rp.release(name, obj) 上，走 guard.release() 这条路根本不 reset。
+// 结果是上一个请求写进池化对象的字段，会被下一个请求原样读到。
+//
+// 行为用例抓不住它（对象确实归还了、计数确实对），所以下面这条同时断言
+// 「不该残留的数据没残留」。
+
+fn test_request_pool_guard_release_clears_reset_fields() {
+	mut rp := new_request_pool(RequestPoolConfig{
+		min_size: 1
+		max_size: 1
+	})
+	rp.register_pool[TestPooledObj]('test', fn () !voidptr {
+		return unsafe { voidptr(new_test_pooled_obj()) }
+	}, reset_test_pooled_obj)!
+
+	mut guard := rp.acquire[TestPooledObj]('test')!
+	mut obj := guard.get()
+	obj.value = 42
+	obj.name = 'request-1'
+	guard.release()
+
+	// 第二个「请求」拿到的是同一个对象，必须已经被 reset 过
+	mut next := rp.acquire[TestPooledObj]('test')!
+	reused := next.get()
+	assert reused.value == 0
+	assert reused.name == ''
+	next.release()
+}
+
+// ── 池耗尽时的临时对象 / fallback objects when the pool is exhausted ──
+
+fn test_request_pool_temporary_guard_reports_released() {
+	// 池满时 acquire 返回临时对象。它没有池可归还，但 release() 必须把
+	// released 置位：否则调用方按 RAII 契约写 `assert guard.is_released()`
+	// 永远得不到 true，也没法区分「还在手上」和「已经没了」。
+	mut rp := new_request_pool(RequestPoolConfig{
+		min_size: 1
+		max_size: 1
+	})
+	rp.register_pool[TestPooledObj]('test', fn () !voidptr {
+		return unsafe { voidptr(new_test_pooled_obj()) }
+	}, reset_test_pooled_obj)!
+
+	mut hog := rp.acquire[TestPooledObj]('test')!
+	mut temp := rp.acquire[TestPooledObj]('test')!
+	assert !temp.is_released()
+	assert !isnil(temp.get())
+	temp.release()
+	assert temp.is_released()
+	assert isnil(temp.get())
+	hog.release()
+}
+
+fn test_request_pool_with_acquired_temporary_runs_reset() {
+	// with_acquired 的池耗尽分支同样要 reset：那条路径直接建对象、
+	// 调回调、丢掉，既不进池也不再经过任何 release 钩子。
+	mut mark := &ResetCounter{}
+	mut rp := new_request_pool(RequestPoolConfig{
+		min_size: 1
+		max_size: 1
+	})
+	rp.register_pool[TestPooledObj]('test', fn () !voidptr {
+		return unsafe { voidptr(new_test_pooled_obj()) }
+	}, fn [mut mark] (obj voidptr) {
+		mark.n++
+		reset_test_pooled_obj(obj)
+	})!
+
+	mut hog := rp.acquire[TestPooledObj]('test')!
+	rp.with_acquired[TestPooledObj]('test', fn (obj &TestPooledObj) ! {
+		assert !isnil(obj)
+	})!
+	assert mark.n == 1
+	hog.release()
+	assert mark.n == 2
+}
+
+fn test_request_pool_with_acquired_temporary_resets_on_error() {
+	// 回调失败时也一样：reset 先跑，错误再往上抛。
+	mut mark := &ResetCounter{}
+	mut rp := new_request_pool(RequestPoolConfig{
+		min_size: 1
+		max_size: 1
+	})
+	rp.register_pool[TestPooledObj]('test', fn () !voidptr {
+		return unsafe { voidptr(new_test_pooled_obj()) }
+	}, fn [mut mark] (obj voidptr) {
+		mark.n++
+		reset_test_pooled_obj(obj)
+	})!
+
+	mut hog := rp.acquire[TestPooledObj]('test')!
+	mut caught := false
+	rp.with_acquired[TestPooledObj]('test', fn (obj &TestPooledObj) ! {
+		return error('callback boom')
+	}) or {
+		caught = true
+		assert err.msg() == 'callback boom'
+	}
+	assert caught
+	assert mark.n == 1
+	hog.release()
+}
+
+// 计数器必须是堆上的引用，不能写 `mut n := 0` + `fn [mut n]`：V 0.5.2 的
+// `[mut x]` 捕获给的是副本，闭包内自增对外不可见（最小复现见
+// strutil/module_identity_test.v）。用它计数会得到「一次都没调」。
+struct ResetCounter {
+mut:
+	n int
 }

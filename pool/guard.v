@@ -40,10 +40,18 @@ import sync
 // prevent double-release in concurrent scenarios.
 @[heap]
 pub struct PooledGuard[T] {
+pub:
+	pool &Pool = unsafe { nil }
 pub mut:
-	pool     &Pool = unsafe { nil }
 	obj      voidptr = unsafe { nil }
 	released bool
+	// is_temporary marks a fallback object created when the pool was exhausted.
+	// There is no pool to return it to, so release() destroys it instead.
+	is_temporary bool
+	// reset_on_release runs before the object goes back to the pool. It lets
+	// the caller (e.g. web.RequestPool) clear request-scoped data on the same
+	// path that returns the object, so the two can never diverge.
+	reset_on_release fn (voidptr) = unsafe { nil }
 mut:
 	mu sync.Mutex
 }
@@ -54,6 +62,24 @@ pub fn new_pooled_guard[T](p &Pool, obj voidptr) PooledGuard[T] {
 		pool:     p
 		obj:      obj
 		released: false
+	}
+}
+
+// new_temporary_guard wraps an object that does NOT belong to a pool — it was
+// created as a fallback when the pool was exhausted.
+//
+// Why this is a constructor and not `new_pooled_guard(nil, obj)`: release()
+// used to treat a nil pool as "nothing to do" and return *before* setting
+// `released`, so a temporary guard answered `is_released() == false` forever
+// and callers following the RAII contract (`acquire`, `get`, `release`) had no
+// way to know whether the object had been handed back. A fallback object has
+// exactly one thing to do on release — be destroyed — and now says so.
+pub fn new_temporary_guard[T](obj voidptr) PooledGuard[T] {
+	return PooledGuard[T]{
+		pool:         unsafe { nil }
+		obj:          obj
+		released:     false
+		is_temporary: true
 	}
 }
 
@@ -81,17 +107,36 @@ pub fn (g &PooledGuard[T]) is_released() bool {
 // Spring equivalent: DataSourceUtils.releaseConnection()
 pub fn (mut g PooledGuard[T]) release() {
 	g.mu.@lock()
-	if g.released || isnil(g.pool) || isnil(g.obj) {
+	if g.released || isnil(g.obj) {
+		// Already released (or never held an object): nothing to return.
+		//
+		// `isnil(g.pool)` is deliberately NOT part of this condition. A
+		// temporary guard (see new_temporary_guard) has no pool, and bail-ing
+		// out here before setting `released` left it reporting "not released"
+		// forever while its object was already gone.
 		g.mu.unlock()
 		return
 	}
 	g.released = true
 	obj := g.obj
 	p := g.pool
+	reset := g.reset_on_release
+	temporary := g.is_temporary
 	g.obj = unsafe { nil }
 	g.mu.unlock()
 
-	// Release outside the lock to avoid blocking other guard operations
+	// Reset and release outside the lock: reset_fn may touch the object, and
+	// Pool.release() takes the pool mutex — doing either under g.mu invites a
+	// lock-order inversion between a guard and its pool.
+	if reset != unsafe { nil } {
+		reset(obj)
+	}
+	if temporary || isnil(p) {
+		// Fallback object: there is no pool to return it to. Free it here so
+		// `release()` on a temporary guard is not a silent no-op.
+		unsafe { free(obj) }
+		return
+	}
 	unsafe {
 		mut pp := p
 		pp.release(obj)
@@ -101,6 +146,12 @@ pub fn (mut g PooledGuard[T]) release() {
 // drop is called when the guard goes out of scope.
 // In V, this is typically called via defer { guard.release() }.
 // This method exists as a named cleanup entry point.
+//
+// It is NOT a destructor: V has no drop hook, so a guard whose release() is
+// never called keeps its object checked out for the lifetime of the pool.
+// Use `defer { guard.release() }` (or `with_acquired`) — the "automatic" in
+// RAII here means "one line you cannot forget to place next to acquire()",
+// not "the runtime will do it for you".
 pub fn (mut g PooledGuard[T]) drop() {
 	g.release()
 }
