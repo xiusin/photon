@@ -145,6 +145,7 @@ photon/
 │   ├── result.v          # 统一 API 响应封装（Result/PageResult）
 │   ├── bind.v            # DTO 绑定 @[required] @[form:'name']
 │   ├── model_binding.v   # 路由模型绑定
+│   ├── response_entity.v # ResponseEntity[T] 链式构建器（见 8.13）
 │   ├── input.v           # Laravel 风格请求参数访问
 │   ├── form.v            # FormBuilder 表单构建器
 │   ├── ratelimit.v       # RateLimiter 限流
@@ -1425,7 +1426,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 
 | 模块 | 测试文件数 | 测试框架 |
 |------|-----------|----------|
-| web | 55 | V built-in test + TestResponse 助手 |
+| web | 56 | V built-in test + TestResponse 助手（含 ResponseEntity 首次覆盖）|
 | orm | 33 | V built-in test |
 | core | 31 | V built-in test（含 ServiceLocator 首次覆盖） |
 | security | 17 | V built-in test |
@@ -1446,7 +1447,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
 | cli | 6 | V built-in test（含对生成产物的真实编译） |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **239** | |
+| **合计** | **240** | |
 
 > 口径：表格含 `core/tests/` 的 2 个黑盒用例。`scripts/run-tests.sh` 的
 > `ALL_MODULES` 不扫子目录，逐文件跑的是 237 个；`core/tests` 由
@@ -1934,6 +1935,89 @@ re-export 加一条逐个实例化的编译探针，它们是和泛型 `Reposito
 `photon.pool`，只出现在注释掉的占位 re-export 里）。它们让每个下游
 `import photon` 都多收三条 unused-import warning。
 
+### 8.13 ResponseEntity：一个泛型 struct 怎么让整条链式 API 一起消失
+
+`web/response_entity.v` 是 Spring `ResponseEntity<T>` 的对等物：7 个状态码工厂
+（`ok_entity` / `created_entity` / `accepted_entity` / `no_content_entity` /
+`bad_request_entity` / `not_found_entity` / `server_error_entity`）+ 5 个链式
+构建器（`header` / `content_type` / `location` / `etag` / `set_status`）
++ 2 个转换（`to_result` / `to_json_result`）。
+
+**它整块编译不过，而且从没有任何调用方。** 全仓库对它的引用只有 `photon.v`
+里那行 `pub type ResponseEntity = web.ResponseEntity` —— 而 re-export 类型名的
+存在不会实例化泛型。所以它没被编译过，也就不可能在任何一轮「全量全绿」里出声。
+
+触发条件很反直觉：**哪怕只调一个工厂函数，5 个链式方法也一起报错。**
+
+```v
+e := web.ok_entity[string]('hi')
+// web/response_entity.v:132:5: error: field `headers` of struct
+//   `&web.ResponseEntity[string]` is immutable
+```
+
+V 在实例化泛型 struct 时会连同**全部**方法体做检查，所以「有一条方法写错」
+等于「这个类型不可用」，而不是「这条方法不可用」。
+
+两个根因，都是 V 语义而不是笔误：
+
+1. **`pub:` 字段只读。** 构建器写 `re.headers[k] = v`，只在 `pub mut:` 下合法。
+2. **工厂返回的是值，而构建器是 `mut` 接收者。** 于是文件头文档承诺的
+   `web.created[User](user).header(...)` 在 V 里不成立 —— 编译器直接拒绝
+   「把表达式当 `mut` 传」（`cannot pass expression as 'mut'`）。
+
+修法是让形状和用法对上，而不是在调用侧写 `mut e := ...` 绕过去：
+
+```v
+@[heap]                              // 工厂要返回 &T，V 不许指针逃出栈
+pub struct ResponseEntity[T] {
+pub mut:
+	status  int = 200
+	headers map[string]string        // 链式方法原地改这两个
+pub:
+	body     T
+	has_body bool = true
+}
+
+pub fn ok_entity[T](body T) &ResponseEntity[T]            // 返回指针
+pub fn (re &ResponseEntity[T]) header(...) &ResponseEntity[T] {
+	unsafe {
+		mut r := re
+		r.headers[key] = value
+	}
+	return re
+}
+```
+
+`&ResponseEntity[T]` 接收者 + `unsafe { mut r := re }` 是 V 里「不可变左值也能
+原地改并返回 self」的标准写法。这样 `ok_entity[string]('x').header('K','v')`
+直接成立，与 Spring / Laravel 的 fluent 体感一致，调用方不需要 `mut` 变量。
+
+`web/response_entity_test.v` 用两层断言钉住这件事：
+
+- **行为层**：状态码、`has_body`、链式合流、`to_result` 写回 `ctx.res.status_code`、
+  两个实体不共享 headers。
+- **结构层**：直接读源码断言「工厂返回 `&ResponseEntity[T]`」「链式方法以
+  `&ResponseEntity[T]` 为接收者」「struct 有 `pub mut:` 段」。
+
+结构层不是洁癖：行为用例可以用 `mut e := ...` 绕开，绕开之后把签名改回按值
+`mut` 接收者，行为断言照样全绿 —— 缺陷会悄悄回来。三轮变异都验证过：
+
+```
+链式接收者改回 (mut re ResponseEntity[T])   → 编译期红（cannot pass expression as mut）
+ok_entity 改回返回值类型                    → 结构断言红，报出违规那一行
+struct 改回纯 pub:                          → 编译期红（field `headers` is immutable）
+```
+
+顺带修掉文件头那段「示例」：它写的是 `web.response_entity[User]{...}` /
+`web.created[User](user)` / `web.not_found[string]()`，三个名字**从未存在**过
+（真实名是 `ok_entity` / `created_entity` / `not_found_entity`）。文档里的示例
+现在逐个实跑过，四个片段都能编能跑。
+
+这一条和第 8.12 是同一个形状，但更彻底一步：ServiceLocator 至少还有签名，
+可以被静态扫描看见；ResponseEntity 连「被谁用」都没有 —— 它的验收标准是
+「文件存在，且长得像 Spring」。**泛型类型的沉默比普通函数更彻底：它连
+「零引用」都表现为一种正常状态，因为没人实例化它。**
+
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 
 `scripts/run-tests.sh` 之外，还有两条不写下来每次都会重踩的：
@@ -2061,6 +2145,7 @@ docker   — Docker 镜像构建
 | web/router.v | 149 | RouteRegistry + compile-time scan_routes[T] |
 | web/middleware.v | 193 | MiddlewareChain + request_id/compression/timing |
 | web/result.v | 144 | Result + PageResult + 全部 HTTP 状态码 |
+| web/response_entity.v | 274 | ResponseEntity[T] 链式构建器（Spring 对齐，见 8.13）|
 | web/testing.v | 602 | TestResponse 链式断言（含 JSON 路径断言） |
 | web/bind.v | 151 | DTO 绑定 + @[required] 校验 |
 | web/server.v | 200 | web.run[T] 包装器 + 可注入启动参数 |
