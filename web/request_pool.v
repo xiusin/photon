@@ -212,18 +212,29 @@ pub fn (mut rp RequestPool) acquire[T](name string) !pool.PooledGuard[T] {
 	}
 
 	mut pg := unsafe { entry.pool }
-	guard := pg.acquire_guard[T]() or {
+	mut guard := pg.acquire_guard[T]() or {
 		// Pool exhausted: create a temporary object outside the pool.
-		// The guard's release() will detect nil pool and skip pool return.
 		// 池耗尽：在池外创建临时对象。
-		// Guard 的 release() 检测到 nil pool 时会跳过池归还。
+		//
+		// new_temporary_guard (not new_pooled_guard(nil, ...)) so that
+		// guard.release() actually destroys the fallback object and flips
+		// is_released() — the plain constructor treated a nil pool as a no-op
+		// and left the guard permanently unreleased.
 		eprintln('[RequestPool] pool "${name}" exhausted, creating temporary object / 池 "${name}" 耗尽，创建临时对象')
 		obj := factory_create_temp[T]() or {
 			return error('request pool "${name}" exhausted and temp creation failed: ${err} / 请求池 "${name}" 耗尽且临时创建失败: ${err}')
 		}
-		return pool.new_pooled_guard[T](unsafe { nil }, obj)
+		mut temp := pool.new_temporary_guard[T](obj)
+		temp.reset_on_release = entry.reset_fn
+		return temp
 	}
 
+	// Reset is attached to the guard so `defer { guard.release() }` — the
+	// documented usage — clears request-scoped data on the way back to the
+	// pool. Before this, reset only ran through rp.release(name, obj), so the
+	// recommended path leaked data across requests: the user_id written by
+	// request N was still there when request N+1 acquired the same object.
+	guard.reset_on_release = entry.reset_fn
 	return guard
 }
 
@@ -236,7 +247,11 @@ pub fn (mut rp RequestPool) acquire[T](name string) !pool.PooledGuard[T] {
 // 推荐使用 acquire[T]() 以获得 RAII 安全性。
 pub fn (mut rp RequestPool) acquire_raw(name string) !voidptr {
 	rp.mu.rlock()
-	entry := rp.entries[name] or { PoolEntry{ pool: unsafe { nil } } }
+	entry := rp.entries[name] or {
+		PoolEntry{
+			pool: unsafe { nil }
+		}
+	}
 	rp.mu.runlock()
 
 	if isnil(entry.pool) {
@@ -248,7 +263,7 @@ pub fn (mut rp RequestPool) acquire_raw(name string) !voidptr {
 		// Pool exhausted: create temporary object, not pooled
 		// 池耗尽：创建临时对象，不放入池
 		eprintln('[RequestPool] pool "${name}" exhausted, creating temporary object / 池 "${name}" 耗尽，创建临时对象')
-		return voidptr(0)
+		return unsafe { nil }
 	}
 	return obj
 }
@@ -269,7 +284,11 @@ pub fn (mut rp RequestPool) release(name string, obj voidptr) {
 	}
 
 	rp.mu.rlock()
-	entry := rp.entries[name] or { PoolEntry{ pool: unsafe { nil } } }
+	entry := rp.entries[name] or {
+		PoolEntry{
+			pool: unsafe { nil }
+		}
+	}
 	rp.mu.runlock()
 
 	// Call the registered reset_fn to clear request-specific data
@@ -322,6 +341,11 @@ pub fn (mut rp RequestPool) with_acquired[T](name string, callback fn (&T) !) ! 
 	obj := pg.acquire() or {
 		// Pool exhausted: create temporary object
 		// 池耗尽：创建临时对象
+		//
+		// The fallback object leaves the pool's hands immediately, so this is
+		// the only place that can destroy it — and the only place that can
+		// reset it. Skipping either leaks the object and leaves the previous
+		// request's data in it.
 		eprintln('[RequestPool] pool "${name}" exhausted, creating temporary object / 池 "${name}" 耗尽，创建临时对象')
 		temp_obj := factory_create_temp[T]() or {
 			return error('request pool "${name}" exhausted and temp creation failed: ${err} / 请求池 "${name}" 耗尽且临时创建失败: ${err}')
@@ -333,11 +357,13 @@ pub fn (mut rp RequestPool) with_acquired[T](name string, callback fn (&T) !) ! 
 			if entry.reset_fn != unsafe { nil } {
 				entry.reset_fn(temp_obj)
 			}
+			unsafe { free(temp_obj) }
 			return err
 		}
 		if entry.reset_fn != unsafe { nil } {
 			entry.reset_fn(temp_obj)
 		}
+		unsafe { free(temp_obj) }
 		return
 	}
 
