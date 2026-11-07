@@ -9,9 +9,7 @@ import cache
 import security
 import photon.cli
 import ticker
-import strutil
 import pageable
-import http
 import queue
 import locking
 import photon.orm
@@ -19,7 +17,6 @@ import web
 import storage
 import mailer
 import apidoc
-import photon.pool
 
 // Re-export config types
 pub type Config = config.Config
@@ -67,15 +64,6 @@ pub type CommandOutput = cli.CommandOutput
 // Re-export ticker types
 pub type Timer = ticker.Timer
 pub type Ticker = ticker.Ticker
-
-// Re-export strutil types (generic — use with type param, e.g. Collection[int])
-// pub type Collection = strutil.Collection
-// pub type LengthAwarePaginator = strutil.LengthAwarePaginator
-// pub type SimplePaginator = strutil.SimplePaginator
-
-// Re-export http types (placeholders - see photon.http module)
-// pub type HttpClient = http.HttpClient
-// pub type HttpResponse = http.HttpResponse
 
 // Re-export queue types
 pub type Job = queue.Job
