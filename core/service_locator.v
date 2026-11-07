@@ -34,19 +34,29 @@ pub mut:
 // ── Module-Level Convenience Functions ──
 // These mirror Laravel's helper functions: app(), resolve(), app('service')
 
-// service resolves a service by type name from the given ApplicationContext.
+// 这三个便利函数收 `&ApplicationContext`，不收值。
+//
+// 收值（原来的 `mut ctx ApplicationContext`）有两个实打实的问题：
+//   1. 它诱导调用方写 `ApplicationContext{}` 再传进去。而 ApplicationContext
+//      的 container / event_bus / environment 等字段都是 `&X = unsafe { nil }`，
+//      零值构造后 `ctx.has()` 会直接解引用 nil 指针 —— 段错误，不是 error。
+//   2. 按值传递会把整个上下文复制一份：两把 sync.RwMutex、resolve_cache、
+//      is_frozen 全跟着复制。副本上的锁和缓存与原对象脱节，任何写入都看不见。
+// 框架唯一的正规构造入口是 `new_application_context() &ApplicationContext`，
+// 引用签名与它对齐，也让「零值构造」在编译期就传不进来。
+//
 // Laravel equivalent: app('service_name')
-pub fn service_from(mut ctx ApplicationContext, type_name string) !voidptr {
+pub fn service_from(mut ctx &ApplicationContext, type_name string) !voidptr {
 	return ctx.resolve(type_name)
 }
 
 // has_service checks if a service is registered.
-pub fn has_service_from(mut ctx ApplicationContext, type_name string) bool {
+pub fn has_service_from(mut ctx &ApplicationContext, type_name string) bool {
 	return ctx.has(type_name)
 }
 
 // qualified_service resolves a service by qualifier from the given ApplicationContext.
-pub fn qualified_service_from(mut ctx ApplicationContext, qualifier string) !voidptr {
+pub fn qualified_service_from(mut ctx &ApplicationContext, qualifier string) !voidptr {
 	return ctx.resolve_by_qualifier(qualifier)
 }
 

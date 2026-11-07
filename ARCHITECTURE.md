@@ -1427,7 +1427,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 |------|-----------|----------|
 | web | 55 | V built-in test + TestResponse 助手 |
 | orm | 33 | V built-in test |
-| core | 30 | V built-in test |
+| core | 31 | V built-in test（含 ServiceLocator 首次覆盖） |
 | security | 17 | V built-in test |
 | cache | 17 | V built-in test |
 | queue | 9 | V built-in test |
@@ -1446,10 +1446,10 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
 | cli | 6 | V built-in test（含对生成产物的真实编译） |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **238** | |
+| **合计** | **239** | |
 
 > 口径：表格含 `core/tests/` 的 2 个黑盒用例。`scripts/run-tests.sh` 的
-> `ALL_MODULES` 不扫子目录，逐文件跑的是 236 个；`core/tests` 由
+> `ALL_MODULES` 不扫子目录，逐文件跑的是 237 个；`core/tests` 由
 > `make test-core-tests` 单独跑。
 
 ### 8.2 测试模式
@@ -1887,6 +1887,52 @@ pool.*`；给 `pool/` 加回 `import orm` → 下游编不过（并触发 V 检�
 和「检出目录恰好不叫 photon」。两者都不是 V 的限制，是脚本自己的选择。
 而同一个仓库里另一个测试文件早就解决了它 —— 结论被写成「修不动」，
 是因为没去问「有没有别处已经做过」。
+
+### 8.12 ServiceLocator 的沉默区，以及「下一轮该摸哪里」也要验证
+
+用静态扫描找「定义了、但整个仓库零引用的 `pub fn`」，撞到
+`core/service_locator.v`：三个模块级便利函数、`new_service_locator`、
+`ServiceLocator` 的四个实例方法，在 `core/context_test.v` 的 200+ 条用例里
+**一条都没被调用过**（那个文件头写着 ServiceLocator，测的是 ApplicationContext
+和 BindingRegistry）。逐个拿真实编译器调一遍，`ApplicationContext{}` 零值构造
+一进去就段错误。
+
+根因是签名把它引导成了误用：
+
+```v
+// 原来：按值收
+pub fn has_service_from(mut ctx ApplicationContext, name string) bool
+```
+
+收值很自然让调用方写 `ApplicationContext{}` 传进去；而 `ApplicationContext`
+的 `container` / `event_bus` / `environment` 都是 `&X = unsafe { nil }`，
+`ctx.has()` 直接解引用 nil。另外按值会把两把 `sync.RwMutex`、`resolve_cache`、
+`is_frozen` 全复制一份，副本上的锁和缓存与原对象脱节。
+
+改成 `mut ctx &ApplicationContext`（与 `new_application_context() &ApplicationContext`
+对齐）后，零值构造在编译期就传不进来。`core/service_locator_test.v` 第一次
+覆盖整套 API，并用一条结构断言锁住签名：改回按值，断言立刻红；去掉
+`ServiceLocator` 的 nil 保护，`test_service_locator_without_context_is_safe`
+会段错误。两轮变异都验证过。
+
+**同一轮里另一件被推翻的事。** 上一轮（#18）结尾建议「给 `photon.v` 里其余
+re-export 加一条逐个实例化的编译探针，它们是和泛型 `Repository` 同一批从没
+被编译过的声明」。实测结论：
+
+- V 0.5.2 的 `import photon` 会**立即**解析所有 `pub type X = y.X` 别名。
+  指向不存在的类型、或泛型 struct 不带类型参数，都在 import 时就报错 ——
+  `strutil/downstream_import_test.v` 里 `['photon.web', 'photon']` 那组已经能抓。
+- 把 116 个 re-export 逐个实例化（struct `{}` / enum `X(0)` / interface 与 map
+  别名走签名引用）、再逐个调方法，全部能编能跑。
+
+所以**没有**加那条探针：它相对现有入口断言是恒过的，而恒过的用例比没有用例
+更坏。上一轮那句「同一批从没被编译过」是把一个坏声明的性状顺手外推到一整片，
+没验证过。这也说明「下一轮该摸哪里」这个建议本身，同样可能是一条未经实测的
+外推 —— 和前面几轮修的「看起来已经做了」是同一种沉默，只是发生在计划里。
+
+顺手删掉 `photon.v` 里三个从未被活跃引用的 import（`strutil` / `http` /
+`photon.pool`，只出现在注释掉的占位 re-export 里）。它们让每个下游
+`import photon` 都多收三条 unused-import warning。
 
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 
