@@ -9,7 +9,7 @@ module main
 //   4. ctx.resolve_typed[T]() 从容器获取 Bean，装配到 veb App
 //   5. 启动 veb HTTP 服务器
 //   6. 服务器退出后 ctx.shutdown() 优雅关闭
-import cli
+import photon.cli
 import veb
 import time
 import web

@@ -1,125 +1,127 @@
 module strutil
 
-// downstream_import_test.v — 「仓库内」与「下游」两套模块解析必须一致
+// downstream_import_test.v — 「仓库内」与「下游」两套模块解析都必须成立
 //
-// 这一轮想修的东西，最后没能修，但查出了它的边界，所以把边界钉成用例。
-//
-// 现象
-// ----
-// `web/request_pool.v` 里是裸 `import pool`，`pool/db_pool.v` 里是裸 `import orm`。
-// 在仓库内编译（`v test web/`）时，V 先看导入方所在项目，于是解析到本仓库的
-// `pool/` 与 `orm/` —— 一切正常。
-//
-// 但下游用户是在**自己的工程**里写下 `import photon.web` 的。这条路径下，
-// `web/request_pool.v` 的裸 `import pool` 落到 vlib 自带的 `pool`
-// （里面只有 `ConnectionPool`，没有 `Pool` / `PoolStats`），于是：
-//
-//     unknown type `pool.PoolStats`
-//     unknown type `pool.Pool`
-//     …
-//
-// 报错出现在 `web/request_pool.v` 里，而用户根本没碰过这个文件。
-//
-// 为什么修不动（这一步是这轮真正的产出）
-// --------------------------------------
-// 直觉上的修法是改成 `import photon.pool`。但 V 0.5.2 的模块查找里，
-// `-path` 给的那些根**优先于**导入方所在项目。仓库内的测试命令
-// （`VFLAGS="-enable-globals" sh scripts/run-tests.sh`）不带 `-path`，
-// 于是 `import photon.pool` 在仓库内一律报 `cannot import module "photon.pool"`。
-//
-// 两种写法各让一方编不过：
+// 这一轮修掉的东西
+// ----------------
+// 上一轮（130e35b）在这里钉了三条「已知编不过」的断言，结论是「这版修不动」：
 //
 //     裸名 `import pool`      → 仓库内绿，下游红
 //     `import photon.pool`    → 下游绿，仓库内红
 //
-// 而这台机器上连 `~/.vmodules/photon` 都没有，两边都满足不了。
-// 所以这轮**没有**动那两行 import —— 改一半比不改更糟：那会让 `run-tests.sh`
-// 从「全绿」变成「web 整片红」，而红的理由跟被测代码毫无关系。
+// 那张表的第二行是**错的**，错在把「仓库内」当成一个不可改变的物理视角。
+// 实际上「仓库内红」只是因为 `run-tests.sh` 不带 `-path`：V 按
+// `<查找根>/<module_path>` 拼 `import photon.pool`，而工作区叫 `/workspace`
+// 不叫 `photon`，于是找不到。给编译命令一个把仓库挂成 `photon` 的查找根，
+// `import photon.pool` 在仓库内也能解析 —— 同一个仓库里的
+// `cli/make_stub_compiles_test.v:stub_photon_module_root()` 早就这么做了。
 //
-// 这条用例负责把这个事实钉住，并在条件允许时自动升级
-// ---------------------------------------------------------------------
-// 一旦构建侧补齐了「仓库内也能解析 `photon.x`」的前置（例如 `run-tests.sh`
-// 统一带上 `-path <仓库父目录>`），下面两条断言会从「记录差异」变成
-// 「要求通过」，并在那一刻变红提醒把它改成普通的通过断言。
+// 另一半真缺陷是裸 `import pool` / `import orm` / `import cli` 与 vlib 自带
+// 模块重名：下游写 `import photon.web` 时它们落到 vlib，报出一堆用户没碰过的
+// 文件里的 unknown type。现在框架源码统一用全限定名 `photon.x`，
+// `pool/` 也不再 import orm（DbPool 只需要一个 driver 标签）。
+//
+// 所以这三条断言从「记录差异」升级成「要求通过」。
+//
+// 为什么必须用拷贝
+// ----------------
+// 下游视角要模拟真实安装布局。用符号链接时，`<lookup>/photon/web/x.v` 的
+// real path 仍是 `/workspace/web/x.v`，V 顺着 `/workspace` 往上找，会看见
+// 本仓库的 `pool/`、`orm/` —— 缺陷被链接本身掩盖。同一份代码，链接进来绿、
+// 拷进去红。真实安装一定是拷贝，所以这里必须 `cp -a`。
 import os
 
 fn downstream_v() string {
 	return os.find_abs_path_of_executable('v') or { '' }
 }
 
-// downstream_can_compile 在仓库**外侧**建一个最小工程，用真实安装布局编一次。
-//
-// 关键：cwd 在临时目录，只靠 `-path` 里的 `photon` 符号链接找模块 ——
-// 这就是「用户机器上」的解析环境。仓库内那种「本地目录优先」的便利全部消失。
-fn downstream_can_compile(import_line string) (bool, string) {
-	v_exe := downstream_v()
-	if v_exe == '' {
-		return true, 'skipped: v not found'
-	}
-	base := os.join_path(os.temp_dir(), 'photon-downstream-${os.getpid()}')
-	os.rmdir_all(base) or {}
+// build_downstream_tree 在仓库外侧建一份真实安装布局，返回查找根。
+// 一次拷贝、多处复用：五个入口各编一次已经不便宜，每次再 cp 整仓库会把
+// 用例推过 30s 预算（那会被误报成「用例挂死」，其实只是编译慢）。
+fn build_downstream_tree(base string) (string, string) {
 	lookup := os.join_path(base, 'lookup')
 	app := os.join_path(base, 'app')
 	os.mkdir_all(lookup) or {}
 	os.mkdir_all(app) or {}
-	defer {
-		os.rmdir_all(base) or {}
-	}
-	// 必须**拷贝**一份，不能用符号链接。
-	//
-	// 用符号链接时，`/tmp/x/lookup/photon/web/request_pool.v` 的 real path
-	// 仍然是 `/workspace/web/request_pool.v`，V 于是按 `/workspace` 往上找，
-	// 恰好看见 `/workspace/pool` —— 裸 `import pool` 侥幸成功，缺陷被掩盖。
-	// 这是我在这一轮里被误导了两次的地方：同一份代码，链接进来是绿的，
-	// 拷进去是红的。真实的安装/发布一定是拷贝。
 	src_root := os.dir(@DIR)
 	link := os.join_path(lookup, 'photon')
-	cp := os.execute('cp -a "${src_root}/." "${link}/"')
-	if cp.exit_code != 0 {
-		return true, 'skipped: cannot copy repo: ${cp.output}'
+	res := os.execute('cp -a "${src_root}/." "${link}/"')
+	if res.exit_code != 0 {
+		return '', 'cannot copy repo: ${res.output}'
 	}
+	// `locking/redis_lock_client.v` 用 `import xiusin.vredis`，它是 vendor 进
+	// 仓库的第三方模块。真实安装里它应该在模块查找根上，这里补上，否则
+	// `import photon.web` 会因为缺 vendor 而假红，掩盖掉真正要验的东西。
+	vendor_src := os.join_path(src_root, 'vendor', 'modules', 'xiusin', 'vredis')
+	if os.is_dir(vendor_src) {
+		vendor_dst := os.join_path(lookup, 'xiusin', 'vredis')
+		os.mkdir_all(os.dir(vendor_dst)) or {}
+		os.execute('cp -a "${vendor_src}/." "${vendor_dst}/"')
+	}
+	return lookup, ''
+}
 
-	src := 'module main\n\n${import_line}\n\nfn main() {\n\tprintln("ok")\n}\n'
-	main_file := os.join_path(app, 'main.v')
+// compile_downstream_import 编一个只含这些 import 的最小 main。
+//
+// 「能不能解析模块」用一次编译就能验，不必为每个入口各编一遍整棵依赖树。
+// 把 photon.web 与 photon 合在同一组：两者都要编 web 依赖树，分开编等于
+// 把同一份工作付两次，会把这条用例推过 30s 运行预算（那会被误报成挂死）。
+fn compile_downstream_import(v_exe string, lookup string, app string, mods []string, tag string) (bool, string) {
+	mut src := 'module main\n\n'
+	for m in mods {
+		src += 'import ${m}\n'
+	}
+	src += '\nfn main() {\n\tprintln("ok")\n}\n'
+	main_file := os.join_path(app, 'main-${tag}.v')
 	os.write_file(main_file, src) or { return false, 'cannot write ${main_file}' }
-	out := os.join_path(app, 'app.bin')
+	out := os.join_path(app, 'app-${tag}.bin')
 	res := os.execute('${v_exe} -enable-globals -no-rsp -path "@vlib|@vmodules|${lookup}" -o "${out}" "${main_file}"')
 	produced := os.exists(out)
 	os.rm(out) or {}
 	return res.exit_code == 0 && produced, res.output
 }
 
-// test_downstream_import_photon_web_is_known_to_fail 记录当前差异。
+// test_downstream_public_entrypoints_compile 把「公开入口必须能编」写成一条
+// 正向要求。任何一条退回裸 import、或 pool/ 重新 import orm、或 photon.v
+// 重新加回泛型 re-export，这里都会红。
 //
-// 如果这条用例红了，说明「下游 `import photon.web` 能编了」——
-// 那是好消息，请把本函数改成 `assert ok`，并把上面的注释删掉。
-fn test_downstream_import_photon_web_is_known_to_fail() {
-	ok, out := downstream_can_compile('import photon.web')
-	if ok {
-		assert false, '下游 `import photon.web` 现在能编了！这是好消息 —— ' +
-			'请把本用例改成 assert ok，并删掉 downstream_import_test.v 里「修不动」那段说明。'
+// 五个入口共用一份拷贝，web 与 photon 合编一次压住运行时间。找不到编译器
+// 就跳过并打印原因，不在没有编译器的环境里假装通过。
+fn test_downstream_public_entrypoints_compile() {
+	v_exe := downstream_v()
+	if v_exe == '' {
+		eprintln('skip: v not found')
+		return
 	}
-	// 失败必须还是那个原因，不能因为别的东西坏了而「恰好红」
-	assert out.contains('pool.') || out.contains('unknown type'), '下游失败原因变了，' +
-		'不再是 `pool.*` 解析问题，请重新读一遍这个文件：\n${out}'
+	base := os.join_path(os.temp_dir(), 'photon-downstream-${os.getpid()}')
+	os.rmdir_all(base) or {}
+	defer {
+		os.rmdir_all(base) or {}
+	}
+	lookup, err := build_downstream_tree(base)
+	assert err == '', err
+	app := os.join_path(base, 'app')
+
+	groups := [
+		['photon.pool'],
+		['photon.orm'],
+		['photon.cli'],
+		['photon.web', 'photon'],
+	]
+	mut gi := 0
+	for mods in groups {
+		ok, out := compile_downstream_import(v_exe, lookup, app, mods, 'g${gi}')
+		assert ok, '下游 `import ${mods.join(" / ")}` 编不过：\n${out}'
+		gi++
+	}
 }
 
-// test_downstream_import_photon_pool_is_known_to_fail 同上，守 `pool/db_pool.v`
-// 里裸 `import orm` 那条（vlib 也有 `orm`）。
-fn test_downstream_import_photon_pool_is_known_to_fail() {
-	ok, out := downstream_can_compile('import photon.pool')
-	if ok {
-		assert false, '下游 `import photon.pool` 现在能编了！请改成 assert ok。'
-	}
-	assert out.contains('orm.') || out.contains('unknown type'), '下游失败原因变了，' +
-		'不再是 `orm.*` 解析问题：\n${out}'
-}
-
-// test_repo_side_import_still_works 反面：仓库内那套解析必须保持可用。
+// test_repo_side_import_still_works 反面：仓库内那套解析也必须保持可用。
 //
-// 这条和上面两条是一对。哪天有人「顺手」把 `web/request_pool.v` 的
-// `import pool` 改成 `import photon.pool`，这里立刻红 —— 因为 `run-tests.sh`
-// 不带 `-path`，仓库内解析不到 `photon.pool`。它挡的是「改一半」。
+// 关键不同：这里**带 -path**（指向把本仓库挂成 `photon` 的查找根），
+// 正是 `run-tests.sh` 现在默认注入的那一个。上一轮这条不带 -path，
+// 于是只能守「别把 import pool 改成 photon.pool」—— 那是在守一个
+// 自我设限，不是守正确性。
 fn test_repo_side_import_still_works() {
 	v_exe := downstream_v()
 	if v_exe == '' {
@@ -127,11 +129,23 @@ fn test_repo_side_import_still_works() {
 		return
 	}
 	root := os.dir(@DIR)
+	// 和 cli/make_stub_compiles_test.v:stub_photon_module_root() 同一套做法：
+	// 目录名恰为 photon 用父目录，否则在临时目录放一个叫 photon 的链接。
+	// 这里用链接是安全的 —— 只验证「仓库内能解析 photon.x」，不需要模拟
+	// 下游安装布局。
+	lookup := os.join_path(os.temp_dir(), 'photon-repo-lookup-${os.getpid()}')
+	os.mkdir_all(lookup) or {}
+	link := os.join_path(lookup, 'photon')
+	if !os.exists(link) {
+		os.symlink(root, link) or { panic(err) }
+	}
+	defer {
+		os.rm(link) or {}
+		os.rmdir_all(lookup) or {}
+	}
 	out := os.join_path(os.temp_dir(), 'photon-repo-side-${os.getpid()}.so')
-	res := os.execute('${v_exe} -enable-globals -no-rsp -shared -o "${out}" "${os.join_path(root, "web")}"')
+	res := os.execute('${v_exe} -enable-globals -no-rsp -path "@vlib|@vmodules|${lookup}" -shared -o "${out}" "${os.join_path(root, "web")}"')
 	produced := os.exists(out)
 	os.rm(out) or {}
-	assert res.exit_code == 0 && produced, 'web/ 在仓库内编不过了。' +
-		'如果是因为把 `import pool` 改成了 `import photon.pool`，请回退那处改动 —— ' +
-		'`run-tests.sh` 不带 `-path`，仓库内解析不到 `photon.x`：\n${res.output}'
+	assert res.exit_code == 0 && produced, 'web/ 在仓库内编不过了：\n${res.output}'
 }

@@ -19,7 +19,7 @@ module web
 //
 // Spring equivalent: @Scope("request") + ObjectPool
 //   (Spring manages request-scoped bean lifecycle)
-import pool
+import photon.pool
 import sync
 
 // ── Resettable Interface / 可重置接口 ──

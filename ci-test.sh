@@ -71,7 +71,11 @@ echo "→ Step 4: Build Example"
 # 全量编译本身也可能卡在 comptime 展开上，给一个更宽的熔断（默认 300s）。
 mkdir -p bin
 BUILD_TIMEOUT="${PHOTON_BUILD_TIMEOUT:-300}"
-timeout -k 10 "$BUILD_TIMEOUT" v $VFLAGS -prod -o bin/photon-app example/ || {
+# example/ 会经由 web/request_pool.v 引到 `import photon.pool`，同样需要
+# photon 查找根（见 scripts/photon-lookup.sh）。不带 -path 会报
+# `cannot import module "photon.pool"`。
+LOOKUP=$(sh scripts/photon-lookup.sh)
+timeout -k 10 "$BUILD_TIMEOUT" v $VFLAGS -path "@vlib|@vmodules|${LOOKUP}" -prod -o bin/photon-app example/ || {
     rc=$?
     echo "  ❌ example 编译失败 (rc=$rc$([ "$rc" -eq 124 ] && echo ", 超 ${BUILD_TIMEOUT}s 已强杀"))"
     exit 1

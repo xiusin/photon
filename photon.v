@@ -7,19 +7,19 @@ import core
 import logger
 import cache
 import security
-import cli
+import photon.cli
 import ticker
 import strutil
 import pageable
 import http
 import queue
 import locking
-import orm
+import photon.orm
 import web
 import storage
 import mailer
 import apidoc
-import pool
+import photon.pool
 
 // Re-export config types
 pub type Config = config.Config
@@ -92,7 +92,9 @@ pub type DriverType = orm.DriverType
 pub type TransactionManager = orm.TransactionManager
 pub type Propagation = orm.Propagation
 pub type QueryParts = orm.QueryParts
-pub type Repository = orm.Repository
+// 注意：`orm.Repository[T]` 是泛型 struct，V 0.5.2 不支持泛型类型别名
+// （`generic type aliases are not yet implemented`），因此不能在这里 re-export。
+// 用户请直接 `import photon.orm` 后用 `orm.Repository[T]`。
 
 // Re-export orm migration types
 pub type MigrationManager = orm.MigrationManager

@@ -5,7 +5,7 @@ module main
 import config
 import logger
 import cache
-import pool
+import photon.pool
 import locking
 import core
 
