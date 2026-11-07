@@ -13,6 +13,10 @@
 
 # ── V Compiler flags ──
 VFLAGS := -enable-globals
+# example/ 与 verify/ 会引到 `import photon.<x>`，编译时需要 photon 查找根。
+# 与 scripts/run-tests.sh、ci-test.sh 共用同一份，避免半套修复。
+PHOTON_LOOKUP := $(shell sh $(ROOT_PREFIX)scripts/photon-lookup.sh)
+VFLAGS += -path @vlib|@vmodules|$(PHOTON_LOOKUP)
 
 # Locate a usable `v` binary. We prefer PATH, then a few well-known install
 # locations, then fall back to whatever V points at. CI sandboxes and Mac/Linux

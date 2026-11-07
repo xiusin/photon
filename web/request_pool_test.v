@@ -16,7 +16,7 @@ module web
 //   - Resettable 接口
 //   - 预置 reset 函数（reset_session, reset_middleware_context, reset_input）
 import sync
-import pool
+import photon.pool
 
 // ── 测试用简单对象 / Simple test object ──
 

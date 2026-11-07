@@ -1,26 +1,32 @@
 module strutil
 
-// module_identity_test.v — 仓库里不许再出现「一个目录两个模块名」
+// module_identity_test.v — 模块名的两条规矩
 //
-// 为什么这条用例存在
-// ------------------
-// `photon.v` 声明 `module photon`，仓库根目录就是 photon 模块的目录。于是任何
-// 顶层目录 `X/` 会同时被注册成两个名字：
+// 一、`support/` 不许复活
+// ----------------------
+// `photon.v` 声明 `module photon`，仓库根目录就是 photon 模块的目录。过去
+// `support/` 同时被注册成 `support` 与 `photon.support` 两个名字，在**不带
+// -path 的仓库内视角**下会解析到后者那份空的函数表，报一串离真因很远的
+// `unknown function: support.snake`。改名 `strutil/` / `pageable/` 后消失。
 //
-//     import X          → <root>/X
-//     import photon.X   → <root>/X     （同一个目录，两张模块表）
+// 二、与 vlib 重名的模块必须用全限定名
+// ----------------------------------
+// `cli/`、`orm/`、`pool/` 与 vlib 自带模块重名。源码里写裸 `import pool`
+// 时，仓库内解析到本仓库的 pool/，下游写 `import photon.web` 却解析到
+// vlib/pool（没有 Pool / PoolStats）—— 用户什么都没改，却在自己的构建里
+// 收到一堆没碰过的文件里的 unknown type。
 //
-// 两条路径同时被加载时，V 会解析到 `photon.X` 那份空的函数表，报出来的不是
-// 「找不到模块」，而是一串 `unknown function: X.foo` —— 离真因很远。
-// `support/` 曾经就是这个形状，任何 `import photon.web` 的下游用户都编不过。
+// 所以这些模块的**所有源码引用**（含 example/verify）一律写
+// `import photon.<dir>`。混用裸名与全限定名会让同一目录注册两张模块表，
+// 正是双重身份的触发条件：verify 里 `import pool` + 框架里
+// `import photon.pool` 曾让 `photon.pool.Pool` 整个查不到。上一轮这里
+// 有一条相反的禁令（禁止任何 `import photon.<dir>`），理由是「双重身份」。
+// 复核后发现那个结论只在「不带 -path」时成立：`run-tests.sh` 现在默认注入
+// 一个把仓库挂成 `photon` 的查找根，全仓库统一全限定名后两张模块表不再
+// 打架，双重身份不再触发。详见 strutil/downstream_import_test.v。
 //
-// 现在的规矩很简单：顶层目录名不许是 `photon.<dir>` 能拼出来的名字，
-// 也就是不许叫 `photon` 以外任何会与 `photon.X` 撞车的名字 —— 而
-// `photon.X` 对**任何**顶层目录都成立。所以真正的约束是：
-// **任何被 `import photon.<x>` 引用的模块，都不能同时作为顶层目录存在。**
-//
-// 这条用例直接扫仓库：只要某个顶层目录里有一份 `module <dir名>` 的 .v 文件，
-// 且这个目录不是 `photon` 自己，就检查没有任何源码 `import photon.<dir名>`。
+// 这条用例负责：撞 vlib 名的模块不许出现裸 import；`support/` 不许复活；
+// 公开模块名单不许被误改名；解析根机制不许被悄悄删掉。
 import os
 import strings
 
@@ -141,38 +147,41 @@ fn strip_string_literals(src string) string {
 	return out.str()
 }
 
-fn test_no_top_level_module_is_reachable_as_photon_dot_x() {
+// vlib_colliding_modules 是与 vlib 自带模块重名的顶层目录。V 的模块查找在
+// 下游视角下会优先命中 vlib，所以对它们的引用必须写全限定名。
+const vlib_colliding_modules = ['cli', 'orm', 'pool']
+
+fn test_vlib_colliding_modules_use_qualified_imports() {
 	mut offenders := []string{}
-	for dir in module_dirs() {
-		if dir == 'photon' {
-			continue
-		}
-		// 目录本身得真的是一个模块（有 `module <dir>` 的 .v）
-		if !declares_module(dir, dir) {
-			continue
-		}
-		needle := 'import photon.' + dir
+	for dir in vlib_colliding_modules {
+		needle := 'import ' + dir
 		for file in all_v_files() {
 			raw := os.read_file(file) or { continue }
 			content := strip_string_literals(raw)
 			for line in content.split_into_lines() {
 				trimmed := line.trim_space()
-				if !trimmed.starts_with(needle) {
+				if trimmed != needle {
 					continue
 				}
-				if trimmed.len > needle.len && is_ident_byte(trimmed[needle.len]) {
-					continue
-				}
-				offenders << '${file}: ${trimmed}  (目录 ${dir}/ 已占用模块名 `photon.${dir}`)'
+				offenders << '${file}: ${trimmed}  (模块 `${dir}` 与 vlib 重名，请写 `import photon.${dir}`)'
 			}
 		}
 	}
-	assert offenders.len == 0, 'found ${offenders.len} dual-identity import(s):\n' +
+	assert offenders.len == 0, 'found ${offenders.len} bare import(s) of a vlib-colliding module:\n' +
 		offenders.join('\n')
 }
 
-fn is_ident_byte(b u8) bool {
-	return (b >= `a` && b <= `z`) || (b >= `A` && b <= `Z`) || (b >= `0` && b <= `9`) || b == `_`
+// test_run_tests_provides_photon_lookup 顶住「解析根被悄悄删掉」。
+// 没有它，`import photon.pool` 在仓库内又会变回 cannot import，于是有人
+// 会顺手把全限定名退回裸名 —— 下游随即再坏一次。
+fn test_run_tests_provides_photon_lookup() {
+	script := os.read_file(os.join_path(root, 'scripts', 'run-tests.sh')) or {
+		assert false, 'cannot read scripts/run-tests.sh'
+		return
+	}
+	assert script.contains('-path @vlib|@vmodules|') && script.contains('photon-lookup.sh'), 'run-tests.sh 不再注入 photon 查找根。' +
+		'请恢复对 scripts/photon-lookup.sh 的调用，否则 `import photon.x` 在仓库内无法解析。'
+	assert os.exists(os.join_path(root, 'scripts', 'photon-lookup.sh')), 'scripts/photon-lookup.sh 不见了'
 }
 
 // test_known_modules_exist 顶住「模块被误改名/误删」这类静默回归：

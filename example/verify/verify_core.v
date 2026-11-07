@@ -4,7 +4,7 @@ module main
 
 import core
 import web
-import orm
+import photon.orm
 import ticker
 
 // ── 用于 DI 验证的示例 Bean ──

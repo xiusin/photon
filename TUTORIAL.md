@@ -1321,15 +1321,26 @@ p.acquire()                // 报错 —— 池已关闭
 
 ### 10.2 数据库连接池
 
+`DbPool` 只是给通用 `Pool` 加一个 driver 标签，用于池命名与诊断。它**不
+依赖 orm**：`pool` 与 vlib 自带模块重名，任何裸 `import orm` 在下游
+`import photon.pool` 时都会落到 vlib，所以 driver 用字符串标签传入。
+
 ```v
-mut dp := pool.new_db_pool(.sqlite, 2, 10)
+import photon.pool
+
+mut dp := pool.new_db_pool('sqlite', 2, 10, fn () !voidptr {
+    return create_db_connection()
+})
 dp.initialize()!
 conn := dp.acquire()!
 dp.release(conn)
-dp.driver_type()    // .sqlite
+dp.driver_label()   // 'sqlite'
 dp.stats()          // PoolStats
 dp.close()!
 ```
+
+`driver_type()` 是旧名，返回值同为标签字符串，保留它只是不静默打断按旧名
+书写的调用方。
 
 ---
 

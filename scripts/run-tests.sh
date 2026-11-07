@@ -28,17 +28,26 @@ set -u
 ROOT="${PHOTON_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$ROOT" || exit 1
 
-VFLAGS="${VFLAGS:--enable-globals}"
 TIMEOUT="${PHOTON_TEST_TIMEOUT:-30}"
 BUILD_TIMEOUT="${PHOTON_BUILD_TIMEOUT:-180}"
 V="${V:-v}"
 LOG_DIR="${PHOTON_TEST_LOG_DIR:-/tmp/photon-test-logs}"
+
 # 编译产物放仓库内临时目录，不放 /tmp。
 # 原因：把产物放 /tmp/photon-test-logs/.bin 时，产物会被立刻清掉
 # （v 返回 0 但目标文件不存在），于是每个文件都误报「编译失败」。
 # 放仓库内既稳定，也能被 .gitignore 一次覆盖。
 BIN_DIR="${PHOTON_TEST_BIN_DIR:-$ROOT/.photon-test-bin}"
 
+
+# photon 查找根：交给 scripts/photon-lookup.sh 统一算。
+# run-tests.sh / ci-test.sh / Makefile 都用它，避免「改了一处忘了另一处」。
+LOOKUP=$(sh "$ROOT/scripts/photon-lookup.sh")
+# VFLAGS 可被外部覆盖；默认把查找根拼进去。调用方自带 -path 时不再重复注入。
+case " $VFLAGS " in
+	*" -path "*) ;;
+	*) VFLAGS="${VFLAGS:--enable-globals} -path @vlib|@vmodules|${LOOKUP}" ;;
+esac
 ALL_MODULES="core config logger security cli web orm http queue strutil pageable ticker cache pool locking async photon_i18n health metrics mailer retry storage tracing apidoc"
 
 if [ $# -gt 0 ]; then
@@ -96,10 +105,34 @@ run_with_timeout() {
 # 分开的理由：合成一个预算时，慢机器上的冷编译会吃光预算并被报成「用例挂死」，
 # 于是有人去查一个并不存在的死锁。分开后 [BUILD-TIMEOUT] 和 [RUN-TIMEOUT]
 # 是两件不同的事，看到的标签就是结论。
+
+# e2e_test_timeout FILE —— 「用例内部再起 V 编译」的文件单独给运行预算。
+#
+# 为什么不能放宽全局 TIMEOUT
+# --------------------------
+# 30s 是拿来抓死锁的。放宽到 120s 之后，一个真挂死的用例要两分钟才被报出来，
+# 后面的模块一起被拖住 —— 那正是当初把编译/运行分开计时要解决的问题。
+#
+# 但有一类用例运行时会通过 os.execute 再起真实 V 编译：
+#   cli/make_stub_compiles_test.v    —— 编 8 份脚手架产物
+#   strutil/downstream_import_test.v —— 在仓库外拷贝一份，编 5 个公开入口
+# 它们慢在编译，不在死锁。实测运行分别 ~27s / ~52s，全量回归时机器一忙就
+# 撞 30s，被标签成「用例挂死」—— 这是误报，会让人去查一个不存在的死锁。
+# 所以只给这两条放宽，其它文件保持 30s。
+e2e_test_timeout() {
+	case "$(basename "$1")" in
+		make_stub_compiles_test.v|downstream_import_test.v)
+			printf '%s' "${PHOTON_E2E_TEST_TIMEOUT:-120}" ;;
+		*)
+			printf '%s' "$TIMEOUT" ;;
+	esac
+}
+
 run_one_file() {
 	_file=$1
 	_log=$2
 	_bin=$3
+	_run_timeout=$(e2e_test_timeout "$_file")
 
 	: >"$_log"
 
@@ -115,7 +148,7 @@ run_one_file() {
 		return
 	fi
 
-	run_with_timeout "$TIMEOUT" "$_bin" >>"$_log" 2>&1
+	run_with_timeout "$_run_timeout" "$_bin" >>"$_log" 2>&1
 	_rrc=$?
 	rm -f "$_bin"
 	if [ "$_rrc" -eq 124 ]; then

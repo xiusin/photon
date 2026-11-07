@@ -11,7 +11,7 @@ module main
 //           main.v 通过 ctx.resolve_typed[T]() 获取 Bean
 import logger
 import cache
-import orm
+import photon.orm
 import core
 
 // ═══════════════════════════════════════════════════════════

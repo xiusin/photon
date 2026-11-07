@@ -106,8 +106,10 @@ mkdir -p modules && ln -sfn /path/to/photon/web modules/web
 > **`cli` / `orm` / `pool` 这三个名字与 vlib 自带模块重名。** 仓库外写
 > `import orm` 会静默解析到 `vlib/orm`（里面没有 `DriverType`），报的是
 > `unknown enum orm.DriverType` —— 看不出是 import 错了模块。这三个模块必须用
-> `import photon.orm` 形式的完整路径。`make:*` 生成的 stub 已经统一这么写了。
-> 详见 [ARCHITECTURE.md 8.10](ARCHITECTURE.md)。
+> `import photon.orm` 形式的完整路径，`make:*` 生成的 stub 与框架源码都已经
+> 统一这么写了。**同一个工程里不要混用裸名和全限定名**：那会让同一目录注册
+> 两张模块表，`photon.pool.Pool` 之类会整个查不到。
+> 详见 [ARCHITECTURE.md 8.10 / 8.11](ARCHITECTURE.md)。
 
 ### 安装
 
@@ -123,11 +125,21 @@ sh scripts/sync-vendor.sh    # 或 make vendor
 make test-all                # 全部 23 个模块（逐文件跑，每条命令 30s 熔断）
 make test-vendor             # vendored vredis（需要本机 Redis）
 
-# 构建示例应用
-v -enable-globals -prod -o bin/photon example/
+# 构建示例应用（make build / make verify 会自动带上 photon 查找根，见下）
+make build
 
 # 跑功能验证套件（247 项断言，需要上面那份编译器补丁）
 make verify
+```
+
+框架源码内部引用 `cli` / `orm` / `pool` 时用全限定名 `import photon.<x>`，
+所以**任何编译框架源码的命令都需要一个 photon 查找根**。`make`、
+`ci-test.sh`、`scripts/run-tests.sh` 都会自动调用 `scripts/photon-lookup.sh`
+把它拼进 `-path`；手写命令时照抄一行即可：
+
+```bash
+LOOKUP=$(sh scripts/photon-lookup.sh)
+v -enable-globals -path "@vlib|@vmodules|${LOOKUP}" -prod -o bin/photon example/
 ```
 
 ### 依赖策略：唯一第三方代码 vendor 在仓库内

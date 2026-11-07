@@ -1103,7 +1103,7 @@ ticker:  零依赖（纯 V channel/goroutine）
 | pageable | 无 | 纯标准库 |
 | ticker | 无 | 纯 V channel |
 | cache | xiusin.vredis（vendored） | 仅 RedisStore 需要；内存后端零依赖 |
-| pool | orm (db_pool) | 仅 DbPool 依赖 orm.DriverType |
+| pool | 无 | 纯标准库；DbPool 用 driver_label 字符串，不依赖 orm |
 | locking | 无 | cache 可选（分布式锁后端） |
 | queue | 无 | 无外部依赖 |
 | storage | 无 | 标准库 os |
@@ -1437,7 +1437,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | locking | 6 | V built-in test |
 | ticker | 6 | V built-in test |
 | logger | 5 | V built-in test |
-| pool | 5 | V built-in test |
+| pool | 6 | V built-in test（含 DbPool 与零 orm 依赖校验） |
 | storage | 5 | V built-in test |
 | http | 4 | V built-in test |
 | async | 4 | V built-in test |
@@ -1446,7 +1446,11 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
 | cli | 6 | V built-in test（含对生成产物的真实编译） |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **237** | |
+| **合计** | **238** | |
+
+> 口径：表格含 `core/tests/` 的 2 个黑盒用例。`scripts/run-tests.sh` 的
+> `ALL_MODULES` 不扫子目录，逐文件跑的是 236 个；`core/tests` 由
+> `make test-core-tests` 单独跑。
 
 ### 8.2 测试模式
 
@@ -1477,6 +1481,17 @@ VFLAGS="-enable-globals -no-rsp" sh scripts/run-tests.sh
 # 本机没有可用的 gc 库时（预编译 gc 缺 sigsetjmp 符号）：
 VFLAGS="-enable-globals -gc none" sh scripts/run-tests.sh
 ```
+
+`run-tests.sh` 会**自动**给 VFLAGS 追加
+`-path @vlib|@vmodules|<photon 查找根>`（见 8.11），让框架源码里的
+`import photon.<x>` 在任意检出目录名下都能解析。调用方自带的 `VFLAGS` 里
+若已有 `-path`，脚本不再重复注入。
+
+另外，两个「运行时内部再起 V 编译」的端到端用例
+（`cli/make_stub_compiles_test.v`、`strutil/downstream_import_test.v`）有单独
+的运行预算 `PHOTON_E2E_TEST_TIMEOUT`（默认 120s），其余文件保持 30s。
+理由：30s 是拿来抓死锁的，而这两条慢在真实编译（实测 ~27s / ~52s），
+放宽全局会让真死锁两分钟后才被报出来。
 
 **为什么要逐文件跑。** `v test mod/` 把整个模块的用例编进一个二进制，
 只要里面有 1 个用例死锁，整个模块就挂住，CI 只能等到全局限时才失败 ——
@@ -1700,7 +1715,7 @@ to_snake_case 退回原样返回      → 5 条红
 迁移退回 phorm.TableBuilder     → 红，报 "unknown method TableBuilder.id"
 ```
 
-### 8.10 模块命名：任何顶层目录都不能被 `photon.<dir>` 撞上
+### 8.10 模块命名：support 不许复活，撞 vlib 名的模块必须全限定
 
 `photon.v` 声明 `module photon`，仓库根目录就是 photon 模块的目录。于是任何
 顶层目录 `X/` 会**同时**被注册成两个名字：
@@ -1735,13 +1750,18 @@ orm/entity.v:358:2:  error: `support.snake(field_name)` used as value
 光把目录改名不够 —— 下一个人完全可以再建一个同形状的目录，然后一切照旧。
 所以有一组用例直接扫仓库：
 
-- 任何顶层目录里若有 `module <dir>`，就不许出现顶格的 `import photon.<dir>`
-  （字符串字面量会先被剥掉，`cli/make_commands.v` 的生成器模板不算）
 - `support/` 目录一旦复活就红，报错信息直接写清它为什么会打断下游构建
 - 公开模块名单逐个断言存在，防止误改名
+- **与 vlib 重名的模块（`cli` / `orm` / `pool`）不许出现裸 `import <dir>`**，
+  框架源码一律写 `import photon.<dir>`
+- **`run-tests.sh` 不许丢掉 photon 查找根**（见 8.11）
 
-变异验证：造 `support/` 目录 → 红；造 `mymod/` 并让 `core/core.v` 真的
-`import photon.mymod` → 红；清理后 → 绿。
+这里有一条禁令被这一轮反转了：上一版禁止任何 `import photon.<dir>`，理由是
+「双重身份」。复核后发现那只在**不带 -path 的仓库内视角**下成立；统一全限定名
+并给测试脚本注入查找根后，两张模块表不再打架。详见 8.11。
+
+变异验证：造 `support/` 目录 → 红；把某个 `import photon.pool` 退回裸
+`import pool` → 红；把 `run-tests.sh` 的 `-path` 删掉 → 红；清理后 → 绿。
 
 #### 顺带撞出来的两件事
 
@@ -1773,50 +1793,100 @@ orm/entity.v:358:2:  error: `support.snake(field_name)` used as value
 这是 Photon 里最容易自欺的一处盲区，也是好几轮 bug 的共同土壤。
 
 **仓库内**（`v test web/`、`sh scripts/run-tests.sh`）编译时，V 的模块查找把
-「导入方所在项目」排在前面，于是：
-
-```
-web/request_pool.v 里的 import pool   → <root>/pool      （本仓库的）
-pool/db_pool.v 里的 import orm        → <root>/orm       （本仓库的）
-```
-
+「导入方所在项目」排在前面，于是裸 `import pool` 解析到本仓库的 `pool/`。
 **下游**（用户工程里写 `import photon.web`）时，查找根是用户的工程目录，
-于是同样那两行落到 vlib：
+同样那行落到 **vlib/pool**（里面只有 `ConnectionPool`，没有 `Pool` /
+`PoolStats`）：
 
 ```
-import pool  → vlib/pool   （里面只有 ConnectionPool，没有 Pool / PoolStats）
-import orm   → vlib/orm    （没有 DriverType）
+unknown type `pool.PoolStats`
+unknown type `pool.Pool`
 ```
 
-表现是「用户什么都没改，却在自己的构建里收到一堆 `web/request_pool.v`
-的 `unknown type pool.Pool`」。
+`pool/db_pool.v` 的裸 `import orm` 同理，落到 vlib/orm（没有 `DriverType`）。
+用户什么都没改，却在自己的构建里收到一堆没碰过的文件里的错。
 
-**这一轮想修，最后证明修不动。** 因为 V 0.5.2 里 `-path` 给的那些根
-**优先于**导入方所在项目，而 `run-tests.sh` 不带 `-path`：
+#### 上一轮说「修不动」，这一轮修掉了
+
+`130e35b` 在这里钉了三条「已知编不过」的断言，理由是这张表：
 
 | 写法 | 仓库内 | 下游 |
 |---|---|---|
 | 裸名 `import pool` | ✅ | ❌ |
 | `import photon.pool` | ❌ | ✅ |
 
-两种写法各让一方编不过，而改一半更糟：`run-tests.sh` 会从全绿变成 web 整片红，
-红的理由还跟被测代码毫无关系。所以这一轮**没有动那两行 import**。
+**第二行是错的。** 「仓库内红」只是因为 `run-tests.sh` 不带 `-path`：V 按
+`<查找根>/<module_path>` 拼 `import photon.pool`，而工作区叫 `/workspace`
+不叫 `photon`，于是找不到。给编译命令一个把仓库挂成 `photon` 的查找根，
+`import photon.pool` 在仓库内也能解析。
 
-`strutil/downstream_import_test.v` 把这个边界钉成三条断言：
+这个机制其实**早就在仓库里**：`cli/make_stub_compiles_test.v` 的
+`stub_photon_module_root()` 为了让生成器产物里的 `import photon.cli` 能编，
+做的就是同一件事。上一轮只在「改 import 写法」和「不加 -path」两个选项里
+选，没把已有机制接到 import 修正上。
 
-1. `test_downstream_import_photon_web_is_known_to_fail` —— 记录当前差异。
-   哪天上游条件变了、它真的能编了，这条会红并提示「改成 assert ok」。
-2. `test_downstream_import_photon_pool_is_known_to_fail` —— 同上，守 `pool/db_pool.v`。
-3. `test_repo_side_import_still_works` —— 挡「改一半」：谁把 `import pool`
-   单方面改成 `import photon.pool`，这里立刻红。
+#### 这一轮的处置
 
-**写这三条用例时踩到一个把我误导了两次的坑：符号链接。**
-第一版用 `os.symlink` 把仓库链进临时目录当查找根，结果下游那条**恒绿**。
-原因是 `/tmp/x/photon/web/request_pool.v` 的 real path 仍是
-`/workspace/web/request_pool.v`，V 顺着 `/workspace` 往上找，恰好看见
-`/workspace/pool` —— 缺陷被链接本身掩盖了。同一份代码，链接进来是绿的，
-`cp -a` 拷进去是红的。真实的安装/发布一定是拷贝，所以用例必须拷贝。
-**「我的复现是绿的」有时候只说明复现方式不对，不说明缺陷不存在。**
+1. **`pool/` 去掉 orm 依赖。** `DbPool` 对 orm 的全部使用只是给池起个名字，
+   连 `orm.Connection` 都不碰。改成持有 `driver_label string`，`pool/`
+   只剩标准库 import。顺带发现它从没被测试过、TUTORIAL 里那段示例也编不过
+   （少传 factory、`.sqlite` 无枚举上下文），已补 `pool/db_pool_test.v` 并修对示例。
+2. **框架源码统一全限定名。** `web/request_pool.v`、`web/request_pool_test.v`、
+   `photon.v` 里所有裸 `import cli/orm/pool` 改成 `import photon.<dir>`。
+   全部统一、不留半个 —— 混用才会让同一目录注册两张模块表。
+3. **所有编译入口共用一份查找根。** `scripts/photon-lookup.sh` 在目录名恰为
+   `photon` 时用父目录，否则在仓库内临时目录放一个叫 `photon` 的符号链接，
+   `run-tests.sh`、`ci-test.sh`、`Makefile` 都把它的输出拼进
+   `-path @vlib|@vmodules|<lookup>`。用链接在这里是安全的：要的只是
+   「仓库内解析到本仓库」，不是模拟下游安装布局。
+   收敛到一份脚本是刻意的：第一次只改了 `run-tests.sh`，`example/` 的
+   dev/-prod 构建立刻报 `cannot import module "photon.pool"` —— 半套修复
+   比不修更糟。`strutil/module_identity_test.v` 会检查这个共享脚本还在。
+4. **顺手修掉 `import photon`（聚合入口）。** `photon.v` 里有一行
+   `pub type Repository = orm.Repository`，而 `orm.Repository[T]` 是泛型
+   struct，V 0.5.2 明确报 `generic type aliases are not yet implemented`。
+   这行从没编过 —— 只有 `import photon` 时才会编译它。已删并注明原因。
+
+现在五个下游入口（含聚合入口）在真实拷贝布局下都能编：
+`photon.pool` / `photon.web` / `photon.orm` / `photon.cli` / `photon`。
+
+**过程中撞到一次真的双重身份，值得记下来。** 只改框架源码时，`example/`
+主应用能编，`example/verify` 却报 `unknown type photon.pool.Pool`。差别是
+`verify_infra.v` 里有一行裸 `import pool` —— **混用裸名与全限定名**让同一
+目录注册了两张模块表。把 `example/` 与 `example/verify` 里剩下的
+`import orm` / `import cli` / `import pool` 全部统一后，dev / `-prod` / verify
+才一起绿。所以 `module_identity_test.v` 现在扫的是**整个仓库**（含 example），
+不再只扫框架源码：`example/` 是仓库内应用，但混用一样会炸。
+
+#### 防回归：`strutil/downstream_import_test.v`
+
+三条「known_to_fail」升级成正向断言：
+
+- 五个公开入口共用一份下游拷贝（一次 `cp -a`，不是符号链接），逐个要求编得过。
+  `photon.web` 与 `photon` 合编一次 —— 两者都要编整棵 web 依赖树，分开编会把
+  用例推过 30s 运行预算，那会被误报成「用例挂死」。
+- `test_repo_side_import_still_works` 带同样的查找根，守仓库内视角。
+- `locking/redis_lock_client.v` 用到的 vendored `xiusin.vredis` 会在下游
+  查找根上补齐，否则缺 vendor 会让 `import photon.web` 假红。
+
+**为什么必须用拷贝**：用符号链接时 `<lookup>/photon/web/x.v` 的 real path
+仍是 `/workspace/web/x.v`，V 顺着 `/workspace` 往上找，会看见本仓库的
+`pool/` / `orm/` —— 缺陷被链接本身掩盖。同一份代码，链接进来绿、`cp -a`
+拷进去红。**「我的复现是绿的」有时候只说明复现方式不对。**
+
+变异验证：把 `request_pool.v` 退回裸 `import pool` → 14 个 `unknown type
+pool.*`；给 `pool/` 加回 `import orm` → 下游编不过（并触发 V 检查器卡死）；
+删掉 `run-tests.sh` 的 `-path` → 结构断言红、仓库内 `photon.pool` 编不过。
+
+#### 一句修正
+
+上一轮这里写的是「**一个不够彻底的模拟，比不模拟更危险**」。这一轮要补的是：
+比不模拟更危险的，还有**把一个可改变的前提当成物理约束**。
+
+「仓库内一律编不过 `photon.pool`」这句话，成立条件只是「编译命令不带 -path」
+和「检出目录恰好不叫 photon」。两者都不是 V 的限制，是脚本自己的选择。
+而同一个仓库里另一个测试文件早就解决了它 —— 结论被写成「修不动」，
+是因为没去问「有没有别处已经做过」。
 
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 
@@ -1986,7 +2056,7 @@ docker   — Docker 镜像构建
 | queue/failed_jobs.v | 140 | 失败任务持久化 + 重放 |
 | locking/lock.v | 189 | LockManager + LocalMutex + LockGuard(RAII) |
 | pool/pool.v | 160 | Pool + PoolStats |
-| pool/db_pool.v | 61 | DbPool |
+| pool/db_pool.v | 96 | DbPool |
 | storage/storage.v | 204 | Storage + StorageManager + FileMetadata |
 | storage/local_adapter.v | 291 | LocalAdapter（完整文件系统操作）|
 

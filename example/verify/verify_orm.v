@@ -2,7 +2,7 @@ module main
 
 // verify_orm.v — 事务、Schema DDL、迁移、实体、仓储 验证
 
-import orm
+import photon.orm
 
 // VUser 验证用实体，内嵌 BaseEntity（提供 id/touch/is_new 及 @[primary_key] 元数据）
 struct VUser {

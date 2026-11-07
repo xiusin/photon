@@ -15,7 +15,7 @@ module main
 //   4. CacheService    — 缓存业务封装
 import time
 import cache
-import orm
+import photon.orm
 import logger
 import core
 
