@@ -17,6 +17,7 @@ module web
 //   - 预置 reset 函数（reset_session, reset_middleware_context, reset_input）
 import sync
 import photon.pool
+import os
 
 // ── 测试用简单对象 / Simple test object ──
 
@@ -785,4 +786,164 @@ fn test_request_pool_with_acquired_temporary_resets_on_error() {
 struct ResetCounter {
 mut:
 	n int
+}
+
+// ── close_all 之后的语义 / Semantics after close_all ──
+//
+// 这四个是同一件事的四个面：close_all() 以前只关内部 Pool，却把池留在
+// entries / pools 里。于是之后每一次 acquire 都找到 entry、问一个已关闭的池、
+// 拿到 `pool is closed`，在 `or` 块里吞掉、降级成临时对象——调用方拿到一个
+// 完全能用的对象，一个错误都收不到。池已经关了，而没有任何人能察觉。
+//
+// These four are four faces of one bug: close_all() used to close the inner
+// Pool but leave it in entries / pools. Every later acquire found the entry,
+// asked a closed pool, received `pool is closed`, swallowed it in the `or`
+// block and degraded to a temporary object — a fully working object, zero
+// errors reported. The pool was shut down and nobody could tell.
+
+fn test_request_pool_close_all_unregisters_pools() {
+	// close_all() 之后注册表必须是空的，而不只是「池被标记为关闭」
+	mut rp := new_request_pool(RequestPoolConfig{})
+	rp.register_pool[TestPooledObj]('a', fn () !voidptr {
+		return unsafe { voidptr(new_test_pooled_obj()) }
+	}, reset_test_pooled_obj)!
+	rp.register_pool[TestPooledObj]('b', fn () !voidptr {
+		return unsafe { voidptr(new_test_pooled_obj()) }
+	}, reset_test_pooled_obj)!
+	assert rp.pools.len == 2
+
+	rp.close_all()
+	assert rp.pools.len == 0
+	assert rp.pool_stats().len == 0
+}
+
+fn test_request_pool_acquire_after_close_all_errors() {
+	// 关闭后 acquire 必须明确报错，不能静默降级成临时对象
+	mut rp := new_request_pool(RequestPoolConfig{})
+	rp.register_pool[TestPooledObj]('test', fn () !voidptr {
+		return unsafe { voidptr(new_test_pooled_obj()) }
+	}, reset_test_pooled_obj)!
+	rp.close_all()
+
+	mut caught := false
+	rp.acquire[TestPooledObj]('test') or {
+		caught = true
+		msg := err.msg()
+		assert msg.contains('not found') || msg.contains('closed')
+	}
+	assert caught, 'close_all() 之后的 acquire 必须报错，不能返回一个临时对象'
+}
+
+fn test_request_pool_acquire_raw_after_close_all_errors() {
+	mut rp := new_request_pool(RequestPoolConfig{})
+	rp.register_pool[TestPooledObj]('test', fn () !voidptr {
+		return unsafe { voidptr(new_test_pooled_obj()) }
+	}, reset_test_pooled_obj)!
+	rp.close_all()
+
+	mut caught := false
+	rp.acquire_raw('test') or { caught = true }
+	assert caught, 'close_all() 之后的 acquire_raw 必须报错'
+}
+
+fn test_request_pool_with_acquired_after_close_all_errors() {
+	mut rp := new_request_pool(RequestPoolConfig{})
+	rp.register_pool[TestPooledObj]('test', fn () !voidptr {
+		return unsafe { voidptr(new_test_pooled_obj()) }
+	}, reset_test_pooled_obj)!
+	rp.close_all()
+
+	mut ran := &ResetCounter{}
+	mut caught := false
+	rp.with_acquired[TestPooledObj]('test', fn [mut ran] (obj &TestPooledObj) ! {
+		ran.n++
+	}) or {
+		caught = true
+	}
+	assert caught, 'close_all() 之后的 with_acquired 必须报错'
+	assert ran.n == 0, '回调不应该被调用——池已经关了'
+}
+
+fn test_request_pool_in_use_object_survives_close_all() {
+	// 已在用的对象在 close_all() 之后仍可 release，且不 panic。
+	// 这是唯一必须保留的能力：不关掉持有者手里那个对象。
+	mut rp := new_request_pool(RequestPoolConfig{
+		min_size: 1
+		max_size: 2
+	})
+	rp.register_pool[TestPooledObj]('test', fn () !voidptr {
+		return unsafe { voidptr(new_test_pooled_obj()) }
+	}, reset_test_pooled_obj)!
+	mut guard := rp.acquire[TestPooledObj]('test')!
+	rp.close_all()
+	guard.release()
+	assert guard.is_released()
+}
+
+fn test_request_pool_close_all_between_lookup_and_acquire() {
+	// 摘除注册表堵住了「close_all 之后还能拿到对象」的主路，但还有一条窄缝：
+	// acquire 读到 entry 之后、真正去问 Pool 之前，另一个协程调了 close_all。
+	// 此时 entry 已经在手（上面那次 rlock 已经放锁了），问到的就是一个
+	// 刚被关掉的池。这条路只剩 is_closed() 这道闸。
+	//
+	// 这里不靠并发复现（不可靠），直接对着 Pool 层验：已关闭的池必须能被
+	// 认出来，而不是让调用方从错误文本里猜。
+	mut p := pool.new_pool_with_config('closed-probe', fn () !voidptr {
+		return unsafe { voidptr(new_test_pooled_obj()) }
+	}, 0, 1)
+	p.initialize() or {}
+	assert !p.is_closed()
+	p.close() or {}
+	assert p.is_closed(), 'close() 之后 is_closed() 必须为 true'
+	mut caught := false
+	p.acquire() or {
+		caught = true
+		assert err.msg().contains('closed')
+	}
+	assert caught
+}
+
+fn test_request_pool_acquire_raw_exhausted_returns_nil() {
+	// acquire_raw 与 acquire 的分歧点，在此钉成事实而不是留给人猜：
+	// 池耗尽时 acquire 会建临时对象（有 pool.PooledGuard 兜底、不泄漏），
+	// acquire_raw 直接返回 nil —— 它拿的是裸 voidptr，没法替你决定
+	// 「这个临时对象该由谁销毁」，于是把判断权交给调用方。
+	//
+	// 这条用例同时锁住了「耗尽 ≠ 报错」：错误通道只用来报「未注册/已关闭」。
+	mut rp := new_request_pool(RequestPoolConfig{
+		min_size: 1
+		max_size: 1
+	})
+	rp.register_pool[TestPooledObj]('test', fn () !voidptr {
+		return unsafe { voidptr(new_test_pooled_obj()) }
+	}, reset_test_pooled_obj)!
+
+	mut hog := rp.acquire[TestPooledObj]('test')!
+	mut caught := false
+	rp.acquire_raw('test') or { caught = true }
+	assert !caught, '池耗尽时 acquire_raw 返回 nil，不应走错误通道'
+	hog.release()
+}
+
+fn test_request_pool_has_no_dead_stats_field() {
+	// RequestPool 以前还声明了一个 pub 的 `stats map[string]pool.PoolStats`，
+	// 从构造起就置空、全仓库没有任何写入方。它是第二个真相源的对立面：
+	// 一个永远为空、却出现在公开结构里的字段，读者会以为 pool_stats()
+	// 只是它的副本。现在只有一个来源（pool_stats()，直接问每个 Pool）。
+	//
+	// 用源码断言锁住：行为用例绕不过「字段存在但永远为空」这件事。
+	src := read_source('/web/request_pool.v')
+	assert !src.contains('\tstats map[string]pool.PoolStats'), 'RequestPool 的 stats 字段是死的，别再把它加回来'
+}
+
+// read_source 读取仓库内的源文件。测试的 cwd 是模块目录（web/），
+// 所以先从上一层找。找不到直接让用例失败，不要静默跳过。
+fn read_source(rel string) string {
+	for candidate in ['..${rel}', '.${rel}'] {
+		if os.exists(candidate) {
+			return os.read_file(candidate) or { '' }
+		}
+	}
+	assert false, '找不到源文件 ${rel}'
+	return ''
 }

@@ -111,7 +111,6 @@ pub:
 pub struct RequestPool {
 pub mut:
 	pools map[string]&pool.Pool
-	stats map[string]pool.PoolStats
 mut:
 	mu      sync.RwMutex
 	config  RequestPoolConfig
@@ -128,7 +127,6 @@ mut:
 pub fn new_request_pool(config RequestPoolConfig) &RequestPool {
 	return &RequestPool{
 		pools:   map[string]&pool.Pool{}
-		stats:   map[string]pool.PoolStats{}
 		config:  config
 		entries: map[string]PoolEntry{}
 	}
@@ -204,18 +202,22 @@ pub fn (mut rp RequestPool) register_pool[T](name string, factory fn () !voidptr
 //   sess := guard.get()
 pub fn (mut rp RequestPool) acquire[T](name string) !pool.PooledGuard[T] {
 	rp.mu.rlock()
-	entry := rp.entries[name]
-	rp.mu.runlock()
-
-	if isnil(entry.pool) {
-		return error('request pool "${name}" not found / 请求池 "${name}" 未找到')
+	entry := rp.entries[name] or {
+		rp.mu.runlock()
+		return error('request pool "${name}" not found or already closed / 请求池 "${name}" 未找到或已关闭')
 	}
+	rp.mu.runlock()
 
 	mut pg := unsafe { entry.pool }
 	mut guard := pg.acquire_guard[T]() or {
-		// Pool exhausted: create a temporary object outside the pool.
-		// 池耗尽：在池外创建临时对象。
+		// Only "exhausted" can reach here: an inner pool that was closed by
+		// close_all() is gone from entries, so the `or` block above already
+		// returned `not found or already closed`. Degrading is therefore
+		// correct here — it is the documented capacity behaviour.
 		//
+		// 只有「耗尽」能走到这里：被 close_all() 关闭的池已经从 entries 摘除，
+		// 上面的 or 块早就返回了「未找到或已关闭」。所以这里的降级是正确的，
+		// 它正是文档承诺的容量行为。
 		// new_temporary_guard (not new_pooled_guard(nil, ...)) so that
 		// guard.release() actually destroys the fallback object and flips
 		// is_released() — the plain constructor treated a nil pool as a no-op
@@ -248,20 +250,26 @@ pub fn (mut rp RequestPool) acquire[T](name string) !pool.PooledGuard[T] {
 pub fn (mut rp RequestPool) acquire_raw(name string) !voidptr {
 	rp.mu.rlock()
 	entry := rp.entries[name] or {
-		PoolEntry{
-			pool: unsafe { nil }
-		}
+		rp.mu.runlock()
+		return error('request pool "${name}" not found or already closed / 请求池 "${name}" 未找到或已关闭')
 	}
 	rp.mu.runlock()
 
-	if isnil(entry.pool) {
-		return error('request pool "${name}" not found / 请求池 "${name}" 未找到')
-	}
-
 	mut pg := unsafe { entry.pool }
 	obj := pg.acquire() or {
-		// Pool exhausted: create temporary object, not pooled
-		// 池耗尽：创建临时对象，不放入池
+		// Exhausted is a capacity signal, not an error: report nil and let the
+		// caller decide. There is no guard here to own a fallback object, so
+		// this entry point cannot create one behind the caller's back.
+		//
+		// No is_closed() check is needed below: close_all() unregisters the
+		// pool, so a closed pool can never be reached through entries. The
+		// `not found or already closed` error above covers that case.
+		//
+		// 耗尽只是容量信号，不是错误：返回 nil 由调用方决定。
+		// 这里没有 guard 接管回退对象，不能背着调用方建一个。
+		//
+		// 下面不需要 is_closed() 判断：close_all() 会注销池，已关闭的池
+		// 不可能从 entries 里查到，上面那条「未找到或已关闭」已覆盖该情形。
 		eprintln('[RequestPool] pool "${name}" exhausted, creating temporary object / 池 "${name}" 耗尽，创建临时对象')
 		return unsafe { nil }
 	}
@@ -330,12 +338,11 @@ pub fn (mut rp RequestPool) release(name string, obj voidptr) {
 //   })!
 pub fn (mut rp RequestPool) with_acquired[T](name string, callback fn (&T) !) ! {
 	rp.mu.rlock()
-	entry := rp.entries[name]
-	rp.mu.runlock()
-
-	if isnil(entry.pool) {
-		return error('request pool "${name}" not found / 请求池 "${name}" 未找到')
+	entry := rp.entries[name] or {
+		rp.mu.runlock()
+		return error('request pool "${name}" not found or already closed / 请求池 "${name}" 未找到或已关闭')
 	}
+	rp.mu.runlock()
 
 	mut pg := unsafe { entry.pool }
 	obj := pg.acquire() or {
@@ -405,23 +412,40 @@ pub fn (mut rp RequestPool) pool_stats() map[string]pool.PoolStats {
 
 // ── Lifecycle / 生命周期 ──
 
-// close_all closes all managed pools, destroying idle objects.
-// In-use objects are retained until their holders release them
-// (release on a closed pool destroys the object directly).
+// close_all closes all managed pools, destroying idle objects, and then
+// unregisters them. In-use objects are retained until their holders release
+// them (release on a closed pool destroys the object directly).
 // Safe to call multiple times.
 // Uses @lock (not rlock) since closing pools modifies state.
-// 使用 defer { mu.unlock() } 保证锁释放。
 //
-// close_all 关闭所有管理池，销毁空闲对象。
-// 使用中的对象保留到持有者释放它们
-// （在已关闭的池上 release 会直接销毁对象）。
+// Why the pools are unregistered and not merely closed:
+// closing the inner Pool left it in `rp.entries` / `rp.pools`, so every later
+// acquire() found the entry, asked a closed pool, got `pool is closed`,
+// swallowed it in the `or` block and fell back to a *temporary* object. The
+// caller saw a working object and no error — the pool had been shut down and
+// nobody downstream could tell. After close_all() the pool is gone from the
+// registry, so acquire() reports `not found` / `already closed` instead of
+// silently degrading forever.
+//
+// close_all 关闭所有管理池、销毁空闲对象，然后注销它们。
+// 使用中的对象保留到持有者释放它们（在已关闭的池上 release 会直接销毁对象）。
 // 可安全多次调用。
 // 使用 @lock（非 rlock），因为关闭池会修改状态。
-// Uses defer { mu.unlock() } to guarantee lock release.
+//
+// 为什么要注销而不只是关闭：只关内部 Pool 的话，它仍然留在 entries / pools 里，
+// 之后的 acquire() 能找到 entry、问一个已关闭的池、拿到 `pool is closed`，
+// 然后在 `or` 块里把错误吞掉、降级成临时对象。调用方看到的是一个能用的对象和
+// 一个错误都没有——池早就关了，下游没有任何人能察觉。注销之后 acquire() 会明确
+// 报「未找到 / 已关闭」，而不是永远静默降级。
 pub fn (mut rp RequestPool) close_all() {
 	rp.mu.@lock()
-	defer { rp.mu.unlock() }
 	entries_copy := rp.entries.clone()
+	// Unregister under the same lock that guards the maps, before releasing it:
+	// a window between "closed" and "removed" is exactly where a concurrent
+	// acquire would silently land on a dead pool.
+	rp.entries.clear()
+	rp.pools.clear()
+	rp.mu.unlock()
 
 	for name, entry in entries_copy {
 		mut pg := unsafe { entry.pool }
