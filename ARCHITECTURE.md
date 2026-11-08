@@ -2122,6 +2122,96 @@ with_acquired 临时分支去掉 reset           → mark.n == 1（应为 0）
 被推荐的那条。`.release()` 在几乎每个示例里都写对了，只是没有一个示例写过
 `defer { guard.release() }` 之后再去读一次对象。
 
+### 8.15 RequestPool：一个「关闭」被两个地方各记一半
+
+上一轮结尾留的方向是「`RequestPool` 的 `pool_stats()` 和 `stats` 字段谁在写」，标明是推测。
+验完的结论分两半：
+
+**`pool_stats()` 是健康的。** 它就是遍历 `entries` 逐个问 `Pool.stats()`，读数和
+直接调 `pool.Pool.stats()` 完全一致。这条推测错了。
+
+**`stats` 字段是真的死了。** `pub mut: stats map[string]pool.PoolStats` 从构造起
+置空，全仓库没有任何写入方，也没有任何读取方。麻烦的不只是「多一个没用的字段」——
+它出现在公开 struct 上，读者会以为 `pool_stats()` 只是把 `stats` 抄出来一份。
+两个名字讲同一件事，其中一个永远为空。
+
+### 真正踩到的是 `close_all()`
+
+它只调了内部 `Pool.close()`，**没有把池从 `entries` / `pools` 里摘掉**。于是之后的
+每一次 `acquire()` 都是这个流程：
+
+```
+entries 里还能查到 entry            → 拿到一个句柄
+问这个已关闭的 Pool                 → error: pool "x" is closed
+这个 error 落进 `or` 块             → 被当成「耗尽」处理
+降级成临时对象                       → 返回给调用方
+```
+
+调用方拿到一个完全可用的对象，**一个错误都收不到**。池早就关了，而没有任何人能察觉。
+`pool_stats()` 也照样报告这个已经关掉的池（`total=0 active=0`，看起来非常「健康」）。
+
+修法是把「关闭」做成一件只有一个地方记住的事：`close_all()` 在同一把写锁里先
+`entries.clear()` + `pools.clear()`，出锁之后再去关内部池。这样「已关闭」不是某个
+布尔标志的两份拷贝，而是「注册表里没有」这一个可查的事实。之后 `acquire` /
+`acquire_raw` / `with_acquired` 都报 `not found or already closed`。
+
+一个必须保留的能力：**已经在用的对象仍要能在 `close_all()` 之后 `release()`**，
+否则关闭就等于把持有者手里的对象拿走。这条单独有断言。
+
+### 用例与变异
+
+`web/request_pool_test.v` 新增 8 条（`acquire_raw` 耗尽语义 1 条 + 关闭语义 7 条）。
+四轮变异：
+
+```
+close_all 不摘除 entries/pools        → pools.len 断言红（2 != 0）
+is_closed() 恒返回 false              → 「close() 之后必须为 true」红
+把 stats 字段加回 struct              → 源码结构断言红
+acquire_raw 耗尽时改走错误通道        → 耗尽返回 nil 的断言红
+```
+
+第三条是源码结构断言（读 `web/request_pool.v` 找 `\tstats map[string]pool.PoolStats`）。
+行为用例绕不过「字段存在但永远为空」这件事，只能读源码。
+
+### 一个写进注释就被删掉的分支
+
+第一版在 `acquire` / `acquire_raw` / `with_acquired` 里都加了 `if pg.is_closed()`
+提前报错。变异验证时不红——**因为关闭的池已经从 `entries` 摘除了，那条分支根本
+不可达**。三处都是死代码，已全部删掉，只留注释说明「为什么这里不需要」。
+
+`Pool.is_closed()` 本身保留：它对 `pool` 模块是公开 API，且 `acquire()` 在并发下
+「读到 entry 之后、问到 Pool 之前」池被关掉时仍是唯一的判断依据。这条单独有断言。
+
+### 顺手修的文档
+
+`docs/pages/pool.html` 第 6 节的 RequestPool 示例**原样抄下来编不过**，三处：
+
+```
+rp := new_request_pool(...)                  → 必须 mut（register_pool/acquire 改状态）
+register_pool[Session](...)                  → Session 不 import，是 web.Session
+sess := guard.get(); sess.set(...)           → set() 要 mut 接收者
+fn (sess &Session) ! { ... }                 → with_acquired 要 mut &T
+```
+
+改成实跑通过的版本，并按同样的方式抽出来真编真跑过一遍。
+
+**这一轮的形状和前面几轮不一样。** 前几轮沉默的是「没人调的代码」「没人看的输出」
+「看起来太可信的表格」「验收标准是它自己说成功了」。这次的两件事都还在正常返回值里：
+
+`close_all()` 的 bug 里，每个函数的返回值都是对的。`acquire` 返回了对象，
+`pool_stats` 返回了统计，`close_all` 没有 panic。坏掉的是一件**没有任何返回值在表达
+的事**：这个对象还在池体系里吗。它靠 `entries` 和内部 `Pool.closed` 两个地方各记一半，
+而这两半在 `close_all()` 之后立刻不一致——`Pool` 说「我关了」，`entries` 说「我还在」。
+
+**两处各记一半的状态，不会报错，只会漂。** 它不会让某一个返回值变成错的，只会让
+「所有返回值都对」和「系统是对的」之间出现一个缝隙。而没有人写断言去检查那个缝隙，
+因为缝隙里没有返回值可断。
+
+下一个值得摸的（只是推测，没验）：`RequestPool` 的 `session` 池和 `web/session.v` 的
+实际 session 生命周期到底有没有接上？现在 `reset_session`、`reset_middleware_context`、
+`reset_input` 三个预置函数都测过了，但「谁在请求结束的时候真的调到了它们」这条链路
+还没有一条端到端用例。
+
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 
 `scripts/run-tests.sh` 之外，还有两条不写下来每次都会重踩的：

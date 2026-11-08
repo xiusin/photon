@@ -214,7 +214,7 @@ stats := mgr.<span class="fn">pool_stats</span>()
              <tr><td><code>release(name, obj)</code></td><td>归还对象（自动调用 reset_fn）/ Release object (auto-calls reset_fn)</td></tr>
              <tr><td><code>with_acquired[T](name, callback)</code></td><td>零心智成本回调 API / Zero-cognitive-load callback API</td></tr>
              <tr><td><code>pool_stats()</code></td><td>获取所有子池统计信息 / Get stats for all sub-pools</td></tr>
-             <tr><td><code>close_all()</code></td><td>关闭所有子池 / Close all sub-pools</td></tr>
+             <tr><td><code>close_all()</code></td><td>关闭并注销所有子池；之后再 acquire/register 会明确报错 / Closes and unregisters all sub-pools; later acquire/register error out</td></tr>
            </tbody>
          </table>
 
@@ -225,8 +225,13 @@ stats := mgr.<span class="fn">pool_stats</span>()
            <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
            <div class="code-body"><span class="kw">import</span> photon.web
 
-<span class="cm">// 1. 创建请求池 / Create request pool</span>
-rp := web.<span class="fn">new_request_pool</span>(web.<span class="tp">RequestPoolConfig</span>{min_size: <span class="nm">4</span>, max_size: <span class="nm">100</span>})
+<span class="cm">// web.Session 从 web 包导出；下面用短别名 Session 让示例更短</span>
+<span class="cm">// web.Session is exported by package web; a module-level alias keeps it short</span>
+<span class="kw">type</span> <span class="tp">Session</span> = web.<span class="tp">Session</span>  <span class="cm">// 模块级，不能写进函数体 / module level, not inside a fn</span>
+
+<span class="cm">// 1. 创建请求池（register_pool/acquire 会改状态，必须 mut）</span>
+<span class="cm">// Create request pool — register_pool/acquire mutate it, so `mut` is required</span>
+<span class="kw">mut</span> rp := web.<span class="fn">new_request_pool</span>(web.<span class="tp">RequestPoolConfig</span>{min_size: <span class="nm">4</span>, max_size: <span class="nm">100</span>})
 
 <span class="cm">// 2. 注册类型化子池 / Register typed sub-pool</span>
 rp.<span class="fn">register_pool</span>[<span class="tp">Session</span>](<span class="st">'session'</span>, fn () !voidptr {
@@ -236,11 +241,11 @@ rp.<span class="fn">register_pool</span>[<span class="tp">Session</span>](<span 
 <span class="cm">// 3. RAII Guard 模式 / RAII Guard pattern</span>
 <span class="kw">mut</span> guard := rp.<span class="fn">acquire</span>[<span class="tp">Session</span>](<span class="st">'session'</span>)!
 <span class="kw">defer</span> { guard.<span class="fn">release</span>() }
-sess := guard.<span class="fn">get</span>()
+<span class="kw">mut</span> sess := guard.<span class="fn">get</span>()  <span class="cm">// set() 需要 mut 接收者 / set() takes a mut receiver</span>
 sess.<span class="fn">set</span>(<span class="st">'user_id'</span>, <span class="st">'42'</span>)
 
 <span class="cm">// 4. 零心智成本回调 / Zero-cognitive-load callback</span>
-rp.<span class="fn">with_acquired</span>[<span class="tp">Session</span>](<span class="st">'session'</span>, fn (sess &<span class="tp">Session</span>) ! {
+rp.<span class="fn">with_acquired</span>[<span class="tp">Session</span>](<span class="st">'session'</span>, fn (<span class="kw">mut</span> sess &<span class="tp">Session</span>) ! {
     sess.<span class="fn">set</span>(<span class="st">'user_id'</span>, <span class="st">'42'</span>)
 })!
 
@@ -271,7 +276,7 @@ stats := rp.<span class="fn">pool_stats</span>()
              <tr><td><code>acquire[T]()</code></td><td><code>rlock</code></td><td>读锁：查找 entries map，获取后立即释放 / Read lock: lookup entries, release immediately</td></tr>
              <tr><td><code>release()</code></td><td><code>rlock</code></td><td>读锁：查找 entries map + reset_fn / Read lock: lookup entries + reset_fn</td></tr>
              <tr><td><code>register_pool[T]()</code></td><td><code>lock</code></td><td>写锁：新增子池 / Write lock: add sub-pool</td></tr>
-             <tr><td><code>close_all()</code></td><td><code>rlock</code></td><td>读锁：遍历关闭（不修改 map）/ Read lock: iterate and close</td></tr>
+             <tr><td><code>close_all()</code></td><td><code>lock</code></td><td>写锁：摘除注册表，再关闭内部池 / Write lock: unregister, then close inner pools</td></tr>
              <tr><td><code>pool_stats()</code></td><td><code>rlock</code></td><td>读锁：遍历统计 / Read lock: iterate for stats</td></tr>
            </tbody>
          </table>

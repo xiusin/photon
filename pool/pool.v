@@ -178,6 +178,29 @@ pub fn (mut p Pool) initialize() ! {
 	}
 }
 
+// is_closed reports whether the pool has been closed. A closed pool refuses
+// acquire() and initialize(), but `release()` still works so holders of
+// in-use objects can finish — it destroys them instead of pooling them.
+//
+// Why this is a method and not a public field: callers used to tell "closed"
+// apart from "exhausted" by string-matching the error text, because
+// acquire() reports both as !voidptr errors and the two need very different
+// handling — an exhausted pool is a capacity signal and degrades gracefully,
+// a closed pool is a lifecycle bug and must not be papered over.
+//
+// is_closed 报告池是否已关闭。已关闭的池拒绝 acquire() 与 initialize()，
+// 但 release() 仍可用，好让持有在用对象的一方收尾——它会销毁对象而不是归还。
+//
+// 为什么是方法而不是公开字段：调用方以前靠匹配错误文本区分「已关闭」和「已耗尽」，
+// 因为 acquire() 两者都报 !voidptr 错误，而它们需要完全不同的处理——
+// 耗尽只是容量信号、可以优雅降级；已关闭是生命周期错误、不能被糊过去。
+pub fn (p &Pool) is_closed() bool {
+	mut pm := unsafe { &Pool(p) }
+	pm.mu.@lock()
+	defer { pm.mu.unlock() }
+	return p.closed
+}
+
 // start_gc launches the background GC goroutine that evicts idle objects
 // whose idle_timeout_seconds or max_lifetime_seconds have elapsed.
 // Safe to call multiple times; only the first call starts the goroutine.
