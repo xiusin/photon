@@ -109,10 +109,23 @@ pub fn (s &Session) has(key string) bool {
 }
 
 // delete removes a key from the session.
+//
+// It has to cover both maps get()/has() look at, not just `data`. A flash key
+// lives in old_flash for exactly one request, and get() falls back to it — so
+// deleting only from `data` left the key readable: `delete('notice')` was
+// followed by `has('notice') == true` and `get('notice') == '已保存'`.
+//
+// delete 从会话中移除一个键。
+//
+// 必须同时覆盖 get()/has() 会查的两个 map，而不只是 `data`。闪存键在
+// old_flash 里存活恰好一个请求，而 get() 会回落到它 —— 只删 `data` 会让
+// 这个键依然可读：`delete('notice')` 之后 has('notice') 仍是 true、
+// get('notice') 仍返回原值。
 pub fn (mut s Session) delete(key string) {
 	s.mu.@lock()
 	defer { s.mu.unlock() }
 	s.data.delete(key)
+	s.old_flash.delete(key)
 	s.is_dirty = true
 }
 
@@ -142,10 +155,24 @@ pub fn (s &Session) has_flash(key string) bool {
 }
 
 // all returns all session data.
+//
+// Includes the flash inbox, because get()/has() already expose those keys:
+// a map that disagreed with them would let `all()` report an empty session
+// while get('notice') still returned a value.
+// Plain data wins when a key exists in both maps (get() does the same).
+//
+// all 返回全部会话数据。
+//
+// 包含闪存收件箱：get()/has() 本来就暴露这些键，若这里不包含，就会出现
+// 「all() 说会话是空的、get('notice') 还能取到值」的自相矛盾。
+// 同一个键两处都有时以 data 为准（与 get() 一致）。
 pub fn (s &Session) all() map[string]string {
 	unsafe { s.mu.rlock() }
 	defer { unsafe { s.mu.runlock() } }
 	mut result := map[string]string{}
+	for key, val in s.old_flash {
+		result[key] = val
+	}
 	for key, val in s.data {
 		result[key] = val
 	}
@@ -153,10 +180,26 @@ pub fn (s &Session) all() map[string]string {
 }
 
 // clear removes all session data.
+//
+// Same rule as delete(): "all session data" means everything a reader can
+// observe. Reading goes through `data` OR `old_flash` (get/has fall back to
+// the flash inbox), so clearing only `data` left the previous request's
+// one-shot messages readable after a clear — the documented flash contract
+// ("read once, then gone") quietly stopped holding.
+// flash_data is cleared as well: pending writes are session data too.
+//
+// clear 清空全部会话数据。
+//
+// 与 delete() 同一条规则：「全部会话数据」等于读取方能观察到的一切。
+// 读取走 `data` 或 `old_flash`（get/has 会回落到闪存收件箱），只清 `data`
+// 会让上一个请求的一次性提示在 clear 之后依旧可读 —— 文档承诺的闪存契约
+// （「读一次就消失」）会静默失效。flash_data 一并清掉：待写入的也是会话数据。
 pub fn (mut s Session) clear() {
 	s.mu.@lock()
 	defer { s.mu.unlock() }
 	s.data = map[string]string{}
+	s.old_flash = map[string]string{}
+	s.flash_data = map[string]string{}
 	s.is_dirty = true
 }
 

@@ -1426,7 +1426,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 
 | 模块 | 测试文件数 | 测试框架 |
 |------|-----------|----------|
-| web | 56 | V built-in test + TestResponse 助手（含 ResponseEntity 首次覆盖）|
+| web | 57 | V built-in test + TestResponse 助手（含 ResponseEntity 首次覆盖、Session 读写可见范围）|
 | orm | 33 | V built-in test |
 | core | 31 | V built-in test（含 ServiceLocator 首次覆盖） |
 | security | 17 | V built-in test |
@@ -1447,10 +1447,10 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
 | cli | 6 | V built-in test（含对生成产物的真实编译） |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **241** | |
+| **合计** | **242** | |
 
 > 口径：表格含 `core/tests/` 的 2 个黑盒用例。`scripts/run-tests.sh` 的
-> `ALL_MODULES` 不扫子目录，逐文件跑的是 238 个；`core/tests` 由
+> `ALL_MODULES` 不扫子目录，逐文件跑的是 239 个；`core/tests` 由
 > `make test-core-tests` 单独跑。
 
 ### 8.2 测试模式
@@ -2280,6 +2280,91 @@ MiddlewareContext.reset 不清 route_path/route_method       → assert mctx.rou
 
 **清理类函数的规格不是「清得干净」，而是「清对边界」：带走这个请求带进来的东西，
 留下这个请求还没用完的东西。**
+
+### 8.17 Session 的读写可见范围：一个删不掉的键
+
+上一轮结尾标了「推测，没验」的方向是 `reset_input()` 有没有像 `reset_middleware_context()`
+那样的字段盲区。**验完是推翻了**：`Input` 从头到尾只有一个字段 `ctx &veb.Context`，
+没有「一批解析出来的绑定值」。`reset_input()` 清那一个引用就已经清完了全部。
+
+但上一轮那条推论的形状是对的，只是在**同一层**的另一个 struct 上：`Session`。
+
+#### 一、缺陷：两处各记一半，这次是「读得到、删不掉」
+
+`Session` 有两张 map：`data`（普通负载）和 `old_flash`（本请求的闪存收件箱）。
+读写对它们的看法不一致：
+
+```
+get()     → data，回落 old_flash
+has()     → data || old_flash
+delete()  → 只删 data          ← 漏
+clear()   → 只清 data          ← 漏
+all()     → 只返回 data        ← 漏
+```
+
+于是 `delete()` / `clear()` 对「读得到的键」是无效的。实测（改之前）：
+
+```
+clear 后 get(user_id) = <none>
+clear 后 get(notice)  = 已保存   <- 应为 <none>
+clear 后 has(notice)  = true     <- 应为 false
+delete 后 has(notice) = true     <- 应为 false
+all() 含 old_flash?  {}          <- get() 取得到，all() 里没有
+```
+
+这不是理论问题。`old_flash` 的语义（「下一次请求读一次就消失」）意味着用户唯一
+的手段是「读一次」，而框架从来不提供「我不想读、把它丢掉」的路径 —— 两条写入
+API 都对它无效。
+
+它和 8.16 里 `reset_session()` 清掉 `old_flash` 是**镜像缺陷**：那一处清得太多
+（在提示被读到之前擦掉），这一处清得太少（提示读完之后再也删不掉）。两处都是
+在「`old_flash` 该不该动」上判断失误，只是结论相反。
+
+#### 二、修法：一条规则，不是三个补丁
+
+**读取方观察到的范围，就是写入方的作用范围。**
+
+- `delete()` 从 `data` 和 `old_flash` 两处删
+- `clear()` 清 `data` + `old_flash` + `flash_data`（待落盘的也是会话数据）
+- `all()` 合并两张 map，同名键以 `data` 为准（与 `get()` 的回落顺序一致）
+
+#### 三、为什么这是一条结构断言
+
+行为用例覆盖不了「将来有人又给 `Session` 加第三张 map」。所以
+`web/session_visibility_test.v` 的最后一条直接读 `web/session.v` 源码，
+要求 `get` / `has` / `delete` / `clear` / `all` 五个函数体里都出现 `old_flash`：
+
+```v
+assert body.contains('old_flash'),
+    '${fname}() 没有涉及 old_flash —— 读取方与写入方的可见范围又开始分叉了'
+```
+
+#### 四、用例与变异
+
+`web/session_visibility_test.v` 7 条。三轮变异，每轮都让对应用例变红、恢复后绿：
+
+```
+delete() 不删 old_flash          → 行为断言红 + 结构断言红（报「delete() 没有涉及 old_flash」）
+clear() 不清 old_flash/flash_data → 3 条红（可见性 + 待落盘闪存 + 结构）
+all() 只返回 data                → 2 条红（all 与 get 不自洽 + 结构）
+```
+
+#### 五、这轮的形状
+
+前几轮说过几种沉默：没人调的代码、没人看的输出、看起来太可信的表格、验收标准是
+它自己说成功了、两处各记一半的状态只会漂、用例把错误行为钉成事实。
+
+这轮的是里面最朴素的一种，也最容易被当成「不是 bug」：
+
+**没有人给「删除」写过一条「删完之后还读得到吗」的用例。**
+
+`test_session_delete` 只断言了 `!sess.has('key')` —— 而那个 `key` 是 `set()` 写进
+`data` 的。同一族里另一条 `test_session_clear` 也只断言 `data.len == 0`。
+两条用例都写得很认真，覆盖的是**它们自己造出来的那种键**。缺陷藏在另一种键上：
+不是 `set()` 写的，是上一个请求 `flash()` 写、`save()` 搬过来的。
+
+**同一族 API 的用例，往往只覆盖了取值路径最短的那个键。** `delete('key')` 绿不说明
+`delete()` 对，只说明它对 `set()` 写的键是对的。
 
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 

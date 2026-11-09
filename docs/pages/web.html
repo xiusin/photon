@@ -762,6 +762,10 @@ sm.<span class="fn">save</span>(<span class="at">mut</span> ctx, <span class="at
 sm.<span class="fn">destroy</span>(<span class="at">mut</span> ctx, <span class="at">mut</span> sess)!</div>
         </div>
 
+        <div class="info-box info-warn">
+          ⚠️ <strong>删除与清空的可见范围 = 读取的可见范围</strong>：<code>get()</code> / <code>has()</code> 会同时查普通负载和闪存收件箱，所以 <code>delete()</code> / <code>clear()</code> 也清两处，<code>all()</code> 也返回两处（同名键以普通负载为准）。只清普通负载的话，会出现「<code>all()</code> 说会话是空的、<code>get('notice')</code> 还能取到值」的自相矛盾。
+        </div>
+
         <div class="info-box info-tip">
           💡 <strong>闪存的生命周期只有一次请求</strong>：<code>save()</code> 把本次 <code>flash()</code> 的值落盘，同时把已读到的旧闪存消费掉；下一次 <code>start()</code> 读到它、标记会话为已修改，<code>save()</code> 时清空。所以同一条提示不会在之后每个页面里反复出现。
         </div>
