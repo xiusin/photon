@@ -14,10 +14,10 @@ module main
 //   3. HealthService   — 健康检查与统计
 //   4. CacheService    — 缓存业务封装
 import time
-import cache
+import photon.cache
 import photon.orm
-import logger
-import core
+import photon.logger
+import photon.core
 
 // ═══════════════════════════════════════════════════════════
 // UserService — 用户业务逻辑

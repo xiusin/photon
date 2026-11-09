@@ -2,12 +2,12 @@ module main
 
 // verify_infra.v — config / logger / cache / pool / locking 验证
 
-import config
-import logger
-import cache
+import photon.config
+import photon.logger
+import photon.cache
 import photon.pool
-import locking
-import core
+import photon.locking
+import photon.core
 
 // verify_config 验证多源配置、profile、类型化读取
 fn verify_config(mut v Verifier) {

@@ -45,7 +45,7 @@ module web
 //
 // For tests, loggers_get_mock_handler() and loggers_post_mock_handler()
 // return MockMvc-compatible handlers.
-import logger
+import photon.logger
 import strings
 
 // loggers_content_type is the Content-Type used by the /loggers endpoint.

@@ -28,7 +28,7 @@ module web
 //   }
 //
 // For tests, metrics_mock_handler() returns a MockMvc-compatible handler.
-import metrics
+import photon.metrics
 
 // PrometheusContentVersion is the Content-Type version token used by the
 // /metrics endpoint, matching the Prometheus text exposition format 0.0.4.

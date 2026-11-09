@@ -12,10 +12,10 @@ module main
 import photon.cli
 import veb
 import time
-import web
-import logger
-import apidoc
-import core
+import photon.web
+import photon.logger
+import photon.apidoc
+import photon.core
 
 // App — 全局应用上下文（veb 控制器 = 路由声明层）
 //

@@ -1,6 +1,6 @@
 module orm
 
-import pageable
+import photon.pageable
 
 // repository.v - Repository Pattern
 //

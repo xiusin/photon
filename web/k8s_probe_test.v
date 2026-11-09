@@ -10,7 +10,7 @@ module web
 //   - Unknown paths return 404
 //   - ApplicationContext.is_readiness_ready() reflects state + SmartLifecycle
 //   - Liveness and readiness behave differently (liveness never 503)
-import core
+import photon.core
 
 // ── serve_liveness unit tests ──
 

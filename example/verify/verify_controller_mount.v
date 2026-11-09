@@ -12,8 +12,8 @@ module main
 //   7. WebModule 集成
 //   8. ServiceLocator + locate_controller[T] 全局定位
 //   9. register_controller[T]() 注册到 DI 容器
-import core
-import web
+import photon.core
+import photon.web
 import veb
 
 // ═══════════════════════════════════════════════════════════

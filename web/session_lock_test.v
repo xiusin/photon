@@ -14,7 +14,7 @@ module web
 //   - 超时获取锁返回错误
 import sync
 import time
-import locking
+import photon.locking
 
 // ── 全局测试状态 / Global test state ──
 // V 闭包按值捕获变量，使用全局变量在回调间共享状态

@@ -54,7 +54,7 @@ module web
 //
 // For tests, env_mock_handler()/beans_mock_handler()/mappings_mock_handler()
 // return MockMvc-compatible handlers.
-import core
+import photon.core
 import strings
 
 // introspection_content_type is the Content-Type used by all introspection

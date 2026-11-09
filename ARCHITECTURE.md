@@ -1426,7 +1426,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 
 | 模块 | 测试文件数 | 测试框架 |
 |------|-----------|----------|
-| web | 57 | V built-in test + TestResponse 助手（含 ResponseEntity 首次覆盖、Session 读写可见范围）|
+| web | 58 | V built-in test + TestResponse 助手（含 ResponseEntity 首次覆盖、Session 读写可见范围、错误响应状态行）|
 | orm | 33 | V built-in test |
 | core | 31 | V built-in test（含 ServiceLocator 首次覆盖） |
 | security | 17 | V built-in test |
@@ -1447,10 +1447,10 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
 | cli | 6 | V built-in test（含对生成产物的真实编译） |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **242** | |
+| **合计** | **243** | |
 
 > 口径：表格含 `core/tests/` 的 2 个黑盒用例。`scripts/run-tests.sh` 的
-> `ALL_MODULES` 不扫子目录，逐文件跑的是 239 个；`core/tests` 由
+> `ALL_MODULES` 不扫子目录，逐文件跑的是 241 个；`core/tests` 由
 > `make test-core-tests` 单独跑。
 
 ### 8.2 测试模式
@@ -2365,6 +2365,105 @@ all() 只返回 data                → 2 条红（all 与 get 不自洽 + 结�
 
 **同一族 API 的用例，往往只覆盖了取值路径最短的那个键。** `delete('key')` 绿不说明
 `delete()` 对，只说明它对 `set()` 写的键是对的。
+
+### 8.18 错误响应的状态行：正文说拒绝，状态行说成功
+
+上一轮结尾标了「推测，没验」的方向是 `SessionManager.save()` 里 `is_new` 的赋值顺序。
+**验完是推翻了**：`sess.is_new = false` 之后读 `is_new` 确实恒为 false，看起来那条
+`if is_new || ...` 是死的 —— 但同一个条件里还有 `current_id != cookie_id && !already_sent`，
+新会话的 `current_id != cookie_id` 恰好兜住了它。实测两个新会话（含同一响应里连存两次）
+Cookie 都只发一次、且值正确。这条不是缺陷。
+
+真正的东西是在**端到端跑一次 example 服务**时撞到的：`curl -i` 打出来的状态行。
+
+#### 一、缺陷：`json_error(code, msg)` 把 `code` 扔了
+
+```
+$ curl -i http://127.0.0.1:8080/api/v1/users          # 不带 token，应 403
+HTTP/1.1 200 OK
+{"code":"403","message":"Authorization header required"}
+```
+
+鉴权是生效的（`apply_role` 真的执行了，正文也真的写着 403）。错的是**状态行**。
+
+根因在 veb 的语义里：`ctx.json[T]()` 只负责编码正文，不碰 `ctx.res.status_code`；
+而 `send_response_to_client` 只在 `status_code == 0` 时才补一个 `.ok`。于是
+
+```v
+ctx.json({'code': '403', 'message': '...'})   // 状态行 = 200
+```
+
+是最省事的写法，也是错得最隐蔽的写法。框架原有的 `web.error_json()` 只返回字符串，
+没有任何函数能把它连着状态码一起发出去 —— 所以 example 里每个 `json_error` 都在
+「正文带错误码、状态码 200」上。
+
+影响面：**所有只读正文、不读状态行的都正常，所有只读状态行的都错**。浏览器端 JS 按
+业务 code 分支时一切正常，所以它活得很好；而网关的 4xx 计数、CDN 的缓存判定、客户端
+重试策略、K8s 探针、APM 错误率面板读的全是状态行，会一致地把拒绝当成成功。
+
+#### 二、修法：状态码和正文由同一个参数决定
+
+`web/exception.v` 新增三个函数：
+
+```v
+web.json_status(mut ctx, 403, payload)                 // 任意 payload + 显式状态码
+web.error_result(mut ctx, 403, 'permission denied')    // 标准错误信封 + 同一状态码
+web.error_result_with_details(mut ctx, 422, msg, map)  // 同上带 details
+```
+
+顺序是**先 `set_status` 再发送** —— `send_response_to_client` 只在状态为 0 时补 `.ok`，
+先设好就不会被覆盖。`error_result` 的状态行和正文 `code` 是同一个入参，两者不可能漂。
+
+顺带一条：整数状态码不直接 `http.Status(code)` 强转。那是不校验的枚举转换，`499`、`700`
+这类未分配的码会得到一个「有值但无意义」的状态行 —— 比不发更糟。改走
+`http.status_from_int()`，`unassigned` 退到 500（那种响应一定是服务端没按预期处理）。
+
+#### 三、用例与变异
+
+`web/error_status_test.v` 9 条。只断言正文里 `code == 403` 的用例在缺陷存在时**照样
+全绿**，所以断言全部落在 `ctx.res.status_code` 上。三轮变异：
+
+```
+json_status 去掉 set_status                    → 3 条红（状态行 200 vs 403/500）+ 结构断言 panic
+error_result 去掉 set_status                   → 401/400/500 全部红，报「状态行是 200」
+http_status 退回 unsafe { http.Status(code) }  → 499 原样漏出去，断言红
+```
+
+最后一条值得记：变异时 `http.Status(code)` 在 V 里必须包 `unsafe`，第一版变异脚本没加，
+报的是编译错误而不是断言失败 —— 那会让人误以为「变异没生效」。变异本身也要能跑起来。
+
+另有一条**结构断言**读 `web/exception.v`，要求三个入口的 `set_status` 出现在发送之前。
+行为断言可以被绕开：`send_response_to_client` 把正文写进 `ctx.res.body` 时，即使状态码
+是后补的，进程内读 `ctx.res.status_code` 也看不到差别（缺陷只在网络上）。所以这条必须
+看源码顺序。
+
+#### 四、顺带清掉的一处残留
+
+PR #18 声称「全仓库统一全限定名 `photon.x`」，实际漏了 11 处：`photon.v` 里的 13 个裸
+import、`web/actuator_*.v` 与 `web/mount.v` 的 `import core` / `import logger` /
+`import metrics`、`core/application_context.v` 的 `import ticker`、`orm/repository.v` 的
+`import pageable`、`cli/make_commands.v` 的 `import strutil`、`web/session_lock.v` 的
+`import locking`。这些一行不改，`import photon.core` 和 `import core` 就会把同一个目录
+装进两份模块表，报错是「`&ticker.Scheduler` 不能当 `&ticker.Scheduler`」这种看不出所以
+然的话 —— 正是 §8.10 记的那个双重身份。
+
+**这一轮的触发条件是「混用」，不是「用了全限定名」。** 同一个文件里既有裸名又有全限定
+名时才会分叉；统一到任一边都是自洽的。现在 example / verify / 各模块测试文件全部改用
+`photon.x`，`strutil/downstream_import_test.v` 的五个入口断言继续守这件事。
+
+#### 五、这轮的形状
+
+前几轮说过几种沉默：没人调的代码、没人看的输出、看起来太可信的表格、验收标准是它自己
+说成功了、两处各记一半的状态只会漂、用例把错误行为钉成事实。
+
+这轮的是第一种「**错误信号被拆成两半、各自看都正常**」：
+
+正文里那个 `403` 是认真的，鉴权逻辑也是对的，唯一错的是网络上那个数字。而**没有任何
+一条用例在看那个数字** —— `json` 是把 map 编码成字符串，用例断言的是字符串内容，状态行
+从头到尾没进过断言视野。
+
+它比前几轮的缺陷都更值得修，因为它在安全边界上：一个把所有 401/403 报成 200 的服务，
+在监控面板上看起来 100% 健康。**错得不只是响应，还有对这个服务的全部观测。**
 
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 

@@ -34,7 +34,7 @@ module web
 //   }
 //
 // For tests, health_mock_handler() returns a MockMvc-compatible handler.
-import health
+import photon.health
 
 // health_content_type is the Content-Type used by the /health endpoint.
 pub const health_content_type = 'application/json'

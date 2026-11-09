@@ -60,7 +60,7 @@ module web
 //   }
 import veb
 import net.http
-import core
+import photon.core
 
 // ═══════════════════════════════════════════════════════════
 // 路由属性解析

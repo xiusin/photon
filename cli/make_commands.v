@@ -16,7 +16,7 @@ module cli
 // TableBuilder 不存在、跨包类型写错、返回栈上引用……），而它们全都排在
 // 一个从未被用例驱动过、也从没对生成结果做编译验证的路径上。
 import os
-import strutil
+import photon.strutil
 import time
 
 // MakeCommandCommand generates a new CLI command file

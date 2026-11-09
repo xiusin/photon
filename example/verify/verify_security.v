@@ -2,7 +2,7 @@ module main
 
 // verify_security.v — JWT / 密码哈希 / CSRF / RBAC 验证
 
-import security
+import photon.security
 
 fn verify_security(mut v Verifier) {
 	v.section('安全 — JWT / 密码哈希 / CSRF / RBAC')
