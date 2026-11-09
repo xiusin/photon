@@ -88,14 +88,7 @@ pub:
 //   rp := new_request_pool(RequestPoolConfig{min_size: 4, max_size: 100})
 //   rp.register_pool[Session]('session', fn () !voidptr {
 //       return unsafe { voidptr(new_session('')) }
-//   }, fn (obj voidptr) {
-//       mut sess := unsafe { &Session(obj) }
-//       sess.data = map[string]string{}
-//       sess.flash_data = map[string]string{}
-//       sess.old_flash = map[string]string{}
-//       sess.is_dirty = false
-//       sess.is_new = true
-//   })!
+//   }, reset_session)   // 预置函数；注意它不清 old_flash，见下
 //
 //   // RAII guard pattern / RAII Guard 模式
 //   mut guard := rp.acquire[Session]('session')!
@@ -487,28 +480,55 @@ fn factory_create_temp[T]() !voidptr {
 // ── Pre-built Reset Functions / 预置 Reset 函数 ──
 
 // reset_session resets a Session object for pool reuse.
-// Clears all data maps, resets dirty/new flags.
-// The veb.Context reference is not stored in Session, so no ctx_ref cleanup needed.
+// Clears the payload map plus every per-request flag.
+//
+// old_flash is deliberately NOT cleared — it is the *inbox* of the current
+// request, not request state left behind. It is filled by start() (from the
+// store) or by save() (moving this request's flash()), and get_flash() reads
+// it. Clearing it here throws away a one-shot message on the way back to the
+// pool: the response for that request has not been built yet when the session
+// is released, so a template rendered afterwards finds `flash key not found`
+// and the user never sees the message. Leaving it does not leak across
+// requests either — start() overwrites it, and pure pool users start from the
+// empty map new_session() gives them.
 //
 // reset_session 重置 Session 对象以供池复用。
-// 清除所有数据 map，重置 dirty/new 标志。
-// Session 不存储 veb.Context 引用，因此无需清除 ctx_ref。
+// 清除数据 map，并重置每个「请求内」标志。
+//
+// old_flash 刻意不清：它是**当前请求的收件箱**，不是上一个请求遗留的状态。
+// 它由 start() 从存储里填、或由 save() 把本轮 flash() 搬进来，get_flash()
+// 读的就是它。在这里清掉等于把一次性提示在回池的路上丢掉——会话被 release
+// 的时候响应还没生成，之后渲染的模板只会拿到「flash key not found」。
+// 留存它也不会跨请求泄漏：start() 会覆盖它，而纯池化用法从 new_session()
+// 拿到的本来就是空 map。
 pub fn reset_session(obj voidptr) {
 	mut sess := unsafe { &Session(obj) }
 	sess.data = map[string]string{}
 	sess.flash_data = map[string]string{}
-	sess.old_flash = map[string]string{}
 	sess.is_dirty = false
 	sess.is_new = true
 }
 
 // reset_middleware_context resets a MiddlewareContext object for pool reuse.
-// Clears request-scoped data (preserving _global_ prefixed entries)
-// and nullifies the veb.Context reference to prevent cross-request leakage.
+// Clears request-scoped data (preserving _global_ prefixed entries) and
+// nullifies every per-request reference and field.
+//
+// The reset has to cover the whole struct, not just `data`: route_path /
+// route_method are filled by dispatch_with_chain and logger by the request
+// logger. Leaving them behind means the next request that acquires this
+// object starts out believing it is already routed to someone else's path —
+// with a logger that writes into the previous request's context. The fields
+// are mirrored from MiddlewareContext.reset(), which had the same blind spot;
+// both are pinned by tests now.
 //
 // reset_middleware_context 重置 MiddlewareContext 对象以供池复用。
-// 清除请求级数据（保留 _global_ 前缀的条目），
-// 并将 veb.Context 引用置空以防止跨请求泄漏。
+// 清除请求级数据（保留 _global_ 前缀的条目），并清空每个请求内引用与字段。
+//
+// 要重置的是整个 struct，不只是 `data`：route_path / route_method 由
+// dispatch_with_chain 填、logger 由请求日志中间件填。留着它们，下一个拿到
+// 这个对象的请求就会以为自己已经被路由到别人的路径上，并握着一个写向
+// 上一个请求上下文的 logger。这几项与 MiddlewareContext.reset() 对齐——
+// 那里原本也有同一个盲区，现在两边都有断言钉住。
 pub fn reset_middleware_context(obj voidptr) {
 	mut mctx := unsafe { &MiddlewareContext(obj) }
 	// Preserve global data (prefixed with _global_)
@@ -522,9 +542,12 @@ pub fn reset_middleware_context(obj voidptr) {
 	// preserved is already a new map, no need to clone
 	// preserved 已经是新 map，无需 clone
 	mctx.data = preserved.move()
-	// Clear veb.Context reference — critical for preventing cross-request leakage
-	// 清除 veb.Context 引用 — 对防止跨请求泄漏至关重要
+	// Clear every per-request reference / field
+	// 清除每个请求内引用与字段
 	mctx.ctx = unsafe { nil }
+	mctx.logger = unsafe { nil }
+	mctx.route_path = ''
+	mctx.route_method = ''
 }
 
 // reset_input resets an Input object for pool reuse.

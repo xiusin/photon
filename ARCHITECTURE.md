@@ -2212,6 +2212,75 @@ fn (sess &Session) ! { ... }                 → with_acquired 要 mut &T
 `reset_input` 三个预置函数都测过了，但「谁在请求结束的时候真的调到了它们」这条链路
 还没有一条端到端用例。
 
+### 8.16 预置 reset 函数：清了不该清的东西，一次没清干净
+
+上一轮那条推测「三个预置 reset 只有单元用例、没有端到端链路」被这轮验成了真的，
+而且顺着那条链路找到了两个缺陷 —— 方向相反，同一个原因：**这三个函数从来没被
+问过「到底该清什么」。**
+
+#### 一、`reset_session()` 把 `old_flash` 清掉了
+
+链路补上之后故障立刻可复现：一次登录请求里 `flash('notice', '登录成功')`，会话回池，
+下一个请求 `get_flash('notice')` 拿到 `flash key not found`。
+
+`old_flash` 不是「上一个请求留下的垃圾」，它是**当前请求的闪存收件箱**：
+
+```
+save()   → flash_data 落盘 → 搬进 old_flash → 清空 flash_data
+get_flash() → 读 old_flash
+```
+
+而会话被 release 的时候，响应还没生成 —— 模板是在之后才渲染的。所以在这里清掉
+`old_flash`，等于在提示被读到之前把它擦掉。原有的单测断言的正是
+`old_flash.len == 0`，**方向反了**，一直在替这个缺陷背书。
+
+留存它也不会跨请求泄漏：`start()` 会覆盖它；纯池化用法从 `new_session()` 拿到的
+本来就是空 map。真正的请求级状态（`data`）仍然照清。
+
+#### 二、`reset_middleware_context()` 只清了 `data`
+
+`route_path` / `route_method` 由 `dispatch_with_chain` 填，`logger` 由请求日志中间件
+填，全是「本次请求」的属性。它们没被清，于是下一个复用这个对象的请求一开始就
+以为自己已经被路由到 `/admin/secret`、握着写向别人上下文的 logger。而
+`MiddlewareContext.reset()`（after_completion 走的那条路）有一模一样的盲区 ——
+两条清理路径都只看着 `data`。
+
+两处一起补齐，`route_path` / `route_method` / `logger` / `ctx` 全部归零。
+
+#### 三、用例与变异
+
+`web/request_pool_test.v` 新增 4 条：
+
+- `test_reset_session_keeps_old_flash`（并把原来反向的那条改对）
+- `test_reset_middleware_context_clears_route_and_logger`
+- `test_mctx_reset_clears_route_and_logger`
+- `test_session_flash_survives_acquire_release_roundtrip` —— 端到端：`acquire` →
+  `flash` → 模拟 `save()` → `release()` → 再 `acquire`，走的是真实的
+  `guard.reset_on_release`，不是手调 reset 函数
+
+三轮变异，各自让对应断言变红、恢复后绿：
+
+```
+reset_session 又清 old_flash                              → 收件箱用例 + 端到端用例双红
+reset_middleware_context 不清 route_path/route_method      → assert mctx.route_path == ''
+MiddlewareContext.reset 不清 route_path/route_method       → assert mctx.route_path == ''
+```
+
+`example/verify` 247/247，全量 239 个测试文件全绿。
+
+#### 四、这轮的形状
+
+前几轮说过几种沉默：没人调的代码、没人看的输出、看起来太可信的表格、验收标准是
+它自己说成功了、以及「两处各记一半的状态只会漂」。
+
+这轮是另一种：**用例本身把错误的行为钉成了事实。** `assert sess.old_flash.len == 0`
+不是漏写，是写得很认真的一条断言 —— 它只是把「清得越干净越好」这个直觉当成了规格。
+和它配对的是「只测了函数本身，没测谁在什么时候调它」。两者一合力，缺陷就有了
+一份绿色的证书。
+
+**清理类函数的规格不是「清得干净」，而是「清对边界」：带走这个请求带进来的东西，
+留下这个请求还没用完的东西。**
+
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 
 `scripts/run-tests.sh` 之外，还有两条不写下来每次都会重踩的：

@@ -93,6 +93,12 @@ pub fn (mut mctx MiddlewareContext) reset() {
 	mctx.data = preserved.clone()
 	mctx.ctx = unsafe { nil } // 清除 veb.Context 引用 / Clear veb.Context reference
 	mctx.logger = unsafe { nil } // 清除 logger 引用 / Clear logger reference
+	// 路由信息也是「本次请求」的，不是这个对象的属性。留着它，下一个复用
+	// 这个 mctx 的请求一开始就以为自己被路由到别人的路径上。
+	// Route metadata is per-request too — keeping it hands the next user of
+	// this object someone else's path and method.
+	mctx.route_path = ''
+	mctx.route_method = ''
 }
 
 // MiddlewareChain executes a chain of middleware functions.
