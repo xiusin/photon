@@ -395,9 +395,33 @@ fn test_reset_session() {
 
 	assert sess.data.len == 0
 	assert sess.flash_data.len == 0
-	assert sess.old_flash.len == 0
 	assert sess.is_dirty == false
 	assert sess.is_new == true
+}
+
+// reset_session 必须**保留** old_flash —— 它是当前请求的收件箱，不是遗留状态。
+//
+// 这条断言原先写的是 old_flash.len == 0，方向正好反了：会话回池的时候响应
+// 还没生成，之后渲染模板调 get_flash() 就只会拿到「flash key not found」，
+// 一次性提示在离开请求的路上被自己擦掉了。
+fn test_reset_session_keeps_old_flash() {
+	mut sess := new_session('flash-id')
+	// 模拟 save() 完成后的状态：本轮 flash 已搬进 old_flash，等待渲染
+	sess.flash('notice', '保存成功')
+	new_flash := sess.flash_data.clone()
+	sess.old_flash = new_flash.clone()
+	sess.flash_data = map[string]string{}
+
+	reset_session(voidptr(sess))
+
+	assert sess.get_flash('notice')! == '保存成功'
+	assert sess.has_flash('notice')
+	assert sess.flash_data.len == 0
+	// 普通数据仍然要被清掉 —— 留存的是「收件箱」，不是整个会话
+	sess.set('user_id', '42')
+	reset_session(voidptr(sess))
+	assert 'user_id' !in sess.data
+	assert sess.get_flash('notice')! == '保存成功'
 }
 
 fn test_reset_middleware_context() {
@@ -422,6 +446,55 @@ fn test_reset_middleware_context() {
 	assert isnil(mctx.ctx)
 }
 
+// 整个 struct 都得重置，不只是 data。
+//
+// route_path / route_method 由 dispatch_with_chain 填、logger 由请求日志
+// 中间件填，都是「本次请求」的状态。留着它们，下一个复用这个对象的请求
+// 一开始就以为自己已经被路由到别人的路径上，并握着一个写向别人上下文的
+// logger —— 而所有返回值都是正常的，没有任何东西会报错。
+fn test_reset_middleware_context_clears_route_and_logger() {
+	mut mctx := &MiddlewareContext{
+		data: {
+			'request_id':     'abc'
+			'_global_config': 'val'
+		}
+		route_path:   '/admin/secret'
+		route_method: 'DELETE'
+		ctx:          unsafe { nil }
+	}
+	mctx.logger = unsafe { &RequestLogger(voidptr(1)) }
+
+	reset_middleware_context(voidptr(mctx))
+
+	assert mctx.route_path == ''
+	assert mctx.route_method == ''
+	assert isnil(mctx.logger)
+	// 全局数据依然要保留 / global data still preserved
+	assert mctx.data['_global_config'] == 'val'
+}
+
+// MiddlewareContext.reset() 是同一个 struct 的另一条清理路径，盲区必须一起堵上。
+fn test_mctx_reset_clears_route_and_logger() {
+	mut mctx := &MiddlewareContext{
+		data: {
+			'_global_config': 'val'
+			'request_id':     'abc'
+		}
+		route_path:   '/admin/secret'
+		route_method: 'DELETE'
+		ctx:          unsafe { nil }
+	}
+	mctx.logger = unsafe { &RequestLogger(voidptr(1)) }
+
+	mctx.reset()
+
+	assert mctx.route_path == ''
+	assert mctx.route_method == ''
+	assert isnil(mctx.logger)
+	assert mctx.data['_global_config'] == 'val'
+	assert 'request_id' !in mctx.data
+}
+
 fn test_reset_input() {
 	// reset_input 重置 Input 对象
 	// reset_input resets Input object
@@ -436,6 +509,45 @@ fn test_reset_input() {
 	reset_input(voidptr(inp))
 
 	assert isnil(inp.ctx)
+}
+
+// ── 端到端：预置 reset 真的挂在归还路径上吗 / Does a prebuilt reset
+//     actually run on the way back to the pool? ──
+
+// 把「登录请求写 flash → 会话回池 → 下一个请求读 flash」整条链路跑一遍。
+//
+// 三个预置 reset 函数此前只有「单独调用它，看它清了什么」的用例，没有一条
+// 经过真实的 acquire → release 路径。而正是那条路径决定了框架到底调没调它：
+// reset 挂在 guard 的 reset_on_release 上，不是挂在用例里。
+fn test_session_flash_survives_acquire_release_roundtrip() {
+	mut rp := new_request_pool(RequestPoolConfig{
+		min_size: 1
+		max_size: 1
+	})
+	rp.register_pool[Session]('session', fn () !voidptr {
+		return unsafe { voidptr(new_session('')) }
+	}, reset_session)!
+
+	// 请求 1：拿到会话 → 写 flash → save() 把 flash 搬进 old_flash → 回池
+	{
+		mut g := rp.acquire[Session]('session')!
+		mut sess := g.get()
+		sess.id = 'sid-1'
+		sess.set('user_id', '42')
+		sess.flash('notice', '登录成功')
+		new_flash := sess.flash_data.clone()
+		sess.old_flash = new_flash.clone()
+		sess.flash_data = map[string]string{}
+		g.release()
+	}
+
+	// 请求 2：同一个对象被重新取出 —— 收件箱还在，payload 被清干净了
+	mut g2 := rp.acquire[Session]('session')!
+	sess2 := g2.get()
+	assert sess2.get_flash('notice')! == '登录成功', 'flash 在回池路上被 reset_session 擦掉了'
+	assert sess2.data.len == 0, '请求级 payload 必须被清掉'
+	assert !sess2.is_dirty
+	g2.release()
 }
 
 // ── Resettable 接口测试 / Resettable interface tests ──

@@ -220,6 +220,7 @@ stats := mgr.<span class="fn">pool_stats</span>()
 
          <h3>Resettable 接口</h3>
          <p>池化对象在归还前必须调用 <code>reset()</code> 清除请求特定数据，防止跨请求泄漏。Photon 提供预置 reset 函数：<code>reset_session()</code>、<code>reset_middleware_context()</code>、<code>reset_input()</code>。</p>
+         <p>三个预置函数的边界是「这个请求<strong>带进来</strong>的状态」，不是「一切」：<code>reset_session()</code> 清 <code>data</code> / <code>flash_data</code> 与标志位，但<strong>保留 <code>old_flash</code></strong> —— 那是本次请求的闪存收件箱，会话回池时响应还没生成，清掉它等于让一次性提示在渲染前消失。<code>reset_middleware_context()</code> 除 <code>data</code>（保留 <code>_global_</code> 前缀）外，还会清 <code>route_path</code> / <code>route_method</code> / <code>logger</code> / <code>ctx</code>，否则下一个复用它的请求会以为自己已被路由到别人的路径上。</p>
 
          <div class="code-block">
            <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
