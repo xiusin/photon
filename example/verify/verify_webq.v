@@ -2,9 +2,9 @@ module main
 
 // verify_webq.v — 调度(ticker) / 队列(queue) / Web 响应与校验 验证
 
-import ticker
-import queue
-import web
+import photon.ticker
+import photon.queue
+import photon.web
 import time
 
 // ── 队列验证用 Job ──

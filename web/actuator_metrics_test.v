@@ -9,7 +9,7 @@ module web
 //   - Renders tags in Prometheus label format
 //   - Returns an empty body for an empty registry
 //   - Reflects live meter updates on subsequent scrapes
-import metrics
+import photon.metrics
 import time
 
 fn test_metrics_endpoint_returns_ok() {

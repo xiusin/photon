@@ -1,6 +1,6 @@
 module tests
 
-import core
+import photon.core
 
 // cycle_detection_test.v — bean 依赖循环检测 (DFS, 报出准确环路径)
 

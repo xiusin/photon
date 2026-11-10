@@ -5,7 +5,7 @@ module main
 // 中间件通过 @[middleware('name')] 注解挂载到路由。
 // MiddlewareManager 作为 @[component] Bean 注册到 DI 容器，由 ApplicationContext 统一管理。
 import veb
-import logger
+import photon.logger
 import time
 import sync
 

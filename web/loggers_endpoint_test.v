@@ -9,7 +9,7 @@ module web
 //   - Take effect immediately after an update (should_log reflects new level)
 //   - Are thread-safe under concurrent reads/writes
 //   - Follow the Spring Boot Loggers endpoint JSON convention
-import logger
+import photon.logger
 import sync
 
 // ============================================================

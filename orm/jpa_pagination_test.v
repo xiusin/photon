@@ -1,6 +1,6 @@
 module orm
 
-import pageable
+import photon.pageable
 
 // jpa_pagination_test.v - Tests for Repository[T].find_all_paged() (Task B1)
 //

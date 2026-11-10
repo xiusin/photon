@@ -9,10 +9,10 @@ module main
 //   - 旧版：Bootstrap 结构体持有所有组件引用，手动 new_xxx() 链式装配
 //   - 新版：所有组件注册到 ApplicationContext，由容器统一管理生命周期
 //           main.v 通过 ctx.resolve_typed[T]() 获取 Bean
-import logger
-import cache
+import photon.logger
+import photon.cache
 import photon.orm
-import core
+import photon.core
 
 // ═══════════════════════════════════════════════════════════
 // 应用配置结构

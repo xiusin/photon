@@ -2,10 +2,10 @@ module main
 
 // verify_core.v — 依赖注入容器、生命周期、可用注解的验证
 
-import core
-import web
+import photon.core
+import photon.web
 import photon.orm
-import ticker
+import photon.ticker
 
 // ── 用于 DI 验证的示例 Bean ──
 struct GreetService {

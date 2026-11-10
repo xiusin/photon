@@ -33,7 +33,7 @@ module web
 //   }
 //
 // For tests, info_mock_handler() returns a MockMvc-compatible handler.
-import core
+import photon.core
 import strings
 
 // info_content_type is the Content-Type used by the /info endpoint.

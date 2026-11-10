@@ -24,7 +24,7 @@ module core
 //   app.shutdown()
 import sync
 import time
-import ticker
+import photon.ticker
 
 // ── ApplicationState ──
 

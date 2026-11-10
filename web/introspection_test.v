@@ -11,7 +11,7 @@ module web
 //   - /mappings: returns route mappings with method/path/handler
 //   - Handle empty registries gracefully (empty arrays)
 //   - mask_sensitive_value covers password/secret/token/key/credential
-import core
+import photon.core
 
 // ── mask_sensitive_value unit tests ──
 

@@ -11,7 +11,7 @@ module web
 //   - load_build_info() reads key=value files correctly
 //   - load_build_info() returns defaults for missing files
 //   - The mock handler dispatches /info correctly
-import core
+import photon.core
 import os
 
 // ── serve_info unit tests ──

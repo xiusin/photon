@@ -65,7 +65,7 @@ module web
 //
 // For tests, k8s_probe_mock_handler() returns a MockMvc-compatible handler
 // that dispatches both probes.
-import core
+import photon.core
 
 // probe_content_type is the Content-Type used by both K8s probe endpoints.
 pub const probe_content_type = 'application/json'

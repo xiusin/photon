@@ -42,6 +42,8 @@ module web
 //   status, body := resolver.resolve(err)!
 import x.json2
 import sync
+import veb
+import net.http
 
 // ── HttpException ──
 
@@ -567,4 +569,102 @@ pub fn validation_err(msg string) Result {
 // internal_err creates a 500 error result.
 pub fn internal_err(msg string) Result {
 	return fail(500, msg)
+}
+
+// ── Status-carrying JSON responses ──
+//
+// 为什么需要这一组函数
+// --------------------
+// veb 的 `ctx.json[T](value)` 只负责「把值编码成 JSON 正文」，它不碰
+// `ctx.res.status_code`，而 `send_response_to_client` 在状态码仍是 0 时
+// 才补一个 `.ok`。于是「code 写在正文里、状态码是 200」成了一个非常
+// 自然的写法：
+//
+//	ctx.json({'code': '403', 'message': 'permission denied'})
+//	→ HTTP/1.1 200 OK
+//	   {"code":"403","message":"permission denied"}
+//
+// 正文在说拒绝，状态行在说成功。浏览器端 JS 只看正文、只按业务 code
+// 分支时一切正常 —— 所以这种写法活得很好。但网关、负载均衡、反向代理
+// 的 4xx/5xx 计数、CDN 的缓存判定、客户端的重试策略、K8s 探针、APM 的
+// 错误率面板，读的全是状态行。它们会一致地把一份拒绝当成成功。
+//
+// 正确的顺序是先设状态码、再发正文：`send_response_to_client` 只在
+// `status_code == 0` 时补 `.ok`，先设好就不会被覆盖。
+//
+// Why these helpers exist
+// -----------------------
+// `veb.Context.json[T]()` encodes the payload but never touches the status
+// line, and `send_response_to_client` only defaults to `.ok` when the status
+// is still 0. So "code in the body, 200 on the wire" is the path of least
+// resistance — and every consumer that reads the status line (proxies, CDNs,
+// retry policies, APM error rates, k8s probes) sees a rejection as a success.
+//
+// These helpers set the status first, then send, so the status line and the
+// body cannot disagree.
+
+// json_status 发送带指定 HTTP 状态码的 JSON 响应。
+//
+// 把 `payload` 编码成 JSON 正文，并把 `status` 写进状态行。状态码和正文
+// 由同一个参数决定，不存在「正文说拒绝、状态行说成功」的可能。
+//
+// 用法：
+//   return web.json_status(mut ctx, 403, {'code': 403, 'message': 'permission denied'})
+//
+// json_status sends `payload` as JSON with an explicit HTTP status.
+// Use it whenever the response is not a plain 200 — the status line is
+// what proxies, retry policies and APM error rates actually read.
+pub fn json_status[T](mut ctx veb.Context, status int, payload T) veb.Result {
+	if status > 0 {
+		ctx.res.set_status(http_status(status))
+	}
+	return ctx.json(payload)
+}
+
+// error_result 发送带指定状态码的结构化错误 JSON。
+//
+// 正文形状由 `error_json()` 决定（`success` / `code` / `message`），
+// 状态行与 `code` 取同一个值 —— 两者不可能不一致。
+//
+// 用法：
+//   return web.error_result(mut ctx, 403, 'permission denied')
+//
+// error_result sends the standard error envelope with a matching status line.
+// The body shape comes from `error_json()`; the status and the body code are
+// the same argument, so they cannot drift apart.
+pub fn error_result(mut ctx veb.Context, code int, message string) veb.Result {
+	if code > 0 {
+		ctx.res.set_status(http_status(code))
+	}
+	return ctx.send_response_to_client('application/json', error_json(code, message))
+}
+
+// error_result_with_details 同 error_result，额外带上 details 字段。
+//
+// error_result_with_details is error_result plus a details map — useful for
+// validation failures where each field carries its own message.
+pub fn error_result_with_details(mut ctx veb.Context, code int, message string, details map[string]string) veb.Result {
+	if code > 0 {
+		ctx.res.set_status(http_status(code))
+	}
+	return ctx.send_response_to_client('application/json', error_json_with_details(code, message, details))
+}
+
+// http_status 把整数状态码转成 http.Status。
+//
+// 为什么不是 `http.Status(code)`：那是一次不带校验的枚举强转。code 落在
+// 枚举定义之外时会得到一个「有值但无意义」的状态码，发出去会静默变成别的
+// 状态 —— 比不发更糟。所以先过 `http.status_from_int()`：已知码原样使用，
+// 未分配的码（`unassigned`）退到 500，因为那种响应一定是服务端没按预期
+// 处理的结果。
+//
+// http_status maps an int code to http.Status, refusing to emit an
+// unassigned status. `http.Status(code)` alone would happily produce a
+// meaningless status line; an unassigned code falls back to 500.
+fn http_status(code int) http.Status {
+	status := http.status_from_int(code)
+	if status == .unassigned {
+		return .internal_server_error
+	}
+	return status
 }

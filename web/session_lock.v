@@ -12,7 +12,7 @@ module web
 // Design philosophy (Reduce Cognitive Load):
 //   - acquire() returns SessionLockGuard, defer { guard.release() } auto-releases
 //   - with_session_lock() callback API: zero cognitive load, framework guarantees lock acquire/release
-import locking
+import photon.locking
 import sync
 
 // SessionLockConfig 配置 Session 锁参数。

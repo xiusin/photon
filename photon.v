@@ -2,21 +2,21 @@ module photon
 
 // photon.v - Photon Framework Main Module
 // A commercial-grade Spring-like application framework for V language
-import config
-import core
-import logger
-import cache
-import security
+import photon.config
+import photon.core
+import photon.logger
+import photon.cache
+import photon.security
 import photon.cli
-import ticker
-import pageable
-import queue
-import locking
+import photon.ticker
+import photon.pageable
+import photon.queue
+import photon.locking
 import photon.orm
-import web
-import storage
-import mailer
-import apidoc
+import photon.web
+import photon.storage
+import photon.mailer
+import photon.apidoc
 
 // Re-export config types
 pub type Config = config.Config

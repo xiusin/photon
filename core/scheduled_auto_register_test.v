@@ -16,7 +16,7 @@ module core
 
 import sync
 import time
-import ticker
+import photon.ticker
 
 // ═══════════════════════════════════════════════════════════
 // Test Fixtures — services with @[scheduled] methods

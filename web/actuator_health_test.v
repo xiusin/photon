@@ -9,7 +9,7 @@ module web
 //   - Includes "status" and "components" fields in the JSON body
 //   - Aggregates all registered indicators
 //   - Returns 200 for an empty registry (considered healthy)
-import health
+import photon.health
 
 fn test_health_endpoint_up_returns_200() {
 	mut registry := health.new_health_registry()

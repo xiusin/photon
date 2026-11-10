@@ -14,9 +14,9 @@ module core
 // V's `select { else {} }` is non-blocking, so completion is tracked via
 // buffered channels.
 import time
-import strutil
-import queue
-import ticker
+import photon.strutil
+import photon.queue
+import photon.ticker
 
 // ── Test helper: SmartLifecycle implementation ──
 

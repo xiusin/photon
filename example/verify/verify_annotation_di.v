@@ -7,7 +7,7 @@ module main
 // 2) @[configuration] + @[bean] 声明式 Bean —— 容器扫描 @[bean] 方法，
 //    实例化并按类型在 Bean 之间注入依赖，再通过 resolve 解析取回。
 
-import core
+import photon.core
 
 // ── @[value] 注入目标 ──
 // 注：本机 V 0.5.1 下 @[value('key')] 括号形式解析失败，改用等价的冒号形式

@@ -1,6 +1,6 @@
 module tests
 
-import core
+import photon.core
 
 // cycle_detection_integration_test.v — 依赖循环检测的端到端集成测试
 //
