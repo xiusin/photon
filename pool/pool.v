@@ -460,6 +460,10 @@ pub fn (mut p Pool) acquire() !voidptr {
 				p.factory.destroy(obj)
 				return error('pool "${p.name}" is closed')
 			}
+			// 登记反向索引：release() 靠 obj_index 找到 ledger 槽位，没登记的
+			// 对象第一次归还时会被 entry_unsafe() 当成「未知指针」静默忽略 ——
+			// 对象不回 free_stack、active 也不减，直到下一次 GC sweep 重建索引
+			// 才复活。槽位号取追加前的长度（`p.objects.len` 在这里还是旧值）。
 			p.obj_index[obj] = p.objects.len
 			p.objects << PoolEntry{
 				object:       obj
@@ -467,6 +471,11 @@ pub fn (mut p Pool) acquire() !voidptr {
 				last_used_at: time.now().unix()
 				in_use:       true
 			}
+			// 唤醒 avail 上的 waiter：它们睡的正是「没有空闲对象」，而现在池里
+			// 多了一个。上限约束的是 active（in-use + 预留槽位），不是对象
+			// 总数，所以「新建对象」和「唤醒」必须成对出现，否则 waiter 会
+			// 一直睡着等一个不会来的唤醒。
+			p.wake_waiters_unsafe()
 			p.mu.unlock()
 			return obj
 		}

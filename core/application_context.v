@@ -348,10 +348,27 @@ pub fn (mut ctx ApplicationContext) register_factory(factory_type_name string, f
 //   - cache_hits/cache_misses are diagnostic counters protected by cache_mu to avoid
 //     data races from concurrent writes.
 pub fn (mut ctx ApplicationContext) resolve(type_name string) !voidptr {
+	// 缓存键用 canonical 名字，不是调用方传进来的名字。
+	//
+	// 原来这里直接拿 `type_name` 当键。别名解析发生在容器的 slow path 里，
+	// 于是 `resolve('Logger')`（Logger → log）命中一次之后缓存里多了一条
+	// `'Logger' → log 的实例`，而 `invalidate_cache()` 只会清 `'log'`。
+	// 之后 `register_instance_with_aliases('log', 新实例, [...])` →
+	// `invalidate_cache('log')` → `'Logger'` 那条还在，alias 继续交出被替换
+	// 掉的旧实例，并且从此命中的是无锁快路径 —— 容器里那个新实例永远拿不到。
+	//
+	// 统一键之后，同一个 bean 无论从 canonical 名字、别名还是限定符进入，
+	// 都落在同一条缓存上，`invalidate_cache()` 一次就够。
+	//
+	// Cache keys are canonical bean names, not the caller-supplied spelling.
+	// resolve_cache is invalidated by canonical name, so caching under an alias
+	// left a stale entry that survived re-registration and destroy.
+	canonical := ctx.container.canonical_name(type_name)
+
 	// 快速路径 1：缓存命中（冻结后无锁读取）
 	// Fast path 1: cache hit (lock-free read when frozen)
 	if ctx.is_frozen {
-		if cached := ctx.resolve_cache[type_name] {
+		if cached := ctx.resolve_cache[canonical] {
 			// 诊断计数器：冻结后多线程并发读取，cache_hits++ 不加锁。
 			// 这是可接受的数据竞争——计数器精度不重要，加锁会影响性能。
 			// Diagnostic counter: concurrent cache_hits++ without lock is acceptable
@@ -365,7 +382,7 @@ pub fn (mut ctx ApplicationContext) resolve(type_name string) !voidptr {
 	// Fast path 2: cache hit (locked read when not frozen)
 	if !ctx.is_frozen {
 		ctx.cache_mu.rlock()
-		if cached := ctx.resolve_cache[type_name] {
+		if cached := ctx.resolve_cache[canonical] {
 			ctx.cache_mu.runlock()
 			ctx.cache_mu.@lock()
 			ctx.cache_hits++
@@ -395,9 +412,9 @@ pub fn (mut ctx ApplicationContext) resolve(type_name string) !voidptr {
 	// prototype（含 prototype 工厂产物）不能进缓存：缓存一处、之后处处命中，
 	// 于是「每次 resolve 新建一个」的声明只在第一次生效。这类 bean 的
 	// resolve 成本本来就打算付，跳过缓存才是对的。
-	if !ctx.container.is_prototype_output(type_name) {
+	if !ctx.container.is_prototype_output(canonical) {
 		ctx.cache_mu.@lock()
-		ctx.resolve_cache[type_name] = instance
+		ctx.resolve_cache[canonical] = instance
 		ctx.cache_mu.unlock()
 	}
 
@@ -406,7 +423,46 @@ pub fn (mut ctx ApplicationContext) resolve(type_name string) !voidptr {
 
 // resolve_by_qualifier retrieves a bean by qualifier name.
 pub fn (mut ctx ApplicationContext) resolve_by_qualifier(qualifier string) !voidptr {
-	return ctx.container.resolve_by_qualifier(qualifier)
+	// 与 resolve() 共用同一个 resolve_cache，键同样是 canonical 名字。
+	// 绕开缓存直接问容器会让这条路径与 resolve() 的缓存脱钩：销毁 / 重新注册
+	// 之后缓存里留着旧实例，而这里每次都拿新实例，两条路给出不同答案。
+	canonical := ctx.container.canonical_name_for_qualifier(qualifier)
+
+	if ctx.is_frozen {
+		if cached := ctx.resolve_cache[canonical] {
+			unsafe { ctx.cache_hits++ }
+			return cached
+		}
+	}
+	if !ctx.is_frozen {
+		ctx.cache_mu.rlock()
+		if cached := ctx.resolve_cache[canonical] {
+			ctx.cache_mu.runlock()
+			ctx.cache_mu.@lock()
+			ctx.cache_hits++
+			ctx.cache_mu.unlock()
+			return cached
+		}
+		ctx.cache_mu.runlock()
+	}
+
+	ctx.cache_mu.@lock()
+	ctx.cache_misses++
+	ctx.cache_mu.unlock()
+
+	instance := ctx.container.resolve_by_qualifier(qualifier) or {
+		// 容器给不出实例（bean 已被销毁 / 从未存在）时，缓存里若有旧值就是
+		// 一份「已经销毁的实例」，必须顺手清掉再报错 —— 否则下一次调用
+		// 会从缓存里把它捞回来，错误只出现一次，之后永远静默成功。
+		ctx.invalidate_cache(canonical)
+		return err
+	}
+	if canonical.len > 0 && !ctx.container.is_prototype_output(canonical) {
+		ctx.cache_mu.@lock()
+		ctx.resolve_cache[canonical] = instance
+		ctx.cache_mu.unlock()
+	}
+	return instance
 }
 
 // has checks if a bean is registered.
@@ -614,11 +670,18 @@ pub fn (mut ctx ApplicationContext) add_runner(runner &ApplicationRunner) {
 // Spring equivalent: ConfigurableBeanFactory.registerAlias()
 pub fn (mut ctx ApplicationContext) register_alias(alias string, canonical_name string) ! {
 	ctx.container.register_alias(alias, canonical_name)!
+	// 别名会改变后续 resolve() 的落点，缓存里可能还留着这个拼写指向的旧实例。
+	ctx.invalidate_cache(alias)
 }
 
 // remove_alias removes a registered alias.
+//
+// 缓存按 canonical 名字存，别名本身不会留下条目；但删掉别名之后，
+// 用这个拼写 resolve 会走容器并报「未找到」，而缓存里若仍有同名条目就会
+// 抢先命中 —— 所以这里同步失效该拼写。
 pub fn (mut ctx ApplicationContext) remove_alias(alias string) {
 	ctx.container.remove_alias(alias)
+	ctx.invalidate_cache(alias)
 }
 
 // ── Hierarchical Context ──
@@ -1310,6 +1373,11 @@ pub fn (mut ctx ApplicationContext) remove_definition(type_name string) ! {
 		return error('cannot remove definition "${type_name}": bean definitions are frozen / BeanDefinition 已冻结，无法移除 "${type_name}"')
 	}
 	ctx.container.remove_definition(type_name)!
+	// remove_definition 同时摘掉了指向它的别名，别名拼写上的缓存也要一起清，
+	// 否则「定义已删除」会被一条残留的别名缓存糊成「还能拿到旧实例」。
+	for alias in ctx.container.aliases_pointing_to(type_name) {
+		ctx.invalidate_cache(alias)
+	}
 	ctx.invalidate_cache(type_name)
 }
 
