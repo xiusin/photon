@@ -296,6 +296,34 @@ pub fn (mut c Container) canonical_name(name string) string {
 	return c.resolve_alias_chain(name, 0)
 }
 
+// aliases_pointing_to lists every alias that resolves to the given bean name.
+//
+// 上层需要在移除定义之后清掉这些「拼写」上的缓存条目：别名本身不存缓存，
+// 但调用方完全可能用别名拼写进入过 resolve()。
+pub fn (mut c Container) aliases_pointing_to(canonical_name string) []string {
+	c.mu.rlock()
+	defer { c.mu.runlock() }
+	mut result := []string{}
+	for alias, canonical in c.aliases {
+		if canonical == canonical_name {
+			result << alias
+		}
+	}
+	return result
+}
+
+// canonical_name_for_qualifier maps a qualifier to its canonical bean name.
+//
+// 上层（ApplicationContext）用它把 resolve_by_qualifier 的结果写进与
+// resolve() 共用的 resolve_cache —— 两条路径必须用同一个键，否则同一个 bean
+// 会有两份缓存，销毁 / 重新注册时只能清掉其中一份。
+// Returns '' when the qualifier is unknown, so callers can skip caching.
+pub fn (mut c Container) canonical_name_for_qualifier(qualifier string) string {
+	c.mu.rlock()
+	defer { c.mu.runlock() }
+	return c.qualifiers[qualifier] or { '' }
+}
+
 // resolve_alias_chain resolves an alias chain with cycle detection.
 // Max depth of 10 to prevent infinite loops from circular aliases.
 fn (c &Container) resolve_alias_chain(name string, depth int) string {

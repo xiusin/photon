@@ -1428,7 +1428,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 |------|-----------|----------|
 | web | 58 | V built-in test + TestResponse 助手（含 ResponseEntity 首次覆盖、Session 读写可见范围、错误响应状态行）|
 | orm | 33 | V built-in test |
-| core | 31 | V built-in test（含 ServiceLocator 首次覆盖） |
+| core | 32 | V built-in test（含 ServiceLocator 首次覆盖、resolve 缓存的 alias/qualifier 键） |
 | security | 17 | V built-in test |
 | cache | 17 | V built-in test |
 | queue | 9 | V built-in test |
@@ -1438,7 +1438,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | locking | 6 | V built-in test |
 | ticker | 6 | V built-in test |
 | logger | 5 | V built-in test |
-| pool | 7 | V built-in test（含 DbPool、零 orm 依赖校验、PooledGuard 契约） |
+| pool | 8 | V built-in test（含 DbPool、零 orm 依赖校验、PooledGuard 契约、acquire 新建对象的两处遗漏） |
 | storage | 5 | V built-in test |
 | http | 4 | V built-in test |
 | async | 4 | V built-in test |
@@ -1447,10 +1447,10 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
 | cli | 6 | V built-in test（含对生成产物的真实编译） |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **243** | |
+| **合计** | **245** | |
 
 > 口径：表格含 `core/tests/` 的 2 个黑盒用例。`scripts/run-tests.sh` 的
-> `ALL_MODULES` 不扫子目录，逐文件跑的是 241 个；`core/tests` 由
+> `ALL_MODULES` 不扫子目录，逐文件跑的是 243 个；`core/tests` 由
 > `make test-core-tests` 单独跑。
 
 ### 8.2 测试模式
@@ -2464,6 +2464,102 @@ import、`web/actuator_*.v` 与 `web/mount.v` 的 `import core` / `import logger
 
 它比前几轮的缺陷都更值得修，因为它在安全边界上：一个把所有 401/403 报成 200 的服务，
 在监控面板上看起来 100% 健康。**错得不只是响应，还有对这个服务的全部观测。**
+
+### 8.19 resolve 缓存的键：别名与限定符各自缓存一份
+
+`ApplicationContext.resolve()` 用 `resolve_cache` 做热路径加速，键是**调用方
+传进来的字符串**。而别名解析发生在容器内部（`resolve_alias_chain`），于是：
+
+```v
+ctx.register_instance_with_aliases('log', voidptr(log1), ['Logger'])!
+ctx.resolve('Logger')!                 // alias → 'log' → log1，缓存 'Logger' → log1
+ctx.remove_definition('log')!
+ctx.register_instance_with_aliases('log', voidptr(log2), ['Logger'])!
+ctx.resolve('Logger')!                 // 命中缓存 → log1（已被替换掉的实例）
+```
+
+`invalidate_cache('log')` 只清 `'log'` 那一条。`'Logger'` 这条活了下来，此后
+每次 `resolve('Logger')` 都会命中的无锁快路径，容器里那个新实例永远拿不到。
+`resolve_by_qualifier()` 走的是同一个模式（限定符 → canonical 名字 → 实例，
+结果也写进 `resolve_cache`），所以这一处不能只给 alias 打补丁。
+
+#### 一、修法：缓存键统一成 canonical 名字
+
+```v
+canonical := ctx.container.canonical_name(type_name)
+```
+
+同一个 bean 无论从 canonical 名字、别名还是限定符进入，都落在同一条缓存上，
+`invalidate_cache(canonical)` 一次就够。配合三处收尾：
+
+- `register_alias()` / `remove_alias()` 失效那个**拼写**上的条目；
+- `remove_definition()` 把「指向它的别名」也一并失效（容器新增
+  `aliases_pointing_to()`）；
+- `resolve_by_qualifier()` 在容器报错时顺手失效缓存 —— 否则「已销毁的实例」
+  会一直躺在缓存里，错误只出现一次，之后永远静默成功。
+
+#### 二、用例与变异
+
+`core/resolve_cache_alias_test.v` 2 条：别名热替换、限定符路径在定义移除后的
+解析。两条都是真缺陷：把 `core/{application_context,core}.v` 退回改动前，两条
+各自变红（`别名解析到了被替换掉的旧实例` / `在 bean 定义被移除后仍返回了缓存里
+的旧实例`），恢复后绿。
+
+#### 三、这轮的形状
+
+前几轮记过的沉默是「没人调 → 没人测 → 每次全绿都跟它无关」。这次是它的变体：
+**同一个东西有两把钥匙，而作废逻辑只认其中一把。**
+
+缓存按拼写存、失效按 canonical 名字删，两边各自看都没错 —— 只有同时用一个
+bean 的两种名字，才会撞见它们不是一个东西。
+
+### 8.20 `acquire()` 新建对象那条分支，少了两件事
+
+`Pool.acquire()` 有两条返回路径：从 `free_stack` 取到空闲对象，和「没有空闲
+对象且 `active < max`」时新建一个。后者在 `p.objects << PoolEntry{...}` 之后
+直接 `return obj`，落下了两件事。
+
+#### 一、没登记反向索引
+
+`release()` 用 `obj_index`（指针 → ledger 槽位）找条目，查不到就当「未知指针」
+静默忽略。于是一个**刚创建出来**的对象第一次归还时：对象没回 `free_stack`、
+`active_count` 也没减。它变成只有 `close()` 才回收的僵尸槽位，直到下一次 GC
+sweep 重建索引才「复活」。两次 sweep 之间，池对它的容量是白算的。
+
+#### 二、没唤醒 `avail` 上的 waiter
+
+上限约束的是 **active**（in-use + 预留槽位），不是对象总数。只要有别的协程
+还持有对象，「没空闲对象且 active < max」就永远成立 —— 每进来一个 waiter 就
+新建一个对象，然后睡在 `avail` 上等一个不会来的唤醒。堆一个都不够用。
+
+修法各自一行：`p.obj_index[obj] = p.objects.len`（追加前的长度）和
+`p.wake_waiters_unsafe()`。
+
+#### 三、用例与变异
+
+`pool/pool_wakeup_test.v` 3 条：
+
+```
+test_new_object_release_returns_to_idle   release() 之后 active 归零 + 复用的是同一对象
+test_new_object_wakes_parked_waiter       新建对象后必须广播，waiter 不能睡到超时
+test_waiter_wakes_and_gets_object         release() 唤醒阻塞方（原有语义）
+```
+
+变异验证：删掉 `obj_index` 登记 → 多条红（`release() 之后 active 必须归零`、
+`release() 之后 waiter 没有被唤醒`）；删掉 `wake_waiters_unsafe()` → 全绿。
+
+**第二条变异没红，这是这轮留下的诚实欠账**：它的窗口只有「阻塞在
+`<-signal`」到「取到互斥锁」之间的几十纳秒，而广播在那里只会把 `p.avail`
+换成一个新的空通道、让 waiter 多跑一轮。要稳定复现得在
+`p.mu.@lock()` 前后插探针，而框架代码里没有探针位 —— 所以这两行是按语义补的
+（新建对象让「没有空闲对象」不再成立，就该唤醒在看这件事的人），不是被红断言
+逼出来的。哪天真出现了稳定的复现手法，这条断言应该补上。
+
+顺带记一条变异脚本自己的坑：改 `acquire_with_timeout()` 的等待段时，
+「把 `<-signal` 换成空通道轮询」这类变异会让 waiter 永远不返回，
+`v test` 编译期就卡住（表现为 BUILD-TIMEOUT，不是断言失败）。变异脚本也要能跑
+起来，否则「没红」和「没生效」分不清 —— 和 §8.18 那条 `http.Status(code)`
+必须包 `unsafe` 是同一类问题。
 
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 
