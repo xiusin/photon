@@ -1427,7 +1427,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | 模块 | 测试文件数 | 测试框架 |
 |------|-----------|----------|
 | web | 58 | V built-in test + TestResponse 助手（含 ResponseEntity 首次覆盖、Session 读写可见范围、错误响应状态行）|
-| orm | 33 | V built-in test |
+| orm | 34 | V built-in test（含 where_not_in 的三处语义反转） |
 | core | 32 | V built-in test（含 ServiceLocator 首次覆盖、resolve 缓存的 alias/qualifier 键） |
 | security | 17 | V built-in test |
 | cache | 17 | V built-in test |
@@ -1447,10 +1447,10 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
 | cli | 6 | V built-in test（含对生成产物的真实编译） |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **245** | |
+| **合计** | **246** | |
 
 > 口径：表格含 `core/tests/` 的 2 个黑盒用例。`scripts/run-tests.sh` 的
-> `ALL_MODULES` 不扫子目录，逐文件跑的是 243 个；`core/tests` 由
+> `ALL_MODULES` 不扫子目录，逐文件跑的是 244 个；`core/tests` 由
 > `make test-core-tests` 单独跑。
 
 ### 8.2 测试模式
@@ -2560,6 +2560,83 @@ test_waiter_wakes_and_gets_object         release() 唤醒阻塞方（原有语�
 `v test` 编译期就卡住（表现为 BUILD-TIMEOUT，不是断言失败）。变异脚本也要能跑
 起来，否则「没红」和「没生效」分不清 —— 和 §8.18 那条 `http.Status(code)`
 必须包 `unsafe` 是同一类问题。
+
+### 8.21 `where_not_in`：一条「排除」子句的三种反写法
+
+`where_in()` 在 §8.14 之前那一轮修过一次（「IN 单独成组被 OR 掉」），
+`where_not_in()` 就写在它下面二十行，却一直没跟着改。三处缺陷形状不同，
+后果一样：**排除条件最后变成放宽条件**。
+
+#### 一、空列表 no-op —— 「什么都不排除」= 全表
+
+```v
+q := table('users', om).where_eq('tenant_id', 7).where_not_in('status', [])
+// 旧：WHERE tenant_id = ?            ← status 过滤凭空消失
+// 新：WHERE tenant_id = ? AND 1 = 0
+```
+
+`NOT IN ()` 是 SQL 语法错误，所以这里不能用「发出原句」的写法。而
+「我没有要排除的东西」和「我什么都不匹配」在调用方那里是两件事：
+前者应该根本不调用这个方法。`where_in()` 早就选了恒假（`append_and_false()`），
+`where_not_in()` 选了 no-op —— 同一对方法，对同一个边界给了相反的答案。
+
+#### 二、自成一组 —— 被组间连接规则 OR 掉
+
+`where_in()` 当年是 `groups << group`，修法写得很清楚：IN 是尾部 AND 组里的
+一个谓词序列，不许单独成组。`where_not_in()` 还留着 `groups << group`。
+
+后果比 IN 那次更难看，因为「NOT IN」和「OR」贴在一起时语义直接反转：
+
+```v
+where_in('status', ['a']).where_not_in('status', ['b','c'])
+→ WHERE status IN (?) OR status NOT IN (?, ?)      // 两句话互相取消
+```
+
+一个条件本来是「在这些里」，另一个是「不在那些里」，OR 一连接，等于
+`status IN ('a') OR status NOT IN ('b','c')` —— 几乎匹配所有行。
+
+#### 三、同列 IN + NOT IN —— 后一句重写前一句的占位符
+
+`build_where()` 渲染 IN 时用 `in_column` 判断「是不是同一列的后继值」，
+只比列名，不看操作符：
+
+```v
+.where_in('status', ['a','b']).where_not_in('status', ['c'])
+→ WHERE status NOT IN (?, ?, ?)     // SQL 只剩 NOT IN，绑定值还是 3 个
+→ WHERE status IN (?, ?) AND tenant_id = ?  // 后面所有参数整体错位一格
+```
+
+SQL 少了一句、绑定值多了一个，且错位发生在**参数序列**上 ——
+不会报错，只会把 `tenant_id` 的值绑到 `status` 的位置上。
+
+#### 四、用例与变异
+
+`orm/table_not_in_test.v` 8 条，覆盖：空列表（单独 / 前后有条件）、
+纯 AND 链、链首、同列 IN+NOT IN 双向、与 `or_where` 混用、非法列名仍报错。
+其中一条断言直接用 `qsql.count('?') == args.len` 锁住「占位符数 == 绑定值数」。
+
+三组变异（每次改一处，跑完恢复）：
+
+```
+build_where 只按列名判 IN 去重     → 同列两条用例红（IN 被 NOT IN 覆盖）
+空 NOT IN 退回 no-op               → 空列表两条用例红
+not_in 另起组 + 组间 OR 连接       → AND 链 / 同列 / or 夹杂 多条红
+```
+
+#### 五、这轮的形状
+
+前几轮记的沉默有几种：没人调（`bind_input`）、没人看输出（启动横幅）、
+看着太简单（`ask`/进度条）。这次是第四种 —— **修了一半**。
+
+`where_in()` 的注释里老老实实写着「IN 不能单独成一个分组，否则被 OR 掉」，
+写得很详细，还带了错例。它下面的 `where_not_in()` 一个字没改。
+注释只对自己解释，不会对邻居喊话；而人读代码时，读到一段讲清楚的注释，
+很容易以为**这一片**都讲清楚了。
+
+> 变异脚本自身的坑也记一条：`v -o <path> xxx_test.v` 在非 `v test` 模式下
+> 会**编完立刻运行并删除产物**，所以「产物不存在」不能当成编译失败。
+> 这轮的变异验证因此改成用一个 `module main` 的探针程序跑同一批断言，
+> 不再依赖产物文件。
 
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 
