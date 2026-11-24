@@ -478,26 +478,30 @@ pub fn (tq &TableQuery) where_in(col string, values []ParamValue) &TableQuery {
 	return next
 }
 
-// where_not_in appends `column NOT IN (?, ?, …)`.  Empty list → no-op.
+// where_not_in appends `column NOT IN (?, ?, …)`.  Empty list → 恒假。
 pub fn (tq &TableQuery) where_not_in(col string, values []ParamValue) &TableQuery {
 	c := column_or_error(col)
 	if c == '' {
 		return tq.with_error('invalid column identifier "${col}" / 非法列名 "${col}"')
 	}
 	if values.len == 0 {
-		return tq
+		// 空列表 = 「什么都不匹配」。NOT IN () 在 SQL 里是语法错误，
+		// 而「什么都没排除」字面上等于全表 —— 那是把过滤条件反过来执行。
+		return tq.append_and_false()
 	}
-	mut group := []TablePredicate{cap: values.len}
+	// 和 where_in() 走同一条路：自己另起一组的话，组间连接规则一改
+	// （见 append_condition / build_where），这一句就会被前面的条件 OR 掉，
+	// 或者把前面的条件 OR 掉 —— 一条「排除某些行」的子句，最后可能变成
+	// 「多返回一些行」。
+	mut next := tq
 	for v in values {
-		group << TablePredicate{
+		next = next.append_condition(TablePredicate{
 			column: c
 			op:     'not in'
 			value:  v
-		}
+		})
 	}
-	mut groups := tq.copy_groups()
-	groups << group
-	return tq.with_groups(groups)
+	return next
 }
 
 // where_null appends `column IS NULL`.
@@ -914,6 +918,10 @@ fn (tq &TableQuery) build_where() !(string, []ParamValue) {
 	for group_idx, group in tq.groups {
 		mut parts := []string{cap: group.len}
 		mut in_column := ''
+		// 同一个列上 `IN (…)` 和 `NOT IN (…)` 可以并存（例如「状态在这些里，
+		// 但不在那些里」）。只按列名判重会让后一句把前一句的占位符重写掉 ——
+		// SQL 里剩一个 IN，绑定值却还是两组，参数从此整体错位一格。
+		mut in_op := ''
 		mut in_count := 0
 		for cond in group {
 			match cond.op {
@@ -923,8 +931,9 @@ fn (tq &TableQuery) build_where() !(string, []ParamValue) {
 				'in', 'not in' {
 					// The IN column is emitted once; later rows of the same
 					// group only extend the placeholder list.
-					if cond.column != in_column {
+					if cond.column != in_column || cond.op != in_op {
 						in_column = cond.column
+						in_op = cond.op
 						in_count = 0
 						parts << ''
 					}
