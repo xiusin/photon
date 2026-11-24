@@ -386,6 +386,11 @@ pub fn (tq &TableQuery) one_column(col string) &TableQuery {
 //
 //   .where('age', '>', 18)
 //   .where('name', 'like', '%ali%')
+//
+// `in` / `not in` 也认，但**必须走 where_in() / where_not_in()**，因为
+// 它们不是「一个值对一个占位符」，而要按列表长度展开。与其拒绝，不如
+// 在这里就明确报错 —— 旧实现对这两个合法谓词回「不支持的操作符」，
+// 而它自己的注释、where_in 的注释、以及这两句紧挨着的源码都在说同一件事。
 pub fn (tq &TableQuery) where(col string, op string, value ParamValue) &TableQuery {
 	c := column_or_error(col)
 	if c == '' {
@@ -393,6 +398,11 @@ pub fn (tq &TableQuery) where(col string, op string, value ParamValue) &TableQue
 	}
 	norm := normalise_op(op)
 	if norm == '' {
+		v := set_op_verb(op)
+		if v != '' {
+			set_fn := set_op_method_name(v)
+			return tq.with_error('`${v}` needs a list, not a single value: it cannot be expressed as `column ${v} ?`. Use .${set_fn}() / `${v}` 需要列表，不能用单值占位符，请改用 .${set_fn}()`')
+		}
 		return tq.with_error('unsupported operator "${op}" / 不支持的操作符 "${op}"')
 	}
 	return tq.append_condition(TablePredicate{
@@ -400,6 +410,28 @@ pub fn (tq &TableQuery) where(col string, op string, value ParamValue) &TableQue
 		op:     norm
 		value:  value
 	})
+}
+
+// set_op_method_name maps a set operator to the method that takes its list.
+fn set_op_method_name(verb string) string {
+	if verb == 'not in' {
+		return 'where_not_in'
+	}
+	return 'where_in'
+}
+
+// set_op_verb reports whether `op` is a set operator (`in` / `not in`), which
+// takes a list instead of a single value.  Returns the canonical spelling, or
+// '' for anything else.
+fn set_op_verb(op string) string {
+	norm := op.trim_space().to_lower()
+	if norm == 'in' {
+		return 'in'
+	}
+	if norm == 'not in' {
+		return 'not in'
+	}
+	return ''
 }
 
 // where_eq appends `column = ?` — the default predicate.
@@ -564,6 +596,11 @@ pub fn (tq &TableQuery) or_where(col string, op string, value ParamValue) &Table
 	}
 	norm := normalise_op(op)
 	if norm == '' {
+		v := set_op_verb(op)
+		if v != '' {
+			or_fn := set_op_method_name(v)
+			return tq.with_error('`${v}` needs a list and has no or_where counterpart; wrap .${or_fn}() in where_group() / `${v}` 需要列表且没有 or_where 变体，请用 where_group() 包住 .${or_fn}()`')
+		}
 		return tq.with_error('unsupported operator "${op}" / 不支持的操作符 "${op}"')
 	}
 	cond := TablePredicate{
