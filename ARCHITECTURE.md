@@ -1427,7 +1427,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | 模块 | 测试文件数 | 测试框架 |
 |------|-----------|----------|
 | web | 58 | V built-in test + TestResponse 助手（含 ResponseEntity 首次覆盖、Session 读写可见范围、错误响应状态行）|
-| orm | 34 | V built-in test（含 where_not_in 的三处语义反转） |
+| orm | 36 | V built-in test（含 where_not_in 的三处语义反转、`in`/`not in` 的通用入口指路、派生查询的缩写连读） |
 | core | 32 | V built-in test（含 ServiceLocator 首次覆盖、resolve 缓存的 alias/qualifier 键） |
 | security | 17 | V built-in test |
 | cache | 17 | V built-in test |
@@ -1447,10 +1447,10 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
 | cli | 6 | V built-in test（含对生成产物的真实编译） |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **246** | |
+| **合计** | **248** | |
 
 > 口径：表格含 `core/tests/` 的 2 个黑盒用例。`scripts/run-tests.sh` 的
-> `ALL_MODULES` 不扫子目录，逐文件跑的是 244 个；`core/tests` 由
+> `ALL_MODULES` 不扫子目录，逐文件跑的是 246 个；`core/tests` 由
 > `make test-core-tests` 单独跑。
 
 ### 8.2 测试模式
@@ -2637,6 +2637,89 @@ not_in 另起组 + 组间 OR 连接       → AND 链 / 同列 / or 夹杂 多�
 > 会**编完立刻运行并删除产物**，所以「产物不存在」不能当成编译失败。
 > 这轮的变异验证因此改成用一个 `module main` 的探针程序跑同一批断言，
 > 不再依赖产物文件。
+
+### 8.22 两个「藏在白名单背后」的沉默
+
+这轮验的是上一轮结尾标了「推测，没验」的那句话：
+`where()` 的 op 白名单里没有 `in` / `not in`，所以 `.where('status', 'not in', v)`
+会报「不支持的操作符」。
+
+**推测成立，但它本身不是缺陷的形状** —— 一个值对一个占位符表达不了集合，
+把 `in` 塞进白名单只会发出 `column in ?` 这种谁都不认的 SQL。所以第一个落点不是
+「让它能用」，而是**让拒绝说得清楚**。
+
+第二个落点是顺着「同一件事附近还有谁」找出来的：`parse_method_name()` 的
+`camel_to_snake` 是**第二份**词边界实现，而 §8.9 已经在脚手架生成器里修过同一处
+（`HTMLParser → h_t_m_l_parser`）。那一轮只修了 cli 那一份。
+
+#### 一、`where(.., 'in'/'not in', ..)` 白名单里没有，也没说什么
+
+```
+$ .where('status', 'not in', 'x')
+unsupported operator "not in" / 不支持的操作符 "not in"
+```
+
+而 20 行下面的 `where_in()` / `where_not_in()` 把「空列表 = 恒假」「不许自成一组」
+想得清清楚楚。同一个谓词在专用入口能表达、在通用入口不可达，报错却只说了
+「不支持」—— 调用方拿到这句话，没有任何线索指向那两个方法。
+
+修法是把拒绝换成**指路**：
+
+```
+in     → `in` needs a list, not a single value … Use .where_in()
+not in → `not in` needs a list … Use .where_not_in()
+or_where(.., 'in', ..) → 没有 or_where 变体，请用 where_group() 包住 .where_in()
+```
+
+`or_where` 那条单独说：它没有集合变体，所以必须把调用方引到 `where_group()`，
+否则「where_in 能用、or_where 不能」就成了一条没有解释的规则。
+
+#### 二、`camel_to_snake`：缩写的第二份词边界实现
+
+```
+findByUserDOB    → WHERE user_d_o_b = ?     // 模型里叫 user_dob
+findByHTMLParser → WHERE h_t_m_l_parser = ? // 模型里叫 html_parser
+```
+
+派生查询解析方法名 → 列名，这一步错了**不报错**：它去查一个不存在的列，
+错误在驱动层以「no such column」出现，而方法名本身完全合法。
+`orm/local_hash.v` 里早就有正确的 `snake_case`（缩写连读），`derive.v`
+却自己写了一份「每个大写字母前插下划线」。改成 `return snake_case(s)`。
+
+#### 三、用例与变异
+
+```
+orm/table_set_operator_test.v   5 条  in/not in 在 where/or_where 上的拒绝必须指名方法
+orm/derive_snake_boundary_test.v 5 条  缩写连读、与 snake_case 逐向量对齐、ORDER BY 同源
+```
+
+两组变异（改一处、跑完恢复）：
+
+```
+set_op_verb 恒返回 ''            → 3 条红（报错又变回「不支持的操作符」）
+camel_to_snake 退回手写循环       → 结构断言红 + 探针实测 user_d_o_b
+```
+
+`derive_snake_boundary_test.v` 里有一条**结构断言**：`camel_to_snake` 的函数体
+必须出现 `snake_case(`，且不许有 `for`。行为断言挡不住「再加一份副本」——
+两份实现在今天可以碰巧一致，明天就分叉。
+
+#### 四、这轮的形状
+
+前几轮记的沉默有几种：没人调、没人看输出、看着太可信、看着太简单、修了一半、
+两处各记一半的状态只会漂、用例把错误行为钉成事实、泛型没被实例化。
+
+这次是**「同一件事的第二份副本」**，而且第一次修的时候就已经见过它一次：
+
+`HTMLParser → h_t_m_l_parser` 在 §8.9 被抓出来、写进了断言、修好了 ——
+在 `cli/make_commands.v` 里。`orm/derive.v` 的同一行代码没动，因为那一轮
+只看脚手架。**修一个 bug 的时候顺手搜一遍同样的写法，比修完之后再修一次便宜。**
+
+> 环境侧这轮新踩的一条：`vlang/vc` 的 `git clone` 拿到的 `HEAD` 确实是 0.5.2
+> 对应的那份 `v.c`，但**用更老的 `v.c` 自举 0.5.2 的 vlib 会失败**（`$else $if
+> sparc64` 之类的新编译期常量还没实现）。判据不是「commit 日期接近」，而是
+> 「`v1 version` 报出来的版本与待编译树匹配」。这轮改成先 `./v1 version` 确认，
+> 再往下走；补丁脚本走完之后要重新确认 `thirdparty/tcc/lib/libgc.a` 还在。
 
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 

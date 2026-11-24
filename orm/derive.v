@@ -330,17 +330,20 @@ pub fn (qp QueryParts) to_order_field() string {
 }
 
 // camel_to_snake converts CamelCase to snake_case.
-// Example: "CreatedAt" → "created_at"
-// Uses a strings.Builder to avoid O(n²) string concatenation.
+//
+// "CreatedAt"  → "created_at"
+// "UserDOB"    → "user_dob"      （不是 user_d_o_b）
+// "HTMLParser" → "html_parser"   （不是 h_t_m_l_parser）
+//
+// 早先这里是「每个大写字母前插一个下划线」。那样 `findByUserDOB` 会去查
+// `user_d_o_b` 这一列 —— 模型里叫 `user_dob`，于是派生查询在运行时
+// 报「列不存在」。这和 cli/make_commands.v 里那处 to_snake_case 是同一个
+// bug（§8.9），当时只在脚手架一侧修掉了，第二份副本留在这里。
+//
+// 现在委托给本模块的 snake_case（orm/local_hash.v）：缩写连读，与
+// strutil.snake 用同一套词边界规则，两边各有字符向量表互相钉住。
 fn camel_to_snake(s string) string {
-	mut sb := strings.new_builder(s.len * 2)
-	for i, ch in s {
-		if ch.is_capital() && i > 0 {
-			sb.write_string('_')
-		}
-		sb.write_string(ch.ascii_str().to_lower())
-	}
-	return sb.str()
+	return snake_case(s)
 }
 
 // to_limit returns the limit value (0 = no limit).
