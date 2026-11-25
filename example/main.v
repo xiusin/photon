@@ -1,14 +1,18 @@
 module main
 
-// main.v — Photon Web Application 入口（DI 容器驱动，P0 7.1）
+// main.v — Photon Web Application 入口（DI 容器驱动）
 //
 // 启动流程：
 //   1. 创建 ApplicationContext（DI 容器）
 //   2. bootstrap() 注册所有 Bean（配置、日志、缓存、服务、中间件）
 //   3. ctx.refresh() 完成单例初始化与生命周期回调
-//   4. ctx.resolve_typed[T]() 从容器获取 Bean，装配到 veb App
-//   5. 启动 veb HTTP 服务器
-//   6. 服务器退出后 ctx.shutdown() 优雅关闭
+//   4. ctx.resolve_typed[T]() 从容器获取 Bean，装配控制器
+//   5. init_app() 把控制器挂到 WebModule —— 路由注解在编译期被扫成路由表
+//   6. 启动 veb HTTP 服务器
+//   7. 服务器退出后 ctx.shutdown() 优雅关闭
+//
+// 这里没有一条路由方法。路由属于各自的控制器（*_controller.v），
+// 「加一个接口」等于「在控制器里加一个带注解的方法」。
 import photon.cli
 import veb
 import time
@@ -17,33 +21,11 @@ import photon.logger
 import photon.apidoc
 import photon.core
 
-// App — 全局应用上下文（veb 控制器 = 路由声明层）
-//
-// 分层架构：App 仅做路由分发，不含业务逻辑。
-//   - routes.v        : @[route] 注解方法 → 转发到控制器
-//   - *_controller.v  : 独立控制器，自持 service 依赖（业务逻辑层）
-//   - services.v      : 业务服务层
-//   - middleware.v    : 横切中间件
-@[controller]
-pub struct App {
-	veb.Context
-	veb.Middleware[Context]
-pub mut:
-	start_time i64
-	req_count  int
-	// 应用级依赖（用于全局中间件 / 文档）
-	middleware     &MiddlewareManager    = unsafe { nil }
-	log_           &logger.Logger        = unsafe { nil }
-	apidoc_handler &apidoc.ApidocHandler = unsafe { nil }
-	// 分层控制器（持有各自的 service 依赖）
-	home_controller &HomeController = unsafe { nil }
-	auth_controller &AuthController = unsafe { nil }
-	user_controller &UserController = unsafe { nil }
-}
-
 // Context — 请求级上下文
+//
+// 嵌入 web.RouterContext：veb 的全部能力 + 路由路径参数（ctx.path('id')）。
 pub struct Context {
-	veb.Context
+	web.RouterContext
 }
 
 // main 入口
@@ -70,7 +52,7 @@ pub fn main() {
 		panic(err)
 	}
 
-	// ── 4. 从容器解析 Bean，装配到 veb App ──
+	// ── 4. 从容器解析 Bean，装配控制器 ──
 	log_ := ctx.resolve_typed[logger.Logger]('Logger') or {
 		ctx.shutdown()
 		panic(err)
@@ -108,34 +90,32 @@ pub fn main() {
 
 	start := time.ticks()
 
-	// ── 5. 构造分层控制器（注入 service 依赖）──
+	// ── 5. 构造控制器并挂载（路由注解在这里被扫成路由表）──
 	home_ctrl := new_home_controller(user_svc, cache_svc, health_svc, app_cfg, start)
 	auth_ctrl := new_auth_controller(auth_svc, user_svc, mw)
 	user_ctrl := new_user_controller(user_svc, mw)
 
-	mut web_app := &App{
-		start_time:      start
-		log_:            log_
-		middleware:      mw
-		apidoc_handler:  apidoc_handler
-		home_controller: home_ctrl
-		auth_controller: auth_ctrl
-		user_controller: user_ctrl
-	}
+	mut web_app := init_app(mw, apidoc_handler, home_ctrl, auth_ctrl, user_ctrl)
 
 	// 注册 apidoc middleware（自动劫持请求/响应采集）
 	web_app.use(apidoc_handler.before_middleware[Context]())
 	web_app.use(apidoc_handler.after_middleware[Context]())
 	log_.info('API Documentation middleware registered')
 
-	// 注册全局应用 middleware（请求计数 + CORS + 日志）
+	// 全局 middleware：路由分发 + 请求计数 + CORS + 访问日志
+	//
+	// 路由分发排在最前：命中就把响应写完（ctx.done），后面的中间件会被
+	// veb 停掉；没命中返回 false 交给 veb 走 404。把分发放在这里而不是
+	// `before_request`，是因为 veb 的 before_request 挂在 Context 上，
+	// 而路由表在 App 里 —— 只有 App 侧的中间件闭包两边都够得着。
 	web_app.use(veb.MiddlewareOptions[Context]{
 		handler: fn [mut web_app] (mut ctx2 Context) bool {
 			web_app.req_count++
+			g_req_count++
 			if !isnil(web_app.middleware) {
 				web_app.middleware.apply_global(mut ctx2.Context) or {}
 			}
-			return true
+			return web_app.web_module.handle_request(voidptr(&ctx2))
 		}
 	})
 
@@ -144,11 +124,9 @@ pub fn main() {
 	port := app_cfg.server_port
 	log_.info('=== Starting HTTP server on 0.0.0.0:${port} ===')
 
-	// 路由表从 App 自己扫出来，不再另外维护一份手写清单。
-	// 手写清单曾经少列了整组 /__docs 路由 —— 而且越改越旧，
-	// 因为「加一条路由」和「想起去改清单」是两件互不相干的事。
-	routes := web.scan_controller[App]()
-	web.print_routes(routes)
+	// 路由表从各控制器自己扫出来：挂载用什么扫描，横幅就用什么扫描，
+	// 两边不是同一份清单 —— 清单就会过期。
+	web.print_routes(app_routes())
 
 	veb.run_at[App, Context](mut web_app, host: '0.0.0.0', port: port, family: .ip) or {
 		eprintln('HTTP server error: ${err}')

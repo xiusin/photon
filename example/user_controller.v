@@ -1,12 +1,17 @@
 module main
 
-// user_controller.v — 用户管理控制器（独立分层控制器）
+// user_controller.v — 用户管理控制器
 //
-// API 前缀：/api/v1/users（全部需要 ADMIN 角色）
+// API 前缀：/api/v1/users（全部需要 ADMIN 角色）。
+//
+// 路由注解就写在各方法上：加一条接口 = 加一个带注解的方法，
+// 不用再去别处登记。前缀直接写进路径 —— 示例要的是「一眼看到完整 URL」。
+// 路径参数（:id）从 ctx.path('id') 取 —— 方法签名保持 veb 原生形态。
 import veb
 import time
 
 // UserController — 用户管理接口
+@[controller]
 pub struct UserController {
 pub mut:
 	user_service &UserService       = unsafe { nil }
@@ -24,6 +29,7 @@ pub fn new_user_controller(user_svc &UserService, mw &MiddlewareManager) &UserCo
 }
 
 // index GET /api/v1/users — 用户列表（分页）
+@[get: '/api/v1/users']
 pub fn (mut c UserController) index(mut ctx Context) veb.Result {
 	c.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
 	// 限流
@@ -58,12 +64,10 @@ pub fn (mut c UserController) index(mut ctx Context) veb.Result {
 }
 
 // show GET /api/v1/users/:id — 用户详情
-pub fn (c &UserController) show(id_str string, mut ctx Context) veb.Result {
+@[get: '/api/v1/users/:id']
+pub fn (c &UserController) show(mut ctx Context) veb.Result {
 	c.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
-	if id_str.len == 0 {
-		return ctx.json_error(400, 'missing user ID')
-	}
-	id := id_str.int()
+	id := ctx.path_int('id') or { return ctx.json_error(400, 'missing user ID') }
 	user := c.user_service.get_by_id(id) or { return ctx.json_error(404, err.msg()) }
 	return ctx.json_response(200, '${UserProfile{
 		id:       user.id
@@ -78,6 +82,7 @@ pub fn (c &UserController) show(id_str string, mut ctx Context) veb.Result {
 }
 
 // create POST /api/v1/users — 创建用户
+@[post: '/api/v1/users']
 pub fn (mut c UserController) create(mut ctx Context) veb.Result {
 	c.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
 	username := ctx.query['username'] or { ctx.form['username'] or { '' } }
@@ -106,12 +111,10 @@ pub fn (mut c UserController) create(mut ctx Context) veb.Result {
 }
 
 // update PUT /api/v1/users/:id — 更新用户
-pub fn (mut c UserController) update(id_str string, mut ctx Context) veb.Result {
+@[put: '/api/v1/users/:id']
+pub fn (mut c UserController) update(mut ctx Context) veb.Result {
 	c.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
-	if id_str.len == 0 {
-		return ctx.json_error(400, 'missing user ID')
-	}
-	uid := id_str.int()
+	uid := ctx.path_int('id') or { return ctx.json_error(400, 'missing user ID') }
 	email := ctx.query['email'] or { ctx.form['email'] or { '' } }
 	nickname := ctx.query['nickname'] or { ctx.form['nickname'] or { '' } }
 	avatar := ctx.query['avatar'] or { ctx.form['avatar'] or { '' } }
@@ -133,12 +136,10 @@ pub fn (mut c UserController) update(id_str string, mut ctx Context) veb.Result 
 }
 
 // destroy DELETE /api/v1/users/:id — 删除用户
-pub fn (mut c UserController) destroy(id_str string, mut ctx Context) veb.Result {
+@[delete: '/api/v1/users/:id']
+pub fn (mut c UserController) destroy(mut ctx Context) veb.Result {
 	c.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
-	if id_str.len == 0 {
-		return ctx.json_error(400, 'missing user ID')
-	}
-	id := id_str.int()
+	id := ctx.path_int('id') or { return ctx.json_error(400, 'missing user ID') }
 	c.user_service.delete(id) or { return ctx.json_error(404, err.msg()) }
 	return ctx.json_success('user deleted')
 }

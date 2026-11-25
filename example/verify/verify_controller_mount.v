@@ -62,7 +62,7 @@ pub mut:
 }
 
 @[get: '/users']
-pub fn (mut c VerifyUserController) list(mut ctx veb.Context, params map[string]string) veb.Result {
+pub fn (mut c VerifyUserController) list(mut ctx veb.Context) veb.Result {
 	c.called_method = 'list'
 	if !isnil(c.user_service) {
 		return ctx.text('users:${c.user_service.prefix}')
@@ -71,8 +71,8 @@ pub fn (mut c VerifyUserController) list(mut ctx veb.Context, params map[string]
 }
 
 @[get: '/users/:id']
-pub fn (mut c VerifyUserController) show(mut ctx veb.Context, params map[string]string) veb.Result {
-	id := params['id'] or { '0' }
+pub fn (mut c VerifyUserController) show(mut ctx web.RouterContext) veb.Result {
+	id := ctx.path('id')
 	c.called_method = 'show'
 	if !isnil(c.user_service) {
 		return ctx.text('user:${id}:${c.user_service.greet(id)}')
@@ -81,7 +81,7 @@ pub fn (mut c VerifyUserController) show(mut ctx veb.Context, params map[string]
 }
 
 @[post: '/users']
-pub fn (mut c VerifyUserController) create(mut ctx veb.Context, params map[string]string) veb.Result {
+pub fn (mut c VerifyUserController) create(mut ctx veb.Context) veb.Result {
 	c.called_method = 'create'
 	return ctx.text('created')
 }
@@ -97,7 +97,7 @@ pub mut:
 }
 
 @[get: '/dashboard']
-pub fn (mut c VerifyAdminController) dashboard(mut ctx veb.Context, params map[string]string) veb.Result {
+pub fn (mut c VerifyAdminController) dashboard(mut ctx veb.Context) veb.Result {
 	c.action_log << 'dashboard'
 	if !isnil(c.auth_service) {
 		return ctx.text('admin:dashboard:auth=${c.auth_service.validate("secret")}')
@@ -106,7 +106,7 @@ pub fn (mut c VerifyAdminController) dashboard(mut ctx veb.Context, params map[s
 }
 
 @[delete: '/cache']
-pub fn (mut c VerifyAdminController) clear_cache(mut ctx veb.Context, params map[string]string) veb.Result {
+pub fn (mut c VerifyAdminController) clear_cache(mut ctx veb.Context) veb.Result {
 	c.action_log << 'clear_cache'
 	return ctx.text('cache:cleared')
 }
@@ -120,23 +120,27 @@ pub mut:
 
 @[get]
 @['/health']
-pub fn (mut c VerifyHealthController) check(mut ctx veb.Context, params map[string]string) veb.Result {
+pub fn (mut c VerifyHealthController) check(mut ctx veb.Context) veb.Result {
 	c.checked = true
 	return ctx.text('ok')
 }
 
 @[get]
-pub fn (mut c VerifyHealthController) ping(mut ctx veb.Context, params map[string]string) veb.Result {
+pub fn (mut c VerifyHealthController) ping(mut ctx veb.Context) veb.Result {
 	return ctx.text('pong')
 }
 
 // ═══════════════════════════════════════════════════════════
-// 辅助：创建一个最小化的 veb.Context 用于测试
+// 辅助：构造请求上下文
 // ═══════════════════════════════════════════════════════════
 
-fn new_test_veb_context() &veb.Context {
-	mut ctx := &veb.Context{}
-	return ctx
+// new_router_context 造一个 web.RouterContext。
+//
+// 凡是走真实分发（dispatch → 控制器方法）的用例都必须用它：
+// 控制器方法的形参是 Context 类型，传一个更小的 veb.Context 进去，
+// 方法一碰 ctx.path_params 就越界读。RouterContext 才是控制器看到的那个类型。
+fn new_router_context() &web.RouterContext {
+	return &web.RouterContext{}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -193,12 +197,12 @@ fn verify_controller_mount(mut v Verifier) {
 	v.check('合并式注解：POST /api/v1/users 存在', found_create)
 
 	// ── 3. 路由分发与控制器方法调用 ──
-	mut ctx1 := new_test_veb_context()
+	mut ctx1 := new_router_context()
 	found := rr2.dispatch('GET', '/api/v1/users', '', voidptr(ctx1))
 	v.check('路由分发：GET /api/v1/users 命中', found)
 	v.check('控制器方法被调用 (called_method=list)', ctrl_user.called_method == 'list')
 
-	mut ctx2 := new_test_veb_context()
+	mut ctx2 := new_router_context()
 	found2 := rr2.dispatch('POST', '/api/v1/users', '', voidptr(ctx2))
 	v.check('路由分发：POST /api/v1/users 命中', found2)
 	v.check('控制器方法被调用 (called_method=create)', ctrl_user.called_method == 'create')
@@ -208,13 +212,14 @@ fn verify_controller_mount(mut v Verifier) {
 	mut rr3 := web.new_route_registry()
 	rr3.mount_controller[VerifyUserController, veb.Context](ctrl_user2, '/api/v1')
 
-	mut ctx3 := new_test_veb_context()
+	mut ctx3 := new_router_context()
 	found3 := rr3.dispatch('GET', '/api/v1/users/42', '', voidptr(ctx3))
 	v.check('路径参数：GET /api/v1/users/42 命中', found3)
 	v.check('路径参数：控制器收到 id=42', ctrl_user2.called_method == 'show')
+	v.check('路径参数：ctx.path(id) == 42', ctx3.path('id') == '42')
 
 	// ── 5. 未匹配路由 ──
-	mut ctx4 := new_test_veb_context()
+	mut ctx4 := new_router_context()
 	not_found := rr2.dispatch('DELETE', '/api/v1/nonexistent', '', voidptr(ctx4))
 	v.check('未匹配路由：DELETE /api/v1/nonexistent 返回 false', !not_found)
 
@@ -274,7 +279,7 @@ fn verify_controller_di_injection(mut v Verifier) {
 	mut rr := web.new_route_registry()
 	rr.mount_controller[VerifyUserController, veb.Context](ctrl, '/api/v1')
 
-	mut vctx := new_test_veb_context()
+	mut vctx := new_router_context()
 	rr.dispatch('GET', '/api/v1/users', '', voidptr(vctx))
 	v.check('DI+挂载：list 方法可调用 (called_method=list)', ctrl.called_method == 'list')
 	v.check('DI+挂载：user_service 在方法中可用', !isnil(ctrl.user_service))
@@ -298,7 +303,7 @@ fn verify_controller_di_injection(mut v Verifier) {
 	// 挂载并验证
 	rr.mount_controller[VerifyAdminController, veb.Context](admin_ctrl, '/admin')
 
-	mut vctx2 := new_test_veb_context()
+	mut vctx2 := new_router_context()
 	found := rr.dispatch('GET', '/admin/dashboard', '', voidptr(vctx2))
 	v.check('Admin 控制器路由命中', found)
 	v.check('Admin 控制器方法调用', 'dashboard' in admin_ctrl.action_log)
@@ -347,7 +352,7 @@ fn verify_webmodule_integration(mut v Verifier) {
 
 	v.check('WebModule.mount_controller: 注册 2 条路由', wm.router.route_count() == 2)
 
-	mut ctx := new_test_veb_context()
+	mut ctx := new_router_context()
 	found := wm.router.dispatch('GET', '/api/health', '', voidptr(ctx))
 	v.check('WebModule: GET /api/health 命中', found)
 
@@ -397,9 +402,9 @@ fn verify_multi_controller_dispatch(mut v Verifier) {
 	v.check('多控制器：共注册 7 条路由', rr.route_count() == 7)
 
 	// 验证各控制器的路由独立工作
-	mut ctx1 := new_test_veb_context()
-	mut ctx2 := new_test_veb_context()
-	mut ctx3 := new_test_veb_context()
+	mut ctx1 := new_router_context()
+	mut ctx2 := new_router_context()
+	mut ctx3 := new_router_context()
 
 	found1 := rr.dispatch('GET', '/api/v1/users', '', voidptr(ctx1))
 	found2 := rr.dispatch('GET', '/admin/dashboard', '', voidptr(ctx2))
@@ -448,16 +453,16 @@ fn verify_dispatch_controller_method(mut v Verifier) {
 	v.section('分发函数 — dispatch_controller_method[T]()')
 
 	ctrl := &VerifyHealthController{}
-	mut ctx := new_test_veb_context()
+	mut ctx := new_router_context()
 
 	// 直接调用分发函数
-	result := web.dispatch_controller_method[VerifyHealthController, veb.Context](voidptr(ctrl), 'check', voidptr(ctx), map[string]string{})
+	result := web.dispatch_controller_method[VerifyHealthController, web.RouterContext](voidptr(ctrl), 'check', voidptr(ctx))
 	v.check('dispatch_controller_method: check 方法返回 veb.Result', result.str().len > 0)
 	v.check('dispatch_controller_method: 控制器方法被调用', ctrl.checked)
 
 	// 调用不存在的方法 → 不会 panic，正常返回 404 结果
-	mut ctx2 := new_test_veb_context()
-	result2 := web.dispatch_controller_method[VerifyHealthController, veb.Context](voidptr(ctrl), 'nonexistent', voidptr(ctx2), map[string]string{})
+	mut ctx2 := new_router_context()
+	result2 := web.dispatch_controller_method[VerifyHealthController, web.RouterContext](voidptr(ctrl), 'nonexistent', voidptr(ctx2))
 	// dispatch_controller_method 对未找到的方法返回一个包含 404 错误的 veb.Result
 	// 无法直接检查 Result 内容，但验证其不 panic 且返回了非空结果即可
 	v.check('dispatch_controller_method: 未找到方法安全返回结果', result2.str().len > 0)

@@ -347,10 +347,31 @@ routes := web.group('/api/v1', [
 ])
 ```
 
-### 路由扫描
+### 控制器自带路由
+
+路由注解直接写在控制器方法上，挂载时编译期扫成路由表：
 
 ```v
-// 编译期扫描路由注解
+@[controller]
+@[prefix: '/api/v1']
+pub struct UserController {}
+
+@[get: '/users']
+pub fn (mut c UserController) list(mut ctx Context) veb.Result {
+    return ctx.json({'users': []})
+}
+
+@[get: '/users/:id']
+pub fn (mut c UserController) show(mut ctx Context) veb.Result {
+    return ctx.json({'id': ctx.path('id')})   // 路径参数从 ctx 上取
+}
+
+// 挂载：前缀来自 @[prefix]，或一步做完 DI + 挂载
+app.WebModule.mount[UserController, Context](user_ctrl)
+```
+
+```v
+// 启动横幅用的路由清单：跟挂载同一套扫描，不会过期
 routes := web.scan_controller[UserController]()
 web.print_routes(routes)
 ```

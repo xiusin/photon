@@ -19,6 +19,7 @@ pub:
 	method       string   // HTTP method: GET, POST, PUT, DELETE, PATCH
 	path         string   // Route path: /users/:id
 	handler_name string   // Method name
+	controller   string   // 控制器类型名（横幅上看出这条路由归谁管）
 	middlewares  []string // Middleware names to apply
 }
 
@@ -71,8 +72,10 @@ pub fn scan_controller[T]() []RouteInfo {
 						path = '/${name}'
 					}
 				}
-				if prefix.len > 0 && !path.starts_with(prefix) {
-					path = prefix + path
+				// 前缀拼接走 join_route_path：mount_controller 用的是同一个
+				// 函数，两边才会给出同一条路径（横幅少个斜杠、多个斜杠都算错）。
+				if prefix.len > 0 {
+					path = join_route_path(prefix, path)
 				}
 				mut middlewares := []string{}
 				mut collecting := false
@@ -94,6 +97,7 @@ pub fn scan_controller[T]() []RouteInfo {
 					method:       http_method
 					path:         path
 					handler_name: name
+					controller:   T.name
 					middlewares:  middlewares
 				}
 			}
@@ -113,7 +117,12 @@ pub fn print_routes(routes []RouteInfo) {
 	println('  ${'METHOD':-8s} ${'PATH':-30s} HANDLER')
 	println('  ${'─'.repeat(60)}')
 	for route in routes {
-		println('  ${route.method:-8s} ${route.path:-30s} ${route.handler_name}')
+		handler := if route.controller.len > 0 {
+			'${route.controller}.${route.handler_name}'
+		} else {
+			route.handler_name
+		}
+		println('  ${route.method:-8s} ${route.path:-30s} ${handler}')
 	}
 	println('  ${'─'.repeat(60)}')
 	println('  Total: ${routes.len} route(s)')
@@ -341,6 +350,7 @@ pub interface Controller {
 // host 参数用于 host 级路由隔离（空字符串 = 不限制）。
 pub fn (rr &RouteRegistry) dispatch(method string, url_path string, host string, ctx_ptr voidptr) bool {
 	route, params := find_route(rr, method, url_path, host) or { return false }
+	store_path_params(ctx_ptr, params)
 	route.handler(ctx_ptr, params)
 	return true
 }
@@ -368,6 +378,11 @@ pub fn (rr &RouteRegistry) dispatch_with_chain(method string, url_path string, h
 	mut mctx := new_middleware_context(unsafe { &veb.Context(ctx_ptr) })
 	mctx.route_path = url_path
 	mctx.route_method = method
+
+	// 路径参数在匹配时就切好了，直接交给 ctx：控制器方法用的是 veb 原生
+	// 签名（收不到 map），取参数只能靠 ctx.path('id')。挂在这里而不是在
+	// mount 的闭包里，是因为路由级中间件也该看得到它们。
+	store_path_params(ctx_ptr, params)
 
 	// 前置中间件短路后，后置中间件仍然要跑。
 	//
