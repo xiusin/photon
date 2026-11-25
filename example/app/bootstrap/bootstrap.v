@@ -9,6 +9,7 @@ module bootstrap
 //   - 旧版：Bootstrap 结构体持有所有组件引用，手动 new_xxx() 链式装配
 //   - 新版：所有组件注册到 ApplicationContext，由容器统一管理生命周期
 //           main.v 通过 ctx.resolve_typed[T]() 获取 Bean
+import app.runtime
 import app.services
 import app.middleware
 import photon.logger
@@ -37,14 +38,23 @@ pub:
 // ═══════════════════════════════════════════════════════════
 
 // bootstrap 加载配置、初始化各模块，并将所有 Bean 注册到 DI 容器。
-// 注册顺序：Environment 属性 → Logger → AppConfig → CacheRegistry →
-//           TransactionManager → UserService → AuthService →
-//           HealthService → CacheService → MiddlewareManager
+// 注册顺序：Environment 属性 → 启动时刻冻结 → Logger → AppConfig →
+//           CacheRegistry → TransactionManager → 各 Service → MiddlewareManager
 //
-// 注意：本示例采用显式 register_instance 注册预构建单例（P0 7.1 显式模式）。
-// 待框架注解自动扫描（@[component]/@[service]）就绪后，可切换为声明式注册。
-pub fn bootstrap(mut ctx core.ApplicationContext) ! {
-	// ── 1. Environment 配置属性 ──
+// 运行时值（进程启动时刻、PID）在 refresh 之前先写进 Environment，
+// 之后由 ProcessRuntime 这个 Bean 通过 @[value] 绑定读走 —— 这样启动代码里
+// 不再有 start_time 穿参，需要 uptime 的地方 @[autowired] 注入即可。
+pub fn bootstrap(mut ctx core.ApplicationContext, start_time i64, start_tick i64) ! {
+	// ── 1. 冻结进程启动时刻 ──
+	// 必须在 refresh 之前：ProcessRuntime 的 @[value] 字段在 refresh 期间绑定，
+	// 读的就是此刻的属性表。放在这里，属性与 Bean 的注册顺序也统一了。
+	//
+	// 直接调 core 而不是转一手 app.runtime：V 0.5.2 下别的模块一旦在函数签名里
+	// 写了 `mut ctx core.ApplicationContext`，checker 会把它报成 unknown type，
+	// 连带 core/scanner.v 的 comptime 扫描一起误判。属性键也只该有一处定义。
+	core.freeze_start_moment_props(mut ctx, start_time, start_tick)
+
+	// ── 2. Environment 配置属性 ──
 	ctx.set_profiles(['dev'])
 	ctx.set_property('app.name', 'PhotonAPI')
 	ctx.set_property('app.version', '0.4.0')
@@ -54,7 +64,7 @@ pub fn bootstrap(mut ctx core.ApplicationContext) ! {
 	ctx.set_property('cache.ttl', '3600')
 	ctx.set_property('app.debug', 'true')
 
-	// ── 2. Logger 日志初始化 ──
+	// ── 3. Logger 日志初始化 ──
 	mut log_ := logger.new()
 	log_.set_level(.debug)
 	log_.set_colored(true)
@@ -63,7 +73,7 @@ pub fn bootstrap(mut ctx core.ApplicationContext) ! {
 	log_.info('Profile: dev')
 	ctx.register_instance('Logger', log_)!
 
-	// ── 3. AppConfig 构建（从 Environment 属性绑定） ──
+	// ── 4. AppConfig 构建（从 Environment 属性绑定） ──
 	app_cfg := &AppConfig{
 		app_name:    ctx.get_property_or('app.name', 'PhotonAPI')
 		app_version: ctx.get_property_or('app.version', '0.4.0')
@@ -77,7 +87,7 @@ pub fn bootstrap(mut ctx core.ApplicationContext) ! {
 	ctx.register_instance('AppConfig', app_cfg)!
 	log_.info('Config loaded — app=${app_cfg.app_name} v${app_cfg.app_version}')
 
-	// ── 4. Cache 缓存初始化 ──
+	// ── 5. Cache 缓存初始化 ──
 	mut cache_mgr := cache.new_cache_registry()
 	unsafe {
 		cache_mgr.register('default', cache.new_memory_cache('default'))
@@ -87,11 +97,11 @@ pub fn bootstrap(mut ctx core.ApplicationContext) ! {
 	ctx.register_instance('CacheRegistry', cache_mgr)!
 	log_.info('Cache initialized — memory driver "default"')
 
-	// ── 5. TransactionManager 事务管理器（@[transactional] 依赖） ──
+	// ── 6. TransactionManager 事务管理器（@[transactional] 依赖） ──
 	tm := orm.new_transaction_manager()
 	ctx.register_instance('TransactionManager', tm)!
 
-	// ── 6. Services 服务注册 ──
+	// ── 7. Services 服务注册 ──
 	user_svc := services.new_user_service(log_, tm)
 	ctx.register_instance('UserService', user_svc)!
 
@@ -102,14 +112,37 @@ pub fn bootstrap(mut ctx core.ApplicationContext) ! {
 	auth_svc := services.new_auth_service(log_, user_svc, jwt_config)
 	ctx.register_instance('AuthService', auth_svc)!
 
-	health_svc := services.new_health_service()
-	ctx.register_instance('HealthService', health_svc)!
-
 	cache_svc := services.new_cache_service(cache_mgr)
 	ctx.register_instance('CacheService', cache_svc)!
 	log_.info('Services registered — UserService, AuthService, HealthService, CacheService')
 
-	// ── 7. Middleware 中间件注册 ──
+	// ── 7.1 运行时值 Bean（ProcessRuntime） ──
+	// 启动时刻不在这里「传」给谁：定义 + @[value] 绑定交给容器，
+	// 控制器与 HealthService 各自 @[autowired] 拿到它。
+	//
+	// 手写定义而不走 @[service] + scan_and_register[T]：V 0.5.2 下别的模块调
+	// 核心的泛型 comptime 入口会让 core/scanner.v 的 `$for` 产物解析失败
+	// （`definition of ast.SelectorExpr ... unknown`，main 分支同样复现）。
+	// 定义内容和扫描结果等价 —— 就是结构体上那几个 @[value] 的字面键。
+	mut runtime_def := core.new_bean_definition('ProcessRuntime')
+	runtime_def.value_bindings = [
+		core.ValueBinding{
+			field_name: 'start_time'
+			expr:       'app.start.time'
+		},
+		core.ValueBinding{
+			field_name: 'start_tick'
+			expr:       'app.start.tick'
+		},
+		core.ValueBinding{
+			field_name: 'pid'
+			expr:       'app.pid'
+		},
+	]
+	ctx.register(runtime_def)!
+	ctx.register_factory('ProcessRuntime', &runtime.ProcessRuntimeFactory{})!
+
+	// ── 8. Middleware 中间件注册 ──
 	mw := middleware.new_middleware_manager(log_, auth_svc)
 	ctx.register_instance('MiddlewareManager', mw)!
 	log_.info('Middleware initialized — RequestLog, CORS, Auth, RateLimit')

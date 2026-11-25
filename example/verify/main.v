@@ -8,7 +8,6 @@ module main
 // 运行：v -enable-globals run example/verify
 //
 // 输出每项 ✓/✗，并在结尾汇总通过/失败数；任意失败时退出码为 1。
-
 import os
 
 // Verifier 简单的断言报告器
@@ -66,6 +65,7 @@ fn main() {
 	verify_service_locator(mut v)
 	verify_auto_logger(mut v)
 	verify_lock_guard(mut v)
+	verify_runtime_bean(mut v)
 	verify_controller_mount(mut v)
 	verify_controller_di_injection(mut v)
 	verify_controller_register_container(mut v)

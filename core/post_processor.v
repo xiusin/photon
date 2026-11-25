@@ -277,6 +277,59 @@ pub fn (mut pp ValueAnnotationPostProcessor) bind_values[T](mut bean T, props ma
 	}
 }
 
+// bind_fields_by_name 按「字段名 → 属性键」的显式映射绑定值。
+//
+// 与 bind_values 的区别：bind_values 用 `$for field in T.fields` 读**编译期注解**
+// （extract_value_expr(field.attrs)），而这里用运行时的 `field.name == 目标名`
+// 来判断要不要绑这个字段。
+//
+// 为什么需要第二条路径：bind_values 只能在「T 与注解同在一个编译单元被展开」
+// 时读到注解。一旦绑定发生在别的模块（例如 example 里调 core 的辅助函数），
+// comptime 读到的 attrs 是空的，所有字段都被跳过，绑定静默失败——字段
+// 停在零值，而且没有任何报错。
+//
+// props 的 key 是属性键（同 bind_values），field_name 是对应的结构体字段名。
+// 只绑 props 里确实存在的键，缺失的保持零值。
+pub fn (mut pp ValueAnnotationPostProcessor) bind_fields_by_name[T](mut bean T, props map[string]string, field_keys map[string]string) ! {
+	mut env := pp.environment
+	for field_name, key in field_keys {
+		if key !in props {
+			continue
+		}
+		raw_value := props[key]
+		$for field in T.fields {
+			if field.name == field_name {
+				$if field.typ is string {
+					bean.$(field.name) = raw_value
+				} $else $if field.typ is int {
+					bean.$(field.name) = raw_value.int()
+				} $else $if field.typ is i8 {
+					bean.$(field.name) = raw_value.i8()
+				} $else $if field.typ is i16 {
+					bean.$(field.name) = raw_value.i16()
+				} $else $if field.typ is i64 {
+					bean.$(field.name) = raw_value.i64()
+				} $else $if field.typ is u8 {
+					bean.$(field.name) = raw_value.u8()
+				} $else $if field.typ is u16 {
+					bean.$(field.name) = raw_value.u16()
+				} $else $if field.typ is u32 {
+					bean.$(field.name) = raw_value.u32()
+				} $else $if field.typ is u64 {
+					bean.$(field.name) = raw_value.u64()
+				} $else $if field.typ is f32 {
+					bean.$(field.name) = raw_value.f32()
+				} $else $if field.typ is f64 {
+					bean.$(field.name) = raw_value.f64()
+				} $else $if field.typ is bool {
+					bean.$(field.name) = raw_value.to_lower() == 'true' || raw_value == '1'
+				}
+			}
+		}
+	}
+	_ = env
+}
+
 // inject_values_for_bean injects @[value] annotated fields from the post-
 // processor's embedded Environment. This is the recommended entry point: it
 // resolves each @[value] key through the Environment's full priority chain
@@ -351,6 +404,119 @@ pub fn (pp &EventListenerPostProcessor) post_process_after_initialization(bean_n
 	// This post-processor serves as a marker and provides runtime validation.
 	return bean
 }
+
+// ── AnnotationBindingPostProcessor ──
+
+// AnnotationBindingPostProcessor 在 BeanDefinition 登记完成后、任何 Bean
+// 实例化之前，把 comptime 扫到的注解元数据写进对应的 BeanDefinition。
+//
+// 它补的是容器生命周期里一段真空：
+//
+//   refresh()
+//     ├─ ① registry post-processor  ← 本类在这里跑
+//     ├─ ② BeanFactoryPostProcessor
+//     └─ ③ 实例化 Bean → @[post_construct] → ...
+//
+// 注解元数据（依赖、@[value] 绑定、生命周期方法名）只能在**注册那一刻**由
+// comptime 拿到 —— 那时 T 是已知的具体类型。可是注册往往发生得很早
+// （bootstrap 里、甚至用 register_instance 提交一个预构建实例），
+// 而「按注解注入」发生在 ③。中间这段时间里，BeanDefinition
+// 只是一条「按名字登记的单例」，元数据无处安放。
+//
+// 于是任何想用注解的动态注册路径都得自己内联一遍注入逻辑，重复且容易漏。
+// 这个后处理器让插件只需上报自己扫到的元数据：
+//
+//   @[service]
+//   pub struct ProcessRuntime { ... }
+//
+//   ctx.add_registry_post_processor(core.annotation_binding(core.AnnotationBinding{
+//       type_name:      'ProcessRuntime'
+//       value_bindings: [
+//           core.ValueBinding{ field_name: 'start_time', expr: 'app.start.time' },
+//       ]
+//   }))
+//
+// 随后 refresh() 会自动完成 @[value] 绑定与 @[autowired] 填充。
+//
+// Spring 等价：ConfigurationClassPostProcessor —— 同样在 Bean 实例化之前
+// 把注解解析结果灌回 BeanDefinition。
+pub struct AnnotationBindingPostProcessor {
+pub:
+	entries []AnnotationBinding
+}
+
+// AnnotationBinding 一条「Bean 名 → 注解元数据」的映射。
+//
+// AnnotationBinding 一条「Bean 名 → 注解元数据」的映射。
+//
+// 字段全是原始值（string / bool / 切片 / 指针），不出现 ScannedBean：
+// ScannedBean 是 scan_component_info[T]() 的产物，只能在 core 内部展开；
+// 下游模块一旦在签名里提到它，就会报 `unknown type core.ScannedBean`。
+pub struct AnnotationBinding {
+pub:
+	type_name      string
+	dependencies   []Dependency
+	value_bindings []ValueBinding
+	init_method    string
+	destroy_method string
+	scope          Scope = .singleton
+	is_lazy        bool
+	depends_on     []string
+}
+
+// annotation_binding 组装一个可注册的 AnnotationBindingPostProcessor。
+//
+// 用法（下游模块给一个带 @[value] 字段的 Bean 补元数据）：
+//   ctx.add_registry_post_processor(core.annotation_binding(
+//       core.AnnotationBinding{
+//           type_name:      'ProcessRuntime'
+//           value_bindings: [
+//               core.ValueBinding{ field_name: 'start_time', expr: 'app.start.time' },
+//           ]
+//       }
+//   ))
+//
+// 为什么不直接传 &AnnotationBindingPostProcessor 的接口：V 里接口切片
+// 不能吃结构体字面量，得先有一个具体实例。这里替调用方做掉这层包装。
+pub fn annotation_binding(bindings ...AnnotationBinding) &AnnotationBindingPostProcessor {
+	mut entries := []AnnotationBinding{}
+	for b in bindings {
+		entries << b
+	}
+	return &AnnotationBindingPostProcessor{
+		entries: entries
+	}
+}
+
+pub fn (pp &AnnotationBindingPostProcessor) post_process_bean_definition_registry(mut ctx ApplicationContext) {
+	for entry in pp.entries {
+		if isnil(ctx.container) {
+			continue
+		}
+		mut def := ctx.container.get_definition(entry.type_name) or { continue }
+		if entry.dependencies.len > 0 {
+			def.dependencies = entry.dependencies
+		}
+		if entry.value_bindings.len > 0 {
+			def.value_bindings = entry.value_bindings
+		}
+		if entry.init_method.len > 0 {
+			def.init_method = entry.init_method
+		}
+		if entry.destroy_method.len > 0 {
+			def.destroy_method = entry.destroy_method
+		}
+		def.scope = entry.scope
+		def.is_lazy = entry.is_lazy
+		if entry.depends_on.len > 0 {
+			def.depends_on = entry.depends_on.clone()
+		}
+		ctx.container.upsert_definition(def)
+	}
+}
+
+// post_process_bean_factory 无需额外动作：元数据在上一阶段已写回。
+pub fn (pp &AnnotationBindingPostProcessor) post_process_bean_factory(mut ctx ApplicationContext) {}
 
 // ── BeanFactoryPostProcessor ──
 

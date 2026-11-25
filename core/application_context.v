@@ -1127,8 +1127,7 @@ fn (mut ctx ApplicationContext) shutdown_stage(name string, stage_fn fn () !) {
 			_ := <-done {
 				return
 			}
-			else {
-			}
+			else {}
 		}
 		if time.now().unix_nano() >= deadline_ns {
 			eprintln('[ApplicationContext] shutdown stage "${name}" timed out after 5s, continuing')
@@ -1793,7 +1792,6 @@ pub fn (mut ctx ApplicationContext) autowire_bean[T](mut bean T) ! {
 			}
 		}
 	}
-
 	// Phase 2: @[value('key')] configuration injection
 	mut pp := ValueAnnotationPostProcessor{
 		environment: ctx.environment
@@ -1822,9 +1820,7 @@ pub fn (mut ctx ApplicationContext) autowire_bean[T](mut bean T) ! {
 //
 //   ctx.register_component[UserService]()!
 pub fn (mut ctx ApplicationContext) register_component[T]() ! {
-	scan_and_register[T](mut ctx) or {
-		return error('register_component: ${err}')
-	}
+	scan_and_register[T](mut ctx) or { return error('register_component: ${err}') }
 
 	// Register @[post_construct] / @[pre_destroy] lifecycle callbacks
 	$for method in T.methods {
@@ -1872,7 +1868,6 @@ pub fn (mut ctx ApplicationContext) create_and_wire[T]() !T {
 			}
 		}
 	}
-
 	return bean
 }
 
@@ -1900,7 +1895,6 @@ pub fn (mut ctx ApplicationContext) create_and_register[T](aliases ...string) !&
 			}
 		}
 	}
-
 	// Move to heap — V escape analysis heap-allocates when & escapes
 	bean_ptr := &bean
 	ctx.register_instance_with_aliases(T.name, voidptr(bean_ptr), aliases)!
@@ -1935,4 +1929,57 @@ pub fn (mut ctx ApplicationContext) get_service_by_name(name string) !voidptr {
 // Spring equivalent: ApplicationContext.containsBean("userService")
 pub fn (mut ctx ApplicationContext) has_service(name string) bool {
 	return ctx.has(name)
+}
+
+// ── @[value] 元数据补全 ──
+
+// apply_value_bindings 把「定义上声明的 value_bindings」落到 Bean 实例上。
+//
+// 为什么需要这一步：@[value] 的注入原本绑死在 scan_and_register[T]() 里
+// ——扫描时把 binding 写进定义，实例化时再按定义绑。一旦定义是手写的、
+// 或者实例来自 FactoryBean，这条链就断了：定义里没有 binding，实例上也
+// 就没人绑，字段静默停在零值。
+//
+// 现在拆成两个可独立触发的步骤：
+//   1. AnnotationBindingPostProcessor —— 元数据 → BeanDefinition
+//   2. 本函数 —— BeanDefinition 上的元数据 → Bean 实例
+//
+// 只处理 Environment 里确实存在的键：键缺失时保持零值（与 autowire_bean
+// 对值注入失败的处理一致），不因为一个可选属性让 refresh 失败。
+//
+// 绑定靠 ValueAnnotationPostProcessor.bind_values[T]，T 在编译期可知，
+// 所以无需反射；调用点必须显式列举支持的 Bean 类型 —— V 拿不到
+// 「运行时定义名 → 编译期类型」的映射，这是语言边界，不是偷懒。
+pub fn (mut ctx ApplicationContext) apply_value_bindings[T](bean_name string) {
+	if isnil(ctx.container) || !ctx.container.has(bean_name) {
+		return
+	}
+	def := ctx.container.get_definition(bean_name) or { return }
+	if def.value_bindings.len == 0 {
+		return
+	}
+	instance := ctx.container.resolve(bean_name) or { return }
+	if isnil(instance) {
+		return
+	}
+	mut env := ctx.environment
+	mut props := map[string]string{}
+	mut field_keys := map[string]string{}
+	for binding in def.value_bindings {
+		if env.has_property(binding.expr) {
+			props[binding.expr] = env.get_property(binding.expr)
+			field_keys[binding.field_name] = binding.expr
+		}
+	}
+	if props.len == 0 {
+		return
+	}
+	mut pp := ValueAnnotationPostProcessor{
+		environment: ctx.environment
+	}
+	mut bean := &T(instance)
+	// 用「字段名 + 键」的显式映射，而不是 bind_values 的注解扫描：
+	// 绑定点在别的模块时，comptime 读到的 field.attrs 是空的，
+	// bind_values 会静默跳过全部字段（见 bind_fields_by_name 的说明）。
+	pp.bind_fields_by_name[T](mut bean, props, field_keys) or {}
 }

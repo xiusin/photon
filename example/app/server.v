@@ -6,8 +6,8 @@ module app
 //   1. 创建 ApplicationContext（DI 容器）
 //   2. bootstrap 注册所有 Bean（配置、日志、缓存、服务、中间件）
 //   3. ctx.refresh() 完成单例初始化与生命周期回调
-//   4. ctx.resolve_typed[T]() 从容器获取 Bean，装配控制器
-//   5. init_app() 把控制器挂到 WebModule —— 路由注解在编译期被扫成路由表
+//   4. ctx.resolve_typed[T]() 从容器获取 Bean
+//   5. init_app() 从容器创建控制器并挂到 WebModule —— 路由注解在编译期被扫成路由表
 //   6. 启动 veb HTTP 服务器
 //   7. 服务器退出后 ctx.shutdown() 优雅关闭
 //
@@ -15,6 +15,7 @@ module app
 // 「加一个接口」等于「在控制器里加一个带注解的方法」。
 import app.bootstrap
 import app.http
+import app.runtime
 import app.state
 import photon.cli
 import veb
@@ -34,8 +35,13 @@ pub fn run() {
 	// ── 1. 创建 DI 容器 ──
 	mut ctx := core.new_application_context()
 
+	// 进程启动时刻在这里采一次，交给 bootstrap 冻结成容器属性。
+	// 秒级用于展示，ticks 用于算 uptime —— 后者是单调时钟，不受系统时间跳变影响。
+	start_time := time.now().unix()
+	start_tick := time.ticks()
+
 	// ── 2. Bootstrap：注册所有 Bean ──
-	bootstrap.bootstrap(mut ctx) or {
+	bootstrap.bootstrap(mut ctx, start_time, start_tick) or {
 		eprintln('Bootstrap failed: ${err}')
 		ctx.shutdown()
 		panic(err)
@@ -64,13 +70,22 @@ pub fn run() {
 	}
 	bootstrap.print_banner(app_cfg)
 
-	log_.info('API Documentation module ready')
+	// refresh 之后请求还不存在，此刻把 @[value] 落进 ProcessRuntime 实例。
+	// 放在这里而不是 refresh 内部：绑定需要「运行时定义名 → 编译期类型」的
+	// 显式对应，V 拿不到这层映射，只能由调用方点名。
+	ctx.apply_value_bindings[runtime.ProcessRuntime]('ProcessRuntime')
 
-	start := time.ticks()
+	process_runtime := ctx.resolve_typed[runtime.ProcessRuntime]('ProcessRuntime') or {
+		ctx.shutdown()
+		panic(err)
+	}
+	log_.info('Runtime frozen — pid=${process_runtime.pid} started=${process_runtime.start_time_formatted()}')
+	log_.info('API Documentation module ready')
 
 	// ── 5. 控制器由容器创建并注入 @[autowired] 字段，然后挂载 ──
 	// 路由注解在编译期被扫成路由表；这里不再手写构造函数与依赖装配。
-	mut web_app := init_app(mut ctx, start)
+	// 启动时刻也不再用参数传 —— 控制器从容器里注入 ProcessRuntime。
+	mut web_app := init_app(mut ctx)
 
 	// 注册 apidoc middleware（自动劫持请求/响应采集）
 	web_app.use(apidoc_handler.before_middleware[http.Context]())
