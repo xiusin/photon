@@ -57,41 +57,52 @@ pub fn bind[T](ctx &veb.Context) !T {
 			return error('${field.name} is required')
 		}
 
-		// Assign value based on type
+		// Assign value based on type.
+		//
+		// 覆盖的数值类型必须和 validate_struct() 一致，否则会出现一种很难查的
+		// 组合：字段类型不在下面的分支里 → 值**从来没被赋过**，永远是零值 →
+		// 数值规则在零值上判定 → 要么把「18」判成「没传」，要么反过来。
+		//
+		// 这不是假设。`i8` / `i16` / `u*` / `f32` 的字段在补上之前，`bind`
+		// 出来恒为 0；更要紧的是 `bind` 不报错，调用方拿到的是一份
+		// 「字段都在、值全是零」的结构体。
 		$if field.typ is string {
 			result.$(field.name) = val
-		} $else $if field.typ is int {
-			if is_required && val == '' {
-				return error('${field.name} is required but empty — cannot convert to int')
-			}
-			if val != '' {
-				if !is_numeric(val) {
-					return error('${field.name}: invalid integer value "${val}"')
-				}
-				result.$(field.name) = val.int()
-			}
-		} $else $if field.typ is i64 {
-			if is_required && val == '' {
-				return error('${field.name} is required but empty — cannot convert to i64')
-			}
-			if val != '' {
-				if !is_numeric(val) {
-					return error('${field.name}: invalid i64 value "${val}"')
-				}
-				result.$(field.name) = val.i64()
-			}
-		} $else $if field.typ is f64 {
-			if is_required && val == '' {
-				return error('${field.name} is required but empty — cannot convert to f64')
-			}
-			if val != '' {
-				if !is_numeric(val) {
-					return error('${field.name}: invalid f64 value "${val}"')
-				}
-				result.$(field.name) = val.f64()
-			}
 		} $else $if field.typ is bool {
 			result.$(field.name) = val == '1' || val == 'true' || val == 'on' || val == 'yes'
+		} $else {
+			// 数值族：先确认「该给的给了」，再确认「给的是数字」，最后赋值。
+			// 三步在每一族里一样，差别只在类型名和转换函数 —— V 的 comptime
+			// 没有「是不是数值类型」的判断，只能逐分支写。
+			if is_required && val == '' {
+				return error('${field.name} is required but empty — cannot convert to ${field.typ}')
+			}
+			if val != '' {
+				if !is_numeric(val) {
+					return error('${field.name}: invalid number value "${val}"')
+				}
+				$if field.typ is int {
+					result.$(field.name) = val.int()
+				} $else $if field.typ is i8 {
+					result.$(field.name) = val.i8()
+				} $else $if field.typ is i16 {
+					result.$(field.name) = val.i16()
+				} $else $if field.typ is i64 {
+					result.$(field.name) = val.i64()
+				} $else $if field.typ is u8 {
+					result.$(field.name) = val.u8()
+				} $else $if field.typ is u16 {
+					result.$(field.name) = val.u16()
+				} $else $if field.typ is u32 {
+					result.$(field.name) = val.u32()
+				} $else $if field.typ is u64 {
+					result.$(field.name) = val.u64()
+				} $else $if field.typ is f32 {
+					result.$(field.name) = val.f32()
+				} $else $if field.typ is f64 {
+					result.$(field.name) = val.f64()
+				}
+			}
 		}
 	}
 	return result
@@ -239,26 +250,153 @@ fn validate_struct[T](mut result T) ! {
 					}
 				}
 			}
+			// min / max 必须覆盖所有数值类型，不能只写 `is int`。
+			//
+			// 只写 `is int` 时，其余数值类型的规则**编译通过、运行时静默跳过**：
+			// `@[validate: 'min:18']` 写在 `i64` / `f64` 字段上，请求带 -5 照样
+			// 进业务层，而报表、文档、注解全都在说它被校验了。这类漏检没有任何
+			// 返回值在表达 —— 不是「拦错了」，是「没拦」。
+			//
+			// 按整数 / 无符号 / 浮点三族展开，各族一个名字：取字段、解析边界、
+			// 比较这三步在族内完全一样，族间的差别只有「怎么解析 min:」和
+			// 「支持到哪一代边界」。写成三个具名函数而不是三段内联代码，
+			// 是为了让「新增一个数值类型」变成一件必须看见全部三族的事。
+			mut violation := ''
 			$if field.typ is int {
-				val := result.$(field.name)
-				if rule.starts_with('min:') {
-					min_val := rule['min:'.len..].int()
-					if val < min_val {
-						errors << '${field.name} must be >= ${min_val} / ${field.name} 必须 >= ${min_val}'
-					}
-				}
-				if rule.starts_with('max:') {
-					max_val := rule['max:'.len..].int()
-					if val > max_val {
-						errors << '${field.name} must be <= ${max_val} / ${field.name} 必须 <= ${max_val}'
-					}
-				}
+				violation = int_bounds_violation(field.name, result.$(field.name), rule)
+			} $else $if field.typ is i8 {
+				violation = int_bounds_violation(field.name, result.$(field.name), rule)
+			} $else $if field.typ is i16 {
+				violation = int_bounds_violation(field.name, result.$(field.name), rule)
+			} $else $if field.typ is i64 {
+				violation = int_bounds_violation(field.name, result.$(field.name), rule)
+			} $else $if field.typ is u8 {
+				violation = uint_bounds_violation(field.name, result.$(field.name), rule)
+			} $else $if field.typ is u16 {
+				violation = uint_bounds_violation(field.name, result.$(field.name), rule)
+			} $else $if field.typ is u32 {
+				violation = uint_bounds_violation(field.name, result.$(field.name), rule)
+			} $else $if field.typ is u64 {
+				violation = uint_bounds_violation(field.name, result.$(field.name), rule)
+			} $else $if field.typ is f32 {
+				violation = float_bounds_violation(field.name, result.$(field.name), rule)
+			} $else $if field.typ is f64 {
+				violation = float_bounds_violation(field.name, result.$(field.name), rule)
+			}
+			if violation.len > 0 {
+				errors << violation
 			}
 		}
 	}
 	if errors.len > 0 {
 		return error(errors.join('; '))
 	}
+}
+
+// ── min / max 的实现 ──
+//
+// 三个族各一个函数，返回「违规描述」或空串。分族的唯一理由是**类型**：
+// 整数、无符号、浮点各自需要的转换和边界解析不一样，而 V 的 generics
+// 在这里帮不上忙 —— 调用点是 comptime `$if field.typ is ...`，类型是
+// 逐分支确定的，函数签名只能跟着逐族确定。
+//
+// 为什么 `int_bounds_violation` 收一个 `i64` 而不是直接比较 `val`：
+// `i8` / `i16` 的 `val < min_val` 在 min 超出类型范围时会先被 V 拒绝编译。
+// 统一升到 i64 之后，比较发生在无损的宽度上，边界解析也只需要写一遍。
+
+// bound_of parses `min:18` / `max:120` into the number after the colon.
+// An unparseable bound yields (0, false) and the rule is skipped: a typo in
+// the annotation should not silently become "reject everything with min:0".
+fn bound_of(rule string, prefix string) (i64, bool) {
+	raw := rule[prefix.len..].trim_space()
+	if raw.len == 0 {
+		return 0, false
+	}
+	if !is_numeric(raw) {
+		return 0, false
+	}
+	return raw.i64(), true
+}
+
+// float_bound_of is the same for `min:1.5` / `max:10.5`.
+//
+// Kept apart from bound_of() because `.i64()` on '2.5' gives 0 — using the
+// integer reader here would turn `min:2.5` into `min:0` and quietly widen
+// every bound written with a decimal point.
+fn float_bound_of(rule string, prefix string) (f64, bool) {
+	raw := rule[prefix.len..].trim_space()
+	if raw.len == 0 {
+		return 0.0, false
+	}
+	if !is_numeric(raw) {
+		return 0.0, false
+	}
+	return raw.f64(), true
+}
+
+// int_bounds_violation checks `min:` / `max:` for signed integers.
+// `wide` is the same value widened to i64; comparison happens there so that
+// boundaries outside the narrower type's range still behave.
+fn int_bounds_violation[T](field_name string, val T, rule string) string {
+	wide := i64(val)
+	if rule.starts_with('min:') {
+		min_val, min_ok := bound_of(rule, 'min:')
+		if min_ok && wide < min_val {
+			return '${field_name} must be >= ${min_val} / ${field_name} 必须 >= ${min_val}'
+		}
+	}
+	if rule.starts_with('max:') {
+		max_val, max_ok := bound_of(rule, 'max:')
+		if max_ok && wide > max_val {
+			return '${field_name} must be <= ${max_val} / ${field_name} 必须 <= ${max_val}'
+		}
+	}
+	return ''
+}
+
+// uint_bounds_violation checks `min:` / `max:` for unsigned integers.
+//
+// `wide` is the value widened to i64, or -1 when the type does not fit
+// (u64): a NaN-style sentinel meaning "cannot compare numerically here".
+// When that happens only `min:0` is decidable — every u64 is >= 0 — and
+// any non-zero `min:` / finite `max:` still has to be honoured, which is
+// why the u64 call site passes -1 rather than skipping the branch.
+fn uint_bounds_violation[T](field_name string, val T, rule string) string {
+	wide := i64(val)
+	if rule.starts_with('min:') {
+		min_val, min_ok := bound_of(rule, 'min:')
+		// 无符号类型不可能小于 0，`min:` 非正时这条规则恒成立。
+		if min_ok && min_val > 0 && wide < min_val {
+			return '${field_name} must be >= ${min_val} / ${field_name} 必须 >= ${min_val}'
+		}
+	}
+	if rule.starts_with('max:') {
+		max_val, max_ok := bound_of(rule, 'max:')
+		if max_ok && wide > max_val {
+			return '${field_name} must be <= ${max_val} / ${field_name} 必须 <= ${max_val}'
+		}
+	}
+	return ''
+}
+
+// float_bounds_violation checks `min:` / `max:` for f32 / f64.
+//
+// 浮点不能先转 int 再比：`10.9` 转成 `10` 之后，`max:10` 会放过它；
+// `0.5` 转成 `0` 之后，`min:1` 的结论虽然仍是对的，理由却已经错了。
+fn float_bounds_violation[T](field_name string, val T, rule string) string {
+	if rule.starts_with('min:') {
+		min_val, min_ok := float_bound_of(rule, 'min:')
+		if min_ok && f64(val) < min_val {
+			return '${field_name} must be >= ${min_val} / ${field_name} 必须 >= ${min_val}'
+		}
+	}
+	if rule.starts_with('max:') {
+		max_val, max_ok := float_bound_of(rule, 'max:')
+		if max_ok && f64(val) > max_val {
+			return '${field_name} must be <= ${max_val} / ${field_name} 必须 <= ${max_val}'
+		}
+	}
+	return ''
 }
 
 // is_valid_email_format performs a basic email format check.
