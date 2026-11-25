@@ -2195,3 +2195,36 @@ fn main() {
 ---
 
 > **Photon Framework** — 用 V 语言构建企业应用，本该如此简单。
+
+### 4.5 控制器自己带路由（推荐）
+
+路由不该"另有其处"。控制器方法上的注解就是路由表 —— 想找 `/api/v1/users/:id` 是谁处理的，
+在 `*_controller.v` 里搜这个路径就能搜到，中间没有一层转发方法需要你同时改两处。
+
+```v
+// user_controller.v
+import veb
+
+pub struct UserController {
+pub mut:
+	user_service &UserService
+}
+
+// GET /api/v1/users/:id
+@['/api/v1/users/:id'; get]
+pub fn (c &UserController) show(mut ctx Context, id string) veb.Result {
+	user := c.user_service.get_by_id(id.int()) or { return ctx.json_error(404, err.msg()) }
+	return ctx.json_response(200, '${user}')
+}
+```
+
+两个约定：
+
+- **`ctx` 永远第一个参数**：veb 先注入 `ctx`，再按 `:name` 的顺序依次注入路径参数，
+  签名里的参数个数必须和 `:name` 个数对上，否则 V 在 `-prod` 下直接编译失败。
+- **前缀写进路径**：`@['/api/v1/users/:id'; get]` 比 `@[prefix: '/api/v1']` 更直白 ——
+  路由表打印出来和源码读到的完全一致。
+
+`example/` 就是这么组织的：`home_controller.v`、`auth_controller.v`、`user_controller.v`、
+`apidoc_controller.v` 各自带着自己的注解方法，`App` 上一条路由方法都没有，
+路由表由 veb 在编译期扫描生成（`veb.run_at[App, Context]`）。

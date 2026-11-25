@@ -1,8 +1,9 @@
 module main
 
-// user_controller.v — 用户管理控制器（独立分层控制器）
+// user_controller.v — 用户管理控制器
 //
-// API 前缀：/api/v1/users（全部需要 ADMIN 角色）
+// API 前缀：/api/v1/users（全部需要 ADMIN 角色）。
+// 路由注解就写在各方法上 —— 路径、方法、参数三者挨在一起，改路由不用跨文件。
 import veb
 import time
 
@@ -24,6 +25,7 @@ pub fn new_user_controller(user_svc &UserService, mw &MiddlewareManager) &UserCo
 }
 
 // index GET /api/v1/users — 用户列表（分页）
+@['/api/v1/users'; get]
 pub fn (mut c UserController) index(mut ctx Context) veb.Result {
 	c.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
 	// 限流
@@ -58,7 +60,11 @@ pub fn (mut c UserController) index(mut ctx Context) veb.Result {
 }
 
 // show GET /api/v1/users/:id — 用户详情
-pub fn (c &UserController) show(id_str string, mut ctx Context) veb.Result {
+//
+// `:id` 是真参数：veb 按 `:name` 个数校验签名，注入顺序是 ctx 之后依次给
+// 路径参数，所以 ctx 必须留在第一位。
+@['/api/v1/users/:id'; get]
+pub fn (c &UserController) show(mut ctx Context, id_str string) veb.Result {
 	c.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
 	if id_str.len == 0 {
 		return ctx.json_error(400, 'missing user ID')
@@ -78,6 +84,7 @@ pub fn (c &UserController) show(id_str string, mut ctx Context) veb.Result {
 }
 
 // create POST /api/v1/users — 创建用户
+@['/api/v1/users'; post]
 pub fn (mut c UserController) create(mut ctx Context) veb.Result {
 	c.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
 	username := ctx.query['username'] or { ctx.form['username'] or { '' } }
@@ -106,7 +113,8 @@ pub fn (mut c UserController) create(mut ctx Context) veb.Result {
 }
 
 // update PUT /api/v1/users/:id — 更新用户
-pub fn (mut c UserController) update(id_str string, mut ctx Context) veb.Result {
+@['/api/v1/users/:id'; put]
+pub fn (mut c UserController) update(mut ctx Context, id_str string) veb.Result {
 	c.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
 	if id_str.len == 0 {
 		return ctx.json_error(400, 'missing user ID')
@@ -133,7 +141,8 @@ pub fn (mut c UserController) update(id_str string, mut ctx Context) veb.Result 
 }
 
 // destroy DELETE /api/v1/users/:id — 删除用户
-pub fn (mut c UserController) destroy(id_str string, mut ctx Context) veb.Result {
+@['/api/v1/users/:id'; delete]
+pub fn (mut c UserController) destroy(mut ctx Context, id_str string) veb.Result {
 	c.middleware.apply_role(mut ctx.Context, 'ADMIN') or { return ctx.json_error(403, err.msg()) }
 	if id_str.len == 0 {
 		return ctx.json_error(400, 'missing user ID')

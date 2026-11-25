@@ -347,11 +347,22 @@ routes := web.group('/api/v1', [
 ])
 ```
 
-### 路由扫描
+### 路由就写在控制器上
+
+不需要额外的路由文件或转发层：控制器方法上的 `@['/path'; get]` 注解就是路由，
+veb 在编译期扫成路由表（`veb.run_at[App, Context]`）。
 
 ```v
-// 编译期扫描路由注解
-routes := web.scan_controller[UserController]()
+@['/api/v1/users/:id'; get]
+pub fn (c &UserController) show(mut ctx Context, id string) veb.Result {
+    return ctx.json('{"id":"${id}"}')
+}
+```
+
+启动横幅上的路由表由同一份扫描结果生成：
+
+```v
+routes := web.scan_controller[App]()
 web.print_routes(routes)
 ```
 

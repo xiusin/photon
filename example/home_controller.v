@@ -1,24 +1,27 @@
 module main
 
-// home_controller.v — 首页 & 系统信息控制器（独立分层控制器）
+// home_controller.v — 首页 & 系统信息控制器
 //
-// HomeController 是一个独立的控制器结构体，自持业务依赖（service）。
-// App 通过 routes.v 中的薄委托方法将注解路由转发到此处。
+// 路由就写在这里：控制器自己带 veb 注解，不再有中间层转发。
+// 方法签名是 veb 的约定 —— ctx 在最前，路径参数按 `:name` 顺序跟在后面，
+// 返回值是 veb.Result。`@['/path'; get]` 被 veb 在编译期扫成路由表
+// （veb.run_at[App, Context]），所以这里加一行注解，路由就生效一行。
 import veb
 import time
 
-// HomeController — 首页 & 系统信息
+// HomeController — 首页 & 系统信息（路由方法直接挂在控制器上）
 pub struct HomeController {
 pub mut:
-	user_service  &UserService   = unsafe { nil }
-	cache_service &CacheService  = unsafe { nil }
+	user_service   &UserService   = unsafe { nil }
+	cache_service  &CacheService  = unsafe { nil }
 	health_service &HealthService = unsafe { nil }
-	app_config    &AppConfig     = unsafe { nil }
-	start_time    i64
+	app_config     &AppConfig     = unsafe { nil }
+	start_time     i64
 }
 
 // new_home_controller 构造控制器并注入依赖
-pub fn new_home_controller(user_svc &UserService, cache_svc &CacheService, health_svc &HealthService, cfg &AppConfig, start_time i64) &HomeController {
+pub fn new_home_controller(user_svc &UserService, cache_svc &CacheService,
+	health_svc &HealthService, cfg &AppConfig, start_time i64) &HomeController {
 	return unsafe {
 		&HomeController{
 			user_service:   user_svc
@@ -31,17 +34,19 @@ pub fn new_home_controller(user_svc &UserService, cache_svc &CacheService, healt
 }
 
 // index GET / — API 信息
-pub fn (c &HomeController) index(mut ctx Context, req_count int) veb.Result {
+@['/'; get]
+pub fn (c &HomeController) index(mut ctx Context) veb.Result {
 	return ctx.json({
 		'app':       'Photon API Server'
 		'version':   c.app_config.app_version
 		'uptime':    '${time.ticks() - c.start_time}ms'
-		'requests':  '${req_count}'
+		'requests':  '${app_req_count()}'
 		'endpoints': '/health /ping /stats /api/v1/users /api/v1/auth/login /api/v1/auth/profile'
 	})
 }
 
 // health GET /health — 健康检查
+@['/health'; get]
 pub fn (c &HomeController) health(mut ctx Context) veb.Result {
 	return ctx.json({
 		'status':    'UP'
@@ -52,15 +57,17 @@ pub fn (c &HomeController) health(mut ctx Context) veb.Result {
 }
 
 // ping GET /ping — 连通性测试
+@['/ping'; get]
 pub fn (c &HomeController) ping(mut ctx Context) veb.Result {
 	return ctx.text('pong')
 }
 
 // stats GET /stats — 服务器统计
-pub fn (c &HomeController) stats(mut ctx Context, req_count int) veb.Result {
+@['/stats'; get]
+pub fn (c &HomeController) stats(mut ctx Context) veb.Result {
 	active_users := c.user_service.count()
 	return ctx.json({
-		'requests':     '${req_count}'
+		'requests':     '${app_req_count()}'
 		'uptime_ms':    '${time.ticks() - c.start_time}'
 		'active_users': '${active_users}'
 		'start_time':   time.unix(c.start_time / 1000).format_ss()
@@ -68,6 +75,7 @@ pub fn (c &HomeController) stats(mut ctx Context, req_count int) veb.Result {
 }
 
 // cache_demo GET /cache — 缓存演示
+@['/cache'; get]
 pub fn (mut c HomeController) cache_demo(mut ctx Context) veb.Result {
 	key := ctx.query['key'] or { 'default' }
 	if c.cache_service != unsafe { nil } {
@@ -92,6 +100,7 @@ pub fn (mut c HomeController) cache_demo(mut ctx Context) veb.Result {
 }
 
 // request_info GET /request-info — 请求信息回显
+@['/request-info'; get]
 pub fn (c &HomeController) request_info(mut ctx Context) veb.Result {
 	method := ctx.req.method.str()
 	path := ctx.req.url
