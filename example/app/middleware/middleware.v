@@ -1,9 +1,10 @@
-module main
+module middleware
 
 // middleware.v — HTTP 中间件
 //
 // 中间件通过 @[middleware('name')] 注解挂载到路由。
 // MiddlewareManager 作为 @[component] Bean 注册到 DI 容器，由 ApplicationContext 统一管理。
+import app.services
 import veb
 import photon.logger
 import time
@@ -94,11 +95,11 @@ pub fn (m &CorsMiddleware) handle(mut ctx veb.Context) ! {
 
 pub struct AuthMiddleware {
 pub mut:
-	auth_svc      &AuthService
+	auth_svc      &services.AuthService
 	required_role string // 空字符串=仅需登录, 非空=需要指定角色
 }
 
-pub fn new_auth_middleware(auth_svc &AuthService) &AuthMiddleware {
+pub fn new_auth_middleware(auth_svc &services.AuthService) &AuthMiddleware {
 	return unsafe {
 		&AuthMiddleware{
 			auth_svc: auth_svc
@@ -189,7 +190,7 @@ pub mut:
 	rate_limit  &RateLimitMiddleware
 }
 
-pub fn new_middleware_manager(log_ &logger.Logger, auth_svc &AuthService) &MiddlewareManager {
+pub fn new_middleware_manager(log_ &logger.Logger, auth_svc &services.AuthService) &MiddlewareManager {
 	return &MiddlewareManager{
 		request_log: new_request_log_middleware(log_)
 		cors:        new_cors_middleware()

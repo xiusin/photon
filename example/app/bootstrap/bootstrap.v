@@ -1,4 +1,4 @@
-module main
+module bootstrap
 
 // bootstrap.v — 应用初始化（Spring Boot 式 Bootstrap，DI 容器驱动）
 //
@@ -9,6 +9,8 @@ module main
 //   - 旧版：Bootstrap 结构体持有所有组件引用，手动 new_xxx() 链式装配
 //   - 新版：所有组件注册到 ApplicationContext，由容器统一管理生命周期
 //           main.v 通过 ctx.resolve_typed[T]() 获取 Bean
+import app.services
+import app.middleware
 import photon.logger
 import photon.cache
 import photon.orm
@@ -90,25 +92,25 @@ pub fn bootstrap(mut ctx core.ApplicationContext) ! {
 	ctx.register_instance('TransactionManager', tm)!
 
 	// ── 6. Services 服务注册 ──
-	user_svc := new_user_service(log_, tm)
+	user_svc := services.new_user_service(log_, tm)
 	ctx.register_instance('UserService', user_svc)!
 
-	jwt_config := JWTConfig{
+	jwt_config := services.JWTConfig{
 		secret:             app_cfg.jwt_secret
 		expiration_minutes: app_cfg.jwt_expiry
 	}
-	auth_svc := new_auth_service(log_, user_svc, jwt_config)
+	auth_svc := services.new_auth_service(log_, user_svc, jwt_config)
 	ctx.register_instance('AuthService', auth_svc)!
 
-	health_svc := new_health_service()
+	health_svc := services.new_health_service()
 	ctx.register_instance('HealthService', health_svc)!
 
-	cache_svc := new_cache_service(cache_mgr)
+	cache_svc := services.new_cache_service(cache_mgr)
 	ctx.register_instance('CacheService', cache_svc)!
 	log_.info('Services registered — UserService, AuthService, HealthService, CacheService')
 
 	// ── 7. Middleware 中间件注册 ──
-	mw := new_middleware_manager(log_, auth_svc)
+	mw := middleware.new_middleware_manager(log_, auth_svc)
 	ctx.register_instance('MiddlewareManager', mw)!
 	log_.info('Middleware initialized — RequestLog, CORS, Auth, RateLimit')
 

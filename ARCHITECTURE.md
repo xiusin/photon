@@ -270,7 +270,16 @@ photon/
 │   └── cli_test.v
 │
 ├── example/              # [Demo] 示例应用
-│   ├── main.v            # 373 行全功能演示（Web + ORM + 安全 + 事务 + 队列 + 缓存）
+│   ├── main.v            # 单文件入口：import app + app.run()
+│   ├── app/              # 业务模块，按职责分层
+│   │   ├── bootstrap/    # 配置 + DI 装配
+│   │   ├── controllers/  # 路由注解与请求处理
+│   │   ├── services/     # 业务逻辑
+│   │   ├── models/       # 实体与 DTO
+│   │   ├── middleware/   # 横切中间件
+│   │   ├── http/         # 请求上下文与响应助手
+│   │   ├── state/        # 请求计数（叶子包，避免 app ↔ controllers 成环）
+│   │   ├── app.v / server.v
 │   └── main              # 编译产物
 │
 ├── .github/workflows/ci.yml  # CI 配置
@@ -3000,7 +3009,7 @@ Resource limits:
 **Makefile 目标**：
 ```
 build    — 编译 example → bin/photon-example
-run      — v -enable-globals run example/
+run      — v -enable-globals run example/（或 example/main.v 单文件）
 test     — ORM 快速测试
 test-all — 全部模块测试
 check    — 类型检查（无执行）
@@ -3115,7 +3124,7 @@ docker   — Docker 镜像构建
 | cli/progress.v | ~40 | ProgressBar |
 | cli/builtin.v | 132 | list/help/serve 命令 |
 | http/client.v | 650 | RestTemplate + RequestEntity/ResponseEntity + 拦截器 |
-| example/main.v | 373 | 全功能演示 |
+| example/main.v | 14 | 单文件入口，业务在 example/app/ |
 | AGENTS.md | 172 | 开发规范宪法 |
 | Makefile | 148 | 构建/测试/部署自动化 |
 | ci.yml | 154 | GitHub Actions 矩阵测试 |

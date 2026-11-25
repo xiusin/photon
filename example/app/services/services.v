@@ -1,4 +1,4 @@
-module main
+module services
 
 // services.v — 业务逻辑层（Service 层）
 //
@@ -13,6 +13,7 @@ module main
 //   2. AuthService     — 认证/授权逻辑
 //   3. HealthService   — 健康检查与统计
 //   4. CacheService    — 缓存业务封装
+import app.models
 import time
 import photon.cache
 import photon.orm
@@ -29,7 +30,7 @@ pub mut:
 	log_    &logger.Logger          @[autowired]
 	tm      &orm.TransactionManager @[autowired]
 	om      &orm.OrmManager = unsafe { nil }
-	users   []User // 内存数据存储（演示用，生产应使用数据库）
+	users   []models.User // 内存数据存储（演示用，生产应使用数据库）
 	next_id int = 1
 }
 
@@ -41,7 +42,7 @@ pub fn new_user_service(log_ &logger.Logger, tm &orm.TransactionManager) &UserSe
 		log_:  log_
 		tm:    tm
 		om:    unsafe { nil }
-		users: []User{}
+		users: []models.User{}
 	}
 	// 预置演示用户
 	svc.seed_demo_users()
@@ -50,7 +51,7 @@ pub fn new_user_service(log_ &logger.Logger, tm &orm.TransactionManager) &UserSe
 
 fn (mut s UserService) seed_demo_users() {
 	demo_users := [
-		User{
+		models.User{
 			id:         1
 			username:   'admin'
 			email:      'admin@photon.io'
@@ -60,7 +61,7 @@ fn (mut s UserService) seed_demo_users() {
 			status:     1
 			created_at: time.now().unix()
 		},
-		User{
+		models.User{
 			id:         2
 			username:   'moderator'
 			email:      'mod@photon.io'
@@ -70,7 +71,7 @@ fn (mut s UserService) seed_demo_users() {
 			status:     1
 			created_at: time.now().unix()
 		},
-		User{
+		models.User{
 			id:         3
 			username:   'alice'
 			email:      'alice@example.com'
@@ -80,7 +81,7 @@ fn (mut s UserService) seed_demo_users() {
 			status:     1
 			created_at: time.now().unix()
 		},
-		User{
+		models.User{
 			id:         4
 			username:   'bob'
 			email:      'bob@example.com'
@@ -90,7 +91,7 @@ fn (mut s UserService) seed_demo_users() {
 			status:     1
 			created_at: time.now().unix()
 		},
-		User{
+		models.User{
 			id:         5
 			username:   'charlie'
 			email:      'charlie@example.com'
@@ -106,8 +107,8 @@ fn (mut s UserService) seed_demo_users() {
 }
 
 // list 获取用户列表（分页）
-pub fn (s &UserService) list(query UserListQuery) ([]User, int) {
-	mut result := []User{}
+pub fn (s &UserService) list(query models.UserListQuery) ([]models.User, int) {
+	mut result := []models.User{}
 	for u in s.users {
 		// 关键词过滤
 		if query.keyword.len > 0 {
@@ -130,7 +131,7 @@ pub fn (s &UserService) list(query UserListQuery) ([]User, int) {
 	// pagination
 	start := (query.page - 1) * query.page_size
 	if start > total {
-		return []User{}, total
+		return []models.User{}, total
 	}
 	mut end := start + query.page_size
 	if end > total {
@@ -140,7 +141,7 @@ pub fn (s &UserService) list(query UserListQuery) ([]User, int) {
 }
 
 // get_by_id 根据 ID 获取用户
-pub fn (s &UserService) get_by_id(id int) !User {
+pub fn (s &UserService) get_by_id(id int) !models.User {
 	for u in s.users {
 		if u.id == id {
 			return u
@@ -150,7 +151,7 @@ pub fn (s &UserService) get_by_id(id int) !User {
 }
 
 // get_by_username 根据用户名查找
-pub fn (s &UserService) get_by_username(username string) !User {
+pub fn (s &UserService) get_by_username(username string) !models.User {
 	for u in s.users {
 		if u.username == username {
 			return u
@@ -161,7 +162,7 @@ pub fn (s &UserService) get_by_username(username string) !User {
 
 // create 创建新用户（@[transactional] — 通过 transactional_wrap 在事务中执行）
 @[transactional]
-pub fn (mut s UserService) create(req CreateUserRequest) !User {
+pub fn (mut s UserService) create(req models.CreateUserRequest) !models.User {
 	// 检查用户名唯一性
 	for u in s.users {
 		if u.username == req.username {
@@ -171,7 +172,7 @@ pub fn (mut s UserService) create(req CreateUserRequest) !User {
 			return error('email already registered')
 		}
 	}
-	mut user := User{
+	mut user := models.User{
 		id:       s.next_id
 		username: req.username
 		email:    req.email
@@ -191,7 +192,7 @@ pub fn (mut s UserService) create(req CreateUserRequest) !User {
 }
 
 // update 更新用户信息
-pub fn (mut s UserService) update(id int, req UpdateUserRequest) !User {
+pub fn (mut s UserService) update(id int, req models.UpdateUserRequest) !models.User {
 	mut user := s.get_by_id(id)!
 	if req.email.len > 0 {
 		user.email = req.email
@@ -249,6 +250,7 @@ pub mut:
 }
 
 pub struct JWTConfig {
+pub mut:
 	secret             string
 	expiration_minutes int
 }
@@ -352,7 +354,7 @@ pub fn new_auth_service(log_ &logger.Logger, user_svc &UserService, jwt_config J
 }
 
 // login 用户登录
-pub fn (mut s AuthService) login(req LoginRequest) !LoginResponse {
+pub fn (mut s AuthService) login(req models.LoginRequest) !models.LoginResponse {
 	user := s.user_svc.get_by_username(req.username)!
 	if user.password != req.password {
 		return error('wrong password')
@@ -362,12 +364,12 @@ pub fn (mut s AuthService) login(req LoginRequest) !LoginResponse {
 	}
 	token, expires_in := s.jwt_mgr.generate_token(user.username, user.role)
 	s.log_.info('[AuthService] 用户登录: username=${user.username} role=${user.role}')
-	return LoginResponse{
+	return models.LoginResponse{
 		access_token:  token
 		token_type:    'Bearer'
 		expires_in:    expires_in * 60
 		refresh_token: base64_encode('refresh:${user.username}:${time.now().unix()}')
-		user:          UserProfile{
+		user:          models.UserProfile{
 			id:       user.id
 			username: user.username
 			nickname: user.nickname
@@ -381,9 +383,9 @@ pub fn (mut s AuthService) login(req LoginRequest) !LoginResponse {
 }
 
 // get_profile 获取用户资料
-pub fn (s &AuthService) get_profile(username string) !UserProfile {
+pub fn (s &AuthService) get_profile(username string) !models.UserProfile {
 	user := s.user_svc.get_by_username(username)!
-	return UserProfile{
+	return models.UserProfile{
 		id:       user.id
 		username: user.username
 		nickname: user.nickname
@@ -411,8 +413,8 @@ pub fn new_health_service() &HealthService {
 	}
 }
 
-pub fn (s &HealthService) health() HealthStatus {
-	return HealthStatus{
+pub fn (s &HealthService) health() models.HealthStatus {
+	return models.HealthStatus{
 		status:    'UP'
 		version:   '0.4.0'
 		uptime_ms: time.ticks() - s.start_time

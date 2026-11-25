@@ -1,4 +1,4 @@
-module main
+module http
 
 // http_helpers.v — Context 响应辅助方法 & JSON 工具
 //
@@ -35,7 +35,7 @@ pub fn (mut ctx Context) json_response(code int, data string) veb.Result {
 }
 
 // json_data 将数组转为 JSON 字符串
-fn json_data[T](items []T) string {
+pub fn json_data[T](items []T) string {
 	if items.len == 0 {
 		return '[]'
 	}

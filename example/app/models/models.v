@@ -1,4 +1,4 @@
-module main
+module models
 
 // models.v — 数据模型 & DTO（Data Transfer Object）
 //
@@ -28,6 +28,7 @@ pub mut:
 
 // CreateUserRequest — 创建用户请求
 pub struct CreateUserRequest {
+pub mut:
 	username string @[required]
 	email    string @[required]
 	password string @[required]
@@ -36,6 +37,7 @@ pub struct CreateUserRequest {
 
 // UpdateUserRequest — 更新用户请求
 pub struct UpdateUserRequest {
+pub mut:
 	email    string
 	nickname string
 	avatar   string
@@ -43,12 +45,14 @@ pub struct UpdateUserRequest {
 
 // LoginRequest — 登录请求
 pub struct LoginRequest {
+pub mut:
 	username string @[required]
 	password string @[required]
 }
 
 // LoginResponse — 登录响应（JWT token）
 pub struct LoginResponse {
+pub mut:
 	access_token  string
 	token_type    string = 'Bearer'
 	expires_in    int
@@ -58,6 +62,7 @@ pub struct LoginResponse {
 
 // UserProfile — 用户公开信息（VO）
 pub struct UserProfile {
+pub mut:
 	id       int
 	username string
 	nickname string
@@ -70,6 +75,7 @@ pub struct UserProfile {
 
 // UserListQuery — 用户列表查询参数
 pub struct UserListQuery {
+pub mut:
 	page      int = 1
 	page_size int = 20
 	keyword   string
@@ -112,6 +118,7 @@ pub fn error_(code int, message string) ApiResponse {
 // ═══════════════════════════════════════════════════════════
 
 pub struct HealthStatus {
+pub mut:
 	status    string = 'UP'
 	version   string
 	uptime_ms i64
@@ -119,6 +126,7 @@ pub struct HealthStatus {
 }
 
 pub struct ServerStats {
+pub mut:
 	requests     int
 	uptime_ms    i64
 	active_users int

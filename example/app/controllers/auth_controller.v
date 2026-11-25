@@ -1,22 +1,26 @@
-module main
+module controllers
 
 // auth_controller.v — 认证控制器
 //
 // 路由注解直接挂在方法上：`@[post: '/api/v1/auth/login']`。
 // 前缀写全在路径里，不用 @[prefix] —— 路由表打印出来和这里读到的完全一致。
+import app.http
+import app.models
+import app.services
+import app.middleware
 import veb
 
 // AuthController — 认证接口
 @[controller]
 pub struct AuthController {
 pub mut:
-	auth_service &AuthService       = unsafe { nil }
-	user_service &UserService       = unsafe { nil }
-	middleware   &MiddlewareManager = unsafe { nil }
+	auth_service &services.AuthService       = unsafe { nil }
+	user_service &services.UserService       = unsafe { nil }
+	middleware   &middleware.MiddlewareManager = unsafe { nil }
 }
 
 // new_auth_controller 构造控制器并注入依赖
-pub fn new_auth_controller(auth_svc &AuthService, user_svc &UserService, mw &MiddlewareManager) &AuthController {
+pub fn new_auth_controller(auth_svc &services.AuthService, user_svc &services.UserService, mw &middleware.MiddlewareManager) &AuthController {
 	return unsafe {
 		&AuthController{
 			auth_service: auth_svc
@@ -28,13 +32,13 @@ pub fn new_auth_controller(auth_svc &AuthService, user_svc &UserService, mw &Mid
 
 // login POST /api/v1/auth/login — 用户登录
 @[post: '/api/v1/auth/login']
-pub fn (mut c AuthController) login(mut ctx Context) veb.Result {
+pub fn (mut c AuthController) login(mut ctx http.Context) veb.Result {
 	username := ctx.query['username'] or { ctx.form['username'] or { '' } }
 	password := ctx.query['password'] or { ctx.form['password'] or { '' } }
 	if username.len == 0 || password.len == 0 {
 		return ctx.json_error(400, 'username and password required')
 	}
-	req := LoginRequest{
+	req := models.LoginRequest{
 		username: username
 		password: password
 	}
@@ -44,7 +48,7 @@ pub fn (mut c AuthController) login(mut ctx Context) veb.Result {
 
 // register POST /api/v1/auth/register — 用户注册
 @[post: '/api/v1/auth/register']
-pub fn (mut c AuthController) register(mut ctx Context) veb.Result {
+pub fn (mut c AuthController) register(mut ctx http.Context) veb.Result {
 	username := ctx.query['username'] or { ctx.form['username'] or { '' } }
 	email := ctx.query['email'] or { ctx.form['email'] or { '' } }
 	password := ctx.query['password'] or { ctx.form['password'] or { '' } }
@@ -52,7 +56,7 @@ pub fn (mut c AuthController) register(mut ctx Context) veb.Result {
 	if username.len == 0 || email.len == 0 || password.len == 0 {
 		return ctx.json_error(400, 'username, email, password required')
 	}
-	req := CreateUserRequest{
+	req := models.CreateUserRequest{
 		username: username
 		email:    email
 		password: password
@@ -65,7 +69,7 @@ pub fn (mut c AuthController) register(mut ctx Context) veb.Result {
 
 // profile GET /api/v1/auth/profile — 获取用户信息（JWT）
 @[get: '/api/v1/auth/profile']
-pub fn (c &AuthController) profile(mut ctx Context) veb.Result {
+pub fn (c &AuthController) profile(mut ctx http.Context) veb.Result {
 	username, _ := c.middleware.apply_auth(mut ctx.Context) or {
 		return ctx.json_error(401, err.msg())
 	}
