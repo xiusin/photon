@@ -30,18 +30,22 @@ pub mut:
 	req_count  int
 }
 
-// init_app 创建 App，并把控制器交给框架一步「创建 + @[autowired] 注入 + 挂载」。
-//
-// wire_and_mount 会读控制器的 @[prefix]，没有就是空串；路由注解里写的
-// 已经是完整 URL，所以这里不需要再传前缀。
-pub fn init_app(mut di_ctx core.ApplicationContext, start_time i64) &App {
-	mut app := &App{ web_module: web.init_web_module() }
-	di_ctx.autowire_controller[App](app) or { panic(err) }
+// mount_controllers 是控制器注册表 —— V 没有运行时反射，也没有
+// comptime「列出包内所有类型」的能力，所以新增控制器必须在这里加一行。
+// 除此之外，创建、@[autowired] 注入、路由挂载都由 wire_and_mount 完成。
+fn (mut app App) mount_controllers(mut di_ctx core.ApplicationContext, start_time i64) {
 	mut home_ctrl := app.web_module.wire_and_mount[controllers.HomeController, http.Context](mut di_ctx) or { panic(err) }
 	home_ctrl.start_time = start_time
 	app.web_module.wire_and_mount[controllers.AuthController, http.Context](mut di_ctx) or { panic(err) }
 	app.web_module.wire_and_mount[controllers.UserController, http.Context](mut di_ctx) or { panic(err) }
 	app.web_module.wire_and_mount[controllers.ApiDocController, http.Context](mut di_ctx) or { panic(err) }
+}
+
+// init_app 创建 App：注入自身依赖 + 一次装载全部控制器。
+pub fn init_app(mut di_ctx core.ApplicationContext, start_time i64) &App {
+	mut app := &App{ web_module: web.init_web_module() }
+	di_ctx.autowire_controller[App](app) or { panic(err) }
+	app.mount_controllers(mut di_ctx, start_time)
 	return app
 }
 
