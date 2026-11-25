@@ -936,6 +936,15 @@ qsql, args := qb.to_sql()     // []string 参数
 | `findByIdNotIn` | `WHERE id NOT IN (?)` |
 | `findByEmailIsNull` | `WHERE email IS NULL` |
 | `findByEmailIsNotNull` | `WHERE email IS NOT NULL` |
+| `findByAgeBetween` | `WHERE age BETWEEN ? AND ?` |
+| `findByAgeNotBetween` | `WHERE age NOT BETWEEN ? AND ?` |
+| `findByNameLike` | `WHERE name LIKE ?`（模式由调用方给） |
+| `findByNameNotLike` | `WHERE name NOT LIKE ?` |
+| `findByNameNotContaining` | `WHERE name NOT LIKE '%' \|\| ? \|\| '%'` |
+| `findByActiveTrue` | `WHERE active = 1`（无占位符） |
+| `findByActiveFalse` | `WHERE active = 0` |
+| `findByNameIgnoreCase` | `WHERE name = ?`（大小写折叠由调用方做） |
+| `findByAgeNotNull` | `WHERE age IS NOT NULL`（`IsNotNull` 的短形式） |
 
 ### 9.2 QueryParts 输出映射
 
@@ -987,12 +996,29 @@ results := qb.query()!
 | `In` | `IN (?)` |
 | `NotIn` | `NOT IN (?)` |
 | `IsNull` | `IS NULL` |
-| `IsNotNull` | `IS NOT NULL` |
+| `IsNotNull` / `NotNull` | `IS NOT NULL` |
+| `Between` | `BETWEEN ? AND ?`（**两个**参数） |
+| `NotBetween` | `NOT BETWEEN ? AND ?` |
+| `Like` | `LIKE ?`（模式由调用方给，框架不加 `%`） |
+| `NotLike` | `NOT LIKE ?` |
+| `NotContaining` / `NotStartingWith` / `NotEndingWith` | 对应的 `NOT LIKE` |
+| `True` / `False` | `= 1` / `= 0`（无参数） |
+| `IgnoreCase` | 等值不变，`QueryCondition.operator` 仍是 `=` |
 | `And` | 逻辑 AND |
 | `Or` | 逻辑 OR |
 | `Top<N>` | LIMIT N |
 | `Distinct` | SELECT DISTINCT |
 | `OrderBy...Desc/Asc` | ORDER BY |
+
+> **认不出的关键字会报错，不会拼成一列。**
+> `parse_method_name()` 只接受上表里的词。任何它不认识的词出现在属性名之后，
+> 都会返回 `unsupported keyword "X"` / `unexpected "X" after keyword "Y"`，
+> 而不是把它并进列名。早先的实现把 `findByAgeBetween` 解析成
+> `WHERE age_between = ?` —— 一条语法完全合法的 SQL，指向一个不存在的列，
+> 驱动层报 `no such column: age_between`，和「方法名打错一个字母」长得一模一样。
+>
+> 唯一的例外是普通多词属性（`CreatedAt` → `created_at`、`FirstName` → `first_name`），
+> 它们不含关键字词，照旧允许。
 
 ---
 

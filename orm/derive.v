@@ -29,9 +29,14 @@ pub enum QueryOperation {
 pub struct QueryCondition {
 pub:
 	property string
-	operator string = '=' // =, >, <, >=, <=, IN, NOT IN, IS NULL, IS NOT NULL,
-	//   LIKE_CONTAINING, LIKE_STARTING, LIKE_ENDING
-	logic string = 'AND'
+	// SQL operator, or one of the internal spellings used by
+	// to_where_cond(): 'LIKE_CONTAINING' / 'LIKE_STARTING' / 'LIKE_ENDING'
+	// (LIKE with a `%` pattern), 'BETWEEN' / 'NOT BETWEEN' (two `?`),
+	// 'IN' / 'NOT IN' (expanded by to_where_cond_with_arrays()),
+	// 'IS NULL' / 'IS NOT NULL' (no `?`), and 'TRUE' / 'FALSE'
+	// (no `?`, renders as `column = 1` / `column = 0`).
+	operator string = '='
+	logic    string = 'AND'
 }
 
 // OrderPart represents ORDER BY from method name
@@ -150,7 +155,12 @@ pub fn parse_method_name(method string) !QueryParts {
 				continue
 			}
 
-			// Collect property name (at least one token)
+			// Collect property name (at least one token).
+			//
+			// The FIRST token is a property name by construction: the loop
+			// above already consumed `And`/`Or`, so a keyword cannot open a
+			// condition. That is what keeps `findByInName` a property
+			// (`in_name`) rather than an `IN` with no column.
 			mut property_tokens := [tokens[i]]
 			i++
 			mut operator := '='
@@ -163,11 +173,45 @@ pub fn parse_method_name(method string) !QueryParts {
 				if keyword != '' {
 					operator = keyword_to_operator(keyword)
 					i += consumed
+					// A keyword ends the condition. Anything that follows
+					// must be `And` / `Or` (checked by the outer loop) or it
+					// is an operator this parser does not understand —
+					// `findByAgeGreaterThanX` used to become
+					// `age > ? AND x = ?`, quietly adding a column to the
+					// WHERE clause that the caller never asked for.
+					if i < tokens.len && tokens[i] != 'And' && tokens[i] != 'Or' {
+						hint := unsupported_keyword_hint([tokens[i]])
+						word := if hint != '' { hint } else { tokens[i] }
+						return error('unexpected "${word}" after keyword "${keyword}" in derived query "${method}" / 派生查询在关键字 "${keyword}" 之后出现无法解析的 "${word}"')
+					}
 					break
 				}
-				// Check for logic operator — ends the current condition
+				// Check for logic operator — ends the current condition.
+				// The token is deliberately NOT consumed here: the outer
+				// loop re-reads it to set `logic` for the next condition.
 				if tokens[i] == 'And' || tokens[i] == 'Or' {
 					break
+				}
+				// `IgnoreCase` can sit directly after the property with no
+				// operator in between (`findByNameIgnoreCase`). The camel
+				// splitter cuts it into `Ignore` + `Case`, so match both and
+				// consume them — otherwise the property becomes
+				// `name_ignore_case`, a column that never existed.
+				if i + 1 < tokens.len && tokens[i] == 'Ignore' && tokens[i + 1] == 'Case' {
+					i += 2
+					break
+				}
+				// A Spring Data keyword with no operator we can express, or a
+				// plain multi-word property (`CreatedAt` → created_at)?
+				//
+				// Guessing wrong here is expensive: `findByAgeBetween` used to
+				// absorb `Between` into the column name and query
+				// `age_between`, which the driver reports as "no such column" —
+				// the same message a typo in the method name produces. Refuse
+				// instead, and say which keyword is missing.
+				hint := unsupported_keyword_hint([tokens[i]])
+				if hint != '' {
+					return error('unsupported keyword "${hint}" in derived query "${method}" / 派生查询不支持关键字 "${hint}"')
 				}
 				// Another property token (multi-word property name)
 				property_tokens << tokens[i]
@@ -194,9 +238,21 @@ pub fn parse_method_name(method string) !QueryParts {
 //
 // Example: 'name = ? AND age = ?'
 //
+// Operators that do not take a single value:
+//
+//   findByAgeBetween     → age BETWEEN ? AND ?          (2 placeholders)
+//   findByActiveTrue     → active = 1                   (0 placeholders)
+//   findByNameIgnoreCase → name = ?                     (1, case folded by the caller)
+//   findByIdIn           → id IN (?)                    (expanded separately)
+//
 // For IN/NOT IN conditions, this generates a single `?` placeholder.
 // Use to_where_cond_with_arrays() when you need to expand IN clauses
 // with the correct number of placeholders based on array length.
+//
+// NOTE: the `?` produced here is meant for V's own QueryBuilder
+// (`qb.where(cond, ...args)`), which parenthesises consecutive OR runs.
+// Concatenating another `to_where_cond()` fragment onto it by hand loses
+// that parenthesisation.
 pub fn (qp QueryParts) to_where_cond() string {
 	if qp.conditions.len == 0 {
 		return ''
@@ -206,17 +262,7 @@ pub fn (qp QueryParts) to_where_cond() string {
 		if i > 0 {
 			sb.write_string(' ${c.logic} ')
 		}
-		match c.operator {
-			'=' { sb.write_string('${c.property} = ?') }
-			'IS NULL' { sb.write_string('${c.property} IS NULL') }
-			'IS NOT NULL' { sb.write_string('${c.property} IS NOT NULL') }
-			'LIKE_CONTAINING' { sb.write_string("${c.property} LIKE '%' || ? || '%'") }
-			'LIKE_STARTING' { sb.write_string("${c.property} LIKE ? || '%'") }
-			'LIKE_ENDING' { sb.write_string("${c.property} LIKE '%' || ?") }
-			'IN' { sb.write_string('${c.property} IN (?)') }
-			'NOT IN' { sb.write_string('${c.property} NOT IN (?)') }
-			else { sb.write_string('${c.property} ${c.operator} ?') }
-		}
+		write_condition(mut sb, c, map[string]int{})
 	}
 	return sb.str()
 }
@@ -242,39 +288,49 @@ pub fn (qp QueryParts) to_where_cond_with_arrays(array_lengths map[string]int) s
 		if i > 0 {
 			sb.write_string(' ${c.logic} ')
 		}
-		match c.operator {
-			'=' { sb.write_string('${c.property} = ?') }
-			'IS NULL' { sb.write_string('${c.property} IS NULL') }
-			'IS NOT NULL' { sb.write_string('${c.property} IS NOT NULL') }
-			'LIKE_CONTAINING' { sb.write_string("${c.property} LIKE '%' || ? || '%'") }
-			'LIKE_STARTING' { sb.write_string("${c.property} LIKE ? || '%'") }
-			'LIKE_ENDING' { sb.write_string("${c.property} LIKE '%' || ?") }
-			'IN' {
-				n := array_lengths[c.property] or { 1 }
-				sb.write_string('${c.property} IN (')
-				for j in 0 .. n {
-					if j > 0 {
-						sb.write_string(', ')
-					}
-					sb.write_string('?')
-				}
-				sb.write_string(')')
-			}
-			'NOT IN' {
-				n := array_lengths[c.property] or { 1 }
-				sb.write_string('${c.property} NOT IN (')
-				for j in 0 .. n {
-					if j > 0 {
-						sb.write_string(', ')
-					}
-					sb.write_string('?')
-				}
-				sb.write_string(')')
-			}
-			else { sb.write_string('${c.property} ${c.operator} ?') }
-		}
+		write_condition(mut sb, c, array_lengths)
 	}
 	return sb.str()
+}
+
+// write_condition renders one condition into `sb`.
+//
+// Both to_where_cond() and to_where_cond_with_arrays() go through here so
+// that adding an operator cannot be done in one place and forgotten in the
+// other — the previous shape had the same match duplicated verbatim, which
+// is exactly how `LIKE_CONTAINING` and its neighbours drifted apart from
+// the keyword table.
+//
+// `array_lengths` empty means "IN gets a single `?`" (the default of
+// to_where_cond()).
+fn write_condition(mut sb strings.Builder, c QueryCondition, array_lengths map[string]int) {
+	match c.operator {
+		'IS NULL' { sb.write_string('${c.property} IS NULL') }
+		'IS NOT NULL' { sb.write_string('${c.property} IS NOT NULL') }
+		'TRUE' { sb.write_string('${c.property} = 1') }
+		'FALSE' { sb.write_string('${c.property} = 0') }
+		'LIKE_CONTAINING' { sb.write_string("${c.property} LIKE '%' || ? || '%'") }
+		'LIKE_STARTING' { sb.write_string("${c.property} LIKE ? || '%'") }
+		'LIKE_ENDING' { sb.write_string("${c.property} LIKE '%' || ?") }
+		'NOT_LIKE_CONTAINING' { sb.write_string("${c.property} NOT LIKE '%' || ? || '%'") }
+		'NOT_LIKE_STARTING' { sb.write_string("${c.property} NOT LIKE ? || '%'") }
+		'NOT_LIKE_ENDING' { sb.write_string("${c.property} NOT LIKE '%' || ?") }
+		'BETWEEN', 'NOT BETWEEN' {
+			sb.write_string('${c.property} ${c.operator} ? AND ?')
+		}
+		'IN', 'NOT IN' {
+			n := array_lengths[c.property] or { 1 }
+			sb.write_string('${c.property} ${c.operator} (')
+			for j in 0 .. n {
+				if j > 0 {
+					sb.write_string(', ')
+				}
+				sb.write_string('?')
+			}
+			sb.write_string(')')
+		}
+		else { sb.write_string('${c.property} ${c.operator} ?') }
+	}
 }
 
 // to_where_params returns the number of `?` placeholders
@@ -283,13 +339,20 @@ pub fn (qp QueryParts) to_where_cond_with_arrays(array_lengths map[string]int) s
 // For IN/NOT IN conditions, this counts 1 placeholder (the single
 // `?` produced by to_where_cond()). Use to_where_param_count_with_arrays()
 // when expanding IN clauses with to_where_cond_with_arrays().
+//
+// The per-operator counts come from operator_param_count(), the same rule
+// write_condition() renders from. Letting the two drift is what turns a
+// bound value into `status = <tenant_id>`.
 pub fn (qp QueryParts) to_where_param_count() int {
 	mut count := 0
 	for c in qp.conditions {
-		if c.operator == 'IS NULL' || c.operator == 'IS NOT NULL' {
-			continue
+		n := operator_param_count(c.operator)
+		if n == -1 {
+			// IN / NOT IN keep to_where_cond()'s single `?`.
+			count++
+		} else if n > 0 {
+			count += n
 		}
-		count++
 	}
 	return count
 }
@@ -300,13 +363,12 @@ pub fn (qp QueryParts) to_where_param_count() int {
 pub fn (qp QueryParts) to_where_param_count_with_arrays(array_lengths map[string]int) int {
 	mut count := 0
 	for c in qp.conditions {
-		if c.operator == 'IS NULL' || c.operator == 'IS NOT NULL' {
-			continue
-		}
-		if c.operator == 'IN' || c.operator == 'NOT IN' {
+		n := operator_param_count(c.operator)
+		if n == -1 {
+			// IN / NOT IN: one placeholder per element.
 			count += array_lengths[c.property] or { 1 }
-		} else {
-			count++
+		} else if n > 0 {
+			count += n
 		}
 	}
 	return count
@@ -361,117 +423,164 @@ pub fn (qp QueryParts) is_delete() bool {
 	return qp.operation == .delete_all
 }
 
-// ── Derived query keyword matching (Task B5) ──
+// ── Derived query keyword table ──
 //
+// The table below is the single source of truth for both questions the
+// parser has to answer: "does this token sequence start a keyword?" and
+// "how many `?` does that keyword consume?".
+//
+// Why one table and not two functions
+// -----------------------------------
+// It used to be a hand-written chain of `if` blocks plus a separate
+// `keyword_to_operator()` match. The chain covered 11 of Spring Data's ~20
+// keywords, and anything it did not know was silently absorbed into the
+// property name:
+//
+//   findByAgeBetween     → WHERE age_between = ?     (a column that does not exist)
+//   findByActiveTrue     → WHERE active_true = ?
+//   findByNameIgnoreCase → WHERE name_ignore_case = ?
+//   findByNameNot        → WHERE name_not = ?
+//
+// Every one of those is a *parse success* that turns into a driver-level
+// "no such column" — indistinguishable from a typo in the method name.
+// The table owns the whole vocabulary now, so a keyword either resolves
+// or the parser refuses.
+//
+// Ordering: longest-first, so `GreaterThanOrEqual` (4 tokens) wins over
+// `GreaterThan` (2), `IsNotNull` (3) over `IsNull` (2), and
+// `NotContaining` (2) over `Containing` (1). Emitting `ordered` in the
+// wrong order silently degrades to the shorter keyword.
+fn keyword_table() []KeywordSpec {
+	return [
+		// 4 tokens
+		KeywordSpec{'GreaterThanOrEqual', ['Greater', 'Than', 'Or', 'Equal'], '>='},
+		KeywordSpec{'LessThanOrEqual', ['Less', 'Than', 'Or', 'Equal'], '<='},
+		// 3 tokens
+		KeywordSpec{'IsNotNull', ['Is', 'Not', 'Null'], 'IS NOT NULL'},
+		KeywordSpec{'NotStartingWith', ['Not', 'Starting', 'With'], 'NOT_LIKE_STARTING'},
+		KeywordSpec{'NotEndingWith', ['Not', 'Ending', 'With'], 'NOT_LIKE_ENDING'},
+		// 2 tokens
+		KeywordSpec{'GreaterThan', ['Greater', 'Than'], '>'},
+		KeywordSpec{'LessThan', ['Less', 'Than'], '<'},
+		KeywordSpec{'StartingWith', ['Starting', 'With'], 'LIKE_STARTING'},
+		KeywordSpec{'EndingWith', ['Ending', 'With'], 'LIKE_ENDING'},
+		KeywordSpec{'IsNull', ['Is', 'Null'], 'IS NULL'},
+		// `NotNull` is the short form of `IsNotNull` — Spring Data accepts
+		// both, and `findByAgeNotNull` used to become `age_not_null = ?`.
+		KeywordSpec{'NotNull', ['Not', 'Null'], 'IS NOT NULL'},
+		KeywordSpec{'NotIn', ['Not', 'In'], 'NOT IN'},
+		KeywordSpec{'NotBetween', ['Not', 'Between'], 'NOT BETWEEN'},
+		KeywordSpec{'NotLike', ['Not', 'Like'], 'NOT LIKE'},
+		KeywordSpec{'NotContaining', ['Not', 'Containing'], 'NOT_LIKE_CONTAINING'},
+		// The camel splitter cuts `IgnoreCase` into two tokens, so the
+		// table has to spell it the same way.
+		KeywordSpec{'IgnoreCase', ['Ignore', 'Case'], '='},
+		// 1 token
+		KeywordSpec{'Like', ['Like'], 'LIKE'},
+		KeywordSpec{'Containing', ['Containing'], 'LIKE_CONTAINING'},
+		KeywordSpec{'Between', ['Between'], 'BETWEEN'},
+		KeywordSpec{'True', ['True'], 'TRUE'},
+		KeywordSpec{'False', ['False'], 'FALSE'},
+		KeywordSpec{'In', ['In'], 'IN'},
+	]
+}
+
+// KeywordSpec is one row of the derived-query keyword table: the
+// Spring Data name, the token sequence that spells it, and the SQL
+// operator it maps to.
+//
+// exposed as a struct rather than a tuple so that a test can walk
+// keyword_table() and assert every row is (a) reachable from a real
+// method name and (b) consuming the number of `?` its operator implies.
+struct KeywordSpec {
+	name   string
+	tokens []string
+	op     string
+}
+
+// unsupported_keyword_hint names the Spring Data keyword that shares a
+// prefix with the property tokens the parser gave up on, or '' when the
+// tokens look like an ordinary multi-word property.
+//
+// This is what turns "silently query a column that does not exist" into
+// "say which keyword is missing". `findByAgeBetween` with no `Between`
+// branch used to become `age_between = ?`; now it points at the keyword.
+fn unsupported_keyword_hint(tokens []string) string {
+	known := [
+		'Between', 'IgnoreCase', 'Like', 'Not', 'True', 'False', 'Null',
+		'In', 'Greater', 'Less', 'Starting', 'Ending', 'Containing', 'After',
+		'Before', 'Regex', 'Exists', 'Empty', 'Near', 'Within',
+	]
+	mut hint := ''
+	for t in tokens {
+		if t in known {
+			// 只报告第一次出现，报错信息里给一个就够。
+			hint = t
+			break
+		}
+	}
+	return hint
+}
+
 // match_keyword checks if the tokens at position `start` form a known
 // Spring Data-style keyword. Returns (keyword_name, num_tokens_consumed)
 // or ('', 0) if no match.
 //
-// Keywords are checked longest-first to ensure greedy matching, so
-// `GreaterThanOrEqual` (4 tokens) is matched before `GreaterThan`
-// (2 tokens), and `IsNotNull` (3 tokens) before `IsNull` (2 tokens).
+// Keywords are checked longest-first (see keyword_table()).
 fn match_keyword(tokens []string, start int) (string, int) {
-	n := tokens.len
-
-	// GreaterThanOrEqual (4 tokens: Greater, Than, Or, Equal)
-	if start + 4 <= n
-		&& tokens[start] == 'Greater'
-		&& tokens[start + 1] == 'Than'
-		&& tokens[start + 2] == 'Or'
-		&& tokens[start + 3] == 'Equal' {
-		return 'GreaterThanOrEqual', 4
+	for spec in keyword_table() {
+		if start + spec.tokens.len > tokens.len {
+			continue
+		}
+		mut hit := true
+		for j, t in spec.tokens {
+			if tokens[start + j] != t {
+				hit = false
+				break
+			}
+		}
+		if hit {
+			return spec.name, spec.tokens.len
+		}
 	}
-
-	// LessThanOrEqual (4 tokens: Less, Than, Or, Equal)
-	if start + 4 <= n
-		&& tokens[start] == 'Less'
-		&& tokens[start + 1] == 'Than'
-		&& tokens[start + 2] == 'Or'
-		&& tokens[start + 3] == 'Equal' {
-		return 'LessThanOrEqual', 4
-	}
-
-	// IsNotNull (3 tokens: Is, Not, Null)
-	if start + 3 <= n
-		&& tokens[start] == 'Is'
-		&& tokens[start + 1] == 'Not'
-		&& tokens[start + 2] == 'Null' {
-		return 'IsNotNull', 3
-	}
-
-	// GreaterThan (2 tokens: Greater, Than)
-	if start + 2 <= n
-		&& tokens[start] == 'Greater'
-		&& tokens[start + 1] == 'Than' {
-		return 'GreaterThan', 2
-	}
-
-	// LessThan (2 tokens: Less, Than)
-	if start + 2 <= n
-		&& tokens[start] == 'Less'
-		&& tokens[start + 1] == 'Than' {
-		return 'LessThan', 2
-	}
-
-	// StartingWith (2 tokens: Starting, With)
-	if start + 2 <= n
-		&& tokens[start] == 'Starting'
-		&& tokens[start + 1] == 'With' {
-		return 'StartingWith', 2
-	}
-
-	// EndingWith (2 tokens: Ending, With)
-	if start + 2 <= n
-		&& tokens[start] == 'Ending'
-		&& tokens[start + 1] == 'With' {
-		return 'EndingWith', 2
-	}
-
-	// IsNull (2 tokens: Is, Null)
-	if start + 2 <= n
-		&& tokens[start] == 'Is'
-		&& tokens[start + 1] == 'Null' {
-		return 'IsNull', 2
-	}
-
-	// NotIn (2 tokens: Not, In)
-	if start + 2 <= n
-		&& tokens[start] == 'Not'
-		&& tokens[start + 1] == 'In' {
-		return 'NotIn', 2
-	}
-
-	// Containing (1 token)
-	if tokens[start] == 'Containing' {
-		return 'Containing', 1
-	}
-
-	// In (1 token)
-	if tokens[start] == 'In' {
-		return 'In', 1
-	}
-
 	return '', 0
+}
+
+// keyword_operator returns the operator spelling for a keyword name, or
+// '' when the keyword is not in the table.
+fn keyword_operator(keyword string) string {
+	for spec in keyword_table() {
+		if spec.name == keyword {
+			return spec.op
+		}
+	}
+	return ''
 }
 
 // keyword_to_operator maps a keyword name to its SQL operator
 // representation used in QueryCondition.operator.
 //
-// The returned values are matched in to_where_cond() and
-// to_where_cond_with_arrays() to generate the correct SQL fragment.
+// Kept as a thin wrapper over the table so there is exactly one place
+// that knows the mapping.
 fn keyword_to_operator(keyword string) string {
-	return match keyword {
-		'GreaterThan' { '>' }
-		'LessThan' { '<' }
-		'GreaterThanOrEqual' { '>=' }
-		'LessThanOrEqual' { '<=' }
-		'Containing' { 'LIKE_CONTAINING' }
-		'StartingWith' { 'LIKE_STARTING' }
-		'EndingWith' { 'LIKE_ENDING' }
-		'In' { 'IN' }
-		'NotIn' { 'NOT IN' }
-		'IsNull' { 'IS NULL' }
-		'IsNotNull' { 'IS NOT NULL' }
-		else { '=' }
+	op := keyword_operator(keyword)
+	if op == '' {
+		return '='
+	}
+	return op
+}
+
+// operator_param_count reports how many `?` placeholders an operator
+// consumes in to_where_cond(), or -1 when a single value cannot express
+// the operator at all (IN / NOT IN take a list).
+//
+// to_where_param_count() and to_where_cond() must agree on this number —
+// a mismatch is what makes bound values land in the wrong slot.
+fn operator_param_count(op string) int {
+	return match op {
+		'IS NULL', 'IS NOT NULL', 'TRUE', 'FALSE' { 0 }
+		'IN', 'NOT IN' { -1 }
+		'BETWEEN', 'NOT BETWEEN' { 2 }
+		else { 1 }
 	}
 }
