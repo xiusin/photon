@@ -71,8 +71,6 @@ pub fn run() {
 	// ── 5. 控制器由容器创建并注入 @[autowired] 字段，然后挂载 ──
 	// 路由注解在编译期被扫成路由表；这里不再手写构造函数与依赖装配。
 	mut web_app := init_app(mut ctx, start)
-	web_app.start_time = start
-	web_app.log_ = log_
 
 	// 注册 apidoc middleware（自动劫持请求/响应采集）
 	web_app.use(apidoc_handler.before_middleware[http.Context]())

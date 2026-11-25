@@ -11,7 +11,6 @@ import app.http
 import app.middleware
 import veb
 import photon.web
-import photon.logger
 import photon.core
 
 // App — 全局应用状态
@@ -20,49 +19,29 @@ import photon.core
 // 以前 App 上有一堆 @['/path'; get] 的转发方法，方法体都只有一行
 // 转发到控制器 —— 那正是要清掉的东西。
 //
-// 控制器字段保留在 App 上，是为了「谁被装进了这个应用」一眼可见；
-// 分发并不经过它们，路由表在 web_module 里。
+// 控制器不放在 App 上：分发只认 web_module 里的路由表，
+// 多存一份引用没有任何读取方，只会让装配代码变长。
 pub struct App {
 	veb.Context
 	veb.Middleware[http.Context]
 pub mut:
 	web_module web.WebModule
-	middleware &middleware.MiddlewareManager = unsafe { nil }
-	log_       &logger.Logger                = unsafe { nil }
-	start_time i64
+	middleware &middleware.MiddlewareManager = unsafe { nil } @[qualifier('MiddlewareManager'); autowired]
 	req_count  int
-	// 控制器：各自持有依赖，路由注解就在它们自己的方法上
-	home_controller   &controllers.HomeController   = unsafe { nil }
-	auth_controller   &controllers.AuthController   = unsafe { nil }
-	user_controller   &controllers.UserController   = unsafe { nil }
-	apidoc_controller &controllers.ApiDocController = unsafe { nil }
 }
 
-// init_app 创建 App 并挂载全部控制器。
+// init_app 创建 App，并把控制器交给框架一步「创建 + @[autowired] 注入 + 挂载」。
 //
-// 前缀直接写在路由注解里（示例要的是「一眼看到完整 URL」），所以这里用
-// mount 就行 —— 它会去读 @[prefix]，没有就等于不拼前缀。
+// wire_and_mount 会读控制器的 @[prefix]，没有就是空串；路由注解里写的
+// 已经是完整 URL，所以这里不需要再传前缀。
 pub fn init_app(mut di_ctx core.ApplicationContext, start_time i64) &App {
-	// 控制器由容器创建并注入 @[autowired] 字段，装配处不再手写构造函数。
-	mut home_ctrl := di_ctx.wire_controller[controllers.HomeController]() or { panic(err) }
+	mut app := &App{ web_module: web.init_web_module() }
+	di_ctx.autowire_controller[App](app) or { panic(err) }
+	mut home_ctrl := app.web_module.wire_and_mount[controllers.HomeController, http.Context](mut di_ctx) or { panic(err) }
 	home_ctrl.start_time = start_time
-	auth_ctrl := di_ctx.wire_controller[controllers.AuthController]() or { panic(err) }
-	user_ctrl := di_ctx.wire_controller[controllers.UserController]() or { panic(err) }
-	apidoc_ctrl := di_ctx.wire_controller[controllers.ApiDocController]() or { panic(err) }
-	mw := di_ctx.resolve_typed[middleware.MiddlewareManager]('MiddlewareManager') or { panic(err) }
-	mut app := &App{
-		web_module:        web.init_web_module()
-		middleware:        mw
-		home_controller:   home_ctrl
-		auth_controller:   auth_ctrl
-		user_controller:   user_ctrl
-		apidoc_controller: apidoc_ctrl
-	}
-	// 一次 mount 一条：注解已经是完整路径，挂载点不需要再补任何东西。
-	app.web_module.mount[controllers.HomeController, http.Context](home_ctrl)
-	app.web_module.mount[controllers.AuthController, http.Context](auth_ctrl)
-	app.web_module.mount[controllers.UserController, http.Context](user_ctrl)
-	app.web_module.mount[controllers.ApiDocController, http.Context](apidoc_ctrl)
+	app.web_module.wire_and_mount[controllers.AuthController, http.Context](mut di_ctx) or { panic(err) }
+	app.web_module.wire_and_mount[controllers.UserController, http.Context](mut di_ctx) or { panic(err) }
+	app.web_module.wire_and_mount[controllers.ApiDocController, http.Context](mut di_ctx) or { panic(err) }
 	return app
 }
 
