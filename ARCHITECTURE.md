@@ -2721,6 +2721,119 @@ camel_to_snake 退回手写循环       → 结构断言红 + 探针实测 user_
 > 「`v1 version` 报出来的版本与待编译树匹配」。这轮改成先 `./v1 version` 确认，
 > 再往下走；补丁脚本走完之后要重新确认 `thirdparty/tcc/lib/libgc.a` 还在。
 
+### 8.23 派生查询的关键字表：漏一个关键字 = 多一个不存在的列
+
+这轮验的是 §8.22 结尾那句「`match_keyword()` 只认 11 个关键字，Spring Data 有 20 多个」。
+**成立，而且下一层比「少功能」严重得多。**
+
+#### 一、认不出的关键字被当成列名的一部分
+
+```
+findByAgeBetween      → WHERE age_between = ?          （模型里叫 age）
+findByActiveTrue      → WHERE active_true = ?
+findByNameIgnoreCase  → WHERE name_ignore_case = ?
+findByNameNot         → WHERE name_not = ?
+findByNameLike        → WHERE name_like = ?
+```
+
+五条**全部解析成功**。它们把「我写了一个关键字」翻译成「我要查一列叫 `age_between`
+的字段」。SQL 语法合法、参数个数自洽、`QueryParts` 里每个字段都有值 —— 错误要到
+驱动层才现形：`no such column: age_between`。
+
+而那句话和「方法名打错了一个字母」一模一样。于是用户去检查自己的方法名，而不是
+去检查框架的关键字表。**这条错误的可诊断性，比它本身更难修。**
+
+#### 二、一张表回答两个问题
+
+旧实现是两个地方：一串 `if` 链（判断「这是不是关键字」）+ 一个 `keyword_to_operator()`
+（判断「映射成什么操作符」）。两者天然会漂 —— 这次加关键字，只加了一边。
+
+现在合成 `keyword_table()`，每行是 `KeywordSpec{name, tokens, op}`，两个问题都从它答：
+
+```v
+fn match_keyword(tokens []string, start int) (string, int)   // 表里有没有这一段
+fn keyword_operator(keyword string) string                   // 这段对应什么操作符
+```
+
+**顺序是表的一部分**：最长的词必须在前，否则 `GreaterThan` 会抢走 `GreaterThanOrEqual`
+的前两个 token，`Containing` 会抢走 `NotContaining` 的后半段。这条顺序约束没有类型系统
+能表达，只能靠一条断言（见下）。
+
+#### 三、参数个数：`?` 与 `to_where_param_count()` 必须同源
+
+`BETWEEN` 吃两个值、`True`/`False` 吃零个。旧的两处实现都是「不是 IS NULL 就算 1 个」，
+于是新增操作符时必然有一边漏掉。现在的分工是：
+
+```v
+fn operator_param_count(op string) int    // 0 / 1 / 2，IN 返回 -1（要按列表长度展开）
+```
+
+`write_condition()`（渲染 `?`）和 `to_where_param_count()`（报数量）都读它。
+这一条是整组的核心断言：**`to_where_cond().count('?') == to_where_param_count()`**。
+对不上时 SQL 合法、参数也不报错，只是从某一位开始整体串位 —— §8.21 的
+`status = <tenant_id>` 就是这么来的，只是那时它发生在 `where_not_in` 上。
+
+#### 四、认不出就说，别猜
+
+关键字词出现在属性名之后却没被表认出来时，返回错误而不是并进列名：
+
+```
+unsupported keyword "Not" in derived query "findByAgeNot"
+unexpected "X" after keyword "GreaterThan" in derived query "findByAgeGreaterThanX"
+```
+
+第二条是写用例时撞出来的：`GreaterThan` 匹配成功、消费两个 token 之后，内层循环
+直接 `break`，尾巴上的 `X` 落到下一轮变成了一个新条件 `x = ?` ——
+**一条凭空多出来的 WHERE 子句**。所以关键字消费完之后还要再看一眼下一个 token，
+是 `And`/`Or` 才放行。
+
+唯一保留的多词属性是 `CreatedAt` → `created_at`、`FirstName` → `first_name`：
+它们不含关键字词（`unsupported_keyword_hint()` 用一份 Spring Data 词表判断），
+照旧允许。
+
+#### 五、用例与变异
+
+```
+orm/derive_keyword_boundary_test.v  21 条
+```
+
+四类断言：关键字改对 SQL、参数个数与 `?` 对齐、未知词被拒且点名、表自身的结构约束
+（降序排列 / 无重名 / 覆盖 Spring Data 词表 / 每个操作符的渲染与计数一致）。
+
+五轮变异，各自变红、恢复后绿：
+
+```
+BETWEEN 退回单占位符                       → BETWEEN / 参数对齐 多条红
+operator_param_count 对 TRUE/FALSE 返回 1  → findByActiveTrue 报「0 个 ? 但声称 1 个」
+去掉「关键字后跟读不懂的 token」的拒绝      → findByAgeGreaterThanX 应报错却没报
+GreaterThan 挪到 GreaterThanOrEqual 之前   → 表顺序断言红
+Between 从表里删掉                         → BETWEEN 与参数对齐红
+```
+
+第四轮**第一版没红**，因为第一版断言只比词长（`n <= prev`），而 `GreaterThan`
+和 `GreaterThanOrEqual` 一个 2 一个 4，调整后仍是降序。改成「行序必须等于按词长稳定
+降序排序后的行序」才红。**变异没红的时候，先看断言的方向对不对，别急着加代码。**
+
+#### 六、这轮的形状
+
+前几轮记的沉默：没人调、没人看输出、看着太可信、看着太简单、修了一半、两处各记
+一半、用例把错误行为钉成事实、泛型没被实例化、同一件事的第二份副本。
+
+这次是**「缺省行为的形状被当成了正确答案」**。
+
+`match_keyword()` 找不到关键字时返回 `''`，调用方把它理解成「那这就是属性名的一部分」。
+这个默认值本身没有任何错 —— `CreatedAt` 就该走这条路。问题在于它把两种完全不同的
+情况合并了：**「这里确实没有关键字」**和**「这里有关键字，但我不认识」**。
+
+一行 `return '', 0` 同时回答了这两个问题，而它们的正确答案相反：前者应该继续拼属性名，
+后者应该报错。这类 bug 不会表现为崩溃或错值，只会表现为**一个静默的语义降级** ——
+你写的 `Between` 变成了一个叫 `age_between` 的列。
+
+下一个值得摸的（**推测，没验**）：`ORDER BY` 部分的解析和条件解析是两套代码 ——
+`order_part.split('And')` 之后再 `ends_with('desc')`。`findByOrderByAgeDescAndNameAsc`
+能过，但 `findByOrderByLastDescending` 这类（字段名本身以 `Desc` 结尾）会被误判成
+降序。得先确认模型里真的存在这种列名，才知道它是不是一个可以忽略的边界。
+
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 
 `scripts/run-tests.sh` 之外，还有两条不写下来每次都会重踩的：
