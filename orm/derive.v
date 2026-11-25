@@ -79,18 +79,62 @@ pub fn parse_method_name(method string) !QueryParts {
 		return error('unknown query operation in: ${method}')
 	}
 
-	// Extract TopN
-	if remaining.starts_with('Top') && remaining.len > 3 {
-		end_idx := remaining.index('By') or { return error('TopN requires By: ${method}') }
-		num_str := remaining[3..end_idx]
-		parts.limit_val = num_str.int()
-		remaining = remaining[end_idx..]
+	// Extract TopN / FirstN, then Distinct.
+	//
+	// The two are extracted in a loop, not one after the other, because
+	// Spring Data writes the placeholder *before* `Distinct`
+	// (`findTop10DistinctBy…`) and the old code checked `Distinct` only at
+	// the very start. That spelling had its `Distinct` word folded into
+	// the property name — `findTop10DistinctByName` parsed with
+	// `distinct == false` — so a word that changes the meaning of a query
+	// was silently dropped.
+	//
+	// `Top` is also how ordinary properties start (`TopScore`,
+	// `TopRated`). Spring Data spells the placeholder `Top` / `First`
+	// (limit 1) or `Top<N>` / `First<N>` (limit N), so the placeholder is
+	// only recognised when what follows is digits or `By`; anything else
+	// is a property. The old check was a bare `len > 3`, which read
+	// `TopScore` as `TopS` → `int()` → 0 and lost the property.
+	mut consumed_placeholder := true
+	for consumed_placeholder {
+		consumed_placeholder = false
+		if !remaining.starts_with('Top') && !remaining.starts_with('First') {
+			continue
+		}
+		prefix_len := if remaining.starts_with('Top') { 3 } else { 5 }
+		probe := remaining[prefix_len..]
+		mut digits_end := probe.len
+		for k, ch in probe {
+			if ch < `0` || ch > `9` {
+				digits_end = k
+				break
+			}
+		}
+		digits := probe[..digits_end]
+		rest := probe[digits_end..]
+		// `<digits>By…`, `<digits>DistinctBy…` or the bare `By…` form is
+		// the placeholder; anything else (`TopScore`, `TopRated`) is a
+		// property name, not a broken limit.
+		is_placeholder := rest.starts_with('By') || rest.starts_with('Distinct')
+		if !is_placeholder {
+			continue
+		}
+		parts.limit_val = if digits.len == 0 { 1 } else { digits.int() }
+		remaining = remaining[prefix_len + digits.len..]
+		consumed_placeholder = true
 	}
 
-	// Extract Distinct
-	if remaining.starts_with('Distinct') {
+	// Extract Distinct — after the placeholder, and repeated so a second
+	// `Distinct` is refused rather than absorbed (`findDistinctDistinctBy`
+	// is a typo, and its property would otherwise be `distinct`).
+	mut distinct_count := 0
+	for remaining.starts_with('Distinct') {
 		parts.distinct = true
+		distinct_count++
 		remaining = remaining[8..]
+	}
+	if distinct_count > 1 {
+		return error('"Distinct" appears more than once in derived query "${method}" / 派生查询 "${method}" 里 "Distinct" 出现了多次')
 	}
 
 	// Must have By keyword
@@ -101,6 +145,21 @@ pub fn parse_method_name(method string) !QueryParts {
 
 	// Split off the ORDER BY clause, if any (see split_order_clause()).
 	remaining = split_order_clause(remaining, method, mut parts)!
+
+	// A derived method with nothing after `By` claims a filter and has none.
+	// Kept outside the `if` below on purpose: the body used to be guarded by
+	// `if remaining.len > 0`, so `findBy` / `countBy` / `deleteBy` fell
+	// straight through to an empty QueryParts — zero conditions, no error.
+	// `to_where_cond()` then returns '', and every caller in orm.v and
+	// repository.v guards it with `if cond.len > 0`, so the statement goes
+	// out with no WHERE at all. "查全表" is the worst way to learn that a
+	// method name lost its condition; `find_all()` is how you ask for it.
+	//
+	// `findByOrderByAgeDesc` is the one legal spelling of an empty body: the
+	// `OrderBy` tail is a clause, not a condition.
+	if remaining.len == 0 && parts.order_by.len == 0 {
+		return error('derived query "${method}" has no condition after "By" / 派生查询 "${method}" 的 "By" 之后没有任何条件')
+	}
 
 	// Parse conditions (split by camelCase, then detect keywords)
 	if remaining.len > 0 {
@@ -120,11 +179,51 @@ pub fn parse_method_name(method string) !QueryParts {
 
 		// Parse tokens into conditions, recognizing multi-word keywords
 		// such as GreaterThan, GreaterThanOrEqual, IsNotNull, etc.
+		//
+		// `And` / `Or` are SEPARATORS, and a separator has to separate
+		// something. The loop below used to treat them as "skip this
+		// token": it knew neither what came before nor what comes next, so
+		// it could not complain — and silently ate the word:
+		//
+		//   findByAndAge          → WHERE age = ?           (leading And)
+		//   findByAndAndName      → WHERE name = ?          (doubled)
+		//   findByNameAndAndAge   → WHERE name = ? AND age = ?
+		//   findByNameAnd         → WHERE name = ?          (trailing And)
+		//
+		// The four shapes are checked before parsing starts. `expect` is
+		// the state machine: it flips to true after a separator and after
+		// each condition, so a separator can only be consumed when a
+		// condition preceded it, and the body may not end on one.
+		mut expect := true
+		mut last_separator := ''
+		for t in tokens {
+			if t == 'And' || t == 'Or' {
+				if expect {
+					return error('"${t}" in derived query "${method}" has no condition before it / 派生查询 "${method}" 里的 "${t}" 前面没有条件')
+				}
+				expect = true
+				last_separator = t
+				continue
+			}
+			expect = false
+			last_separator = ''
+		}
+		if expect {
+			// `expect` still true at the end means the body ended on the
+			// separator recorded above — the loop left no condition after it.
+			return error('"${last_separator}" at the end of derived query "${method}" has no condition after it / 派生查询 "${method}" 结尾的 "${last_separator}" 后面没有条件')
+		}
+
 		mut i := 0
 		mut logic := 'AND'
 
 		for i < tokens.len {
-			// Logic operators set the logic for the NEXT condition
+			// Logic operators set the logic for the NEXT condition.
+			// The shape checks above already proved a condition exists on
+			// both sides, so nothing here has to be defensive — but the
+			// token is still deliberately NOT consumed together with its
+			// neighbour, because `GreaterThanOrEqual` reaches this loop as
+			// three separate tokens and must not be split.
 			if tokens[i] == 'And' {
 				logic = 'AND'
 				i++

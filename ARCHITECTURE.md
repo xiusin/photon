@@ -1427,7 +1427,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | 模块 | 测试文件数 | 测试框架 |
 |------|-----------|----------|
 | web | 58 | V built-in test + TestResponse 助手（含 ResponseEntity 首次覆盖、Session 读写可见范围、错误响应状态行）|
-| orm | 36 | V built-in test（含 where_not_in 的三处语义反转、`in`/`not in` 的通用入口指路、派生查询的缩写连读） |
+| orm | 39 | V built-in test（含 where_not_in 的三处语义反转、`in`/`not in` 的通用入口指路、派生查询的缩写连读、关键字表、ORDER BY 词边界、条件形状与分隔符） |
 | core | 32 | V built-in test（含 ServiceLocator 首次覆盖、resolve 缓存的 alias/qualifier 键） |
 | security | 17 | V built-in test |
 | cache | 17 | V built-in test |
@@ -1447,7 +1447,7 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
 | cli | 6 | V built-in test（含对生成产物的真实编译） |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **248** | |
+| **合计** | **251** | |
 
 > 口径：表格含 `core/tests/` 的 2 个黑盒用例。`scripts/run-tests.sh` 的
 > `ALL_MODULES` 不扫子目录，逐文件跑的是 246 个；`core/tests` 由
@@ -2833,6 +2833,94 @@ Between 从表里删掉                         → BETWEEN 与参数对齐红
 `order_part.split('And')` 之后再 `ends_with('desc')`。`findByOrderByAgeDescAndNameAsc`
 能过，但 `findByOrderByLastDescending` 这类（字段名本身以 `Desc` 结尾）会被误判成
 降序。得先确认模型里真的存在这种列名，才知道它是不是一个可以忽略的边界。
+
+### 8.24 派生查询的「形状」边界：分隔符必须真的在分隔东西
+
+§8.23 把 WHERE 侧的**词表**收干净了（认不出就报错），§8.23 的 §8.x 后续又把
+ORDER BY 那半句改成了按词判定。剩下没被碰的是第三层：**条件的形状**。
+
+拆 token 的循环对 `And` / `Or` 的处理是一句 `continue`：
+
+```v
+if tokens[i] == 'And' { logic = 'AND'; i++; continue }
+if tokens[i] == 'Or'  { logic = 'OR';  i++; continue }
+```
+
+这是一条「跳过」分支，不是「消费一个分隔符」的分支。它不知道自己前面有没有条件、
+后面会不会有条件 —— 因为它从不报错。于是下面这些都**解析成功**：
+
+```
+findByAndAge            → WHERE age = ?                    （开头的 And 被吃掉）
+findByAndAndName        → WHERE name = ?                   （两个 And 并排）
+findByNameAndAndAge     → WHERE name = ? AND age = ?       （三条词，两个条件）
+findByNameAnd           → WHERE name = ?                   （结尾的 And 消失）
+findBy                  → 零条件，无 WHERE
+findTop10DistinctByName → distinct=false，Distinct 并进属性名
+findTopScoreByName      → limit=0，TopS 被当成占位符吃掉
+```
+
+前四条和 `findByAgeBetween` 是同一个形状的失败，只是这次被吃掉的是**分隔符**而不是
+列名。`findBy` 那条最贵：零条件 → `to_where_cond()` 返回 `''` → `orm.v` /
+`repository.v` 文档里的调用点都写着 `if cond.len > 0 { qb.where(...) }` →
+语句里没有任何 WHERE，**「按一个不存在的条件查」变成「查全表」**。反过来若不判断
+直接 `qb.where('')`，`QueryBuilder.build_select()` 会无条件写下 `" WHERE "` 前缀，
+得到 `SELECT * FROM users WHERE  AND age = ?`（已实测）。
+
+#### 改法
+
+1. **分隔符两侧都必须有条件。** 解析前先跑一遍状态机：`expect` 在开头、每个分隔符
+   之后为 `true`，遇到普通词转为 `false`。`expect == true` 时又遇到分隔符 → 报错
+   「前面没有条件」；循环结束时 `expect` 仍为 `true` → 报错「以分隔符结尾」。
+   报错文案点名是哪一个 `And` / `Or`。
+2. **`By` 之后为空要拒绝。** 顺序解析完之后若既无条件也无 `OrderBy` 尾，报错。
+   原来这段整体包在 `if remaining.len > 0` 里，空体直接落到 `parse_method_name()`
+   的 `return parts`，零条件、零报错。
+3. **`TopN` / `FirstN` 与属性名分开。** 占位符只在后面跟 `By…` 或
+   `DistinctBy…` 时成立（`Top` / `First` 单独出现即 LIMIT 1）；旧实现只判
+   `remaining.len > 3`，`TopScore` 会被切成 `Top` + `S`。
+4. **`Distinct` 允许出现在占位符之后**，并拒绝重复出现。旧实现只认最开头，
+   `findTop10DistinctBy…` 里的 `Distinct` 静默消失。
+
+#### 用例与变异
+
+```
+orm/derive_condition_shape_test.v  12 条
+```
+
+六类断言：前置 / 结尾 / 并排分隔符被拒、空条件体被拒、报错点名分隔符、合法分隔符
+写法不被误伤（含 `GreaterThanOrEqual` 内部的 `Or`）、`TopN`/`FirstN` 与属性名的分界、
+`Distinct` 的位置与重复。
+
+四轮变异，各自变红、恢复后绿：
+
+```
+分隔符检查退回 continue 跳过        → 4 条红
+删掉「空条件」拒绝                  → 1 条红
+Distinct 只在最开头认               → 2 条红（panic 形式）
+TopN 退回 remaining.len > 3         → 2 条红（panic 形式）
+```
+
+#### 这轮的形状
+
+前几轮记的沉默：没人调、没人看输出、看着太可信、看着太简单、修了一半、两处各记
+一半、用例把错误行为钉成事实、泛型没被实例化、同一件事的第二份副本、缺省行为的形状
+被当成了正确答案。
+
+这次是**「一个动词被写成了名词」**。
+
+`And` 在方法名里是个动词 —— 它要求左右两边各站一个条件。代码把它当名词处理：
+一个可以「跳过」的 token。跳过这个词不产生任何后果，所以它不必知道左右有没有东西，
+所以它也就永远发现不了「左右没有东西」。
+
+判据其实一直是现成的：**分隔符的定义就包含了「两侧非空」**。写成 `continue` 的那一刻，
+这个定义被丢掉了；剩下的只有 `logic = 'AND'` 这个副作用，而副作用不需要前提成立。
+
+下一个值得摸的（**推测，没验**）：`parse_method_name()` 对 `Exists` / `Empty` /
+`Near` / `Within` / `After` / `Before` 只出现在 `unsupported_keyword_hint()`
+的词表里，会报「不支持这个关键字」。这是正确的拒绝，但 `After` / `Before` 在
+日期查询里是最常用的两个（Spring Data 直接映射成 `>` / `<`）。要不要支持是取舍；
+真正该看的是 `keyword_table()` 和 `unsupported_keyword_hint()` 这两份词表会不会再次
+漂移 —— 一个说「不认识」，另一个说「这不是关键字」，中间没有任何东西保证两者一致。
 
 ### 8.8 测试环境的两个硬前提（踩坑记录）
 
