@@ -99,27 +99,8 @@ pub fn parse_method_name(method string) !QueryParts {
 	}
 	remaining = remaining[2..]
 
-	// Handle OrderBy as the last clause
-	if remaining.contains('OrderBy') {
-		order_idx := remaining.index('OrderBy') or { 0 }
-		order_part := remaining[order_idx + 7..]
-		remaining = remaining[..order_idx]
-
-		for prop in order_part.split('And') {
-			mut direction := 'ASC'
-			mut prop_name := prop
-			if prop.to_lower().ends_with('desc') {
-				direction = 'DESC'
-				prop_name = prop[..prop.len - 4]
-			} else if prop.to_lower().ends_with('asc') {
-				prop_name = prop[..prop.len - 3]
-			}
-			parts.order_by << OrderPart{
-				property:  camel_to_snake(prop_name)
-				direction: direction
-			}
-		}
-	}
+	// Split off the ORDER BY clause, if any (see split_order_clause()).
+	remaining = split_order_clause(remaining, method, mut parts)!
 
 	// Parse conditions (split by camelCase, then detect keywords)
 	if remaining.len > 0 {
@@ -231,6 +212,350 @@ pub fn parse_method_name(method string) !QueryParts {
 	return parts
 }
 
+// ── ORDER BY clause ──
+//
+// The `ORDER BY` half of a derived query is parsed by its own small grammar:
+//
+//   orderBody := orderField ( 'And' orderField )*
+//   orderField := property [ 'Asc' | 'Desc' ]
+//
+// There are exactly two keywords (`Asc` / `Desc`) and one separator (`And`),
+// and all of them are *words* in the camel-split sense, not substrings.
+// That distinction is the whole point of this section: the previous version
+// looked for `OrderBy` as a substring and then asked `ends_with('desc')`,
+// which accepts four spellings of "I don't understand you" without ever
+// saying so:
+//
+//   findByOrderByAgeDescOrName  → ORDER BY age_desc_or_name ASC
+//   findByOrderByAgeDescName    → ORDER BY age_desc_name ASC
+//   findByOrderByAndName        → ORDER BY "" ASC, name ASC
+//   findByOrderByAgeDescAnd     → ORDER BY age DESC, "" ASC
+//
+// The first two are the same failure as `findByAgeBetween` from the WHERE
+// side: a keyword written by the caller becomes part of a column name, and
+// the driver reports "no such column" — the message a typo produces. The
+// empty names in the last two reach `qb.order('', .asc)` and silently drop
+// the ordering, which is worse: the query succeeds and the rows come back
+// in whatever order the database felt like.
+//
+// So: an order field is one property plus an optional direction, `OrderBy`
+// only counts when it starts a clause, and anything left over is refused
+// by name.
+//
+// Ordering keys the WHERE side already uses: `Newest`/`Oldest` are Spring
+// Data 3.x aliases for `Desc`/`Asc`. They are NOT accepted here yet, and
+// being unaccepted means an error, not a column called `created_at_newest`.
+
+// order_direction_keywords returns the direction suffixes, longest first,
+// together with the direction each one means. Two entries today; kept as a
+// table so that adding an alias forces the two questions ("is this a
+// direction?" and "which one?") to be answered in one place, the same way
+// keyword_table() does for the WHERE side.
+fn order_direction_keywords() []OrderDirectionSpec {
+	return [
+		OrderDirectionSpec{'Desc', 'DESC'},
+		OrderDirectionSpec{'Asc', 'ASC'},
+	]
+}
+
+// OrderDirectionSpec is one row of the ORDER BY direction table.
+// Exposed as a struct so a test can walk the table.
+struct OrderDirectionSpec {
+	name string
+	dir  string
+}
+
+// split_order_clause cuts the `OrderBy` tail off `remaining`, fills
+// `parts.order_by`, and returns the condition part.
+//
+// The clause starts at an `OrderBy` that appears at the head or right after
+// `And` / `Or` — that is, where a clause is allowed to start. A bare
+// substring search would also cut inside `findByNameAndOrderByAge`, where
+// `OrderBy` sits in the position of an (oddly named) property, turning
+// `name = ? AND` into a WHERE ending in a dangling separator.
+//
+// A second `OrderBy` after the first is refused rather than truncated:
+// silently keeping the tail of a tail is how a clause quietly loses its
+// first field.
+fn split_order_clause(remaining string, method string, mut parts QueryParts) !string {
+	mut kept := remaining
+	body := if at := order_by_clause_start(remaining) {
+		tmp := remaining[at..]
+		kept = remaining[..at - 7]
+		tmp
+	} else {
+		// No candidate at a word boundary. A plain `contains` is then the
+		// only reason to complain — and when it fires, the message has to
+		// say that `OrderBy` cannot be read as one of these things, because
+		// that is the whole diagnosis.
+		if remaining.contains('OrderBy') {
+			return error('unsupported "OrderBy" in derived query "${method}" / 派生查询里的 "OrderBy" 既不是排序列也不是合法子句')
+		}
+		return kept
+	}
+
+	if classify_order_body(body) == .refused {
+		return error('"OrderBy" must be the last clause, followed only by properties and Asc/Desc, in derived query "${method}" / 派生查询中的 "OrderBy" 必须位于末尾，其后只能跟属性和 Asc/Desc')
+	}
+
+	// `findByOrderByAndName`: `OrderByAndName` is a sorting clause whose
+	// FIRST field is empty — the `And` there is the sort separator, not a
+	// condition separator. Checked before the parse because the strict
+	// parser would read `And` `Name` as one field with a leading `And`.
+	if body.starts_with('And') {
+		return error('"And" right after "OrderBy" has no property in derived query "${method}" / 派生查询中 "OrderBy" 之后紧跟的 "And" 前没有属性')
+	}
+	parse_order_part(body, method, mut parts)!
+
+	if kept.len == 0 {
+		return kept
+	}
+	// The `And`/`Or` that introduced the clause joined nothing: its
+	// condition is missing (`findByAgeAndOrderByAgeDesc`).
+	if kept.ends_with('And') || kept.ends_with('Or') {
+		sep := if kept.ends_with('And') { 'And' } else { 'Or' }
+		return error('"${sep}" before "OrderBy" has no condition in derived query "${method}" / 派生查询中 "OrderBy" 之前的 "${sep}" 没有对应条件')
+	}
+	return kept
+}
+
+// order_by_clause_start returns the index just past `OrderBy`, or an error
+// when there is no clause.
+//
+// `OrderBy` is treated as a clause start unconditionally. That is Spring
+// Data's contract: the word is reserved, and a property named
+// `existing_order_by_code` is written `ExistingOrderbyCode` (or mapped with
+// `@[column]`) by everyone who has hit this. Modelling it as "a word
+// boundary that is not inside an acronym" was tried and does not hold:
+// `ExistingOrderByCode` and `NameOrderByAgeDesc` differ only in what follows
+// the `OrderBy`, and `Code` is a perfectly valid sort field with the
+// direction omitted — the two are the same string shape from the parser's
+// point of view. Reserving the word is the only rule that never guesses.
+//
+// The one thing still checked is that the tail *can* be a sort clause; when
+// it cannot, saying so beats inventing a column. See classify_order_body().
+fn order_by_clause_start(s string) ?int {
+	idx := s.index('OrderBy') or { return none }
+	return idx + 7
+}
+
+// order_body_kind classifies the text after `OrderBy`. See the call site
+// for why the answer has three values and not two.
+enum OrderBodyKind {
+	clause  // a sorting clause: <property> [Asc|Desc] (And ...)*
+	refused // not a sorting clause: refuse and name the reason
+}
+
+fn classify_order_body(body string) OrderBodyKind {
+	spans := camel_token_spans(body)
+	if spans.len == 0 {
+		return .refused
+	}
+	mut i := 0
+	for i < spans.len {
+		if i > 0 {
+			if spans[i].text != 'And' {
+				return .refused
+			}
+			i++
+			if i >= spans.len {
+				return .refused
+			}
+		}
+		// A second `OrderBy` in the tail: the tail of a tail.
+		if spans[i].text == 'Order' && i + 1 < spans.len && spans[i + 1].text == 'By' {
+			return .refused
+		}
+		// A direction cannot open a field.
+		if is_direction_token(body, spans, i) || spans[i].text in order_direction_names() {
+			return .refused
+		}
+		// A WHERE keyword cannot be an order field either. `OrderByAgeBetween`
+		// reads as "sort by age_between" — a column that only exists if the
+		// model has one, which is the same silent degrade the WHERE side
+		// already refuses to make.
+		if spans[i].text in order_forbidden_words() {
+			return .refused
+		}
+		i++
+		mut dir_seen := false
+		for i < spans.len && spans[i].text != 'And' {
+			if is_direction_token(body, spans, i) {
+				dir_seen = true
+				i++
+				// Anything after a direction that is not `And` cannot be
+				// sorting. It could still be the tail of a longer property
+				// (`OrderBy` nested inside one), which is a different story.
+				if i < spans.len && spans[i].text != 'And' {
+					return .refused
+				}
+				break
+			}
+			if dir_seen {
+				return .refused
+			}
+			if spans[i].text in order_forbidden_words() {
+				return .refused
+			}
+			i++
+		}
+	}
+	return .clause
+}
+
+// is_direction_token reports whether spans[i] is a direction suffix for the
+// property word(s) in front of it.
+//
+// `AgeDesc` and `UserDesc` split identically — `Age` `Desc`, `User` `Desc` —
+// but only the first is a direction. The difference is where the `D` sits:
+// `UserDesc` has it mid-word, right after a capital that ends the preceding
+// run (`UserD`), while `AgeDesc` starts a fresh word. The camel splitter
+// cannot see that on its own, which is why it hands back the offsets.
+//
+// The old `ends_with('desc')` had the opposite problem: it accepted
+// `UserDesc` (stripping `User` down to `user`) and also accepted
+// `Descending`'s first four characters, quietly turning a misspelling into
+// ASC. A direction is a whole word, and this is the test for "whole".
+fn is_direction_token(body string, spans []CamelToken, i int) bool {
+	if spans[i].text !in order_direction_names() {
+		return false
+	}
+	// A direction is a *whole word*, and "whole" is answered by the same
+	// boundary rule that snake_case uses — the one place that knows where
+	// a camel word starts. `AgeDesc` splits cleanly (`e` + `D` is a normal
+	// bump); `UserDOBDesc` does not (`B` + `D` is the middle of an acronym
+	// run, so `Desc` is part of the property name).
+	if spans[i].start == 0 {
+		return false
+	}
+	return snake_word_boundary(body, spans[i].start)
+}
+
+// order_forbidden_words lists the tokens that never belong to an order
+// field: the WHERE keywords and the logical connectives that only exist
+// between fields.
+//
+// Order fields are property names, so almost anything is allowed — which is
+// exactly why the handful of words that mean something else elsewhere have
+// to be refused explicitly. `Between` in a sort body is a keyword the
+// caller put in the wrong half of the method name, not a column.
+fn order_forbidden_words() []string {
+	return [
+		'Between',
+		'Containing',
+		'Like',
+		'IgnoreCase',
+		'Null',
+		'True',
+		'False',
+		'Greater',
+		'Less',
+		'Starting',
+		'Ending',
+		'In',
+		'Not',
+		'Regex',
+		'Exists',
+	]
+}
+
+// order_direction_names lists the direction suffixes in one place.
+fn order_direction_names() []string {
+	mut names := []string{cap: 2}
+	for spec in order_direction_keywords() {
+		names << spec.name
+	}
+	return names
+}
+
+// parse_order_part parses `AgeDescAndNameAsc` into OrderParts.
+//
+// Called only after classify_order_body() has agreed that the tail is a
+// sorting clause, so every shape reaching here is already well-formed —
+// which is why the guard clauses below do not have a mutation that turns
+// them red: they are a second copy of a decision already made upstream.
+//
+// They stay anyway, and not out of habit. `classify` answers "may this be a
+// sort clause"; this answers "build the parts", and the two must agree. When
+// they disagree the failure is a column called `age_desc_name` — the shape
+// mutation 6 in the commit message could not break precisely because the
+// first line of defence held. A second check that never fires is cheap; a
+// missing one is the bug this whole file is about.
+fn parse_order_part(body string, method string, mut parts QueryParts) ! {
+	spans := camel_token_spans(body)
+	mut i := 0
+	mut expect_field := true
+	for i < spans.len {
+		if spans[i].text == 'And' {
+			i++
+			expect_field = true
+			continue
+		}
+		if !expect_field {
+			return error('missing "And" between order properties in derived query "${method}" / 派生查询的 ORDER BY 里两个属性之间缺少 "And"')
+		}
+		mut property_tokens := []string{cap: 4}
+		property_tokens << spans[i].text
+		i++
+		mut direction := 'ASC'
+		for i < spans.len && spans[i].text != 'And' {
+			if is_direction_token(body, spans, i) {
+				if spans[i].text == 'Desc' {
+					direction = 'DESC'
+				}
+				i++
+				break
+			}
+			property_tokens << spans[i].text
+			i++
+		}
+		parts.order_by << OrderPart{
+			property:  camel_to_snake(property_tokens.join(''))
+			direction: direction
+		}
+		expect_field = false
+	}
+}
+
+// camel_tokens splits CamelCase into words, the same way the WHERE side
+// does. Kept as a function so the two halves cannot disagree about where a
+// word starts — they used to (`ords.split('And')` for ORDER BY,
+// `is_capital()` for WHERE).
+fn camel_tokens(s string) []string {
+	return camel_token_spans(s).map(it.text)
+}
+
+// CamelToken is one word of a camelCase string, with the index its first
+// character had in the original. The index is what tells `UserDesc` from
+// `AgeDesc`: both split into two tokens, but in the first the `Desc` starts
+// mid-word (`User` ended with a capital run into it), in the second it does
+// not. Direction suffixes are decided by that, not by the token alone.
+struct CamelToken {
+	text  string
+	start int
+}
+
+fn camel_token_spans(s string) []CamelToken {
+	mut tokens := []CamelToken{cap: 8}
+	mut sb := strings.new_builder(16)
+	mut start := 0
+	for i, ch in s {
+		if ch.is_capital() && sb.len > 0 {
+			tokens << CamelToken{sb.str(), start}
+			sb = strings.new_builder(16)
+			start = i
+		}
+		if sb.len == 0 {
+			start = i
+		}
+		sb.write_byte(ch)
+	}
+	if sb.len > 0 {
+		tokens << CamelToken{sb.str(), start}
+	}
+	return tokens
+}
+
 // ── V ORM-compatible output ──
 
 // to_where_cond builds a WHERE condition string for V's
@@ -305,16 +630,36 @@ pub fn (qp QueryParts) to_where_cond_with_arrays(array_lengths map[string]int) s
 // to_where_cond()).
 fn write_condition(mut sb strings.Builder, c QueryCondition, array_lengths map[string]int) {
 	match c.operator {
-		'IS NULL' { sb.write_string('${c.property} IS NULL') }
-		'IS NOT NULL' { sb.write_string('${c.property} IS NOT NULL') }
-		'TRUE' { sb.write_string('${c.property} = 1') }
-		'FALSE' { sb.write_string('${c.property} = 0') }
-		'LIKE_CONTAINING' { sb.write_string("${c.property} LIKE '%' || ? || '%'") }
-		'LIKE_STARTING' { sb.write_string("${c.property} LIKE ? || '%'") }
-		'LIKE_ENDING' { sb.write_string("${c.property} LIKE '%' || ?") }
-		'NOT_LIKE_CONTAINING' { sb.write_string("${c.property} NOT LIKE '%' || ? || '%'") }
-		'NOT_LIKE_STARTING' { sb.write_string("${c.property} NOT LIKE ? || '%'") }
-		'NOT_LIKE_ENDING' { sb.write_string("${c.property} NOT LIKE '%' || ?") }
+		'IS NULL' {
+			sb.write_string('${c.property} IS NULL')
+		}
+		'IS NOT NULL' {
+			sb.write_string('${c.property} IS NOT NULL')
+		}
+		'TRUE' {
+			sb.write_string('${c.property} = 1')
+		}
+		'FALSE' {
+			sb.write_string('${c.property} = 0')
+		}
+		'LIKE_CONTAINING' {
+			sb.write_string("${c.property} LIKE '%' || ? || '%'")
+		}
+		'LIKE_STARTING' {
+			sb.write_string("${c.property} LIKE ? || '%'")
+		}
+		'LIKE_ENDING' {
+			sb.write_string("${c.property} LIKE '%' || ?")
+		}
+		'NOT_LIKE_CONTAINING' {
+			sb.write_string("${c.property} NOT LIKE '%' || ? || '%'")
+		}
+		'NOT_LIKE_STARTING' {
+			sb.write_string("${c.property} NOT LIKE ? || '%'")
+		}
+		'NOT_LIKE_ENDING' {
+			sb.write_string("${c.property} NOT LIKE '%' || ?")
+		}
 		'BETWEEN', 'NOT BETWEEN' {
 			sb.write_string('${c.property} ${c.operator} ? AND ?')
 		}
@@ -329,7 +674,9 @@ fn write_condition(mut sb strings.Builder, c QueryCondition, array_lengths map[s
 			}
 			sb.write_string(')')
 		}
-		else { sb.write_string('${c.property} ${c.operator} ?') }
+		else {
+			sb.write_string('${c.property} ${c.operator} ?')
+		}
 	}
 }
 
@@ -507,9 +854,26 @@ struct KeywordSpec {
 // branch used to become `age_between = ?`; now it points at the keyword.
 fn unsupported_keyword_hint(tokens []string) string {
 	known := [
-		'Between', 'IgnoreCase', 'Like', 'Not', 'True', 'False', 'Null',
-		'In', 'Greater', 'Less', 'Starting', 'Ending', 'Containing', 'After',
-		'Before', 'Regex', 'Exists', 'Empty', 'Near', 'Within',
+		'Between',
+		'IgnoreCase',
+		'Like',
+		'Not',
+		'True',
+		'False',
+		'Null',
+		'In',
+		'Greater',
+		'Less',
+		'Starting',
+		'Ending',
+		'Containing',
+		'After',
+		'Before',
+		'Regex',
+		'Exists',
+		'Empty',
+		'Near',
+		'Within',
 	]
 	mut hint := ''
 	for t in tokens {
