@@ -17,28 +17,46 @@ import photon.logger
 import photon.apidoc
 import photon.core
 
-// App — 全局应用上下文（veb 控制器 = 路由声明层）
+// App — 全局应用上下文（veb 控制器）
 //
-// 分层架构：App 仅做路由分发，不含业务逻辑。
-//   - routes.v        : @[route] 注解方法 → 转发到控制器
-//   - *_controller.v  : 独立控制器，自持 service 依赖（业务逻辑层）
-//   - services.v      : 业务服务层
-//   - middleware.v    : 横切中间件
+// 路由不再由 App 代持：每个控制器把自己的 veb 注解方法直接注册成路由，
+// veb 在编译期扫描 App 自身方法生成路由表（veb.run_at[App, Context]）。
+// 因此 App 上没有任何路由方法 —— 它只负责持有 Bean、挂中间件、跑服务。
+//
+// 分层：
+//   - *_controller.v : @['/path'; get] 注解 + 业务处理（路由与逻辑同处一室）
+//   - services.v     : 业务服务层
+//   - middleware.v   : 横切中间件
 @[controller]
 pub struct App {
 	veb.Context
 	veb.Middleware[Context]
 pub mut:
-	start_time i64
+	start_time int
 	req_count  int
-	// 应用级依赖（用于全局中间件 / 文档）
-	middleware     &MiddlewareManager    = unsafe { nil }
-	log_           &logger.Logger        = unsafe { nil }
-	apidoc_handler &apidoc.ApidocHandler = unsafe { nil }
-	// 分层控制器（持有各自的 service 依赖）
-	home_controller &HomeController = unsafe { nil }
-	auth_controller &AuthController = unsafe { nil }
-	user_controller &UserController = unsafe { nil }
+	// 应用级依赖（全局中间件用）
+	middleware &MiddlewareManager = unsafe { nil }
+	log_       &logger.Logger     = unsafe { nil }
+	// 控制器：各自持有依赖，路由注解就在它们自己的方法上
+	home_controller   &HomeController   = unsafe { nil }
+	auth_controller   &AuthController   = unsafe { nil }
+	user_controller   &UserController   = unsafe { nil }
+	apidoc_controller &ApiDocController = unsafe { nil }
+}
+
+// 全局请求计数：App 的全局中间件每请求 +1，HomeController 读同一个数。
+// 用 __global 而不是让控制器持一个 &int —— 少一层间接就少一次 nil 崩溃的机会。
+__global (
+	g_req_count int
+)
+
+// app_req_count 读全局请求计数。is_globals_enabled() 先判一次：不带
+// -enable-globals 编译时计数恒为 0，而不是一次非法访问。
+fn app_req_count() int {
+	if !is_globals_enabled() {
+		return 0
+	}
+	return g_req_count
 }
 
 // Context — 请求级上下文
@@ -108,20 +126,18 @@ pub fn main() {
 
 	start := time.ticks()
 
-	// ── 5. 构造分层控制器（注入 service 依赖）──
-	home_ctrl := new_home_controller(user_svc, cache_svc, health_svc, app_cfg, start)
-	auth_ctrl := new_auth_controller(auth_svc, user_svc, mw)
-	user_ctrl := new_user_controller(user_svc, mw)
-
+	// ── 5. 构造控制器（注入 service 依赖）──
+	// 控制器各自持有自己的依赖和路由注解；App 只装载它们，
+	// 不再像旧版那样再写一层转发方法把请求转给控制器。
 	mut web_app := &App{
-		start_time:      start
-		log_:            log_
-		middleware:      mw
-		apidoc_handler:  apidoc_handler
-		home_controller: home_ctrl
-		auth_controller: auth_ctrl
-		user_controller: user_ctrl
+		middleware: mw
+		log_:       log_
 	}
+	web_app.start_time = int(start)
+	web_app.home_controller = new_home_controller(user_svc, cache_svc, health_svc, app_cfg, start)
+	web_app.auth_controller = new_auth_controller(auth_svc, user_svc, mw)
+	web_app.user_controller = new_user_controller(user_svc, mw)
+	web_app.apidoc_controller = new_apidoc_controller(apidoc_handler)
 
 	// 注册 apidoc middleware（自动劫持请求/响应采集）
 	web_app.use(apidoc_handler.before_middleware[Context]())
@@ -131,7 +147,12 @@ pub fn main() {
 	// 注册全局应用 middleware（请求计数 + CORS + 日志）
 	web_app.use(veb.MiddlewareOptions[Context]{
 		handler: fn [mut web_app] (mut ctx2 Context) bool {
+			// web_app 要在同一个闭包里读两次（计数 + 全局中间件），
+			// 所以捕获 mut 引用而不是拷贝一份。
 			web_app.req_count++
+			if is_globals_enabled() {
+				g_req_count++
+			}
 			if !isnil(web_app.middleware) {
 				web_app.middleware.apply_global(mut ctx2.Context) or {}
 			}
@@ -144,11 +165,9 @@ pub fn main() {
 	port := app_cfg.server_port
 	log_.info('=== Starting HTTP server on 0.0.0.0:${port} ===')
 
-	// 路由表从 App 自己扫出来，不再另外维护一份手写清单。
-	// 手写清单曾经少列了整组 /__docs 路由 —— 而且越改越旧，
-	// 因为「加一条路由」和「想起去改清单」是两件互不相干的事。
-	routes := web.scan_controller[App]()
-	web.print_routes(routes)
+	// 路由表来自编译期扫描：扫的是 App 自己的方法，路由注解就写在那些方法上。
+	// 所以「加一条路由」和「路由表里出现一条」是同一件事，不需要谁去记得同步。
+	web.print_routes(web.scan_controller[App]())
 
 	veb.run_at[App, Context](mut web_app, host: '0.0.0.0', port: port, family: .ip) or {
 		eprintln('HTTP server error: ${err}')
