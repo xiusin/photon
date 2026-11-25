@@ -46,14 +46,34 @@ fn test_same_word_boundaries_as_orm_snake_case() {
 }
 
 // ORDER BY 的字段走的是同一条转换：多字段之间用 `And` 分隔，
-// `AndOf` 那个 `And` 只是分隔符，不能变成列名的一部分。
+// 那个 `And` 只是分隔符，不能变成列名的一部分。
+//
+// 原来这里写的是 `findByUserDOBOrderByCreatedAtDescAndUserID`，断言它
+// 解析成「created_at DESC + user_id ASC」。那条断言是错的：那串名字想
+// 表达的是「按 created_at 降序，再按 user_id 过滤」—— ORDER BY 之后
+// 不可能再接条件，Spring Data 也没有这种写法。当时的实现把 `OrderBy`
+// 当子串截断，才让这个形状「解析成功」：属性里凭空多出一列
+// `user_dob_order_by_created_at_desc`，`user_id` 又变成排序字段。
+// 用例把它钉成了事实。现在这种形状被拒绝（见 derive_order_boundary_test.v
+// 的 test_order_by_cannot_resume_conditions），这条只钉多字段的转换。
 fn test_order_by_fields_use_the_same_conversion() {
-	p := parse_method_name('findByUserDOBOrderByCreatedAtDescAndUserID') or { panic(err) }
+	p := parse_method_name('findByOrderByCreatedAtDescAndUserDOBAsc') or { panic(err) }
 	assert p.order_by.len == 2
 	assert p.order_by[0].property == 'created_at'
 	assert p.order_by[0].direction == 'DESC'
-	assert p.order_by[1].property == 'user_id'
+	// `UserDOB` 是一串缩写，必须还是一个列名 `user_dob`，方向是 ASC。
+	assert p.order_by[1].property == 'user_dob'
 	assert p.order_by[1].direction == 'ASC'
+}
+
+// 一条查询里混着缩写属性和排序：两处都得用同一套词边界。
+fn test_acronym_property_then_order_by() {
+	p := parse_method_name('findByUserDOBOrderByCreatedAtDesc') or { panic(err) }
+	assert p.conditions.len == 1
+	assert p.conditions[0].property == 'user_dob'
+	assert p.order_by.len == 1
+	assert p.order_by[0].property == 'created_at'
+	assert p.order_by[0].direction == 'DESC'
 }
 
 // 结构断言：只允许有一个词边界实现。camel_to_snake 里再出现手写循环，
