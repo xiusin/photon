@@ -23,10 +23,10 @@ import photon.core
 
 // Context — 请求级上下文
 //
-// 嵌入 web.RouterContext：veb 的全部能力 + 路由路径参数（ctx.path('id')）。
-pub struct Context {
-	web.RouterContext
-}
+// 直接用 web.RouterContext 的别名：它直接嵌入 veb.Context，V 0.5.2 的
+// checker 只认一层嵌入；用 struct 再包一层会被误判成非 veb 上下文，
+// 给每个返回 veb.Result 的控制器方法注入多余的 ctx 参数。
+pub type Context = web.RouterContext
 
 // main 入口
 pub fn main() {
@@ -119,14 +119,13 @@ pub fn main() {
 			// web_app 要在同一个闭包里读两次（计数 + 全局中间件），
 			// 所以捕获 mut 引用而不是拷贝一份。
 			web_app.req_count++
-			// 不带 -enable-globals 编译时 g_req_count 不可访问，先判一次。
-			if is_globals_enabled() {
-				g_req_count++
-			}
+			g_req_count++
 			if !isnil(web_app.middleware) {
 				web_app.middleware.apply_global(mut ctx2.Context) or {}
 			}
-			return web_app.web_module.handle_request(voidptr(&ctx2))
+			// veb 约定：中间件写出响应后必须返回 false，告诉 veb「别再走路由表」。
+			// 这里返回 true 会让 veb 继续跑 404 分支，把状态码覆盖成 404。
+			return !web_app.web_module.handle_request(voidptr(&ctx2))
 		}
 	})
 

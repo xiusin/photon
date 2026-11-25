@@ -284,6 +284,10 @@ pub fn join_route_path(prefix string, path string) string {
 pub fn dispatch_controller_method[T, X](controller_ptr voidptr, method_name string, ctx_ptr voidptr) veb.Result {
 	mut ctrl := unsafe { &T(controller_ptr) }
 	mut ctx := unsafe { &X(ctx_ptr) }
+	// 这些控制器路由不在 veb 自己的路由表里，veb 会先留一个 404 状态。
+	// 命中后兜成 200；处理器需要 401/403/503 等状态时自行覆盖。
+	mut res_ctx := unsafe { &veb.Context(ctx_ptr) }
+	res_ctx.res.set_status(unsafe { http.Status(200) })
 	$for method in T.methods {
 		$if method.return_type is veb.Result {
 			if method_name == method.name {
@@ -343,7 +347,7 @@ fn store_path_params(ctx_ptr voidptr, params map[string]string) {
 		return
 	}
 	mut rctx := unsafe { &RouterContext(ctx_ptr) }
-	rctx.path_params = params
+	rctx.path_params = params.clone()
 }
 
 // path_params_of 读回当前请求的路径参数（没有则空 map）。

@@ -9,6 +9,7 @@ module main
 import veb
 import photon.web
 import photon.logger
+import photon.apidoc
 
 // App — 全局应用状态
 //
@@ -43,12 +44,8 @@ __global (
 )
 
 // app_req_count 读取当前请求计数（控制器用它填响应体）。
-// is_globals_enabled() 先判一次：不带 -enable-globals 编译时计数恒为 0，
-// 而不是一次非法访问。
+// 本示例按 Makefile / ci-test.sh 的约定用 -enable-globals 编译。
 pub fn app_req_count() int {
-	if !is_globals_enabled() {
-		return 0
-	}
 	return g_req_count
 }
 
@@ -56,7 +53,7 @@ pub fn app_req_count() int {
 //
 // 前缀直接写在路由注解里（示例要的是「一眼看到完整 URL」），所以这里用
 // mount 就行 —— 它会去读 @[prefix]，没有就等于不拼前缀。
-pub fn init_app(mw &MiddlewareManager, apidoc_handler &ApidocHandler, home_ctrl &HomeController,
+pub fn init_app(mw &MiddlewareManager, apidoc_handler &apidoc.ApidocHandler, home_ctrl &HomeController,
 	auth_ctrl &AuthController, user_ctrl &UserController) &App {
 	apidoc_ctrl := new_apidoc_controller(apidoc_handler)
 	mut app := &App{

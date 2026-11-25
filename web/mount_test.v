@@ -28,7 +28,7 @@ pub mut:
 // 分离式注解：@[get] + @['/hello']
 @['/hello']
 @[get]
-pub fn (mut c TestControllerA) hello(mut ctx veb.Context) veb.Result {
+pub fn (mut c TestControllerA) hello(mut ctx RouterContext) veb.Result {
 	c.called_name = 'hello'
 	return ctx.text('hello from A')
 }
@@ -36,7 +36,7 @@ pub fn (mut c TestControllerA) hello(mut ctx veb.Context) veb.Result {
 // 分离式注解：@[post] + @['/create']
 @['/create']
 @[post]
-pub fn (mut c TestControllerA) create(mut ctx veb.Context) veb.Result {
+pub fn (mut c TestControllerA) create(mut ctx RouterContext) veb.Result {
 	c.called_name = 'create'
 	return ctx.text('created')
 }
@@ -52,7 +52,7 @@ pub fn (mut c TestControllerA) show(mut ctx RouterContext) veb.Result {
 
 // 无路径注解 → 默认使用方法名作为路径
 @[get]
-pub fn (mut c TestControllerA) ping(mut ctx veb.Context) veb.Result {
+pub fn (mut c TestControllerA) ping(mut ctx RouterContext) veb.Result {
 	c.called_name = 'ping'
 	return ctx.text('pong')
 }
@@ -71,14 +71,14 @@ pub mut:
 
 // 合并式注解：@[get: '/users']
 @[get: '/users']
-pub fn (mut c TestControllerB) list(mut ctx veb.Context) veb.Result {
+pub fn (mut c TestControllerB) list(mut ctx RouterContext) veb.Result {
 	c.value = 42
 	return ctx.text('users list')
 }
 
 // 合并式注解：@[post: '/users']
 @[post: '/users']
-pub fn (mut c TestControllerB) create(mut ctx veb.Context) veb.Result {
+pub fn (mut c TestControllerB) create(mut ctx RouterContext) veb.Result {
 	return ctx.text('user created')
 }
 
@@ -116,7 +116,7 @@ pub:
 fn test_mount_controller_separated_attrs() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
+	rr.mount_controller[TestControllerA, RouterContext](ctrl, '/api')
 
 	// 应该注册 4 条路由（hello, create, show, ping）
 	assert rr.route_count() == 4, 'expected 4 routes, got ${rr.route_count()}'
@@ -257,7 +257,7 @@ fn test_parse_route_attrs_no_method() {
 fn test_dispatch_finds_route() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
+	rr.mount_controller[TestControllerA, RouterContext](ctrl, '/api')
 
 	mut ctx := &RouterContext{}
 	ctx.req.url = '/api/hello'
@@ -269,7 +269,7 @@ fn test_dispatch_finds_route() {
 fn test_dispatch_post_route() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
+	rr.mount_controller[TestControllerA, RouterContext](ctrl, '/api')
 
 	mut ctx := &RouterContext{}
 	found := rr.dispatch('POST', '/api/create', '', voidptr(ctx))
@@ -279,7 +279,7 @@ fn test_dispatch_post_route() {
 fn test_dispatch_with_params() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
+	rr.mount_controller[TestControllerA, RouterContext](ctrl, '/api')
 
 	mut ctx := &RouterContext{}
 	found := rr.dispatch('GET', '/api/item/42', '', voidptr(ctx))
@@ -289,7 +289,7 @@ fn test_dispatch_with_params() {
 fn test_dispatch_not_found() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
+	rr.mount_controller[TestControllerA, RouterContext](ctrl, '/api')
 
 	mut ctx := &RouterContext{}
 	found := rr.dispatch('GET', '/api/nonexistent', '', voidptr(ctx))
@@ -299,7 +299,7 @@ fn test_dispatch_not_found() {
 fn test_dispatch_wrong_method() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
+	rr.mount_controller[TestControllerA, RouterContext](ctrl, '/api')
 
 	mut ctx := &RouterContext{}
 	// GET route should not match POST
@@ -314,7 +314,7 @@ fn test_dispatch_wrong_method() {
 fn test_controller_method_called() {
 	mut rr := new_route_registry()
 	mut ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
+	rr.mount_controller[TestControllerA, RouterContext](ctrl, '/api')
 
 	mut ctx := &RouterContext{}
 	rr.dispatch('GET', '/api/hello', '', voidptr(ctx))
@@ -327,7 +327,7 @@ fn test_controller_method_called() {
 fn test_controller_method_called_with_params() {
 	mut rr := new_route_registry()
 	mut ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
+	rr.mount_controller[TestControllerA, RouterContext](ctrl, '/api')
 
 	mut ctx := &RouterContext{}
 	rr.dispatch('GET', '/api/item/99', '', voidptr(ctx))
@@ -338,7 +338,7 @@ fn test_controller_method_called_with_params() {
 fn test_controller_method_ping_default_path() {
 	mut rr := new_route_registry()
 	mut ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
+	rr.mount_controller[TestControllerA, RouterContext](ctrl, '/api')
 
 	mut ctx := &RouterContext{}
 	found := rr.dispatch('GET', '/api/ping', '', voidptr(ctx))
@@ -355,7 +355,7 @@ fn test_mount_multiple_controllers() {
 	ctrl_a := &TestControllerA{}
 	ctrl_b := &TestControllerB{}
 
-	rr.mount_controller[TestControllerA, veb.Context](ctrl_a, '/v1')
+	rr.mount_controller[TestControllerA, RouterContext](ctrl_a, '/v1')
 	rr.mount_controller[TestControllerB, RouterContext](ctrl_b, '/v2')
 
 	// 总共 4 + 3 = 7 条路由
@@ -374,7 +374,7 @@ fn test_mount_multiple_controllers() {
 fn test_web_module_mount_controller() {
 	mut wm := init_web_module()
 	ctrl := &TestControllerA{}
-	wm.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
+	wm.mount_controller[TestControllerA, RouterContext](ctrl, '/api')
 
 	assert wm.router.route_count() == 4, 'WebModule should have 4 routes'
 }
@@ -467,7 +467,8 @@ fn test_web_module_mount_is_chainable() {
 	mut wm := init_web_module()
 	ctrl_a := &TestControllerA{}
 	ctrl_b := &TestControllerB{}
-	// mount 返回 &WebModule，可以串起来写；链上每一步都真正挂上了
-	wm.mount[TestControllerA, RouterContext](ctrl_a).mount[TestControllerB, RouterContext](ctrl_b)
+	// mount 返回 &WebModule，但不能把返回的引用再当 mut 实参链式传下去。
+	wm.mount[TestControllerA, RouterContext](ctrl_a)
+	wm.mount[TestControllerB, RouterContext](ctrl_b)
 	assert wm.router.route_count() == 7, 'expected 4 + 3 routes'
 }
