@@ -1006,8 +1006,8 @@ results := qb.query()!
 | `IgnoreCase` | 等值不变，`QueryCondition.operator` 仍是 `=` |
 | `And` | 逻辑 AND |
 | `Or` | 逻辑 OR |
-| `Top<N>` | LIMIT N |
-| `Distinct` | SELECT DISTINCT |
+| `Top<N>` / `First<N>` | LIMIT N（`Top` / `First` 单独出现即 LIMIT 1） |
+| `Distinct` | SELECT DISTINCT（写在 `By` 之前，允许跟在 `Top<N>` 后面） |
 | `OrderBy...Desc/Asc` | ORDER BY |
 
 > **认不出的关键字会报错，不会拼成一列。**
@@ -1019,6 +1019,21 @@ results := qb.query()!
 >
 > 唯一的例外是普通多词属性（`CreatedAt` → `created_at`、`FirstName` → `first_name`），
 > 它们不含关键字词，照旧允许。
+
+> **分隔符必须真的在分隔东西。**
+> `And` / `Or` 的两侧都必须有条件。下面这些不再「静默跳过」，而是报错并点名是哪一个词：
+>
+> | 写法 | 报错 |
+> |------|------|
+> | `findByAndAge` | `"And"` 前面没有条件 |
+> | `findByNameAnd` | 以分隔符结尾 |
+> | `findByNameAndAndAge` | 两个 `And` 之间没有条件 |
+> | `findBy` / `countBy` / `deleteBy` | `By` 之后没有任何条件 |
+>
+> `findBy` 那条尤其要注意：零条件意味着没有 `WHERE`，也就是**查全表**。要查全表请用
+> `find_all()` —— 一个声称有过滤、实际没有的方法名，不该靠运气发现。
+> 反过来说，`findByAgeGreaterThanOrEqualAndName` 是合法的：`GreaterThanOrEqual`
+> 内部的 `Or` 属于关键字，不是条件分隔符。
 
 ---
 
