@@ -19,18 +19,8 @@ import time
 @[controller]
 pub struct UserController {
 pub mut:
-	user_service &services.UserService       = unsafe { nil }
-	middleware   &middleware.MiddlewareManager = unsafe { nil }
-}
-
-// new_user_controller 构造控制器并注入依赖
-pub fn new_user_controller(user_svc &services.UserService, mw &middleware.MiddlewareManager) &UserController {
-	return unsafe {
-		&UserController{
-			user_service: user_svc
-			middleware:   mw
-		}
-	}
+	user_service &services.UserService        = unsafe { nil } @[autowired]
+	middleware   &middleware.MiddlewareManager = unsafe { nil } @[qualifier('MiddlewareManager'); autowired]
 }
 
 // index GET /api/v1/users — 用户列表（分页）

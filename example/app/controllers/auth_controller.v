@@ -14,20 +14,9 @@ import veb
 @[controller]
 pub struct AuthController {
 pub mut:
-	auth_service &services.AuthService       = unsafe { nil }
-	user_service &services.UserService       = unsafe { nil }
-	middleware   &middleware.MiddlewareManager = unsafe { nil }
-}
-
-// new_auth_controller 构造控制器并注入依赖
-pub fn new_auth_controller(auth_svc &services.AuthService, user_svc &services.UserService, mw &middleware.MiddlewareManager) &AuthController {
-	return unsafe {
-		&AuthController{
-			auth_service: auth_svc
-			user_service: user_svc
-			middleware:   mw
-		}
-	}
+	auth_service &services.AuthService        = unsafe { nil } @[autowired]
+	user_service &services.UserService        = unsafe { nil } @[autowired]
+	middleware   &middleware.MiddlewareManager = unsafe { nil } @[qualifier('MiddlewareManager'); autowired]
 }
 
 // login POST /api/v1/auth/login — 用户登录

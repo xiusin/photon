@@ -16,25 +16,11 @@ import time
 @[controller]
 pub struct HomeController {
 pub mut:
-	user_service   &services.UserService   = unsafe { nil }
-	cache_service  &services.CacheService  = unsafe { nil }
-	health_service &services.HealthService = unsafe { nil }
-	app_config     &bootstrap.AppConfig     = unsafe { nil }
+	user_service   &services.UserService   = unsafe { nil } @[autowired]
+	cache_service  &services.CacheService  = unsafe { nil } @[autowired]
+	health_service &services.HealthService = unsafe { nil } @[autowired]
+	app_config     &bootstrap.AppConfig    = unsafe { nil } @[autowired]
 	start_time     i64
-}
-
-// new_home_controller 构造控制器并注入依赖
-pub fn new_home_controller(user_svc &services.UserService, cache_svc &services.CacheService,
-	health_svc &services.HealthService, cfg &bootstrap.AppConfig, start_time i64) &HomeController {
-	return unsafe {
-		&HomeController{
-			user_service:   user_svc
-			cache_service:  cache_svc
-			health_service: health_svc
-			app_config:     cfg
-			start_time:     start_time
-		}
-	}
 }
 
 // index GET / — API 信息

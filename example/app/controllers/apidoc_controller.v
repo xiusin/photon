@@ -12,14 +12,7 @@ import photon.apidoc
 @[controller]
 pub struct ApiDocController {
 pub mut:
-	handler &apidoc.ApidocHandler = unsafe { nil }
-}
-
-// new_apidoc_controller 构造文档控制器并注入文档处理器
-pub fn new_apidoc_controller(handler &apidoc.ApidocHandler) &ApiDocController {
-	return &ApiDocController{
-		handler: handler
-	}
+	handler &apidoc.ApidocHandler = unsafe { nil } @[qualifier('ApidocHandler'); autowired]
 }
 
 // disabled 统一处理「文档模块没启用」的情况

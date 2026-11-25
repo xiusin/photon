@@ -14,10 +14,7 @@ module app
 // 这里没有一条路由方法。路由属于各自的控制器（controllers/），
 // 「加一个接口」等于「在控制器里加一个带注解的方法」。
 import app.bootstrap
-import app.controllers
 import app.http
-import app.middleware
-import app.services
 import app.state
 import photon.cli
 import veb
@@ -44,6 +41,11 @@ pub fn run() {
 		panic(err)
 	}
 
+	// apidoc 处理器也作为 Bean 注册，供 ApiDocController 的 @[autowired] 注入。
+	// refresh() 会冻结 BeanDefinition，所以必须在 refresh 之前注册。
+	mut apidoc_handler := apidoc.enable()
+	ctx.register_instance('ApidocHandler', voidptr(apidoc_handler)) or { panic(err) }
+
 	// ── 3. refresh()：初始化所有非懒加载单例、触发生命周期回调 ──
 	ctx.refresh() or {
 		eprintln('Context refresh failed: ${err}')
@@ -60,46 +62,16 @@ pub fn run() {
 		ctx.shutdown()
 		panic(err)
 	}
-	user_svc := ctx.resolve_typed[services.UserService]('UserService') or {
-		ctx.shutdown()
-		panic(err)
-	}
-	auth_svc := ctx.resolve_typed[services.AuthService]('AuthService') or {
-		ctx.shutdown()
-		panic(err)
-	}
-	health_svc := ctx.resolve_typed[services.HealthService]('HealthService') or {
-		ctx.shutdown()
-		panic(err)
-	}
-	cache_svc := ctx.resolve_typed[services.CacheService]('CacheService') or {
-		ctx.shutdown()
-		panic(err)
-	}
-	mw := ctx.resolve_typed[middleware.MiddlewareManager]('MiddlewareManager') or {
-		ctx.shutdown()
-		panic(err)
-	}
-
 	bootstrap.print_banner(app_cfg)
 
-	// 激活 apidoc
-	mut apidoc_handler := apidoc.enable()
 	log_.info('API Documentation module ready')
 
 	start := time.ticks()
 
-	// ── 5. 构造控制器并挂载（路由注解在这里被扫成路由表）──
-	// 控制器各自持有依赖和路由注解；App 只持 Bean 与中间件，
-	// 不再有一层转发方法把请求转给控制器。
-	home_ctrl := controllers.new_home_controller(user_svc, cache_svc, health_svc, app_cfg, start)
-	auth_ctrl := controllers.new_auth_controller(auth_svc, user_svc, mw)
-	user_ctrl := controllers.new_user_controller(user_svc, mw)
-
-	// App 构造里也带上了 DI 容器的解析结果，但日志实例与启动时间并不属于
-	// 控制器的依赖图 —— 这里补上，免得 init_app 再多长几个参数。
-	mut web_app := init_app(mw, apidoc_handler, home_ctrl, auth_ctrl, user_ctrl)
-	web_app.start_time = int(start)
+	// ── 5. 控制器由容器创建并注入 @[autowired] 字段，然后挂载 ──
+	// 路由注解在编译期被扫成路由表；这里不再手写构造函数与依赖装配。
+	mut web_app := init_app(mut ctx, start)
+	web_app.start_time = start
 	web_app.log_ = log_
 
 	// 注册 apidoc middleware（自动劫持请求/响应采集）

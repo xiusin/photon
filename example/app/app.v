@@ -12,7 +12,7 @@ import app.middleware
 import veb
 import photon.web
 import photon.logger
-import photon.apidoc
+import photon.core
 
 // App — 全局应用状态
 //
@@ -42,9 +42,14 @@ pub mut:
 //
 // 前缀直接写在路由注解里（示例要的是「一眼看到完整 URL」），所以这里用
 // mount 就行 —— 它会去读 @[prefix]，没有就等于不拼前缀。
-pub fn init_app(mw &middleware.MiddlewareManager, apidoc_handler &apidoc.ApidocHandler, home_ctrl &controllers.HomeController,
-	auth_ctrl &controllers.AuthController, user_ctrl &controllers.UserController) &App {
-	apidoc_ctrl := controllers.new_apidoc_controller(apidoc_handler)
+pub fn init_app(mut di_ctx core.ApplicationContext, start_time i64) &App {
+	// 控制器由容器创建并注入 @[autowired] 字段，装配处不再手写构造函数。
+	mut home_ctrl := di_ctx.wire_controller[controllers.HomeController]() or { panic(err) }
+	home_ctrl.start_time = start_time
+	auth_ctrl := di_ctx.wire_controller[controllers.AuthController]() or { panic(err) }
+	user_ctrl := di_ctx.wire_controller[controllers.UserController]() or { panic(err) }
+	apidoc_ctrl := di_ctx.wire_controller[controllers.ApiDocController]() or { panic(err) }
+	mw := di_ctx.resolve_typed[middleware.MiddlewareManager]('MiddlewareManager') or { panic(err) }
 	mut app := &App{
 		web_module:        web.init_web_module()
 		middleware:        mw
