@@ -390,9 +390,11 @@ pub fn (mut rr RouteRegistry) mount_controller[T, X](controller &T, prefix strin
 					// dispatch_controller_method[T, X] 顶层函数分发。
 					// X 泛型参数允许控制器方法使用任意嵌入 veb.Context 的 Context 类型。
 					dispatcher := dispatch_controller_method[T, X]
-					handler := fn [ctrl_ptr, method_name, dispatcher] (ctx_ptr voidptr, params map[string]string) veb.Result {
+					handler := fn [ctrl_ptr, method_name, dispatcher] (ctx_ptr voidptr, _ map[string]string) veb.Result {
 						// 路径参数已经由 RouteRegistry 写进 ctx（见 store_path_params），
 						// 控制器方法因此可以保持 veb 原生签名，需要参数时用 ctx.path('id') 取。
+						// 闭包仍收第二个形参是因为 RouteHandler 的类型签名如此，
+						// 这里用不上 —— 写成 `_` 让「没用到」这件事写在脸上。
 						return dispatcher(ctrl_ptr, method_name, ctx_ptr)
 					}
 

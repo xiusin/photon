@@ -174,7 +174,7 @@ fn verify_controller_mount(mut v Verifier) {
 	// ── 2. 合并式注解挂载 ──
 	mut rr2 := web.new_route_registry()
 	ctrl_user := &VerifyUserController{}
-	rr2.mount_controller[VerifyUserController, veb.Context](ctrl_user, '/api/v1')
+	rr2.mount_controller[VerifyUserController, web.RouterContext](ctrl_user, '/api/v1')
 
 	v.check('合并式注解：注册 3 条路由', rr2.route_count() == 3)
 
@@ -210,7 +210,7 @@ fn verify_controller_mount(mut v Verifier) {
 	// ── 4. 路径参数传递 ──
 	mut ctrl_user2 := &VerifyUserController{}
 	mut rr3 := web.new_route_registry()
-	rr3.mount_controller[VerifyUserController, veb.Context](ctrl_user2, '/api/v1')
+	rr3.mount_controller[VerifyUserController, web.RouterContext](ctrl_user2, '/api/v1')
 
 	mut ctx3 := new_router_context()
 	found3 := rr3.dispatch('GET', '/api/v1/users/42', '', voidptr(ctx3))
@@ -277,7 +277,7 @@ fn verify_controller_di_injection(mut v Verifier) {
 
 	// ── 3. 注入后挂载 + 路由分发验证 ──
 	mut rr := web.new_route_registry()
-	rr.mount_controller[VerifyUserController, veb.Context](ctrl, '/api/v1')
+	rr.mount_controller[VerifyUserController, web.RouterContext](ctrl, '/api/v1')
 
 	mut vctx := new_router_context()
 	rr.dispatch('GET', '/api/v1/users', '', voidptr(vctx))
@@ -359,7 +359,7 @@ fn verify_webmodule_integration(mut v Verifier) {
 	// mount_controller_auto — 自动提取前缀
 	mut wm2 := web.init_web_module()
 	ctrl_user := &VerifyUserController{}
-	wm2.mount_controller_auto[VerifyUserController, veb.Context](ctrl_user, '/default')
+	wm2.mount_controller_auto[VerifyUserController, web.RouterContext](ctrl_user, '/default')
 
 	mut found_auto := false
 	for route in wm2.router.routes {
@@ -394,7 +394,7 @@ fn verify_multi_controller_dispatch(mut v Verifier) {
 	ctrl_admin := &VerifyAdminController{}
 	ctrl_health := &VerifyHealthController{}
 
-	rr.mount_controller[VerifyUserController, veb.Context](ctrl_user, '/api/v1')
+	rr.mount_controller[VerifyUserController, web.RouterContext](ctrl_user, '/api/v1')
 	rr.mount_controller[VerifyAdminController, veb.Context](ctrl_admin, '/admin')
 	rr.mount_controller[VerifyHealthController, veb.Context](ctrl_health, '/')
 

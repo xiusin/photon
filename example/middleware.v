@@ -210,6 +210,10 @@ pub fn (m &MiddlewareManager) apply_auth(mut ctx veb.Context) !(string, string) 
 }
 
 // apply_role 执行角色授权
+//
+// 接收 &MiddlewareManager 的非 mut 接收者：控制器方法形如
+// `pub fn (c &UserController) ...`，只拿得到共享引用，而 authorize_role
+// 本身就不改动状态 —— 接收者跟着放宽，权限检查就不必为了 &mut 换签名。
 pub fn (m &MiddlewareManager) apply_role(mut ctx veb.Context, role string) !(string, string) {
 	username, user_role := m.auth.authenticate(mut ctx)!
 	if !m.auth.authorize_role(user_role, role) {
@@ -219,6 +223,9 @@ pub fn (m &MiddlewareManager) apply_role(mut ctx veb.Context, role string) !(str
 }
 
 // apply_rate_limit 执行限流
-pub fn (mut m MiddlewareManager) apply_rate_limit(ip string) ! {
-	m.rate_limit.handle(ip)!
+//
+// 同 apply_role：接收者只借不改，控制器里拿共享引用调用即可。
+pub fn (m &MiddlewareManager) apply_rate_limit(ip string) ! {
+	mut rl := unsafe { &RateLimitMiddleware(m.rate_limit) }
+	rl.handle(ip)!
 }

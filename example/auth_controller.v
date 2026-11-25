@@ -2,7 +2,8 @@ module main
 
 // auth_controller.v — 认证控制器
 //
-// 路由注解写在各方法上，前缀直接写进路径。
+// 路由注解直接挂在方法上：`@[post: '/api/v1/auth/login']`。
+// 前缀写全在路径里，不用 @[prefix] —— 路由表打印出来和这里读到的完全一致。
 import veb
 
 // AuthController — 认证接口

@@ -8,19 +8,30 @@ module main
 //   3. 在请求进入时把路由表里命中的那条交给它自己执行
 import veb
 import photon.web
+import photon.logger
 
 // App — 全局应用状态
 //
 // 分层：App 只持 Bean 和中间件；路由属于各个控制器（见 *_controller.v）。
 // 以前 App 上有一堆 `@['/path'; get]` 的转发方法，方法体都只有一行
 // `return app.xxx_controller.yyy(mut ctx)` —— 那正是要清掉的东西。
+//
+// 控制器字段保留在 App 上，是为了「谁被装进了这个应用」一眼可见；
+// 分发并不经过它们，路由表在 web_module 里。
 pub struct App {
 	veb.Context
 	veb.Middleware[Context]
 pub mut:
 	web_module web.WebModule
 	middleware &MiddlewareManager = unsafe { nil }
+	log_       &logger.Logger     = unsafe { nil }
+	start_time i64
 	req_count  int
+	// 控制器：各自持有依赖，路由注解就在它们自己的方法上
+	home_controller   &HomeController   = unsafe { nil }
+	auth_controller   &AuthController   = unsafe { nil }
+	user_controller   &UserController   = unsafe { nil }
+	apidoc_controller &ApiDocController = unsafe { nil }
 }
 
 // __global 请求计数器。
@@ -31,8 +42,13 @@ __global (
 	g_req_count int
 )
 
-// app_req_count 读取当前请求计数（控制器用它填响应体）
+// app_req_count 读取当前请求计数（控制器用它填响应体）。
+// is_globals_enabled() 先判一次：不带 -enable-globals 编译时计数恒为 0，
+// 而不是一次非法访问。
 pub fn app_req_count() int {
+	if !is_globals_enabled() {
+		return 0
+	}
 	return g_req_count
 }
 
@@ -42,29 +58,33 @@ pub fn app_req_count() int {
 // mount 就行 —— 它会去读 @[prefix]，没有就等于不拼前缀。
 pub fn init_app(mw &MiddlewareManager, apidoc_handler &ApidocHandler, home_ctrl &HomeController,
 	auth_ctrl &AuthController, user_ctrl &UserController) &App {
+	apidoc_ctrl := new_apidoc_controller(apidoc_handler)
 	mut app := &App{
-		web_module: web.init_web_module()
-		middleware: mw
+		web_module:        web.init_web_module()
+		middleware:        mw
+		home_controller:   home_ctrl
+		auth_controller:   auth_ctrl
+		user_controller:   user_ctrl
+		apidoc_controller: apidoc_ctrl
 	}
 	// 一次 mount 一条：注解已经是完整路径，挂载点不需要再补任何东西。
 	app.web_module.mount[HomeController, Context](home_ctrl)
 	app.web_module.mount[AuthController, Context](auth_ctrl)
 	app.web_module.mount[UserController, Context](user_ctrl)
-	app.web_module.mount[ApidocController, Context](new_apidoc_controller(apidoc_handler))
+	app.web_module.mount[ApiDocController, Context](apidoc_ctrl)
 	return app
 }
 
 // app_routes 返回启动横幅要打印的路由清单。
 //
 // 与真正挂载用的是同一套扫描（parse_route_attrs + @[prefix]），所以横幅上
-// 看到的就是能访问到的。早先这里是手写清单，越改越旧，一度少列了整组
-// /__docs 路由而没人发现。
+// 看到的就是能访问到的。App 自身一条路由都没有，扫它只会得到空表。
 pub fn app_routes() []web.RouteInfo {
 	mut routes := []web.RouteInfo{}
 	routes << web.scan_controller[HomeController]()
 	routes << web.scan_controller[AuthController]()
 	routes << web.scan_controller[UserController]()
-	routes << web.scan_controller[ApidocController]()
+	routes << web.scan_controller[ApiDocController]()
 	routes.sort(a.path < b.path)
 	return routes
 }

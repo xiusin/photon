@@ -58,6 +58,10 @@ pub fn (mut c TestControllerA) ping(mut ctx veb.Context) veb.Result {
 }
 
 // TestControllerB — 使用合并式注解的测试控制器
+//
+// 注意 show() 的形参是 RouterContext，所以挂载时 X 必须也是 RouterContext
+// （mount_controller[T, X] 会把 ctx 指针还原成 &X 再传进方法）。
+// 写成 veb.Context 也能注册成功，但一取路径参数就按更小的结构体解释内存。
 @[prefix: '/api/v2']
 @[controller]
 pub struct TestControllerB {
@@ -147,7 +151,7 @@ fn test_mount_controller_separated_attrs() {
 fn test_mount_controller_merged_attrs() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerB{}
-	rr.mount_controller[TestControllerB, veb.Context](ctrl, '')
+	rr.mount_controller[TestControllerB, RouterContext](ctrl, '')
 
 	// 应该注册 3 条路由
 	assert rr.route_count() == 3, 'expected 3 routes, got ${rr.route_count()}'
@@ -177,7 +181,7 @@ fn test_mount_controller_merged_attrs() {
 fn test_mount_controller_with_prefix() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api/v1')
+	rr.mount_controller[TestControllerA, RouterContext](ctrl, '/api/v1')
 
 	// 验证前缀正确拼接
 	mut found := false
@@ -193,7 +197,7 @@ fn test_mount_controller_auto_prefix() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerB{}
 	// TestControllerB 有 @[prefix: '/api/v2'] 注解
-	rr.mount_controller_auto[TestControllerB, veb.Context](ctrl, '/default')
+	rr.mount_controller_auto[TestControllerB, RouterContext](ctrl, '/default')
 
 	mut found := false
 	for route in rr.routes {
@@ -352,7 +356,7 @@ fn test_mount_multiple_controllers() {
 	ctrl_b := &TestControllerB{}
 
 	rr.mount_controller[TestControllerA, veb.Context](ctrl_a, '/v1')
-	rr.mount_controller[TestControllerB, veb.Context](ctrl_b, '/v2')
+	rr.mount_controller[TestControllerB, RouterContext](ctrl_b, '/v2')
 
 	// 总共 4 + 3 = 7 条路由
 	assert rr.route_count() == 7, 'expected 7 routes, got ${rr.route_count()}'
@@ -378,7 +382,7 @@ fn test_web_module_mount_controller() {
 fn test_web_module_mount_controller_auto() {
 	mut wm := init_web_module()
 	ctrl := &TestControllerB{}
-	wm.mount_controller_auto[TestControllerB, veb.Context](ctrl, '/default')
+	wm.mount_controller_auto[TestControllerB, RouterContext](ctrl, '/default')
 
 	assert wm.router.route_count() == 3, 'WebModule should have 3 routes'
 

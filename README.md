@@ -370,6 +370,18 @@ pub fn (mut c UserController) show(mut ctx Context) veb.Result {
 app.WebModule.mount[UserController, Context](user_ctrl)
 ```
 
+`Context` 只要嵌入 `web.RouterContext`，控制器方法就能保持 veb 原生签名
+（只收 `ctx`），路径参数用 `ctx.path('id')` / `ctx.path_int('id')` 取：
+
+```v
+pub struct Context {
+    web.RouterContext
+}
+```
+
+注解三种写法都认：`@[get: '/x']`（合并式）、`@[get] @['/x']`（分离式）、
+`@['/x'; get]`（元组式）。
+
 ```v
 // 启动横幅用的路由清单：跟挂载同一套扫描，不会过期
 routes := web.scan_controller[UserController]()

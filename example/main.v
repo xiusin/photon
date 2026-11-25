@@ -91,11 +91,17 @@ pub fn main() {
 	start := time.ticks()
 
 	// ── 5. 构造控制器并挂载（路由注解在这里被扫成路由表）──
+	// 控制器各自持有依赖和路由注解；App 只持 Bean 与中间件，
+	// 不再有一层转发方法把请求转给控制器。
 	home_ctrl := new_home_controller(user_svc, cache_svc, health_svc, app_cfg, start)
 	auth_ctrl := new_auth_controller(auth_svc, user_svc, mw)
 	user_ctrl := new_user_controller(user_svc, mw)
 
+	// App 构造里也带上了 DI 容器的解析结果，但日志实例与启动时间并不属于
+	// 控制器的依赖图 —— 这里补上，免得 init_app 再多长几个参数。
 	mut web_app := init_app(mw, apidoc_handler, home_ctrl, auth_ctrl, user_ctrl)
+	web_app.start_time = int(start)
+	web_app.log_ = log_
 
 	// 注册 apidoc middleware（自动劫持请求/响应采集）
 	web_app.use(apidoc_handler.before_middleware[Context]())
@@ -110,8 +116,13 @@ pub fn main() {
 	// 而路由表在 App 里 —— 只有 App 侧的中间件闭包两边都够得着。
 	web_app.use(veb.MiddlewareOptions[Context]{
 		handler: fn [mut web_app] (mut ctx2 Context) bool {
+			// web_app 要在同一个闭包里读两次（计数 + 全局中间件），
+			// 所以捕获 mut 引用而不是拷贝一份。
 			web_app.req_count++
-			g_req_count++
+			// 不带 -enable-globals 编译时 g_req_count 不可访问，先判一次。
+			if is_globals_enabled() {
+				g_req_count++
+			}
 			if !isnil(web_app.middleware) {
 				web_app.middleware.apply_global(mut ctx2.Context) or {}
 			}
@@ -124,8 +135,8 @@ pub fn main() {
 	port := app_cfg.server_port
 	log_.info('=== Starting HTTP server on 0.0.0.0:${port} ===')
 
-	// 路由表从各控制器自己扫出来：挂载用什么扫描，横幅就用什么扫描，
-	// 两边不是同一份清单 —— 清单就会过期。
+	// 路由表从各控制器自己扫出来：挂载用什么扫描，横幅就用什么扫描。
+	// App 自己一条路由都没有（它只持 Bean），扫 App 只会得到一张空表。
 	web.print_routes(app_routes())
 
 	veb.run_at[App, Context](mut web_app, host: '0.0.0.0', port: port, family: .ip) or {
