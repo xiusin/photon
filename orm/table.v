@@ -499,7 +499,7 @@ pub fn (tq &TableQuery) where_in(col string, values []ParamValue) &TableQuery {
 	//   → WHERE tenant_id = ? OR status IN (?, ?) AND active = ?
 	//
 	// 一条租户隔离条件被 IN 一句就 OR 掉了。
-	mut next := tq
+	mut next := tq.mutable_copy()
 	for v in values {
 		next = next.append_condition(TablePredicate{
 			column: c
@@ -525,7 +525,7 @@ pub fn (tq &TableQuery) where_not_in(col string, values []ParamValue) &TableQuer
 	// （见 append_condition / build_where），这一句就会被前面的条件 OR 掉，
 	// 或者把前面的条件 OR 掉 —— 一条「排除某些行」的子句，最后可能变成
 	// 「多返回一些行」。
-	mut next := tq
+	mut next := tq.mutable_copy()
 	for v in values {
 		next = next.append_condition(TablePredicate{
 			column: c

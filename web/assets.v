@@ -280,6 +280,7 @@ pub fn (mut am AssetManager) cleanup_cache() ! {
 // minify_and_cache 压缩并缓存文件。
 // 桥接 veb.assets.AssetManager.minify_and_cache()。
 fn (mut am AssetManager) minify_and_cache(asset_type AssetType, file_path string, last_modified i64, include_name string) !(string, bool) {
+	_ = include_name // 保留上游签名；缓存键只由 file_path + last_modified 决定
 	if asset_type == .all {
 		return error('cannot minify asset of type "all"')
 	}

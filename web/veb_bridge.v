@@ -404,6 +404,7 @@ pub fn csrf_token_input(token string, config &CsrfBridgeConfig) veb.RawHtml {
 // csrf_check_origin_referer 验证 Origin 和 Referer 头。
 // 桥接 veb.csrf.check_origin_and_referer()。
 fn csrf_check_origin_referer(ctx &veb.Context, secret string, allowed_hosts []string, check_origin_and_referer bool) bool {
+	_ = secret // 保留上游签名；gate 只判 Origin/Referer，token 校验在 csrf_verify 里
 	// 缺头按「不匹配」处理：这个函数是纯布尔门面，没有策略上下文。
 	csrf_origin_verdict(ctx, allowed_hosts, check_origin_and_referer) or { return false }
 	return true

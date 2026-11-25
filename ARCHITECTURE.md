@@ -2963,7 +2963,7 @@ Stage 1 — Test (矩阵: 14 个模块, 并行)
 
 Stage 2 — Build (push to main/master)
   ├── 仅在 test 通过后执行
-  └── v -prod -o bin/photon example/main.v
+  └── v -enable-globals -prod -o bin/photon-example example/
 
 Stage 3 — Docker Build & Push
   ├── ghcr.io 推送
@@ -3000,7 +3000,7 @@ Resource limits:
 **Makefile 目标**：
 ```
 build    — 编译 example → bin/photon-example
-run      — v run example/main.v
+run      — v -enable-globals run example/
 test     — ORM 快速测试
 test-all — 全部模块测试
 check    — 类型检查（无执行）

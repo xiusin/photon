@@ -181,12 +181,12 @@ pub fn (co &CacheOperation) delete() ! {
 fn (co &CacheOperation) get_with_tags() !string {
 	// Build a tag-aware cache key
 	tag_prefix := co.tags.join(':')
-	tagged_key := 'tags:${tag_prefix}:${co.key}'
+	full_key := 'tags:${tag_prefix}:${co.key}'
 
 	// 用「命中与否」判断，而不是「值是否为空」：空字符串是合法缓存值，
 	// 用 `cached != ''` 当命中判据会让值为空的条目每次都重新加载。
 	mut reg := co.cache_registry
-	if cached := reg.get_from(co.cache_name, tagged_key) {
+	if cached := reg.get_from(co.cache_name, full_key) {
 		return cached
 	}
 
@@ -201,5 +201,5 @@ fn (co &CacheOperation) get_with_tags() !string {
 	// singleflight，同一 tag key 的并发未命中会各算一遍。标签缓存恰恰
 	// 是「一次失效、全体同抢」的那种用法，击穿最容易发生在这里。
 	loader := co.loader
-	return reg.get_or_load_from(co.cache_name, tagged_key, co.ttl_seconds, loader)
+	return reg.get_or_load_from(co.cache_name, full_key, co.ttl_seconds, loader)
 }
