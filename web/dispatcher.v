@@ -8,11 +8,15 @@ module web
 import veb
 
 // RouteHandler — 路由处理器闭包
-// 参数：ctx_ptr voidptr（上下文指针，支持任意嵌入 veb.Context 的类型）, params map[string]string（路径参数）
+// 参数：ctx_ptr voidptr（上下文指针）, params map[string]string（路径参数）
 //
 // 使用 voidptr 而非 veb.Context 是为了支持自定义 Context 类型
-// （如 demo 中的 http.Context，嵌入 veb.Context 并扩展 request_id/user_id 等字段）
-// dispatch_controller_method[T, Ctx] 会在编译期将 voidptr 安全转换为 &Ctx
+// （如 web.RouterContext，嵌入 veb.Context 并多带 path_params）。
+// dispatch_controller_method[T, X] 会在编译期把 voidptr 转回 &X。
+//
+// 控制器方法本身不收 params：路径参数由 dispatch_with_chain 写进 ctx，
+// 方法内用 ctx.path('id') 取。闭包保留 params 形参，是为了给不走控制器
+// 的手写 handler 用。
 pub type RouteHandler = fn (ctx_ptr voidptr, params map[string]string) veb.Result
 
 // RouteDef — 单条路由定义（@[heap] 确保指针安全返回）
@@ -40,6 +44,7 @@ pub:
 	middlewares       []MiddlewareFunc // 路由级前置中间件
 	after_middlewares []MiddlewareFunc // 路由级后置中间件
 	host              string           // 路由级 host 限制（空 = 不限制）
+	handler_name      string           // 处理方法名（来自控制器挂载）
 }
 
 // RouteSegment — 路径段（文本段 或 参数段）

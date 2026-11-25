@@ -6,7 +6,8 @@ module web
 //
 //   1. WebModule（可嵌入结构体）
 //      嵌入到 App 中，提供路由分发能力。
-//      before_request 中调用 WebModule.handle_request()。
+//      在全局前置中间件里调用 WebModule.handle_request()（命中即写响应），
+//      或在 before_request 里分发 —— 后者拿不到 App，所以推荐中间件形式。
 //
 //   2. Controller（接口）
 //      每个控制器是一个独立的 struct，通过 @[controller] 和 @[get/post] 注解。
@@ -43,18 +44,13 @@ module web
 //   }
 //
 //   pub struct Context {
-//       veb.Context
-//       app &App                    // ← App 反向引用
-//   }
-//
-//   // 覆写 veb.Context.before_request()
-//   pub fn (mut ctx Context) before_request() {
-//       ctx.app.WebModule.handle_request(unsafe { voidptr(&ctx) }) // 分发到控制器
+//       web.RouterContext           // ← veb.Context + 路由路径参数
 //   }
 //
 //   pub fn main() {
 //       mut app := &App{...}
-//       app.WebModule.mount(&user_controller, '/api/v1')
+//       // 控制器自己带注解，前缀也写在注解里（@[prefix: '/api/v1']）
+//       app.WebModule.mount[UserController, Context](user_ctrl)
 //       // 注册中间件
 //       app.WebModule.use(web.request_id_middleware)
 //       app.WebModule.use_after(web.compression_auto_after_middleware)
@@ -131,10 +127,9 @@ pub fn (mut wm WebModule) register(controller Controller) {
 	controller.register_routes(mut wm.router)
 }
 
-// mount 是 register 的别名（保持 API 一致性）
-pub fn (mut wm WebModule) mount(controller Controller) {
-	wm.register(controller)
-}
+// 注意：这里刻意不提供 `mount(controller Controller)` 这个别名。
+// `mount[T, X](&T)` 才是「控制器自己带注解」的入口（见 mount.v）；
+// 同名重载在 V 里会撞车，而 register() 已经是最明确的写法。
 
 // ============================================================
 // 路由分发（在 Context.before_request 中调用）

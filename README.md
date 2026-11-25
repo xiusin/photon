@@ -347,22 +347,44 @@ routes := web.group('/api/v1', [
 ])
 ```
 
-### 路由就写在控制器上
+### 控制器自带路由
 
-不需要额外的路由文件或转发层：控制器方法上的 `@['/path'; get]` 注解就是路由，
-veb 在编译期扫成路由表（`veb.run_at[App, Context]`）。
+路由注解直接写在控制器方法上，挂载时编译期扫成路由表：
 
 ```v
-@['/api/v1/users/:id'; get]
-pub fn (c &UserController) show(mut ctx Context, id string) veb.Result {
-    return ctx.json('{"id":"${id}"}')
+@[controller]
+@[prefix: '/api/v1']
+pub struct UserController {}
+
+@[get: '/users']
+pub fn (mut c UserController) list(mut ctx Context) veb.Result {
+    return ctx.json({'users': []})
+}
+
+@[get: '/users/:id']
+pub fn (mut c UserController) show(mut ctx Context) veb.Result {
+    return ctx.json({'id': ctx.path('id')})   // 路径参数从 ctx 上取
+}
+
+// 挂载：前缀来自 @[prefix]，或一步做完 DI + 挂载
+app.WebModule.mount[UserController, Context](user_ctrl)
+```
+
+`Context` 只要嵌入 `web.RouterContext`，控制器方法就能保持 veb 原生签名
+（只收 `ctx`），路径参数用 `ctx.path('id')` / `ctx.path_int('id')` 取：
+
+```v
+pub struct Context {
+    web.RouterContext
 }
 ```
 
-启动横幅上的路由表由同一份扫描结果生成：
+注解三种写法都认：`@[get: '/x']`（合并式）、`@[get] @['/x']`（分离式）、
+`@['/x'; get]`（元组式）。
 
 ```v
-routes := web.scan_controller[App]()
+// 启动横幅用的路由清单：跟挂载同一套扫描，不会过期
+routes := web.scan_controller[UserController]()
 web.print_routes(routes)
 ```
 

@@ -213,3 +213,46 @@ pub fn set_content_type(mut ctx veb.Context, mime string) {
 pub fn markdown(mut ctx veb.Context, content string) veb.Result {
 	return ctx.send_response_to_client('text/markdown', content)
 }
+
+// ============================================================
+// 路径参数（配合 mount 的控制器路由）
+// ============================================================
+
+// RouterContext 是控制器方法想要的 Context 形态：嵌入 veb.Context 并多带
+// 一份路由路径参数。
+//
+//	@[get: '/users/:id']
+//	pub fn (mut c UserController) show(mut ctx Context) veb.Result {
+//	    id := ctx.path('id')
+//	}
+//
+// 用户项目里的 Context 只要写成
+//
+//	pub struct Context { web.RouterContext }
+//
+// 就能直接用 ctx.path / ctx.path_int，其它 veb 能力照旧。
+// 路径参数由 RouteRegistry 在匹配成功后写入，控制器方法因此可以保持
+// veb 原生签名 —— 不用为了「能取到参数」把方法形状改成收 map。
+pub struct RouterContext {
+	veb.Context
+pub mut:
+	path_params map[string]string
+}
+
+// path 返回路径参数；缺失时返回空字符串 —— 路由级参数缺了是「没匹配上」，
+// 不是程序错误，交给控制器自己的 404 分支。
+pub fn (ctx &RouterContext) path(name string) string {
+	return ctx.path_params[name] or { '' }
+}
+
+// path_int 返回路径参数并转成正整数，缺失或非法时返回 none。
+//
+//	id := ctx.path_int('id') or { return ctx.json_error(400, 'invalid id') }
+pub fn (ctx &RouterContext) path_int(name string) ?int {
+	raw := ctx.path_params[name] or { return none }
+	v := raw.int()
+	if v <= 0 || v.str() != raw.trim_left('+') {
+		return none
+	}
+	return v
+}

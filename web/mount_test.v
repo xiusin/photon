@@ -9,6 +9,9 @@ module web
 //   4. 路由前缀拼接
 //   5. 路由匹配与分发
 //   6. 控制器方法实际调用
+//
+// 关键约定：控制器方法签名就是 veb 原生签名（`(mut ctx) veb.Result`），
+// 路径参数从 ctx.path('id') 取（ctx 类型为 web.RouterContext）。
 import veb
 
 // ═══════════════════════════════════════════════════════════
@@ -39,13 +42,12 @@ pub fn (mut c TestControllerA) create(mut ctx veb.Context) veb.Result {
 }
 
 // 带路径参数的路由
+//
+// 方法签名还是 veb 原生形态，路径参数由 RouteRegistry 挂到 ctx 上再取。
 @['/item/:id']
 @[get]
-pub fn (mut c TestControllerA) show(mut ctx veb.Context) veb.Result {
-	// veb only builds string/int/bool handler parameters from path and
-	// query segments, so the :id segment is read back from the request.
-	id := ctx.req.url.all_after_last('/')
-	return ctx.text('item:${id}')
+pub fn (mut c TestControllerA) show(mut ctx RouterContext) veb.Result {
+	return ctx.text('item:${ctx.path('id')}')
 }
 
 // 无路径注解 → 默认使用方法名作为路径
@@ -56,6 +58,10 @@ pub fn (mut c TestControllerA) ping(mut ctx veb.Context) veb.Result {
 }
 
 // TestControllerB — 使用合并式注解的测试控制器
+//
+// 注意 show() 的形参是 RouterContext，所以挂载时 X 必须也是 RouterContext
+// （mount_controller[T, X] 会把 ctx 指针还原成 &X 再传进方法）。
+// 写成 veb.Context 也能注册成功，但一取路径参数就按更小的结构体解释内存。
 @[prefix: '/api/v2']
 @[controller]
 pub struct TestControllerB {
@@ -78,9 +84,8 @@ pub fn (mut c TestControllerB) create(mut ctx veb.Context) veb.Result {
 
 // 合并式注解带参数
 @[get: '/users/:id']
-pub fn (mut c TestControllerB) show(mut ctx veb.Context) veb.Result {
-	id := ctx.req.url.all_after_last('/')
-	return ctx.text('user:${id}')
+pub fn (mut c TestControllerB) show(mut ctx RouterContext) veb.Result {
+	return ctx.text('user:${ctx.path('id')}')
 }
 
 // TestControllerC — 带依赖的控制器（用于 DI 测试）
@@ -146,7 +151,7 @@ fn test_mount_controller_separated_attrs() {
 fn test_mount_controller_merged_attrs() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerB{}
-	rr.mount_controller[TestControllerB, veb.Context](ctrl, '')
+	rr.mount_controller[TestControllerB, RouterContext](ctrl, '')
 
 	// 应该注册 3 条路由
 	assert rr.route_count() == 3, 'expected 3 routes, got ${rr.route_count()}'
@@ -176,7 +181,7 @@ fn test_mount_controller_merged_attrs() {
 fn test_mount_controller_with_prefix() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerA{}
-	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api/v1')
+	rr.mount_controller[TestControllerA, RouterContext](ctrl, '/api/v1')
 
 	// 验证前缀正确拼接
 	mut found := false
@@ -192,7 +197,7 @@ fn test_mount_controller_auto_prefix() {
 	mut rr := new_route_registry()
 	ctrl := &TestControllerB{}
 	// TestControllerB 有 @[prefix: '/api/v2'] 注解
-	rr.mount_controller_auto[TestControllerB, veb.Context](ctrl, '/default')
+	rr.mount_controller_auto[TestControllerB, RouterContext](ctrl, '/default')
 
 	mut found := false
 	for route in rr.routes {
@@ -254,7 +259,7 @@ fn test_dispatch_finds_route() {
 	ctrl := &TestControllerA{}
 	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
-	mut ctx := &veb.Context{}
+	mut ctx := &RouterContext{}
 	ctx.req.url = '/api/hello'
 
 	found := rr.dispatch('GET', '/api/hello', '', voidptr(ctx))
@@ -266,7 +271,7 @@ fn test_dispatch_post_route() {
 	ctrl := &TestControllerA{}
 	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
-	mut ctx := &veb.Context{}
+	mut ctx := &RouterContext{}
 	found := rr.dispatch('POST', '/api/create', '', voidptr(ctx))
 	assert found, 'should have found and dispatched POST /api/create'
 }
@@ -276,7 +281,7 @@ fn test_dispatch_with_params() {
 	ctrl := &TestControllerA{}
 	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
-	mut ctx := &veb.Context{}
+	mut ctx := &RouterContext{}
 	found := rr.dispatch('GET', '/api/item/42', '', voidptr(ctx))
 	assert found, 'should have found and dispatched GET /api/item/42'
 }
@@ -286,7 +291,7 @@ fn test_dispatch_not_found() {
 	ctrl := &TestControllerA{}
 	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
-	mut ctx := &veb.Context{}
+	mut ctx := &RouterContext{}
 	found := rr.dispatch('GET', '/api/nonexistent', '', voidptr(ctx))
 	assert !found, 'should not have found /api/nonexistent'
 }
@@ -296,7 +301,7 @@ fn test_dispatch_wrong_method() {
 	ctrl := &TestControllerA{}
 	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
-	mut ctx := &veb.Context{}
+	mut ctx := &RouterContext{}
 	// GET route should not match POST
 	found := rr.dispatch('DELETE', '/api/hello', '', voidptr(ctx))
 	assert !found, 'should not have found DELETE /api/hello (only GET registered)'
@@ -311,7 +316,7 @@ fn test_controller_method_called() {
 	mut ctrl := &TestControllerA{}
 	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
-	mut ctx := &veb.Context{}
+	mut ctx := &RouterContext{}
 	rr.dispatch('GET', '/api/hello', '', voidptr(ctx))
 
 	// veb.Context 以值语义传入，处理器内的 mut 副本不回写调用方的 ctx，
@@ -324,7 +329,7 @@ fn test_controller_method_called_with_params() {
 	mut ctrl := &TestControllerA{}
 	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
-	mut ctx := &veb.Context{}
+	mut ctx := &RouterContext{}
 	rr.dispatch('GET', '/api/item/99', '', voidptr(ctx))
 
 	assert ctrl.called_name == '', 'value-semantics dispatch must not mutate the caller copy'
@@ -335,7 +340,7 @@ fn test_controller_method_ping_default_path() {
 	mut ctrl := &TestControllerA{}
 	rr.mount_controller[TestControllerA, veb.Context](ctrl, '/api')
 
-	mut ctx := &veb.Context{}
+	mut ctx := &RouterContext{}
 	found := rr.dispatch('GET', '/api/ping', '', voidptr(ctx))
 
 	assert found, 'default-path route /api/ping should be dispatched'
@@ -351,13 +356,13 @@ fn test_mount_multiple_controllers() {
 	ctrl_b := &TestControllerB{}
 
 	rr.mount_controller[TestControllerA, veb.Context](ctrl_a, '/v1')
-	rr.mount_controller[TestControllerB, veb.Context](ctrl_b, '/v2')
+	rr.mount_controller[TestControllerB, RouterContext](ctrl_b, '/v2')
 
 	// 总共 4 + 3 = 7 条路由
 	assert rr.route_count() == 7, 'expected 7 routes, got ${rr.route_count()}'
 
 	// 验证两个控制器的路由都能匹配
-	mut ctx := &veb.Context{}
+	mut ctx := &RouterContext{}
 	assert rr.dispatch('GET', '/v1/hello', '', voidptr(ctx))
 	assert rr.dispatch('GET', '/v2/users', '', voidptr(ctx))
 }
@@ -377,7 +382,7 @@ fn test_web_module_mount_controller() {
 fn test_web_module_mount_controller_auto() {
 	mut wm := init_web_module()
 	ctrl := &TestControllerB{}
-	wm.mount_controller_auto[TestControllerB, veb.Context](ctrl, '/default')
+	wm.mount_controller_auto[TestControllerB, RouterContext](ctrl, '/default')
 
 	assert wm.router.route_count() == 3, 'WebModule should have 3 routes'
 
@@ -389,4 +394,80 @@ fn test_web_module_mount_controller_auto() {
 		}
 	}
 	assert found, 'should have route /api/v2/users from annotation prefix'
+}
+
+// ═══════════════════════════════════════════════════════════
+// 路径参数：控制器方法不收 map，从 ctx 上取
+// ═══════════════════════════════════════════════════════════
+
+fn test_path_param_reaches_handler_through_ctx() {
+	mut rr := new_route_registry()
+	ctrl := &TestControllerA{}
+	rr.mount_controller[TestControllerA, RouterContext](ctrl, '/api')
+
+	mut ctx := &RouterContext{}
+	rr.dispatch('GET', '/api/item/42', '', voidptr(ctx))
+
+	// show() 自己从 ctx 里取 id 并写进响应；这里直接验 ctx 上的参数是对的。
+	assert ctx.path('id') == '42', 'path param should be stored on ctx'
+	assert ctx.path('missing') == ''
+}
+
+fn test_path_int_rejects_non_positive() {
+	mut ctx := &RouterContext{}
+	ctx.path_params['id'] = '42'
+	ctx.path_params['bad'] = 'abc'
+	ctx.path_params['neg'] = '-1'
+
+	assert ctx.path_int('id') or { -1 } == 42
+	assert ctx.path_int('bad') == none
+	assert ctx.path_int('neg') == none
+	assert ctx.path_int('missing') == none
+}
+
+fn test_extract_path_params_matches_route_pattern() {
+	params := extract_path_params('/users/7/orders/9', '/users/:id/orders/:order_id')
+	assert params['id'] == '7'
+	assert params['order_id'] == '9'
+
+	// 段数不一致 → 空 map（不是部分结果）
+	assert extract_path_params('/users/7', '/users/:id/orders/:order_id').len == 0
+}
+
+// ═══════════════════════════════════════════════════════════
+// 前缀拼接与 mount 一步挂载
+// ═══════════════════════════════════════════════════════════
+
+fn test_join_route_path_never_doubles_slash() {
+	assert join_route_path('/api/v1', '/users') == '/api/v1/users'
+	assert join_route_path('/api/v1/', '/users') == '/api/v1/users'
+	assert join_route_path('/api/v1', 'users') == '/api/v1/users'
+	assert join_route_path('', '/users') == '/users'
+	assert join_route_path('/', '/users') == '/users'
+	assert join_route_path('/api/v1', '/') == '/api/v1'
+}
+
+fn test_web_module_mount_uses_annotation_prefix() {
+	mut wm := init_web_module()
+	ctrl := &TestControllerB{}
+	wm.mount[TestControllerB, RouterContext](ctrl)
+
+	// TestControllerB 带 @[prefix: '/api/v2']，mount 不需要再传前缀
+	assert wm.router.route_count() == 3, 'expected 3 routes, got ${wm.router.route_count()}'
+	mut found := false
+	for route in wm.router.routes {
+		if route.path == '/api/v2/users' && route.method == 'GET' {
+			found = true
+		}
+	}
+	assert found, 'mount should apply the @[prefix] annotation'
+}
+
+fn test_web_module_mount_is_chainable() {
+	mut wm := init_web_module()
+	ctrl_a := &TestControllerA{}
+	ctrl_b := &TestControllerB{}
+	// mount 返回 &WebModule，可以串起来写；链上每一步都真正挂上了
+	wm.mount[TestControllerA, RouterContext](ctrl_a).mount[TestControllerB, RouterContext](ctrl_b)
+	assert wm.router.route_count() == 7, 'expected 4 + 3 routes'
 }

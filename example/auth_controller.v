@@ -2,11 +2,12 @@ module main
 
 // auth_controller.v — 认证控制器
 //
-// 路由注解直接挂在方法上：`@['/api/v1/auth/login'; post]`。
+// 路由注解直接挂在方法上：`@[post: '/api/v1/auth/login']`。
 // 前缀写全在路径里，不用 @[prefix] —— 路由表打印出来和这里读到的完全一致。
 import veb
 
 // AuthController — 认证接口
+@[controller]
 pub struct AuthController {
 pub mut:
 	auth_service &AuthService       = unsafe { nil }
@@ -26,7 +27,7 @@ pub fn new_auth_controller(auth_svc &AuthService, user_svc &UserService, mw &Mid
 }
 
 // login POST /api/v1/auth/login — 用户登录
-@['/api/v1/auth/login'; post]
+@[post: '/api/v1/auth/login']
 pub fn (mut c AuthController) login(mut ctx Context) veb.Result {
 	username := ctx.query['username'] or { ctx.form['username'] or { '' } }
 	password := ctx.query['password'] or { ctx.form['password'] or { '' } }
@@ -42,7 +43,7 @@ pub fn (mut c AuthController) login(mut ctx Context) veb.Result {
 }
 
 // register POST /api/v1/auth/register — 用户注册
-@['/api/v1/auth/register'; post]
+@[post: '/api/v1/auth/register']
 pub fn (mut c AuthController) register(mut ctx Context) veb.Result {
 	username := ctx.query['username'] or { ctx.form['username'] or { '' } }
 	email := ctx.query['email'] or { ctx.form['email'] or { '' } }
@@ -63,7 +64,7 @@ pub fn (mut c AuthController) register(mut ctx Context) veb.Result {
 }
 
 // profile GET /api/v1/auth/profile — 获取用户信息（JWT）
-@['/api/v1/auth/profile'; get]
+@[get: '/api/v1/auth/profile']
 pub fn (c &AuthController) profile(mut ctx Context) veb.Result {
 	username, _ := c.middleware.apply_auth(mut ctx.Context) or {
 		return ctx.json_error(401, err.msg())

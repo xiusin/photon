@@ -2,14 +2,14 @@ module main
 
 // home_controller.v — 首页 & 系统信息控制器
 //
-// 路由就写在这里：控制器自己带 veb 注解，不再有中间层转发。
-// 方法签名是 veb 的约定 —— ctx 在最前，路径参数按 `:name` 顺序跟在后面，
-// 返回值是 veb.Result。`@['/path'; get]` 被 veb 在编译期扫成路由表
-// （veb.run_at[App, Context]），所以这里加一行注解，路由就生效一行。
+// 路由就写在这里：控制器自己带注解，没有中间层转发。
+// 方法签名是 veb 原生形态（ctx 在最前，返回值 veb.Result），跟直接写在 App 上
+// 一模一样 —— 控制器只是换个文件放。路径参数从 ctx.path('id') 取。
 import veb
 import time
 
-// HomeController — 首页 & 系统信息（路由方法直接挂在控制器上）
+// HomeController — 首页 & 系统信息
+@[controller]
 pub struct HomeController {
 pub mut:
 	user_service   &UserService   = unsafe { nil }
@@ -34,7 +34,7 @@ pub fn new_home_controller(user_svc &UserService, cache_svc &CacheService,
 }
 
 // index GET / — API 信息
-@['/'; get]
+@[get: '/']
 pub fn (c &HomeController) index(mut ctx Context) veb.Result {
 	return ctx.json({
 		'app':       'Photon API Server'
@@ -46,7 +46,7 @@ pub fn (c &HomeController) index(mut ctx Context) veb.Result {
 }
 
 // health GET /health — 健康检查
-@['/health'; get]
+@[get: '/health']
 pub fn (c &HomeController) health(mut ctx Context) veb.Result {
 	return ctx.json({
 		'status':    'UP'
@@ -57,13 +57,13 @@ pub fn (c &HomeController) health(mut ctx Context) veb.Result {
 }
 
 // ping GET /ping — 连通性测试
-@['/ping'; get]
+@[get: '/ping']
 pub fn (c &HomeController) ping(mut ctx Context) veb.Result {
 	return ctx.text('pong')
 }
 
 // stats GET /stats — 服务器统计
-@['/stats'; get]
+@[get: '/stats']
 pub fn (c &HomeController) stats(mut ctx Context) veb.Result {
 	active_users := c.user_service.count()
 	return ctx.json({
@@ -75,7 +75,7 @@ pub fn (c &HomeController) stats(mut ctx Context) veb.Result {
 }
 
 // cache_demo GET /cache — 缓存演示
-@['/cache'; get]
+@[get: '/cache']
 pub fn (mut c HomeController) cache_demo(mut ctx Context) veb.Result {
 	key := ctx.query['key'] or { 'default' }
 	if c.cache_service != unsafe { nil } {
@@ -100,7 +100,7 @@ pub fn (mut c HomeController) cache_demo(mut ctx Context) veb.Result {
 }
 
 // request_info GET /request-info — 请求信息回显
-@['/request-info'; get]
+@[get: '/request-info']
 pub fn (c &HomeController) request_info(mut ctx Context) veb.Result {
 	method := ctx.req.method.str()
 	path := ctx.req.url

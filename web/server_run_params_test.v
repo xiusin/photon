@@ -30,18 +30,18 @@ struct RunParamsProbeCtx {
 pub struct RunParamsProbeController {}
 
 @[get: '/items']
-pub fn (mut c RunParamsProbeController) list_items(mut ctx veb.Context, params map[string]string) veb.Result {
+pub fn (mut c RunParamsProbeController) list_items(mut ctx veb.Context) veb.Result {
 	return ctx.text('items')
 }
 
 @[post: '/items']
-pub fn (mut c RunParamsProbeController) create_item(mut ctx veb.Context, params map[string]string) veb.Result {
+pub fn (mut c RunParamsProbeController) create_item(mut ctx veb.Context) veb.Result {
 	return ctx.text('created')
 }
 
 // 分离式 @[delete] + @['/items/:id'] —— 与合并式混用，验证两种写法都被认
 @['/items/:id'; delete]
-pub fn (mut c RunParamsProbeController) remove_item(mut ctx veb.Context, params map[string]string) veb.Result {
+pub fn (mut c RunParamsProbeController) remove_item(mut ctx veb.Context) veb.Result {
 	return ctx.text('removed')
 }
 

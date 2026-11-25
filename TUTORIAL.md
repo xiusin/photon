@@ -281,27 +281,50 @@ defer { rot.close() }
 
 ### 4.1 Controller
 
+控制器自己带路由注解，方法签名就是 veb 原生形态（`ctx` 在最前，返回 `veb.Result`）：
+
 ```v
 import veb
 import photon.web
 
-pub struct App {
-    veb.Context
+// 请求上下文：veb.Context + 路由路径参数
+pub struct Context {
+    web.RouterContext
+}
+
+@[controller]
+pub struct UserController {
 pub mut:
-    log_ &logger.Logger = logger.new()
+    user_service &UserService = unsafe { nil }
 }
 
-// 首页
-@[get; '/']
-pub fn (mut app App) index() veb.Result {
-    return app.text('Hello Photon')
+// GET /api/v1/users
+@[get: '/api/v1/users']
+pub fn (mut c UserController) index(mut ctx Context) veb.Result {
+    return ctx.json({'users': []})
 }
 
-// 带路径参数
-@[get; '/users/:id']
-pub fn (mut app App) get_user(id string) veb.Result {
-    return app.text('User: ${id}')
+// GET /api/v1/users/:id —— 路径参数从 ctx 上取
+@[get: '/api/v1/users/:id']
+pub fn (mut c UserController) show(mut ctx Context) veb.Result {
+    id := ctx.path_int('id') or { return ctx.json_error(400, 'invalid id') }
+    return ctx.json({'id': id})
 }
+```
+
+三种注解写法都认：`@[get: '/x']`（合并式）、`@[get] @['/x']`（分离式）、`@['/x'; get]`（元组式）。
+控制器加了 `@[prefix: '/api/v1']` 时，每条路由的路径前会自动拼上这个前缀。
+
+挂载：
+
+```v
+app.WebModule.mount[UserController, Context](user_ctrl)
+```
+
+或者一步做完「DI 注入 + 挂载」：
+
+```v
+ctrl := app.WebModule.wire_and_mount[UserController, Context](mut app_ctx)!
 ```
 
 ### 4.2 统一响应封装
@@ -363,9 +386,12 @@ routes := [
 编译期自动扫描（通过 `@[get]`、`@[post]` 等注解）：
 
 ```v
-routes := web.scan_controller[App]()
+routes := web.scan_controller[UserController]()
 web.print_routes(routes)
 ```
+
+`scan_controller` 和真正挂载用的是同一套扫描逻辑，所以启动横幅上列出的
+就是能访问到的路由 —— 不用再维护一份手写清单。
 
 ### 4.4 中间件
 

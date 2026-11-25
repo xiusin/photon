@@ -18,20 +18,20 @@ struct ScanConsistencyController {}
 
 // 合并式属性
 @[get: '/items']
-pub fn (mut c ScanConsistencyController) list_items(mut ctx veb.Context, params map[string]string) veb.Result {
+pub fn (mut c ScanConsistencyController) list_items(mut ctx veb.Context) veb.Result {
 	return ctx.text('items')
 }
 
 // 分离式属性
 @[delete]
 @['/items/:id']
-pub fn (mut c ScanConsistencyController) remove_item(mut ctx veb.Context, params map[string]string) veb.Result {
+pub fn (mut c ScanConsistencyController) remove_item(mut ctx veb.Context) veb.Result {
 	return ctx.text('removed')
 }
 
 // 元组式属性
 @['/items/:id'; put]
-pub fn (mut c ScanConsistencyController) update_item(mut ctx veb.Context, params map[string]string) veb.Result {
+pub fn (mut c ScanConsistencyController) update_item(mut ctx veb.Context) veb.Result {
 	return ctx.text('updated')
 }
 

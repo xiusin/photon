@@ -1,14 +1,18 @@
 module main
 
-// main.v — Photon Web Application 入口（DI 容器驱动，P0 7.1）
+// main.v — Photon Web Application 入口（DI 容器驱动）
 //
 // 启动流程：
 //   1. 创建 ApplicationContext（DI 容器）
 //   2. bootstrap() 注册所有 Bean（配置、日志、缓存、服务、中间件）
 //   3. ctx.refresh() 完成单例初始化与生命周期回调
-//   4. ctx.resolve_typed[T]() 从容器获取 Bean，装配到 veb App
-//   5. 启动 veb HTTP 服务器
-//   6. 服务器退出后 ctx.shutdown() 优雅关闭
+//   4. ctx.resolve_typed[T]() 从容器获取 Bean，装配控制器
+//   5. init_app() 把控制器挂到 WebModule —— 路由注解在编译期被扫成路由表
+//   6. 启动 veb HTTP 服务器
+//   7. 服务器退出后 ctx.shutdown() 优雅关闭
+//
+// 这里没有一条路由方法。路由属于各自的控制器（*_controller.v），
+// 「加一个接口」等于「在控制器里加一个带注解的方法」。
 import photon.cli
 import veb
 import time
@@ -17,51 +21,11 @@ import photon.logger
 import photon.apidoc
 import photon.core
 
-// App — 全局应用上下文（veb 控制器）
-//
-// 路由不再由 App 代持：每个控制器把自己的 veb 注解方法直接注册成路由，
-// veb 在编译期扫描 App 自身方法生成路由表（veb.run_at[App, Context]）。
-// 因此 App 上没有任何路由方法 —— 它只负责持有 Bean、挂中间件、跑服务。
-//
-// 分层：
-//   - *_controller.v : @['/path'; get] 注解 + 业务处理（路由与逻辑同处一室）
-//   - services.v     : 业务服务层
-//   - middleware.v   : 横切中间件
-@[controller]
-pub struct App {
-	veb.Context
-	veb.Middleware[Context]
-pub mut:
-	start_time int
-	req_count  int
-	// 应用级依赖（全局中间件用）
-	middleware &MiddlewareManager = unsafe { nil }
-	log_       &logger.Logger     = unsafe { nil }
-	// 控制器：各自持有依赖，路由注解就在它们自己的方法上
-	home_controller   &HomeController   = unsafe { nil }
-	auth_controller   &AuthController   = unsafe { nil }
-	user_controller   &UserController   = unsafe { nil }
-	apidoc_controller &ApiDocController = unsafe { nil }
-}
-
-// 全局请求计数：App 的全局中间件每请求 +1，HomeController 读同一个数。
-// 用 __global 而不是让控制器持一个 &int —— 少一层间接就少一次 nil 崩溃的机会。
-__global (
-	g_req_count int
-)
-
-// app_req_count 读全局请求计数。is_globals_enabled() 先判一次：不带
-// -enable-globals 编译时计数恒为 0，而不是一次非法访问。
-fn app_req_count() int {
-	if !is_globals_enabled() {
-		return 0
-	}
-	return g_req_count
-}
-
 // Context — 请求级上下文
+//
+// 嵌入 web.RouterContext：veb 的全部能力 + 路由路径参数（ctx.path('id')）。
 pub struct Context {
-	veb.Context
+	web.RouterContext
 }
 
 // main 入口
@@ -88,7 +52,7 @@ pub fn main() {
 		panic(err)
 	}
 
-	// ── 4. 从容器解析 Bean，装配到 veb App ──
+	// ── 4. 从容器解析 Bean，装配控制器 ──
 	log_ := ctx.resolve_typed[logger.Logger]('Logger') or {
 		ctx.shutdown()
 		panic(err)
@@ -126,37 +90,43 @@ pub fn main() {
 
 	start := time.ticks()
 
-	// ── 5. 构造控制器（注入 service 依赖）──
-	// 控制器各自持有自己的依赖和路由注解；App 只装载它们，
-	// 不再像旧版那样再写一层转发方法把请求转给控制器。
-	mut web_app := &App{
-		middleware: mw
-		log_:       log_
-	}
+	// ── 5. 构造控制器并挂载（路由注解在这里被扫成路由表）──
+	// 控制器各自持有依赖和路由注解；App 只持 Bean 与中间件，
+	// 不再有一层转发方法把请求转给控制器。
+	home_ctrl := new_home_controller(user_svc, cache_svc, health_svc, app_cfg, start)
+	auth_ctrl := new_auth_controller(auth_svc, user_svc, mw)
+	user_ctrl := new_user_controller(user_svc, mw)
+
+	// App 构造里也带上了 DI 容器的解析结果，但日志实例与启动时间并不属于
+	// 控制器的依赖图 —— 这里补上，免得 init_app 再多长几个参数。
+	mut web_app := init_app(mw, apidoc_handler, home_ctrl, auth_ctrl, user_ctrl)
 	web_app.start_time = int(start)
-	web_app.home_controller = new_home_controller(user_svc, cache_svc, health_svc, app_cfg, start)
-	web_app.auth_controller = new_auth_controller(auth_svc, user_svc, mw)
-	web_app.user_controller = new_user_controller(user_svc, mw)
-	web_app.apidoc_controller = new_apidoc_controller(apidoc_handler)
+	web_app.log_ = log_
 
 	// 注册 apidoc middleware（自动劫持请求/响应采集）
 	web_app.use(apidoc_handler.before_middleware[Context]())
 	web_app.use(apidoc_handler.after_middleware[Context]())
 	log_.info('API Documentation middleware registered')
 
-	// 注册全局应用 middleware（请求计数 + CORS + 日志）
+	// 全局 middleware：路由分发 + 请求计数 + CORS + 访问日志
+	//
+	// 路由分发排在最前：命中就把响应写完（ctx.done），后面的中间件会被
+	// veb 停掉；没命中返回 false 交给 veb 走 404。把分发放在这里而不是
+	// `before_request`，是因为 veb 的 before_request 挂在 Context 上，
+	// 而路由表在 App 里 —— 只有 App 侧的中间件闭包两边都够得着。
 	web_app.use(veb.MiddlewareOptions[Context]{
 		handler: fn [mut web_app] (mut ctx2 Context) bool {
 			// web_app 要在同一个闭包里读两次（计数 + 全局中间件），
 			// 所以捕获 mut 引用而不是拷贝一份。
 			web_app.req_count++
+			// 不带 -enable-globals 编译时 g_req_count 不可访问，先判一次。
 			if is_globals_enabled() {
 				g_req_count++
 			}
 			if !isnil(web_app.middleware) {
 				web_app.middleware.apply_global(mut ctx2.Context) or {}
 			}
-			return true
+			return web_app.web_module.handle_request(voidptr(&ctx2))
 		}
 	})
 
@@ -165,9 +135,9 @@ pub fn main() {
 	port := app_cfg.server_port
 	log_.info('=== Starting HTTP server on 0.0.0.0:${port} ===')
 
-	// 路由表来自编译期扫描：扫的是 App 自己的方法，路由注解就写在那些方法上。
-	// 所以「加一条路由」和「路由表里出现一条」是同一件事，不需要谁去记得同步。
-	web.print_routes(web.scan_controller[App]())
+	// 路由表从各控制器自己扫出来：挂载用什么扫描，横幅就用什么扫描。
+	// App 自己一条路由都没有（它只持 Bean），扫 App 只会得到一张空表。
+	web.print_routes(app_routes())
 
 	veb.run_at[App, Context](mut web_app, host: '0.0.0.0', port: port, family: .ip) or {
 		eprintln('HTTP server error: ${err}')

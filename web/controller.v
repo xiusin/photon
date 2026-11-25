@@ -45,8 +45,8 @@ import x.json2
 //       user_service &UserService
 //   }
 //
-//   @[get('/users')]
-//   pub fn (c &UserController) list(mut ctx veb.Context, params map[string]string) veb.Result {
+//   @[get: '/users']
+//   pub fn (c &UserController) list(mut ctx Context) veb.Result {
 //       return c.ok(mut ctx, '{"users":[]}')
 //   }
 pub struct BaseController {
@@ -219,12 +219,18 @@ pub fn (b &BaseController) guard_error(mut ctx veb.Context, msg string) veb.Resu
 	return b.unauthorized(mut ctx, msg)
 }
 
-// validate_id 从路径参数中提取并校验正整数 ID，返回 !int
+// validate_id 从上下文里取路径参数并校验正整数 ID，返回 !int
 // label 示例: 'post id / 无效的文章 ID' — 错误消息会拼为 'invalid ${label}'
-pub fn (b &BaseController) validate_id(params map[string]string, key string, label string) !int {
-	id_str := params[key] or { return error('invalid ${label}') }
+//
+// 参数从 ctx 上取（见 RouterContext.path），控制器方法因此不用为了拿一个
+// id 就把签名改成收 map。
+pub fn (b &BaseController) validate_id(ctx &RouterContext, key string, label string) !int {
+	id_str := ctx.path(key)
+	if id_str.len == 0 {
+		return error('invalid ${label}')
+	}
 	id := id_str.int()
-	if id <= 0 {
+	if id <= 0 || id.str() != id_str.trim_left('+') {
 		return error('invalid ${label}')
 	}
 	return id
