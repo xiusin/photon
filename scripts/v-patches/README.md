@@ -1,8 +1,13 @@
-# scripts/v-patches — 需要在本地 V 编译器上打的补丁
+# scripts/v-patches — 历史编译器补丁（当前代码不再需要）
 
-这里放的是**编译器侧**的补丁。它们不属于框架代码，所以不放进 `vlib/`，
-但复现本框架在 V 0.5.2 上的行为又离不开它们。每份补丁都写清了
-「为什么必须在编译器里改」，而不是在框架里绕。
+> **状态：legacy。** 当前 Photon 控制器采用 veb 原生签名
+> `pub fn (mut c Ctrl) show(mut ctx Context) veb.Result`，路径参数从
+> `ctx.path('id')` 取；`example/verify` 与 `web/mount_test.v` 在官方 V 0.5.2 上
+> 直接可编。下列补丁只服务于旧的 `(mut ctx, params map[string]string)` 签名，
+> 保留用于复现历史问题，不再是使用本框架的前置条件。
+
+这里放的是**编译器侧**的补丁。它们不属于框架代码，所以不放进 `vlib/`。
+每份补丁都写清了「为什么必须在编译器里改」，而不是在框架里绕。
 
 用法（假设 V 源码在 `$VROOT`，版本 0.5.2 / `7647ce1`）：
 

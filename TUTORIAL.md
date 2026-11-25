@@ -47,20 +47,25 @@ fn main() {
 运行：
 
 ```bash
-v run . serve --port=8080
-v run . list
-v run . help serve
+# Photon 示例带 -enable-globals；CLI 子命令在 main() 里注册
+v -enable-globals run example/main.v
+v -enable-globals run example/main.v list
+v -enable-globals run example/main.v help serve
 ```
 
-项目结构建议：
+推荐的项目结构（与仓库内 `example/` 一致）：
 
 ```
 myapp/
-├── main.v           # 入口
-├── controllers/     # 控制器
-├── models/          # 实体
-├── middleware/      # 中间件
-└── config/          # 配置文件
+├── main.v           # 单文件入口：import app + app.run()
+└── app/             # 业务模块，按职责拆包
+    ├── bootstrap/   # 配置与 DI 装配
+    ├── controllers/ # 路由注解 + 请求处理
+    ├── services/    # 业务逻辑
+    ├── models/      # 实体与 DTO
+    ├── middleware/  # 横切中间件
+    ├── http/        # Context 与响应助手
+    └── state/       # 请求计数等叶子状态
 ```
 
 ---
@@ -2089,168 +2094,101 @@ conn2 := p.acquire()!
 
 ## 完整应用示例
 
-把所有模块串起来的真实应用：
+仓库 `example/` 是可以直接运行的完整示例：`main.v` 是单文件入口，业务代码在 `app/` 子模块。
 
 ```v
-import veb
-import photon.core
-import photon.config
-import photon.logger
-import photon.security
-import photon.cli
-import photon.web
-import photon.orm
-import photon.cache
-import photon.locking
-import photon.queue
-
-struct DemoUser {
-    orm.BaseEntity
-pub mut:
-    name  string
-    email string
-}
-
-fn start_server() {
-    // 配置
-    mut cfg := config.new()
-    cfg.set_profile(['dev'])
-    cfg.add_source(config.MapConfigSource{
-        data: {
-            'app.name':    'PhotonApp'
-            'server.port': '8080'
-            'jwt.secret':  'your-256-bit-secret-key-here-min-32-chars!!'
-        }
-    })
-    cfg.load()!
-
-    // 日志
-    mut log_ := logger.new()
-    log_.set_level(.debug)
-    log_.set_colored(true)
-    log_.put('app', cfg.get('app.name'))
-
-    // 安全
-    jwt_cfg := security.JwtConfig{
-        secret:             cfg.get_or('jwt.secret', 'default-secret!!')
-        expiration_minutes: 60
-    }
-    jwt_mgr := security.new_jwt_manager(jwt_cfg)
-
-    mut user_svc := security.new_in_memory_service()
-    user_svc.add_user(security.new_user('admin', 'admin123', ['ADMIN']))
-
-    mut auth_mgr := security.new_auth_manager()
-    auth_mgr.add_provider(&security.JwtAuthenticationProvider{jwt_manager: jwt_mgr})
-
-    mut sec_chain := security.new_security_filter_chain(auth_mgr, jwt_mgr,
-        security.new_csrf_manager(security.CsrfConfig{enabled: true}))
-    sec_chain.with_permit_all('/')
-    sec_chain.with_permit_all('/api/auth/login')
-    sec_chain.with_secured('/api/users')
-    sec_chain.with_roles('/api/admin', ['ADMIN'])
-
-    // 缓存
-    mut cm := cache.new_cache_manager()
-
-    // 锁
-    mut lm := locking.new_lock_manager()
-
-    // 队列
-    mut driver := queue.new_memory_driver()
-    mut disp := queue.new_dispatcher(driver)
-
-    // 中间件
-    mut chain := web.new_chain()
-    chain.use(web.request_id_middleware)
-    chain.use(web.logging_middleware)
-    chain.use(web.cors_middleware)
-    chain.use(web.request_id_cleanup_middleware)
-
-    // ORM
-    mut om := orm.new_orm_manager()
-    om.register_connection('default', .sqlite, voidptr(0))!
-
-    log_.info('应用初始化完成')
-
-    port := cfg.get_int_or('server.port', 8080)
-    veb.run[App](port)
-}
-
-pub struct App {
-    veb.Context
-pub mut:
-    log_ &logger.Logger = logger.new()
-    jwt_mgr  &security.JwtManager
-    csrf_mgr &security.CsrfManager
-}
-
-@[get; '/']
-pub fn (mut app App) index() veb.Result {
-    return app.text('Hello Photon')
-}
-
-@[post; '/api/auth/login']
-pub fn (mut app App) login() veb.Result {
-    token := app.jwt_mgr.create_token('admin', ['ADMIN']) or {
-        return app.text('{"error":"auth failed"}')
-    }
-    csrf := app.csrf_mgr.create_token() or { return app.text('{"error":"csrf"}') }
-    return app.text('{"token":"${token}","csrf":"${csrf.token}"}')
-}
-
-@[get; '/api/users']
-pub fn (mut app App) user_list() veb.Result {
-    return app.text('{"users":[{"id":1,"name":"Alice"}]}')
-}
-
-@[get; '/api/admin']
-pub fn (mut app App) admin_dashboard() veb.Result {
-    return app.text('{"dashboard":"admin"}')
-}
+// main.v
+module main
+import app
 
 fn main() {
-    mut app := cli.new_application('photon', '0.1.0')
-    app.add_command(cli.new_serve_command())
-    app.add_command(cli.new_list_command(app))
-    app.add_command(cli.new_help_command(app))
-    app.run() or { panic(err) }
+	app.run()
 }
+```
+
+控制器自带路由注解和 `@[autowired]` 依赖，没有手写构造函数：
+
+```v
+// app/controllers/user_controller.v（节选）
+@[controller]
+pub struct UserController {
+	user_service &services.UserService = unsafe { nil } @[autowired]
+}
+
+@[get: '/api/v1/users/:id']
+pub fn (c &UserController) show(mut ctx http.Context) veb.Result {
+	id := ctx.path_int('id') or { return ctx.json_error(400, 'invalid id') }
+	user := c.user_service.get_by_id(id) or { return ctx.json_error(404, err.msg()) }
+	return ctx.json_response(200, '${user}')
+}
+```
+
+启动入口里注册 Bean、刷新容器、给 App 注入自身依赖，然后一步创建 + 注入 + 挂载控制器：
+
+```v
+// app/server.v（节选）
+mut ctx := core.new_application_context()
+ctx.register_instance('UserService', voidptr(user_service))!
+ctx.register_instance('Logger', voidptr(logger))!
+ctx.refresh()!
+
+mut web_app := &App{ web_module: web.init_web_module() }
+ctx.autowire_controller[App](web_app) or { panic(err) }
+web_app.web_module.wire_and_mount[controllers.UserController, http.Context](mut ctx) or { panic(err) }
+
+veb.run_at[App, http.Context](mut web_app, host: '0.0.0.0', port: 8080) or { panic(err) }
+ctx.shutdown()
+```
+
+运行：
+
+```bash
+v -enable-globals run example/main.v
 ```
 
 ---
 
 > **Photon Framework** — 用 V 语言构建企业应用，本该如此简单。
 
-### 4.5 控制器自己带路由（推荐）
+## 控制器自己带路由（推荐）
+
+
 
 路由不该"另有其处"。控制器方法上的注解就是路由表 —— 想找 `/api/v1/users/:id` 是谁处理的，
 在 `*_controller.v` 里搜这个路径就能搜到，中间没有一层转发方法需要你同时改两处。
 
 ```v
-// user_controller.v
+// app/controllers/user_controller.v
 import veb
+import photon.web
 
+pub type Context = web.RouterContext
+
+@[controller]
 pub struct UserController {
 pub mut:
-	user_service &UserService
+	user_service &UserService = unsafe { nil } @[autowired]
 }
 
 // GET /api/v1/users/:id
-@['/api/v1/users/:id'; get]
-pub fn (c &UserController) show(mut ctx Context, id string) veb.Result {
-	user := c.user_service.get_by_id(id.int()) or { return ctx.json_error(404, err.msg()) }
+@[get: '/api/v1/users/:id']
+pub fn (c &UserController) show(mut ctx Context) veb.Result {
+	id := ctx.path_int('id') or { return ctx.json_error(400, 'invalid id') }
+	user := c.user_service.get_by_id(id) or { return ctx.json_error(404, err.msg()) }
 	return ctx.json_response(200, '${user}')
 }
 ```
 
 两个约定：
 
-- **`ctx` 永远第一个参数**：veb 先注入 `ctx`，再按 `:name` 的顺序依次注入路径参数，
-  签名里的参数个数必须和 `:name` 个数对上，否则 V 在 `-prod` 下直接编译失败。
-- **前缀写进路径**：`@['/api/v1/users/:id'; get]` 比 `@[prefix: '/api/v1']` 更直白 ——
+- **签名是 veb 原生形态**：只有 `mut ctx Context` 一个业务参数，返回 `veb.Result`；
+  路径参数从 ctx 上取：`ctx.path('id')` / `ctx.path_int('id')`，不再作为方法参数传入。
+- **Context 只嵌一层**：用 `web.RouterContext`（它直接嵌入 `veb.Context`），
+  不要再用 struct 包一层，否则 V 0.5.2 的 checker 会注入多余的 ctx 参数。
+- **前缀写进路径**：`@[get: '/api/v1/users/:id']` 直白地写出完整 URL，
   路由表打印出来和源码读到的完全一致。
 
-`example/` 就是这么组织的：`home_controller.v`、`auth_controller.v`、`user_controller.v`、
-`apidoc_controller.v` 各自带着自己的注解方法，`App` 上一条路由方法都没有，
-路由表由 veb 在编译期扫描生成（`veb.run_at[App, Context]`）。
+控制器依赖用 `@[autowired]` 字段注入；创建 + 注入 + 挂载由
+`web_module.wire_and_mount[T, Context](mut ctx)` 一步完成。
+仓库内 `example/app/controllers/` 就是这么组织的：`App` 上一条路由方法都没有，
+路由表由框架在编译期扫描控制器注解生成。

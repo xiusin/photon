@@ -3,8 +3,8 @@
 > **V 语言企业级框架** — 对标 Spring Boot，注解驱动的声明式编程模型，编译期依赖注入与代码生成，零运行时反射开销。
 
 <p align="center">
-  <img src="https://img.shields.io/badge/V-0.4.x%2B-5d87bf?style=flat-square" alt="V version">
-  <img src="https://img.shields.io/badge/version-0.4.0-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/V-0.5.2%2B-5d87bf?style=flat-square" alt="V version">
+  <img src="https://img.shields.io/badge/version-0.1.0-blue?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License">
   <a href=".github/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/photon-framework/photon/ci.yml?branch=master&style=flat-square" alt="CI"></a>
 </p>
@@ -47,7 +47,7 @@ photon/
 ├── apidoc/     # API 文档：Collector 收集、Store 持久化
 ├── strutil/    # 工具：Collection、Str、Arr、hash（零依赖）
 ├── pageable/   # 分页与排序：Sort、PageRequest、Page[T]
-└── example/    # 示例应用
+└── example/    # 示例应用：main.v 单文件入口 + app/（bootstrap/controllers/services/models/...）
 ```
 
 ---
@@ -71,22 +71,20 @@ photon/
 > 2. 自举阶段的 `libgc.a` 在部分 glibc 上缺 `sigsetjmp`，自举时加 `-gc none`
 >    （`make local=1 VFLAGS="-gc none"`）。
 
-> **`example/verify` 需要一份编译器补丁**。它验证的正是框架的核心约定——
-> 控制器方法收 `(mut ctx veb.Context, params map[string]string)`——而 V 0.5.2 的
-> checker 会把「任何返回 `veb.Result` 的方法」当成 veb 自己的 app 方法，
-> 只放行 `string / 整数 / bool`。在未打补丁的编译器上，`example/verify` 的
-> 7 个控制器方法整包编不过。补丁在 `scripts/v-patches/`，一键应用：
+> **当前约定：控制器方法签名是 veb 原生形态**（`mut ctx Context`，返回 `veb.Result`），
+> 路径参数从 `ctx.path('id')` 取，不再把 `params map[string]string` 当方法参数。
+> `Context` 应直接嵌入 `veb.Context`（或直接用 `web.RouterContext`）：V 0.5.2 的
+> checker 只认一层嵌入，包两层会被误判并把每个 `veb.Result` 方法都加上多余的 ctx。
+>
+> **`example/verify` 现在不需要编译器补丁**。历史补丁保留在 `scripts/v-patches/`，
+> 仅用于验证旧签名 `(mut ctx, params map)` 的场景；当前代码在官方 V 0.5.2 上直接可编。
+>
+> 需要真实系统依赖：`security/` 通过 C bridge 链接 `libargon2`。Apple Silicon 上
+> Homebrew 的库目录默认不在链接路径里，构建 `security/` 或 `make verify` 时加：
 >
 > ```bash
-> sh scripts/apply-v-patches.sh            # 自动定位 $VROOT
-> VROOT=/path/to/v sh scripts/apply-v-patches.sh
+> LIBRARY_PATH=/opt/homebrew/lib make verify
 > ```
->
-> 补丁只做一件事：方法带 `@[get]/@[post]/@[put]/@[delete]/@[patch]/@[head]/
-> @[options]/@[route]` 时跳过该检查 —— 这些属性的路由由框架 comptime 派发，
-> 与 veb 的「参数从 URL 段填充」无关。veb 自己的路由方法不带这些属性，
-> 约束对 veb 本身依然生效。理由与最小复现见
-> [scripts/v-patches/README.md](scripts/v-patches/README.md)。
 
 ### 怎么 import 这个框架
 
@@ -128,7 +126,12 @@ make test-vendor             # vendored vredis（需要本机 Redis）
 # 构建示例应用（make build / make verify 会自动带上 photon 查找根，见下）
 make build
 
-# 跑功能验证套件（247 项断言，需要上面那份编译器补丁）
+# 运行示例：入口是单文件 main.v，业务在 example/app/
+v -enable-globals run example/main.v
+# 等价写法（按目录编译）：
+v -enable-globals run example/
+
+# 跑功能验证套件（248 项断言；Apple Silicon 需要 LIBRARY_PATH=/opt/homebrew/lib）
 make verify
 ```
 
@@ -152,24 +155,23 @@ v -enable-globals -path "@vlib|@vmodules|${LOOKUP}" -prod -o bin/photon example/
 ### 在项目中使用
 
 ```v
-import photon
 import photon.core
-import photon.web
-import photon.cache
 
-// 创建应用上下文
-mut app := core.new_context('MyApp')
+// 1. 创建 DI 容器
+mut ctx := core.new_application_context()
 
-// 注册 Bean
-app.register('user_service', core.BeanDefinition{
-    factory: fn (mut bf core.BeanFactory) voidptr {
-        // 返回你的服务实例
-        return unsafe { nil }
-    }
-})!
+// 2. 注册 Bean（名字约定：UserService / Logger / MiddlewareManager）
+ctx.register_instance('UserService', voidptr(user_service))!
+ctx.register_instance('Logger', voidptr(logger))!
 
-// 启动
-app.run()!
+// 3. 初始化单例与生命周期回调；之后 BeanDefinition 冻结，不能再注册
+ctx.refresh()!
+
+// 4. 解析 Bean；控制器用 ctx.wire_controller[T]() 创建并注入 @[autowired] 字段
+user_svc := ctx.resolve_typed[UserService]('UserService')!
+
+// 5. 退出时优雅关闭
+defer { ctx.shutdown() }
 ```
 
 ---
@@ -316,22 +318,22 @@ s.command(fn () ! { /* ... */ })
 ```v
 @[controller]
 pub struct UserController {
-    web.BaseController
+    user_service &UserService = unsafe { nil } @[autowired]
 }
 
-@[get('/users')]
-pub fn (mut c UserController) list() veb.Result {
-    return c.ok('[{"id":1,"name":"Alice"}]')
+@[get: '/users']
+pub fn (c &UserController) list(mut ctx Context) veb.Result {
+    return ctx.json_response(200, '[{"id":1,"name":"Alice"}]')
 }
 
-@[post('/users')]
-pub fn (mut c UserController) create() veb.Result {
-    return c.created('{"id":2,"name":"Bob"}')
+@[post: '/users']
+pub fn (mut c UserController) create(mut ctx Context) veb.Result {
+    return ctx.json_response(201, '{"id":2,"name":"Bob"}')
 }
 
-@[get('/users/:id')]
-pub fn (mut c UserController) get_user(id string) veb.Result {
-    return c.ok('{"id":${id}}')
+@[get: '/users/:id']
+pub fn (c &UserController) show(mut ctx Context) veb.Result {
+    return ctx.text(ctx.path('id')) // 路径参数从 ctx 取，不是方法参数
 }
 ```
 
@@ -473,16 +475,17 @@ kernel.terminate()
 ### Controller 内置方法
 
 ```v
-pub fn (mut c BaseController) ok(data string) veb.Result
-pub fn (mut c BaseController) created(data string) veb.Result
-pub fn (mut c BaseController) no_content() veb.Result
-pub fn (mut c BaseController) bad_request(msg string) veb.Result
-pub fn (mut c BaseController) not_found(msg string) veb.Result
-pub fn (mut c BaseController) internal_error(msg string) veb.Result
-pub fn (mut c BaseController) unauthorized(msg string) veb.Result
-pub fn (mut c BaseController) forbidden(msg string) veb.Result
-pub fn (mut c BaseController) html(content string) veb.Result
-pub fn (mut c BaseController) redirect(url string) veb.Result
+// BaseController 的响应助手第一个参数永远是 ctx；也可直接用 ctx.json / ctx.text
+pub fn (b &BaseController) ok(mut ctx veb.Context, data string) veb.Result
+pub fn (b &BaseController) created(mut ctx veb.Context, data string) veb.Result
+pub fn (b &BaseController) no_content(mut ctx veb.Context) veb.Result
+pub fn (b &BaseController) bad_request(mut ctx veb.Context, msg string) veb.Result
+pub fn (b &BaseController) not_found(mut ctx veb.Context, msg string) veb.Result
+pub fn (b &BaseController) server_error(mut ctx veb.Context, msg string) veb.Result
+pub fn (b &BaseController) unauthorized(mut ctx veb.Context, msg string) veb.Result
+pub fn (b &BaseController) forbidden(mut ctx veb.Context, msg string) veb.Result
+pub fn (b &BaseController) html(mut ctx veb.Context, data string) veb.Result
+pub fn (b &BaseController) redirect(mut ctx veb.Context, url string) veb.Result
 ```
 
 ### Web 测试工具

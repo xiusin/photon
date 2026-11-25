@@ -62,7 +62,7 @@ pub mut:
 }
 
 @[get: '/users']
-pub fn (mut c VerifyUserController) list(mut ctx veb.Context) veb.Result {
+pub fn (mut c VerifyUserController) list(mut ctx web.RouterContext) veb.Result {
 	c.called_method = 'list'
 	if !isnil(c.user_service) {
 		return ctx.text('users:${c.user_service.prefix}')
@@ -81,7 +81,7 @@ pub fn (mut c VerifyUserController) show(mut ctx web.RouterContext) veb.Result {
 }
 
 @[post: '/users']
-pub fn (mut c VerifyUserController) create(mut ctx veb.Context) veb.Result {
+pub fn (mut c VerifyUserController) create(mut ctx web.RouterContext) veb.Result {
 	c.called_method = 'create'
 	return ctx.text('created')
 }
@@ -120,13 +120,13 @@ pub mut:
 
 @[get]
 @['/health']
-pub fn (mut c VerifyHealthController) check(mut ctx veb.Context) veb.Result {
+pub fn (mut c VerifyHealthController) check(mut ctx web.RouterContext) veb.Result {
 	c.checked = true
 	return ctx.text('ok')
 }
 
 @[get]
-pub fn (mut c VerifyHealthController) ping(mut ctx veb.Context) veb.Result {
+pub fn (mut c VerifyHealthController) ping(mut ctx web.RouterContext) veb.Result {
 	return ctx.text('pong')
 }
 
@@ -154,7 +154,7 @@ fn verify_controller_mount(mut v Verifier) {
 	// ── 1. 分离式注解挂载 ──
 	mut rr := web.new_route_registry()
 	ctrl_health := &VerifyHealthController{}
-	rr.mount_controller[VerifyHealthController, veb.Context](ctrl_health, '/api')
+	rr.mount_controller[VerifyHealthController, web.RouterContext](ctrl_health, '/api')
 
 	v.check('分离式注解：注册 2 条路由', rr.route_count() == 2)
 
@@ -348,7 +348,7 @@ fn verify_webmodule_integration(mut v Verifier) {
 
 	mut wm := web.init_web_module()
 	ctrl := &VerifyHealthController{}
-	wm.mount_controller[VerifyHealthController, veb.Context](ctrl, '/api')
+	wm.mount_controller[VerifyHealthController, web.RouterContext](ctrl, '/api')
 
 	v.check('WebModule.mount_controller: 注册 2 条路由', wm.router.route_count() == 2)
 
@@ -372,7 +372,7 @@ fn verify_webmodule_integration(mut v Verifier) {
 	// 无注解前缀时使用默认值
 	mut wm3 := web.init_web_module()
 	ctrl_health := &VerifyHealthController{}
-	wm3.mount_controller_auto[VerifyHealthController, veb.Context](ctrl_health, '/fallback')
+	wm3.mount_controller_auto[VerifyHealthController, web.RouterContext](ctrl_health, '/fallback')
 
 	mut found_fallback := false
 	for route in wm3.router.routes {
@@ -396,7 +396,7 @@ fn verify_multi_controller_dispatch(mut v Verifier) {
 
 	rr.mount_controller[VerifyUserController, web.RouterContext](ctrl_user, '/api/v1')
 	rr.mount_controller[VerifyAdminController, veb.Context](ctrl_admin, '/admin')
-	rr.mount_controller[VerifyHealthController, veb.Context](ctrl_health, '/')
+	rr.mount_controller[VerifyHealthController, web.RouterContext](ctrl_health, '/')
 
 	// 3+2+2 = 7 条路由
 	v.check('多控制器：共注册 7 条路由', rr.route_count() == 7)

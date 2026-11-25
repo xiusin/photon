@@ -168,7 +168,7 @@ Photon框架的Web层通过注解驱动、中间件链、统一响应、数据�
 
 ## 参考文献
 
-[^1]: [路由注解扫描机制](src/web/router.v#L122-L194)
+[^1]: [路由注解扫描机制](web/router.v#L122-L194)
 [^2]: [中间件链执行逻辑](src/web/middleware.v#L75-L83)
 [^3]: [分页响应结构设计](src/web/result.v#L74-L87)
 [^4]: [测试断言API实现](src/web/testing.v#L73-L192)

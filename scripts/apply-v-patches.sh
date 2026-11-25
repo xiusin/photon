@@ -1,5 +1,8 @@
 #!/bin/sh
-# apply-v-patches.sh — 把 scripts/v-patches/ 下的编译器补丁打进本地 V 并重新自举
+# apply-v-patches.sh — 历史工具：把 scripts/v-patches/ 下的编译器补丁打进本地 V 并重新自举
+#
+# 当前 Photon 控制器用 veb 原生签名 + ctx.path()，官方 V 0.5.2 直接可编；
+# 本脚本只用于复现旧的 `(mut ctx, params map)` 签名场景，不再是使用框架的前置条件。
 #
 # 为什么需要这一步
 # ----------------

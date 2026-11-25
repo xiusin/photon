@@ -345,12 +345,14 @@ scan_routes[T]()  — 编译期 $for 扫描 @[get/post/put/delete/patch] 注解
 
 **注解路由风格**：
 ```v
-@[get('/users/:id')]
-pub fn (mut app MyApp) show(id int) veb.Result { ... }
+@[get: '/users/:id']
+pub fn (mut c MyController) show(mut ctx Context) veb.Result {
+	return ctx.text(ctx.path('id')) // 路径参数从 ctx 取，不是方法参数
+}
 
-@[post('/users')]
+@[post: '/users']
 @[middleware('auth')] // 路由级中间件
-pub fn (mut app MyApp) create() veb.Result { ... }
+pub fn (mut c MyController) create(mut ctx Context) veb.Result { ... }
 ```
 
 #### B. HTTP 请求生命周期
@@ -1349,7 +1351,7 @@ get_or_load(key, ttl, loader)
 
 ### 6.2 扫描机制
 
-所有注解通过 V 编译期反射 `comptime $for` 扫描：
+所有注解通过 V 编译期 comptime 扫描 `comptime $for` 扫描：
 
 ```v
 // router.v 示例
@@ -1515,27 +1517,32 @@ web 模块冷编译本身就要 10~15 秒。合成一个 30 秒预算时，慢�
 
 `example/verify/` 是一个独立的自验证程序（`module main`，与 `example/` 的
 Web 应用分开），用断言逐项验证 DI、注解、控制器挂载、ORM 链式查询、安全、
-缓存等模块的**真实用法**——不只是「能编译」。当前 **247 项断言**。
+缓存等模块的**真实用法**——不只是「能编译」。当前 **248 项断言**。
 
 ```bash
-make verify                                  # v run example/verify
-sh scripts/apply-v-patches.sh                # 先打编译器补丁（见下）
+make verify                                  # v -enable-globals run example/verify
+
+# Apple Silicon + Homebrew：security 的 libargon2 不在默认链接路径里
+LIBRARY_PATH=/opt/homebrew/lib make verify
 ```
 
-**它需要一份编译器补丁，这不是可选项。** 验证套件跑的是框架的核心约定：
+**当前约定（与示例应用一致）**：控制器方法用 veb 原生签名，路径参数从 ctx 上取：
 
 ```v
 @[get: '/users/:id']
-pub fn (mut c Ctrl) show(mut ctx veb.Context, params map[string]string) veb.Result
+pub fn (mut c Ctrl) show(mut ctx web.RouterContext) veb.Result {
+	return ctx.text(ctx.path('id'))
+}
 ```
 
-而 V 0.5.2 的 `checker.fn_decl()` 把**任何**返回 `veb.Result` 的方法都当成
-veb app 方法，只放行 `string / 整数 / bool`。于是这 7 个方法整包编不过。
+`Context` 必须**直接**嵌入 `veb.Context`（或直接用 `web.RouterContext`）：
+V 0.5.2 的 checker 只认一层嵌入，包两层会被误判成非 veb 上下文，给每个
+`veb.Result` 方法注入多余的 ctx 参数。控制器依赖走 `@[autowired]` +
+`ctx.wire_controller[T]()`，不再手写构造函数。
 
-这条约束没法在框架里绕开——把参数改成 `string` 就等于放弃路径参数，
-那不是「绕开检查」，是把框架能力砍掉。所以补丁放在编译器一侧：
-`scripts/v-patches/0001-*.patch`，用 `scripts/apply-v-patches.sh` 应用。
-补丁只在方法带路由属性时跳过该检查，veb 自身的约束不变。
+`scripts/v-patches/` 中的编译器补丁是**历史遗留**，只服务于旧的
+`(mut ctx, params map[string]string)` 签名；当前代码在官方 V 0.5.2 上直接可编，
+不再需要打补丁。
 
 **这条套件长期没人跑，所以它坏了很久没人知道**——`locate_controller[T]` 曾经
 只存在于文档里、原型作用域的 bean 曾被缓存成单例、`run_with_graceful_shutdown()`
@@ -2275,7 +2282,7 @@ reset_middleware_context 不清 route_path/route_method      → assert mctx.rou
 MiddlewareContext.reset 不清 route_path/route_method       → assert mctx.route_path == ''
 ```
 
-`example/verify` 247/247，全量 239 个测试文件全绿。
+`example/verify` 248/248，全量 239 个测试文件全绿。
 
 #### 四、这轮的形状
 

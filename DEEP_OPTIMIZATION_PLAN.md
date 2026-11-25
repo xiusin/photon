@@ -1,5 +1,8 @@
 # Photon Framework — 深度优化方案
 
+> **历史方案**：本文是 2026-06-24 的优化计划（针对当时 0.2.0-rc），其中多数条目已落地或废弃。
+> 当前 API 与用法以 [README.md](README.md) 和 [TUTORIAL.md](TUTORIAL.md) 为准。
+
 > 生成日期: 2026-06-24 | 版本: 0.2.0-rc | 基于 Spring Framework 6 + Hyperf 3.1 设计理念对标
 >
 > 本文档是对 Photon 框架现有 16 个模块进行深度对比分析后的优化方案，不盲目开发，
