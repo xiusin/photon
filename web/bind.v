@@ -197,6 +197,14 @@ fn validate_struct[T](mut result T) ! {
 		}
 
 		// Check required fields
+		//
+		// 这里的数值分支必须和下面的 min/max 分支**逐个对齐**，否则会出现
+		// 一种和「min/max 只认 int」同形状的漏检：`@[required]` 写在 `u8` /
+		// `i8` / `f32` 上时编译通过、运行时一个字都不检查 —— 字段缺席、
+		// 值是零值，结构体照样构造成功交给业务层。
+		//
+		// `bool` 不参与判定：`false` 既可能是「没传」，也可能是「传了 false」，
+		// 而两种意图在零值上不可区分，强判会把合法的 false 变成必填失败。
 		if is_required {
 			$if field.typ is string {
 				val := result.$(field.name)
@@ -204,18 +212,43 @@ fn validate_struct[T](mut result T) ! {
 					errors << '${field.name} is required / ${field.name} 为必填项'
 				}
 			} $else $if field.typ is int {
-				val := result.$(field.name)
-				if val == 0 {
+				if result.$(field.name) == 0 {
+					errors << '${field.name} is required / ${field.name} 为必填项'
+				}
+			} $else $if field.typ is i8 {
+				if result.$(field.name) == 0 {
+					errors << '${field.name} is required / ${field.name} 为必填项'
+				}
+			} $else $if field.typ is i16 {
+				if result.$(field.name) == 0 {
 					errors << '${field.name} is required / ${field.name} 为必填项'
 				}
 			} $else $if field.typ is i64 {
-				val := result.$(field.name)
-				if val == 0 {
+				if result.$(field.name) == 0 {
+					errors << '${field.name} is required / ${field.name} 为必填项'
+				}
+			} $else $if field.typ is u8 {
+				if result.$(field.name) == 0 {
+					errors << '${field.name} is required / ${field.name} 为必填项'
+				}
+			} $else $if field.typ is u16 {
+				if result.$(field.name) == 0 {
+					errors << '${field.name} is required / ${field.name} 为必填项'
+				}
+			} $else $if field.typ is u32 {
+				if result.$(field.name) == 0 {
+					errors << '${field.name} is required / ${field.name} 为必填项'
+				}
+			} $else $if field.typ is u64 {
+				if result.$(field.name) == 0 {
+					errors << '${field.name} is required / ${field.name} 为必填项'
+				}
+			} $else $if field.typ is f32 {
+				if result.$(field.name) == 0.0 {
 					errors << '${field.name} is required / ${field.name} 为必填项'
 				}
 			} $else $if field.typ is f64 {
-				val := result.$(field.name)
-				if val == 0.0 {
+				if result.$(field.name) == 0.0 {
 					errors << '${field.name} is required / ${field.name} 为必填项'
 				}
 			}
