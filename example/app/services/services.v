@@ -14,6 +14,7 @@ module services
 //   3. HealthService   — 健康检查与统计
 //   4. CacheService    — 缓存业务封装
 import app.models
+import app.runtime as app_runtime
 import time
 import photon.cache
 import photon.orm
@@ -401,29 +402,31 @@ pub fn (s &AuthService) get_profile(username string) !models.UserProfile {
 // HealthService — 健康检查与统计
 // ═══════════════════════════════════════════════════════════
 
+// HealthService 健康检查与统计。
+//
+// 以前它自己 new 的时候取一次 time.ticks() 当基准，HomeController 又拿另外
+// 一份 —— 同一台进程有两个「启动时刻」，uptime 对不上。现在基准只有一处：
+// 容器里的 ProcessRuntime，这里 @[autowired] 注入，不再自带一份。
 @[service]
 pub struct HealthService {
 pub mut:
-	start_time i64
-}
-
-pub fn new_health_service() &HealthService {
-	return &HealthService{
-		start_time: time.ticks()
-	}
+	runtime &app_runtime.ProcessRuntime = unsafe { nil } @[autowired]
 }
 
 pub fn (s &HealthService) health() models.HealthStatus {
 	return models.HealthStatus{
 		status:    'UP'
 		version:   '0.4.0'
-		uptime_ms: time.ticks() - s.start_time
+		uptime_ms: s.uptime_ms()
 		timestamp: time.now().unix()
 	}
 }
 
 pub fn (s &HealthService) uptime_ms() i64 {
-	return time.ticks() - s.start_time
+	if isnil(s.runtime) {
+		return 0
+	}
+	return s.runtime.uptime_ms()
 }
 
 // ═══════════════════════════════════════════════════════════

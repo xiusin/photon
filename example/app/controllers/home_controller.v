@@ -7,20 +7,24 @@ module controllers
 // 一模一样 —— 控制器只是换个文件放。路径参数从 ctx.path('id') 取。
 import app.http
 import app.services
+import app.runtime as app_runtime
 import app.bootstrap
 import app.state
 import veb
 import time
 
 // HomeController — 首页 & 系统信息
+//
+// 控制器需要的启动时刻来自容器（ProcessRuntime），不是启动代码塞进来的：
+// 挂载完成后不需要再给任何字段补值。
 @[controller]
 pub struct HomeController {
 pub mut:
-	user_service   &services.UserService   = unsafe { nil } @[autowired]
-	cache_service  &services.CacheService  = unsafe { nil } @[autowired]
-	health_service &services.HealthService = unsafe { nil } @[autowired]
-	app_config     &bootstrap.AppConfig    = unsafe { nil } @[autowired]
-	start_time     i64
+	user_service    &services.UserService       = unsafe { nil }       @[autowired]
+	cache_service   &services.CacheService      = unsafe { nil }      @[autowired]
+	health_service  &services.HealthService     = unsafe { nil }     @[autowired]
+	app_config      &bootstrap.AppConfig        = unsafe { nil }        @[autowired]
+	process_runtime &app_runtime.ProcessRuntime = unsafe { nil } @[autowired]
 }
 
 // index GET / — API 信息
@@ -29,7 +33,7 @@ pub fn (c &HomeController) index(mut ctx http.Context) veb.Result {
 	return ctx.json({
 		'app':       'Photon API Server'
 		'version':   c.app_config.app_version
-		'uptime':    '${time.ticks() - c.start_time}ms'
+		'uptime':    '${c.process_runtime.uptime_ms()}ms'
 		'requests':  '${state.get()}'
 		'endpoints': '/health /ping /stats /api/v1/users /api/v1/auth/login /api/v1/auth/profile'
 	})
@@ -41,7 +45,7 @@ pub fn (c &HomeController) health(mut ctx http.Context) veb.Result {
 	return ctx.json({
 		'status':    'UP'
 		'version':   c.app_config.app_version
-		'uptime_ms': '${time.ticks() - c.start_time}'
+		'uptime_ms': '${c.process_runtime.uptime_ms()}'
 		'timestamp': '${time.now().unix()}'
 	})
 }
@@ -58,9 +62,9 @@ pub fn (c &HomeController) stats(mut ctx http.Context) veb.Result {
 	active_users := c.user_service.count()
 	return ctx.json({
 		'requests':     '${state.get()}'
-		'uptime_ms':    '${time.ticks() - c.start_time}'
+		'uptime_ms':    '${c.process_runtime.uptime_ms()}'
 		'active_users': '${active_users}'
-		'start_time':   time.unix(c.start_time / 1000).format_ss()
+		'start_time':   c.process_runtime.start_time_formatted()
 	})
 }
 

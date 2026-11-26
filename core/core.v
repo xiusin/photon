@@ -850,6 +850,31 @@ pub fn (mut c Container) get_definition(type_name string) !BeanDefinition {
 	return c.definitions[type_name] or { return error('bean "${type_name}" not found') }
 }
 
+// upsert_definition inserts or replaces a bean definition.
+//
+// 与 register() 的区别：register() 会评估条件、触发事件，并且拒绝替换已存在的
+// 定义；这里只做「覆盖写」，专供 BeanDefinition 后处理器在实例化之前回填元数据
+// （注解绑定、条件调整等）。条件已在上一次 register() 评估过，不必重来。
+pub fn (mut c Container) upsert_definition(def BeanDefinition) {
+	c.mu.@lock()
+	defer { c.mu.unlock() }
+	c.definitions[def.type_name] = def
+	// 实例若已存在（register_instance 造成的预置单例），把它的定义指针也换掉，
+	// 否则 resolve 走实例快路径时仍看到旧的元数据。
+	// BeanInstance 是指针，直接改它指向的定义即可。
+	// 不重建实例：重建会丢掉 instance / state（预置单例已经是 .ready）。
+	//
+	// definition 字段声明在 pub: 段（不可变），V 不允许直接赋值；
+	// 按结构体布局用 voidptr 写回去 —— 与 inject_voidptr_field 同一手法，
+	// 位置固定在 BeanInstance 的第一个字段。
+	if inst := c.instances[def.type_name] {
+		unsafe {
+			mut slot := &voidptr(inst)
+			slot[0] = voidptr(&c.definitions[def.type_name])
+		}
+	}
+}
+
 // bean_names returns all registered bean type names.
 pub fn (mut c Container) bean_names() []string {
 	c.mu.rlock()

@@ -2192,3 +2192,98 @@ pub fn (c &UserController) show(mut ctx Context) veb.Result {
 `web_module.wire_and_mount[T, Context](mut ctx)` 一步完成。
 仓库内 `example/app/controllers/` 就是这么组织的：`App` 上一条路由方法都没有，
 路由表由框架在编译期扫描控制器注解生成。
+
+## 运行时值也交给容器
+
+配置是「我知道要写什么」，运行时值是「程序跑起来才知道」。启动时刻、uptime、
+进程 ID 都属于后者。以前它们靠穿参：
+
+```v
+start := time.ticks()
+mut app := init_app(mut ctx, start)     // 穿进 App
+home_ctrl.start_time = start            // 再穿进控制器
+```
+
+控制器都已经由容器创建和注入了，还留着这层手工赋值就很别扭：再加一个需要 uptime
+的 Bean，就得回来改一遍启动代码。做法是把它们变成普通 Bean。
+
+**第一步：启动时刻在 refresh 之前冻结进 Environment。**
+
+```v
+mut ctx := core.new_application_context()
+
+// 进程启动时刻只采一次，两个口径都要：
+//   unix 秒 —— 给人看的启动时间
+//   ticks   —— 算 uptime，单调时钟，不受系统时间跳变影响
+start_time := time.now().unix()
+start_tick := time.ticks()
+core.freeze_start_moment_props(mut ctx, start_time, start_tick)
+
+// ... 其它 Bean 注册 ...
+ctx.refresh()!
+```
+
+必须在 `refresh()` 之前 —— 字段上的 `@[value]` 在 refresh 期间绑定，读的就是那一刻的属性表。
+顺带好处：`app.start.time` 是普通配置键，能被 `--app.start.time=...` 覆盖。
+
+**第二步：Bean 声明字段，值从属性来。**
+
+```v
+pub struct ProcessRuntime {
+pub:
+	start_time i64  @[value: 'app.start.time']
+	start_tick i64  @[value: 'app.start.tick']
+	pid        int  @[value: 'app.pid']
+}
+
+// 由「冻结的刻度」推导，而不是各 Bean 各自取一次 now()
+pub fn (r &ProcessRuntime) uptime_ms() i64 {
+	return time.ticks() - r.start_tick
+}
+```
+
+**第三步：谁要谁注入。** 控制器和服务都只声明字段：
+
+```v
+@[controller]
+pub struct HomeController {
+	process_runtime &app_runtime.ProcessRuntime = unsafe { nil } @[autowired]
+	health_service  &services.HealthService     = unsafe { nil } @[autowired]
+}
+
+@[get: '/health']
+pub fn (c &HomeController) health(mut ctx http.Context) veb.Result {
+	return ctx.json({ 'uptime_ms': '${c.process_runtime.uptime_ms()}' })
+}
+```
+
+挂载那行不用动，启动代码里也没有一处 `start_time = `。
+
+### 手写定义时怎么绑 @[value]
+
+`scan_and_register[T]()` 会把字段的 `@[value]` 顺手写进 BeanDefinition。但如果定义是
+手写的，或者实例来自 FactoryBean，这条链就断了 —— 定义里没有 binding，实例上也就
+没人绑，字段静默停在零值。
+
+两个入口把这段接上：
+
+```v
+// 1) 元数据 → BeanDefinition（refresh 期间、实例化之前执行）
+ctx.add_registry_post_processor(core.annotation_binding(core.AnnotationBinding{
+	type_name:      'ProcessRuntime'
+	value_bindings: [
+		core.ValueBinding{ field_name: 'start_time', expr: 'app.start.time' },
+		core.ValueBinding{ field_name: 'start_tick', expr: 'app.start.tick' },
+		core.ValueBinding{ field_name: 'pid', expr: 'app.pid' },
+	]
+}))
+
+// 2) BeanDefinition 上的元数据 → Bean 实例（类型需要调用方点名）
+ctx.refresh()!
+ctx.apply_value_bindings[runtime.ProcessRuntime]('ProcessRuntime')
+```
+
+第 2 步必须显式点名类型：V 拿不到「运行时定义名 → 编译期类型」的映射，泛型参数
+只能由调用方给出。这是语言边界，不是接口设计偷懒。
+
+`/health`、`/stats`、`/` 三个接口的 uptime 现在来自同一个基准，数值一定对得上。
