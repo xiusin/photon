@@ -2,7 +2,7 @@
 <!-- breadcrumb: <a href="#index">Photon</a><span class="sep">/</span>Web · Web 框架 -->
 <div class="hero">
         <h1>Web · Web 框架</h1>
-        <p>注解驱动路由、可组合中间件链、统一响应封装、CORS 支持 — Spring MVC 的 V 语言实现，基于 veb 高性能 HTTP 引擎。深度集成 veb 16 项原生能力：预压缩、CSRF HMAC、WebSocket、SSE、Host 路由、翻译桥接等。</p>
+        <p>注解驱动路由、可组合中间件链、统一响应封装、CORS 支持 — Spring MVC 的 V 语言实现，基于 veb 高性能 HTTP 引擎。深度集成 veb 15 项原生能力：预压缩、CSRF HMAC、WebSocket、SSE、Host 路由等。</p>
         <div class="hero-tags"><span class="hero-tag">🇻‍🇦 GA</span><span class="hero-tag">import photon.web</span><span class="hero-tag">对标 Spring MVC</span></div>
       </div>
 
@@ -186,9 +186,9 @@ chain.<span class="fn">use</span>(web.<span class="fn">cors_middleware</span>(co
 
       <!-- ═══ 5. veb 深度集成 ═══ -->
       <div class="doc-section" id="veb-integration">
-        <div class="section-header"><div class="section-icon icon-web">⚡</div><div><div class="section-title">veb 深度集成</div><div class="section-subtitle">16 项原生能力桥接 — 预压缩、CSRF、WebSocket、Host 路由、翻译、资源管理</div></div></div>
+        <div class="section-header"><div class="section-icon icon-web">⚡</div><div><div class="section-title">veb 深度集成</div><div class="section-subtitle">15 项原生能力桥接 — 预压缩、CSRF、WebSocket、Host 路由、资源管理</div></div></div>
 
-        <p>Photon Web 模块深度桥接了 veb 框架的 16 项原生能力，在保持 Photon API 风格的同时，让开发者可以直接使用 veb 的高性能特性。所有桥接均通过 Photon 的 <code>MiddlewareChain</code> 或 <code>WebModule</code> 体系暴露，无需直接操作 veb 底层 API。</p>
+        <p>Photon Web 模块深度桥接了 veb 框架的 15 项原生能力，在保持 Photon API 风格的同时，让开发者可以直接使用 veb 的高性能特性。所有桥接均通过 Photon 的 <code>MiddlewareChain</code> 或 <code>WebModule</code> 体系暴露，无需直接操作 veb 底层 API。</p>
 
         <div class="info-box info-tip">
           💡 <strong>设计原则</strong>：编译期优于运行期，显式优于隐式。所有 veb 桥接功能均为可选引入，不影响现有代码。
@@ -417,30 +417,7 @@ combined := am.<span class="fn">combine</span>(.css)!
 am.<span class="fn">cleanup_cache</span>()!</div>
         </div>
 
-        <!-- ═══ 5.9 翻译桥接 ═══ -->
-        <h3>模板翻译桥接（veb.tr → Photon i18n）</h3>
-        <p>桥接 <code>veb.tr</code> / <code>veb.tr_plural</code>。将 Photon i18n MessageSource 的翻译资源对接到 veb 模板系统。</p>
-
-        <div class="code-block">
-          <div class="code-header"><span class="code-lang">v</span><button class="code-copy" @click="copyCode($el)">复制</button></div>
-          <div class="code-body"><span class="cm">// 1. 创建翻译桥接器</span>
-<span class="at">mut</span> bridge := web.<span class="fn">new_translation_bridge</span>(<span class="st">'zh-CN'</span>)
-
-<span class="cm">// 2. 加载翻译（可从 Photon i18n.MessageSource 导入）</span>
-bridge.<span class="fn">add_translation</span>(<span class="st">'zh-CN'</span>, <span class="st">'welcome'</span>, <span class="st">'欢迎'</span>)
-bridge.<span class="fn">add_translation</span>(<span class="st">'zh-CN'</span>, <span class="st">'goods'</span>, <span class="st">'商品|件|件'</span>)
-
-bridge.<span class="fn">load_translations</span>(<span class="st">'en-US'</span>, {
-    <span class="st">'welcome'</span>: <span class="st">'Welcome'</span>
-    <span class="st">'goods'</span>:   <span class="st">'item|items|items'</span>
-})
-
-<span class="cm">// 3. 在路由 handler 中使用</span>
-msg := bridge.<span class="fn">tr</span>(<span class="st">'welcome'</span>)              <span class="cm">// '欢迎'</span>
-plural := bridge.<span class="fn">tr_plural</span>(<span class="st">'goods'</span>, <span class="nm">5</span>)  <span class="cm">// '件'（复数形式）</span></div>
-        </div>
-
-        <!-- ═══ 5.10 Context API 便捷包装 ═══ -->
+        <!-- ═══ 5.9 Context API 便捷包装 ═══ -->
         <h3>Context API 便捷包装</h3>
         <p>对 <code>veb.Context</code> 的丰富 API 进行 Photon 风格的包装，提供更一致的开发体验。</p>
 
@@ -548,13 +525,12 @@ veb.<span class="fn">run_at</span>[<span class="tp">App</span>, <span class="tp"
             <tr><td>7</td><td>可配置 Request ID</td><td><code>veb.request_id.Config</code></td><td><code>middleware.v</code></td></tr>
             <tr><td>8</td><td>SSE 长连接</td><td><code>veb.sse.SSEConnection</code></td><td><code>veb_bridge.v</code></td></tr>
             <tr><td>9</td><td>前端资源管理</td><td><code>veb.assets.AssetManager</code></td><td><code>assets.v</code></td></tr>
-            <tr><td>10</td><td>模板翻译桥接</td><td><code>veb.tr / veb.tr_plural</code></td><td><code>veb_bridge.v</code></td></tr>
-            <tr><td>11</td><td>Context API 便捷包装</td><td><code>veb.Context</code></td><td><code>context_helpers.v</code></td></tr>
-            <tr><td>12</td><td>BeforeAcceptApp 钩子</td><td><code>veb.BeforeAcceptApp</code></td><td><code>web.v</code></td></tr>
-            <tr><td>13</td><td>fasthttp 后端</td><td><code>veb_d_new_veb.v</code></td><td>兼容性文档</td></tr>
-            <tr><td>14</td><td>热重载</td><td><code>veb_livereload.v</code></td><td>兼容性文档</td></tr>
-            <tr><td>15</td><td>路由 <code>host:</code> 属性</td><td><code>veb.controller_host</code></td><td><code>dispatcher.v</code></td></tr>
-            <tr><td>16</td><td>gzip/zstd 响应压缩</td><td><code>veb.encode_auto</code></td><td><code>middleware.v</code></td></tr>
+            <tr><td>10</td><td>Context API 便捷包装</td><td><code>veb.Context</code></td><td><code>context_helpers.v</code></td></tr>
+            <tr><td>11</td><td>BeforeAcceptApp 钩子</td><td><code>veb.BeforeAcceptApp</code></td><td><code>web.v</code></td></tr>
+            <tr><td>12</td><td>fasthttp 后端</td><td><code>veb_d_new_veb.v</code></td><td>兼容性文档</td></tr>
+            <tr><td>13</td><td>热重载</td><td><code>veb_livereload.v</code></td><td>兼容性文档</td></tr>
+            <tr><td>14</td><td>路由 <code>host:</code> 属性</td><td><code>veb.controller_host</code></td><td><code>dispatcher.v</code></td></tr>
+            <tr><td>15</td><td>gzip/zstd 响应压缩</td><td><code>veb.encode_auto</code></td><td><code>middleware.v</code></td></tr>
           </tbody>
         </table>
       </div>

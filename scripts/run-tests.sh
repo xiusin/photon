@@ -48,7 +48,7 @@ case " $VFLAGS " in
 	*" -path "*) ;;
 	*) VFLAGS="${VFLAGS:--enable-globals} -path @vlib|@vmodules|${LOOKUP}" ;;
 esac
-ALL_MODULES="core config logger security cli web orm http queue strutil pageable ticker cache pool locking async photon_i18n health metrics mailer retry storage tracing apidoc"
+ALL_MODULES="core config logger security cli web orm http queue strutil pageable ticker cache pool locking async health metrics mailer retry storage tracing apidoc"
 
 if [ $# -gt 0 ]; then
 	MODULES="$*"

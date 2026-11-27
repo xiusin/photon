@@ -8,7 +8,7 @@
 set -e
 
 VFLAGS="-enable-globals"
-MODULES="core config logger security cli web orm http queue strutil pageable ticker cache pool locking async photon_i18n health metrics mailer retry storage tracing apidoc"
+MODULES="core config logger security cli web orm http queue strutil pageable ticker cache pool locking async health metrics mailer retry storage tracing apidoc"
 VENDOR_MODULES="vendor/modules/xiusin/vredis"
 
 echo ""

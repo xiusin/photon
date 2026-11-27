@@ -61,7 +61,6 @@ function photonApp() {
         { label: 'Ticker · 定时器', page: 'ticker', icon: '⏰', badge: 'Alpha' },
         { label: 'Async · 异步任务', page: 'async', icon: '⚡', badge: 'Alpha' },
         { label: 'Health · 健康检查', page: 'health', icon: '💚', badge: 'Alpha' },
-        { label: 'I18n · 国际化', page: 'i18n', icon: '🌍', badge: 'Alpha' },
         { label: 'Metrics · 指标监控', page: 'metrics', icon: '📊', badge: 'Alpha' },
         { label: 'Retry · 重试策略', page: 'retry', icon: '🔄', badge: 'Alpha' },
         { label: 'Support · 工具库', page: 'support', icon: '🛠️', badge: 'Alpha' },

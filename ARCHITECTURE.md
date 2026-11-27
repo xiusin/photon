@@ -1455,13 +1455,13 @@ interface 定义契约 → Manager 管理多后端 → 具体实现
 | async | 4 | V built-in test |
 | metrics | 3 | V built-in test |
 | mailer | 3 | V built-in test |
-| apidoc / health / photon_i18n / retry / tracing | 2 各 | V built-in test |
+| apidoc / health / retry / tracing | 2 各 | V built-in test |
 | cli | 6 | V built-in test（含对生成产物的真实编译） |
 | core/tests | 2 | V built-in test（黑盒集成） |
-| **合计** | **251** | |
+| **合计** | **249** | |
 
 > 口径：表格含 `core/tests/` 的 2 个黑盒用例。`scripts/run-tests.sh` 的
-> `ALL_MODULES` 不扫子目录，逐文件跑的是 246 个；`core/tests` 由
+> `ALL_MODULES` 不扫子目录，逐文件跑的是 244 个；`core/tests` 由
 > `make test-core-tests` 单独跑。
 
 ### 8.2 测试模式

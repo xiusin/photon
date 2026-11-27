@@ -11,8 +11,7 @@ module web
 //   2. CORS preflight 完整验证（桥接 veb.CorsOptions）
 //   3. CSRF 防护（HMAC-SHA256 签名 token，桥接 veb.csrf）
 //   4. WebSocket 升级支持（takeover_conn 模式）
-//   5. 模板翻译桥接（veb.tr → Photon i18n）
-//   6. veb 原生中间件使用指南（可选增强）
+//   5. veb 原生中间件使用指南（可选增强）
 //
 import veb
 import net.http
@@ -696,104 +695,6 @@ fn websocket_compute_accept_key(key string) string {
 	combined := '${key}${magic}'
 	hash := sha256.sum(combined.bytes())
 	return base64.encode(hash)
-}
-
-// ============================================================
-// 模板翻译桥接 — veb.tr → Photon i18n
-// ============================================================
-
-// TranslationBridge 将 Photon 的 i18n MessageSource 与 veb 模板系统对接。
-//
-// veb 内置 .tr 文件加载和翻译系统（veb.tr / veb.tr_plural），
-// Photon 有自己的 i18n MessageSource（i18n/message_source.v）。
-// 此桥接层允许在 veb 模板中使用 Photon 的翻译资源。
-//
-// 用法：
-//   // 在路由 handler 中
-//   bridge := web.new_translation_bridge('zh-CN')
-//   msg := bridge.tr('welcome_message')  // 从 Photon i18n 获取翻译
-//   ctx.text(msg)
-pub struct TranslationBridge {
-mut:
-	translations map[string]map[string]string
-pub:
-	lang string
-}
-
-// new_translation_bridge 创建翻译桥接器。
-// lang 为语言代码，如 'zh-CN', 'en-US'。
-pub fn new_translation_bridge(lang string) TranslationBridge {
-	return TranslationBridge{
-		lang:         lang
-		translations: map[string]map[string]string{}
-	}
-}
-
-// tr 翻译一个 key。
-// 等价于 veb.tr(lang, key)。
-//
-// 如果翻译不存在，返回 key 本身并打印警告。
-pub fn (tb &TranslationBridge) tr(key string) string {
-	res := tb.translations[tb.lang][key]
-	if res == '' {
-		eprintln('[i18n] NO TRANSLATION FOR KEY "${key}" IN LANG "${tb.lang}"')
-		return key
-	}
-	return res
-}
-
-// tr_plural 翻译复数形式。
-// 等价于 veb.tr_plural(lang, key, amount)。
-//
-// 翻译字符串中使用 | 分隔复数形式：
-//   goods
-//   товар|а|ов
-//   1 товар, 2 товара, 5 товаров
-pub fn (tb &TranslationBridge) tr_plural(key string, amount int) string {
-	s := tb.translations[tb.lang][key]
-	if s == '' {
-		eprintln('[i18n] NO TRANSLATION FOR KEY "${key}" IN LANG "${tb.lang}"')
-		return key
-	}
-	if s.contains('|') {
-		parts := s.split('|')
-		if parts.len >= 3 {
-			// 简化复数规则：1 → forms[0], 2-4 → forms[1], 0/5+ → forms[2]
-			mod10 := amount % 10
-			mod100 := amount % 100
-			if mod10 == 1 && mod100 != 11 {
-				return parts[0]
-			} else if mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20) {
-				return parts[1]
-			} else {
-				return parts[2]
-			}
-		}
-	}
-	return s
-}
-
-// add_translation 添加一条翻译。
-// 用于从 Photon i18n.MessageSource 加载翻译到桥接器。
-//
-// 用法：
-//   bridge.add_translation('zh-CN', 'welcome', '欢迎')
-pub fn (mut tb TranslationBridge) add_translation(lang string, key string, value string) {
-	if lang !in tb.translations {
-		tb.translations[lang] = map[string]string{}
-	}
-	tb.translations[lang][key] = value
-}
-
-// load_translations 批量加载翻译。
-// 用于从 Photon i18n.MessageSource 批量导入。
-pub fn (mut tb TranslationBridge) load_translations(lang string, translations map[string]string) {
-	if lang !in tb.translations {
-		tb.translations[lang] = map[string]string{}
-	}
-	for key, value in translations {
-		tb.translations[lang][key] = value
-	}
 }
 
 // ============================================================

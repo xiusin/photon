@@ -189,7 +189,7 @@ fn test_run_tests_provides_photon_lookup() {
 fn test_known_modules_exist() {
 	for name in ['strutil', 'pageable', 'core', 'config', 'orm', 'web', 'cache', 'logger',
 		'security', 'cli', 'pool', 'locking', 'queue', 'ticker', 'storage', 'mailer',
-		'apidoc', 'health', 'metrics', 'retry', 'async', 'http', 'tracing', 'photon_i18n'] {
+		'apidoc', 'health', 'metrics', 'retry', 'async', 'http', 'tracing'] {
 		assert declares_module(name, name), 'module `${name}` is missing or renamed — ' +
 			'it is part of the public API (import ${name})'
 	}

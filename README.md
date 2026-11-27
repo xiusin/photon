@@ -28,22 +28,19 @@ photon/
 ├── orm/        # ORM：实体映射、仓库模式、多驱动、迁移、QueryBuilder 链式 API、ParamValue 类型安全 SQL
 ├── cache/      # 缓存抽象：内存/Redis 多后端，Singleflight 削峰、CacheOperation 链式 API
 ├── security/   # 安全：JWT、RBAC、CSRF、bcrypt / argon2 真实密码哈希
-├── log/        # 日���：分级输出、MDC 上下文追踪、结构化 JSON、Channel 多通道输出
+├── logger/     # 日志：分级输出、MDC 上下文追踪、结构化 JSON、Channel 多通道输出
 ├── queue/      # 消息队列：任务调度、Worker、失败重试、RedisDriver（内建 vredis 客户端）
 ├── locking/    # 锁：LocalMutex、分布式锁、RAII LockGuard、RedisDistributedLock（内建 vredis 客户端）
 ├── pool/       # 对象/连接池：健康检查、闲置超时、acquire_with_timeout()
 ├── storage/    # 文件系统抽象：本地/S3 适配器
 ├── ticker/     # 高性能定时器：4-ary 堆、64 桶分片
-├── tracing/    # 链路追踪：SpanExporter 接口、ConsoleExporter
 ├── http/       # HTTP 客户端
-├── logger/     # 日志：多通道、JSON/Console 编码器
 ├── mailer/     # 邮件：SMTP 发送、模板渲染
 ├── metrics/    # 指标监控：Counter/Gauge/Timer、Prometheus 导出
 ├── retry/      # 重试策略：指数退避、抖动、@[retryable] 注解
 ├── async/      # 异步任务：TaskExecutor、背压控制、@[async] 注解
 ├── health/     # 健康检查：指示器聚合、K8s Liveness/Readiness 探针
-├── i18n/       # 国际化：TOML 资源包、占位符解析、懒加载
-├── tracing/    # 分布式追踪：TraceContext、Span、@[trace] 注解
+├── tracing/    # 分布式追踪：TraceContext、Span、SpanExporter、@[trace] 注解
 ├── apidoc/     # API 文档：Collector 收集、Store 持久化
 ├── strutil/    # 工具：Collection、Str、Arr、hash（零依赖）
 ├── pageable/   # 分页与排序：Sort、PageRequest、Page[T]
