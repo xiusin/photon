@@ -94,6 +94,7 @@ pub mut:
 	collection_injections []CollectionInjection // inject all beans of a type (Spring List<T> injection)
 	lookup_injections     []LookupInjection     // @[lookup] method injection (Spring @Lookup)
 	conditions            []&Condition          // @[conditional] — conditions that must pass for registration
+	value_bindings        []ValueBinding        // @[value('key')] fields, filled by comptime scan
 }
 
 // new_bean_definition creates a BeanDefinition with defaults.

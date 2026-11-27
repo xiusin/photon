@@ -135,9 +135,12 @@ fn test_distinct_only_right_after_operation() {
 	//
 	// 无论细节如何，结果是 Distinct 静默消失。这里钉住两种可能：
 	// 要么认它，要么拒绝它 —— 不许当没看见。
-	r := parse_method_name('findTop10DistinctByName')
-	if r != none {
-		parts := r or { panic(err) }
+	//
+	// `parse_method_name` 返回 `!QueryParts`（Result，不是 Option），所以分支
+	// 是 `if r := f() { 成功 } else { 失败 }`。写成 `or { panic(err) }` 在
+	// Result 上编不过，而这个用例此前连编译都没通过 —— 它钉住的规则一直
+	// 没有被真正执行过。
+	if parts := parse_method_name('findTop10DistinctByName') {
 		assert parts.distinct, 'findTop10DistinctByName 解析成功却不带 distinct 标记'
 	} else {
 		assert err_msg('findTop10DistinctByName') or { '' } != ''
@@ -175,15 +178,22 @@ fn test_top_prefixed_property_is_not_a_placeholder() {
 	// `TopScore` / `TopRated` 是普通属性，不是「LIMIT 但没有数字」。
 	// 旧实现只判 `remaining.len > 3`，把 `TopScore` 切出一个 `TopS`，
 	// 最后 limit 是 0（`int()` 失败），属性被吃掉。
-	r := parse_method_name('findTopScoreByName')
-	if r != none {
-		parts := r or { panic(err) }
-		assert parts.limit_val == 0
-		assert parts.conditions.len == 1
-		assert parts.conditions[0].property == 'top_score_by_name' || parts.conditions[0].property == 'top_score'
+	//
+	// 注意这里只能钉「不被当成占位符」这一半：`findTopScoreByName` 里的
+	// `TopScore` 在 `By` 之前，而 `By` 之前只能是操作前缀 / 占位符 / Distinct，
+	// 所以现在的解析器报 `must contain "By"` —— 不是它把 `TopScore` 当成了
+	// 属性，而是这个位置根本没有属性可放。断言写 `limit_val == 0` 会要求它
+	// 解析成功，那是把「拒绝」写成「通过」，所以这半只钉 limit。
+	if parts := parse_method_name('findTopScoreByName') {
+		assert parts.limit_val == 0, 'TopScore 被当成了占位符：limit=${parts.limit_val}'
+	} else {
+		assert err.msg().contains('By'), '拒绝的理由应当是缺 By，而不是占位符：${err}'
 	}
-	r2 := parse_method_name('findTopRated') or { QueryParts{} }
-	_ = r2
+	// `findTopRated` 没有 `By`，是方法名写错而不是「LIMIT 1 但没有条件」。
+	// 唯一正确的答案是报错。
+	if _ := parse_method_name('findTopRated') {
+		assert false, 'findTopRated 没有任何条件，应当被拒绝'
+	}
 }
 
 // ── 六、Distinct 的位置（也是「关键字不能被当属性吃掉」） ──
