@@ -68,7 +68,45 @@ pub mut:
 	hit_count  int
 }
 
-// to_json serializes the entry as a JSON string using the built-in json module
+// ApiDocEntryView is the JSON projection of ApiDocEntry.
+//
+// json2 dispatches any struct with a to_json() method to that method instead of
+// encoding its fields (the JsonEncoder interface). Encoding ApiDocEntry from
+// inside its own to_json() therefore calls itself until the stack overflows.
+// This view type has no methods, so json2 encodes it field by field.
+struct ApiDocEntryView {
+	id         string
+	method     string
+	path       string
+	summary    string
+	group      string
+	locked     bool
+	is_hidden  bool
+	parameters []ApiDocParam
+	headers    []ApiDocHeader
+	response   ApiDocResponse
+	request    ApiDocRequest
+	hit_count  int
+}
+
+// to_json serializes the entry as a JSON string.
+//
+// ⚠️ 不能写成 `json2.encode(e)`：ApiDocEntry 实现了 to_json()，json2 会把它当作
+// JsonEncoder 回头调用本方法，首次请求 /__docs/api/entries 就会栈溢出崩溃。
 pub fn (e &ApiDocEntry) to_json() string {
-	return json2.encode(e)
+	view := ApiDocEntryView{
+		id:         e.id
+		method:     e.method
+		path:       e.path
+		summary:    e.summary
+		group:      e.group
+		locked:     e.locked
+		is_hidden:  e.is_hidden
+		parameters: e.parameters
+		headers:    e.headers
+		response:   e.response
+		request:    e.request
+		hit_count:  e.hit_count
+	}
+	return json2.encode(view)
 }

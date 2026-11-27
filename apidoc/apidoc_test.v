@@ -103,6 +103,32 @@ fn test_store_entry_survives_growth() {
 	}
 }
 
+fn test_entry_to_json_is_valid_json() {
+	// 回归：to_json() 里曾直接调用 json2.encode(e)，而 json2 对实现了 to_json()
+	// 的类型会回头调用 to_json()，/__docs/api/entries 第一次请求就栈溢出。
+	mut s := new_store()
+	s.with_or_create_entry('post', '/api/users', fn (mut e ApiDocEntry) ! {
+		e.summary = 'create "user"'
+		e.parameters << ApiDocParam{
+			name:     'page'
+			location: 'query'
+			type_:    'int'
+		}
+		e.response.body_sample = '{"ok":true}'
+	})!
+	entry := s.get_entry('POST::/api/users')!
+	raw := entry.to_json()
+	obj := as_obj(json2.decode[json2.Any](raw) or {
+		assert false, 'to_json produced invalid JSON: ${raw}'
+		return
+	})
+	assert get_str(obj, 'id') == 'POST::/api/users'
+	assert get_str(obj, 'summary') == 'create "user"'
+	assert get_arr(obj, 'parameters').len == 1
+	body := get_str(get_obj(obj, 'response'), 'body_sample')
+	assert body == '{"ok":true}'
+}
+
 fn test_lock_endpoint_missing_id_is_noop() {
 	mut s := new_store()
 	s.lock_endpoint('GET::/nope')
